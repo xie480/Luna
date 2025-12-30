@@ -16,7 +16,7 @@ public final class PromptAssembler {
     // memory区块最大字符数
     private static final int MAX_MEMORY_CHARS = 1500;
     // 总体prompt区块最大字符数
-    private static final int MAX_PROMPT_CHARS = 8000;
+    private static final int MAX_PROMPT_CHARS = 15000;
 
     /*
         核心组装逻辑
@@ -72,6 +72,37 @@ public final class PromptAssembler {
             // 在模板后追加一个明确的分隔与记忆片段
             return template + "\n\n--- 记忆片段（按相关性排序） ---\n" + trimmed;
         }
+    }
+
+    /*
+        构建压缩提示词
+     */
+    public String buildSummaryPrompt(List<String> memorySnippets){
+        StringBuilder prompt = new StringBuilder(MAX_PROMPT_CHARS);
+        prompt.append(PromptTemplates.SYSTEM_PROMPT).append("\n\n");
+        prompt.append(buildSummaryBlock(memorySnippets)).append("\n\n");
+        return prompt.toString();
+    }
+
+    /*
+        构建Summary Prompt
+     */
+    private String buildSummaryBlock(List<String> memorySnippets) {
+        if (memorySnippets == null || memorySnippets.isEmpty()) {
+            return "";
+        }
+
+        // 合并Summary
+        String merged = memorySnippets.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.joining("\n\n"));
+        // 裁剪
+        String trimmed = trimToMaxChars(merged, MAX_MEMORY_CHARS);
+        // 如果模板包含占位符则替换，否则将trimmed拼接到模板末尾
+        String template = PromptTemplates.SUMMARY_PROMPT;
+        return template.replace("{{MEMORY_SNIPPETS}}", trimmed);
     }
 
     /*

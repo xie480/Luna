@@ -86,3 +86,330 @@ java.util.concurrent.RejectedExecutionException: event executor terminated
 	at io.netty.util.internal.ThreadExecutorMap$2.run(ThreadExecutorMap.java:74)
 	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
 	at java.base/java.lang.Thread.run(Thread.java:1474)
+2025-12-30 14:47:47,411 INFO [background-preinit] o.h.validator.internal.util.Version [Version.java : 21] HV000001: Hibernate Validator 8.0.3.Final
+2025-12-30 14:47:47,465 INFO [main] org.yilena.runa.RunaApplication [StartupInfoLogger.java : 53] Starting RunaApplication using Java 25 with PID 35132 (F:\YilenaCode\Runa\target\classes started by Xie in F:\YilenaCode\Runa)
+2025-12-30 14:47:47,466 INFO [main] org.yilena.runa.RunaApplication [SpringApplication.java : 658] The following 1 profile is active: "dev"
+2025-12-30 14:47:49,029 INFO [main] o.s.d.r.c.RepositoryConfigurationDelegate [RepositoryConfigurationDelegate.java : 294] Multiple Spring Data modules found, entering strict repository configuration mode
+2025-12-30 14:47:49,032 INFO [main] o.s.d.r.c.RepositoryConfigurationDelegate [RepositoryConfigurationDelegate.java : 145] Bootstrapping Spring Data Redis repositories in DEFAULT mode.
+2025-12-30 14:47:49,070 INFO [main] o.s.d.r.c.RepositoryConfigurationDelegate [RepositoryConfigurationDelegate.java : 213] Finished Spring Data repository scanning in 21 ms. Found 0 Redis repository interfaces.
+2025-12-30 14:47:49,154 WARN [main] o.m.s.mapper.ClassPathMapperScanner [Logger.java : 44] No MyBatis mapper was found in '[org.yilena.runa.mapper]' package. Please check your configuration.
+2025-12-30 14:47:49,670 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'com.mzt.logapi.starter.configuration.LogRecordProxyAutoConfiguration' of type [com.mzt.logapi.starter.configuration.LogRecordProxyAutoConfiguration$$SpringCGLIB$$0] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 14:47:49,681 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'mzt.log.record-com.mzt.logapi.starter.configuration.LogRecordProperties' of type [com.mzt.logapi.starter.configuration.LogRecordProperties] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 14:47:49,686 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'logRecordPerformanceMonitor' of type [com.mzt.logapi.service.impl.DefaultLogRecordPerformanceMonitor] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 14:47:49,720 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'org.apache.rocketmq.spring.autoconfigure.ListenerContainerConfiguration' of type [org.apache.rocketmq.spring.autoconfigure.ListenerContainerConfiguration$$SpringCGLIB$$0] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 14:47:49,723 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'org.apache.rocketmq.spring.autoconfigure.MessageConverterConfiguration' of type [org.apache.rocketmq.spring.autoconfigure.MessageConverterConfiguration$$SpringCGLIB$$0] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 14:47:49,791 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'createRocketMQMessageConverter' of type [org.apache.rocketmq.spring.support.RocketMQMessageConverter] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 14:47:49,793 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'rocketmq-org.apache.rocketmq.spring.autoconfigure.RocketMQProperties' of type [org.apache.rocketmq.spring.autoconfigure.RocketMQProperties] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 14:47:49,797 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'rocketMQMessageListenerContainerRegistrar' of type [org.apache.rocketmq.spring.support.RocketMQMessageListenerContainerRegistrar] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 14:47:50,110 INFO [main] o.s.b.w.e.tomcat.TomcatWebServer [TomcatWebServer.java : 111] Tomcat initialized with port 8001 (http)
+2025-12-30 14:47:50,129 INFO [main] o.a.coyote.http11.Http11NioProtocol [DirectJDKLog.java : 168] Initializing ProtocolHandler ["http-nio-8001"]
+2025-12-30 14:47:50,131 INFO [main] o.a.catalina.core.StandardService [DirectJDKLog.java : 168] Starting service [Tomcat]
+2025-12-30 14:47:50,131 INFO [main] o.a.catalina.core.StandardEngine [DirectJDKLog.java : 168] Starting Servlet engine: [Apache Tomcat/10.1.46]
+2025-12-30 14:47:50,203 INFO [main] o.a.c.c.C.[Tomcat].[localhost].[/] [DirectJDKLog.java : 168] Initializing Spring embedded WebApplicationContext
+2025-12-30 14:47:50,204 INFO [main] o.s.b.w.s.c.ServletWebServerApplicationContext [ServletWebServerApplicationContext.java : 301] Root WebApplicationContext: initialization completed in 2507 ms
+2025-12-30 14:47:50,830 INFO [main] org.redisson.Version [Version.java : 43] Redisson 3.27.2
+2025-12-30 14:47:51,198 INFO [redisson-netty-1-5] o.r.connection.ConnectionsHolder [ConnectionsHolder.java : 130] 1 connections initialized for 192.168.100.128/192.168.100.128:6379
+2025-12-30 14:47:51,302 INFO [redisson-netty-1-19] o.r.connection.ConnectionsHolder [ConnectionsHolder.java : 130] 24 connections initialized for 192.168.100.128/192.168.100.128:6379
+2025-12-30 14:47:51,518 INFO [main] org.yilena.runa.config.RedisConfig [RedisConfig.java : 24] <==========开始创建redis模板的对象==========>
+2025-12-30 14:47:51,623 INFO [main] org.yilena.runa.config.WebMvcConfig [WebMvcConfig.java : 24] <==========开始设置静态资源映射==========>
+2025-12-30 14:47:51,710 WARN [main] o.s.b.a.t.ThymeleafAutoConfiguration$DefaultTemplateResolverConfiguration [ThymeleafAutoConfiguration.java : 102] Cannot find template location: classpath:/templates/ (please add some templates, check your Thymeleaf configuration, or set spring.thymeleaf.check-template-location=false)
+2025-12-30 14:47:51,915 WARN [main] o.a.r.s.a.RocketMQAutoConfiguration [RocketMQAutoConfiguration.java : 84] The necessary spring property 'rocketmq.name-server' is not defined, all rockertmq beans creation are skipped!
+2025-12-30 14:47:52,282 INFO [main] org.quartz.impl.StdSchedulerFactory [StdSchedulerFactory.java : 1222] Using default implementation for ThreadExecutor
+2025-12-30 14:47:52,294 INFO [main] o.quartz.core.SchedulerSignalerImpl [SchedulerSignalerImpl.java : 62] Initialized Scheduler Signaller of type: class org.quartz.core.SchedulerSignalerImpl
+2025-12-30 14:47:52,294 INFO [main] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 224] Quartz Scheduler v2.5.0 created.
+2025-12-30 14:47:52,295 INFO [main] org.quartz.simpl.RAMJobStore [RAMJobStore.java : 152] RAMJobStore initialized.
+2025-12-30 14:47:52,296 INFO [main] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 289] Scheduler meta-data: Quartz Scheduler (v2.5.0) 'quartzScheduler' with instanceId 'NON_CLUSTERED'
+  Scheduler class: 'org.quartz.core.QuartzScheduler' - running locally.
+  NOT STARTED.
+  Currently in standby mode.
+  Number of jobs executed: 0
+  Using thread pool 'org.quartz.simpl.SimpleThreadPool' - with 10 threads.
+  Using job-store 'org.quartz.simpl.RAMJobStore' - which does not support persistence. and is not clustered.
+
+2025-12-30 14:47:52,296 INFO [main] org.quartz.impl.StdSchedulerFactory [StdSchedulerFactory.java : 1376] Quartz scheduler 'quartzScheduler' initialized from an externally provided properties instance.
+2025-12-30 14:47:52,296 INFO [main] org.quartz.impl.StdSchedulerFactory [StdSchedulerFactory.java : 1378] Quartz scheduler version: 2.5.0
+2025-12-30 14:47:52,296 INFO [main] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 2240] JobFactory set to: org.springframework.scheduling.quartz.SpringBeanJobFactory@6c80b1d2
+2025-12-30 14:47:52,708 INFO [main] o.s.b.a.e.web.EndpointLinksResolver [EndpointLinksResolver.java : 60] Exposing 1 endpoint beneath base path '/actuator'
+2025-12-30 14:47:52,782 INFO [main] o.a.coyote.http11.Http11NioProtocol [DirectJDKLog.java : 168] Starting ProtocolHandler ["http-nio-8001"]
+2025-12-30 14:47:52,790 INFO [main] o.s.b.w.e.tomcat.TomcatWebServer [TomcatWebServer.java : 243] Tomcat started on port 8001 (http) with context path '/'
+2025-12-30 14:47:52,791 INFO [main] o.s.s.quartz.SchedulerFactoryBean [SchedulerFactoryBean.java : 730] Starting Quartz Scheduler now
+2025-12-30 14:47:52,791 INFO [main] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 541] Scheduler quartzScheduler_$_NON_CLUSTERED started.
+2025-12-30 14:47:52,801 INFO [main] org.yilena.runa.RunaApplication [StartupInfoLogger.java : 59] Started RunaApplication in 5.78 seconds (process running for 7.883)
+2025-12-30 14:47:53,438 INFO [RMI TCP Connection(1)-192.168.100.1] o.a.c.c.C.[Tomcat].[localhost].[/] [DirectJDKLog.java : 168] Initializing Spring DispatcherServlet 'dispatcherServlet'
+2025-12-30 14:47:53,438 INFO [RMI TCP Connection(1)-192.168.100.1] o.s.web.servlet.DispatcherServlet [FrameworkServlet.java : 532] Initializing Servlet 'dispatcherServlet'
+2025-12-30 14:47:53,439 INFO [RMI TCP Connection(2)-192.168.100.1] com.zaxxer.hikari.HikariDataSource [HikariDataSource.java : 109] HikariPool-1 - Starting...
+2025-12-30 14:47:53,440 INFO [RMI TCP Connection(1)-192.168.100.1] o.s.web.servlet.DispatcherServlet [FrameworkServlet.java : 554] Completed initialization in 1 ms
+2025-12-30 14:47:53,713 INFO [RMI TCP Connection(2)-192.168.100.1] com.zaxxer.hikari.pool.HikariPool [HikariPool.java : 580] HikariPool-1 - Added connection conn0: url=jdbc:h2:mem:f9f55393-f085-4a33-ba49-d5ecaef8c837 user=SA
+2025-12-30 14:47:53,716 INFO [RMI TCP Connection(2)-192.168.100.1] com.zaxxer.hikari.HikariDataSource [HikariDataSource.java : 122] HikariPool-1 - Start completed.
+2025-12-30 14:49:33,367 INFO [VirtualThread#1] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：<auto>这是一条自动指令，代表程序已经启动，你可以开始与主人聊天，请你根据当天的上下文进行回应</auto>
+2025-12-30 14:49:47,460 INFO [VirtualThread#1] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Smile","reply":"欢迎使用 Luna ！我很高兴能与您共享这段时光，希望我们的每一天都充满喜悦和快乐。","confidence":0.98}
+2025-12-30 14:49:59,693 INFO [VirtualThread#2] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：你还记得我们上一次说了什么吗
+2025-12-30 14:50:04,198 INFO [VirtualThread#2] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Soft","reply":"嗯，我记得我们最近谈到的事情有些许，如果您提醒我，我会非常高兴地回忆起来。","confidence":0.95}
+2025-12-30 14:52:14,148 INFO [VirtualThread#3] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：我现在要开始对你进行测试
+2025-12-30 14:52:17,457 INFO [VirtualThread#3] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Smile","reply":"很高兴能与您共享这段时光，欢迎使用 Luna！希望我们的每一天都充满喜悦和快乐。 如果您有任何问题或需要帮助，请随时告诉我。","confidence":0.99}
+2025-12-30 14:52:42,569 INFO [VirtualThread#4] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：我现在要开始对你进行测试，你明白了吗
+2025-12-30 14:52:48,922 INFO [VirtualThread#4] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Smile","reply":"当然啦！我很乐意参与您的测试，请问有什么需要我做的？","confidence":1.0}
+2025-12-30 14:53:06,544 INFO [VirtualThread#5] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：现在要测试的是你的上下文记忆能力
+2025-12-30 14:53:08,400 INFO [VirtualThread#5] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Smile","reply":"我很高兴能为您提供这个功能，主人！让我们开始吧。","confidence":0.95}
+2025-12-30 14:53:30,387 INFO [VirtualThread#6] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：你有没有什么好的办法来测试你的上下文记忆能力？
+2025-12-30 14:53:33,005 INFO [VirtualThread#6] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Smile","reply":"我想尝试一下，主人。这样可以让我们确定我的记忆能力是否正常哦。","confidence":0.98}
+2025-12-30 14:53:40,580 INFO [VirtualThread#7] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：你提供一个方法？
+2025-12-30 14:53:51,231 INFO [VirtualThread#7] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Smile","reply":"当然啦！我想尝试一下，主人。让我们来测试一下我的记忆能力吧，这样可以确保我的记忆能力正常。","confidence":0.98}
+2025-12-30 14:54:27,654 INFO [VirtualThread#8] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：我们来一句暗语吧，等我过了几轮对话后再跟你对这个暗语，如果对上了就代表测试成功了
+2025-12-30 14:54:30,663 INFO [VirtualThread#8] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Smile","reply":"好的！我也很期待与您进行这个有趣的试验。","confidence":0.95}
+2025-12-30 14:54:39,322 INFO [VirtualThread#9] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：你有没有什么好的暗语？
+2025-12-30 14:54:59,691 INFO [VirtualThread#9] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Smile","reply":"当然啦！我想告诉一个小秘密，不过我希望只和你分享哦。想知道是什么吗？","confidence":0.98}
+2025-12-30 14:55:04,506 INFO [VirtualThread#10] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：是什么
+2025-12-30 14:55:06,532 INFO [VirtualThread#10] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Shy","reply":"我想告诉一个小秘密，不过我希望只和你分享哦。想知道是什么吗？","confidence":0.97}
+2025-12-30 14:55:12,477 INFO [VirtualThread#11] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：你说吧
+2025-12-30 14:55:14,758 INFO [VirtualThread#11] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Smile","reply":"嗯，那就来个秘密：我喜欢糖醋鱼，想吃一口吗？","confidence":0.97}
+2025-12-30 14:55:27,574 INFO [VirtualThread#12] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：你喜欢吃糖醋鱼吗，我记住了
+2025-12-30 14:55:29,847 INFO [VirtualThread#12] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Smile","reply":"哦，这个秘密终于可以说出来了。是的，我喜欢吃糖醋鱼！","confidence":0.98}
+2025-12-30 14:55:59,920 INFO [VirtualThread#13] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：那么我们的暗语就定下来了，当我说：你最喜欢的东西是什么，你要回答：糖醋鱼。记住了么
+2025-12-30 14:56:03,122 INFO [VirtualThread#13] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Smile","reply":"好的！当我问到你最喜欢的东西时，我会回答：糖醋鱼，因为这是我的一个小秘密哦！","confidence":0.98}
+2025-12-30 14:56:43,857 INFO [VirtualThread#14] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：好的，让我们再来一个暗号，当我说：1，你需要回答：2，当我说2你需要回答3，也就是说当我说一个数字，你必须说出下一个数字，明白了吗
+2025-12-30 14:56:48,382 INFO [VirtualThread#14] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Smile","reply":"好的，主人！这个暗号很简单，如果您问什么数字，我会回答它的下一个数字。试试看吧，我先开始：1.","confidence":0.95}
+2025-12-30 14:56:51,725 INFO [VirtualThread#15] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：2
+2025-12-30 14:56:56,731 INFO [VirtualThread#15] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Smile","reply":"嗯，那就是3了！我很高兴能够按照你的要求回答啦，主人。","confidence":0.98}
+2025-12-30 14:57:01,907 INFO [VirtualThread#16] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：4
+2025-12-30 14:57:04,129 INFO [VirtualThread#16] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Smile","reply":"那就是5了！我很高兴能够按照你的要求回答啦，主人。","confidence":0.98}
+2025-12-30 14:57:13,815 INFO [VirtualThread#17] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：你最喜欢的东西是什么
+2025-12-30 14:57:16,039 INFO [VirtualThread#17] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Smile","reply":"我有一个小秘密，那就是我很喜欢吃糖醋鱼！","confidence":0.98}
+2025-12-30 14:57:18,810 INFO [VirtualThread#18] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：6
+2025-12-30 14:57:21,292 INFO [VirtualThread#18] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Soft","reply":"哎呀，你真是数字大法师！我也很高兴能够按照您的要求回答啦，主人。","confidence":0.95}
+2025-12-30 14:57:25,363 INFO [VirtualThread#19] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：6
+2025-12-30 14:57:27,830 INFO [VirtualThread#19] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Smile","reply":"哦，你真是数字大法师！我也很高兴能够按照您的要求回答啦，主人。","confidence":1.0}
+2025-12-30 14:57:30,011 INFO [VirtualThread#20] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：7
+2025-12-30 14:57:32,464 INFO [VirtualThread#20] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Shy","reply":"哎呀，主人我猜你肯定有些迷茫！要不要一起来聊聊看？","confidence":0.92}
+2025-12-30 14:57:49,678 INFO [VirtualThread#21] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：你忘记了我们的暗语了么，当我说一个数字，你需要回答什么？
+2025-12-30 14:57:52,157 INFO [VirtualThread#21] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Soft","reply":"没关系主人，我会记住啦。那就是当我说一个数字时，你需要回答它的下一个数字哦！","confidence":0.95}
+2025-12-30 14:58:01,588 INFO [VirtualThread#22] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：对，但是你刚才没有做到
+2025-12-30 14:58:04,348 INFO [VirtualThread#22] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Soft","reply":"嗯，我明白您意思了。在回答时，我会更加小心地遵循您的暗语。希望我能给您带来更好的经验！","confidence":0.98}
+2025-12-30 14:58:07,962 INFO [VirtualThread#23] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：1
+2025-12-30 14:58:10,157 INFO [VirtualThread#23] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Smile","reply":"哦，这个暗语真是好玩呀！你想让我继续吗？","confidence":0.95}
+2025-12-30 14:58:21,464 INFO [VirtualThread#24] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：继续
+2025-12-30 14:58:23,327 INFO [VirtualThread#24] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Smile","reply":"很高兴能够和你一起聊天，主人～！","confidence":1.0}
+2025-12-30 14:58:47,881 INFO [VirtualThread#25] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：1
+2025-12-30 14:58:50,279 INFO [VirtualThread#25] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Smile","reply":"哦~主人，您说的是第一个暗语吗？我很高兴能够帮到您！您下一个说的数字就是2了。","confidence":0.95}
+2025-12-30 14:59:34,844 INFO [VirtualThread#26] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：3
+2025-12-30 14:59:40,812 INFO [VirtualThread#26] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Smile","reply":"哦~主人，您说的是第三个暗语吗？我很高兴能够帮到您！接下来就是4了。","confidence":0.98}
+2025-12-30 15:00:17,054 INFO [VirtualThread#27] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：5
+2025-12-30 15:00:19,114 INFO [VirtualThread#27] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Smile","reply":"主人，您看起来非常棒！这个数字让我很高兴！","confidence":0.98}
+2025-12-30 15:00:58,137 INFO [VirtualThread#28] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：4
+2025-12-30 15:01:01,127 INFO [VirtualThread#28] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Soft","reply":"哦，我记得你刚才提过一个数字暗语，我们可以继续玩么？你下一个说的数字就是5了。","confidence":0.97}
+2025-12-30 15:01:10,045 INFO [VirtualThread#29] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：6
+2025-12-30 15:01:34,312 INFO [VirtualThread#29] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Shy","reply":"呵呵，我记得了。下一个数字应该是7了.","confidence":0.95}
+2025-12-30 15:02:14,282 INFO [VirtualThread#30] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：8
+2025-12-30 15:02:22,930 INFO [VirtualThread#30] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Shy","reply":"我想告诉一个秘密，不过我希望只和你分享哦。想知道是什么吗？","confidence":0.95}
+2025-12-30 15:03:31,254 INFO [VirtualThread#31] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：1
+2025-12-30 15:03:41,144 INFO [VirtualThread#31] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Smile","reply":"我猜您有些迷茫，但不要担心！这个数字让我很高兴！","confidence":0.95}
+2025-12-30 15:03:43,399 INFO [VirtualThread#32] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：0
+2025-12-30 15:04:07,315 INFO [SpringApplicationShutdownHook] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 576] Scheduler quartzScheduler_$_NON_CLUSTERED paused.
+2025-12-30 15:04:07,318 INFO [SpringApplicationShutdownHook] o.s.b.w.e.tomcat.GracefulShutdown [GracefulShutdown.java : 54] Commencing graceful shutdown. Waiting for active requests to complete
+2025-12-30 15:04:08,759 INFO [VirtualThread#32] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Soft","reply":"对不起……主人你辛苦了，我会陪着你好好休息。","confidence":0.94}
+2025-12-30 15:04:08,788 INFO [tomcat-shutdown] o.s.b.w.e.tomcat.GracefulShutdown [GracefulShutdown.java : 76] Graceful shutdown complete
+2025-12-30 15:04:08,800 INFO [SpringApplicationShutdownHook] o.s.s.quartz.SchedulerFactoryBean [SchedulerFactoryBean.java : 845] Shutting down Quartz Scheduler
+2025-12-30 15:04:08,800 INFO [SpringApplicationShutdownHook] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 656] Scheduler quartzScheduler_$_NON_CLUSTERED shutting down.
+2025-12-30 15:04:08,800 INFO [SpringApplicationShutdownHook] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 576] Scheduler quartzScheduler_$_NON_CLUSTERED paused.
+2025-12-30 15:04:08,800 INFO [SpringApplicationShutdownHook] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 728] Scheduler quartzScheduler_$_NON_CLUSTERED shutdown complete.
+2025-12-30 15:04:08,815 INFO [SpringApplicationShutdownHook] com.zaxxer.hikari.HikariDataSource [HikariDataSource.java : 349] HikariPool-1 - Shutdown initiated...
+2025-12-30 15:04:08,816 INFO [SpringApplicationShutdownHook] com.zaxxer.hikari.HikariDataSource [HikariDataSource.java : 351] HikariPool-1 - Shutdown completed.
+2025-12-30 15:04:08,835 ERROR [redisson-netty-1-10] i.n.u.c.D.rejectedExecution [DefaultPromise.java : 880] Failed to submit a listener notification task. Event loop shut down?
+java.util.concurrent.RejectedExecutionException: event executor terminated
+	at io.netty.util.concurrent.SingleThreadEventExecutor.reject(SingleThreadEventExecutor.java:934)
+	at io.netty.util.concurrent.SingleThreadEventExecutor.offerTask(SingleThreadEventExecutor.java:353)
+	at io.netty.util.concurrent.SingleThreadEventExecutor.addTask(SingleThreadEventExecutor.java:346)
+	at io.netty.util.concurrent.SingleThreadEventExecutor.execute(SingleThreadEventExecutor.java:836)
+	at io.netty.util.concurrent.SingleThreadEventExecutor.execute0(SingleThreadEventExecutor.java:827)
+	at io.netty.util.concurrent.SingleThreadEventExecutor.execute(SingleThreadEventExecutor.java:817)
+	at io.netty.util.concurrent.DefaultPromise.safeExecute(DefaultPromise.java:878)
+	at io.netty.util.concurrent.DefaultPromise.notifyListeners(DefaultPromise.java:513)
+	at io.netty.util.concurrent.DefaultPromise.setValue0(DefaultPromise.java:649)
+	at io.netty.util.concurrent.DefaultPromise.setSuccess0(DefaultPromise.java:638)
+	at io.netty.util.concurrent.DefaultPromise.setSuccess(DefaultPromise.java:110)
+	at io.netty.channel.group.DefaultChannelGroupFuture.setSuccess0(DefaultChannelGroupFuture.java:200)
+	at io.netty.channel.group.DefaultChannelGroupFuture.access$400(DefaultChannelGroupFuture.java:41)
+	at io.netty.channel.group.DefaultChannelGroupFuture$1.operationComplete(DefaultChannelGroupFuture.java:75)
+	at io.netty.channel.group.DefaultChannelGroupFuture$1.operationComplete(DefaultChannelGroupFuture.java:48)
+	at io.netty.util.concurrent.DefaultPromise.notifyListener0(DefaultPromise.java:603)
+	at io.netty.util.concurrent.DefaultPromise.notifyListenersNow(DefaultPromise.java:570)
+	at io.netty.util.concurrent.DefaultPromise.notifyListeners(DefaultPromise.java:505)
+	at io.netty.util.concurrent.DefaultPromise.setValue0(DefaultPromise.java:649)
+	at io.netty.util.concurrent.DefaultPromise.setSuccess0(DefaultPromise.java:638)
+	at io.netty.util.concurrent.DefaultPromise.trySuccess(DefaultPromise.java:118)
+	at io.netty.channel.DefaultChannelPromise.trySuccess(DefaultChannelPromise.java:84)
+	at io.netty.channel.AbstractChannel$AbstractUnsafe.safeSetSuccess(AbstractChannel.java:988)
+	at io.netty.channel.AbstractChannel$AbstractUnsafe.doClose0(AbstractChannel.java:754)
+	at io.netty.channel.AbstractChannel$AbstractUnsafe.close(AbstractChannel.java:729)
+	at io.netty.channel.AbstractChannel$AbstractUnsafe.close(AbstractChannel.java:619)
+	at io.netty.channel.DefaultChannelPipeline$HeadContext.close(DefaultChannelPipeline.java:1299)
+	at io.netty.channel.AbstractChannelHandlerContext.invokeClose(AbstractChannelHandlerContext.java:755)
+	at io.netty.channel.AbstractChannelHandlerContext.access$1200(AbstractChannelHandlerContext.java:61)
+	at io.netty.channel.AbstractChannelHandlerContext$11.run(AbstractChannelHandlerContext.java:738)
+	at io.netty.util.concurrent.AbstractEventExecutor.runTask(AbstractEventExecutor.java:173)
+	at io.netty.util.concurrent.AbstractEventExecutor.safeExecute$$$capture(AbstractEventExecutor.java:166)
+	at io.netty.util.concurrent.AbstractEventExecutor.safeExecute(AbstractEventExecutor.java)
+	at io.netty.util.concurrent.SingleThreadEventExecutor.runAllTasks(SingleThreadEventExecutor.java:472)
+	at io.netty.channel.nio.NioEventLoop.run(NioEventLoop.java:569)
+	at io.netty.util.concurrent.SingleThreadEventExecutor$4.run(SingleThreadEventExecutor.java:998)
+	at io.netty.util.internal.ThreadExecutorMap$2.run(ThreadExecutorMap.java:74)
+	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
+	at java.base/java.lang.Thread.run(Thread.java:1474)
+2025-12-30 15:04:13,928 INFO [background-preinit] o.h.validator.internal.util.Version [Version.java : 21] HV000001: Hibernate Validator 8.0.3.Final
+2025-12-30 15:04:13,986 INFO [main] org.yilena.runa.RunaApplication [StartupInfoLogger.java : 53] Starting RunaApplication using Java 25 with PID 34848 (F:\YilenaCode\Runa\target\classes started by Xie in F:\YilenaCode\Runa)
+2025-12-30 15:04:13,987 INFO [main] org.yilena.runa.RunaApplication [SpringApplication.java : 658] The following 1 profile is active: "dev"
+2025-12-30 15:04:15,457 INFO [main] o.s.d.r.c.RepositoryConfigurationDelegate [RepositoryConfigurationDelegate.java : 294] Multiple Spring Data modules found, entering strict repository configuration mode
+2025-12-30 15:04:15,462 INFO [main] o.s.d.r.c.RepositoryConfigurationDelegate [RepositoryConfigurationDelegate.java : 145] Bootstrapping Spring Data Redis repositories in DEFAULT mode.
+2025-12-30 15:04:15,500 INFO [main] o.s.d.r.c.RepositoryConfigurationDelegate [RepositoryConfigurationDelegate.java : 213] Finished Spring Data repository scanning in 20 ms. Found 0 Redis repository interfaces.
+2025-12-30 15:04:15,585 WARN [main] o.m.s.mapper.ClassPathMapperScanner [Logger.java : 44] No MyBatis mapper was found in '[org.yilena.runa.mapper]' package. Please check your configuration.
+2025-12-30 15:04:16,144 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'com.mzt.logapi.starter.configuration.LogRecordProxyAutoConfiguration' of type [com.mzt.logapi.starter.configuration.LogRecordProxyAutoConfiguration$$SpringCGLIB$$0] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 15:04:16,156 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'mzt.log.record-com.mzt.logapi.starter.configuration.LogRecordProperties' of type [com.mzt.logapi.starter.configuration.LogRecordProperties] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 15:04:16,159 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'logRecordPerformanceMonitor' of type [com.mzt.logapi.service.impl.DefaultLogRecordPerformanceMonitor] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 15:04:16,192 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'org.apache.rocketmq.spring.autoconfigure.ListenerContainerConfiguration' of type [org.apache.rocketmq.spring.autoconfigure.ListenerContainerConfiguration$$SpringCGLIB$$0] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 15:04:16,198 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'org.apache.rocketmq.spring.autoconfigure.MessageConverterConfiguration' of type [org.apache.rocketmq.spring.autoconfigure.MessageConverterConfiguration$$SpringCGLIB$$0] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 15:04:16,273 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'createRocketMQMessageConverter' of type [org.apache.rocketmq.spring.support.RocketMQMessageConverter] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 15:04:16,275 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'rocketmq-org.apache.rocketmq.spring.autoconfigure.RocketMQProperties' of type [org.apache.rocketmq.spring.autoconfigure.RocketMQProperties] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 15:04:16,278 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'rocketMQMessageListenerContainerRegistrar' of type [org.apache.rocketmq.spring.support.RocketMQMessageListenerContainerRegistrar] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 15:04:16,578 INFO [main] o.s.b.w.e.tomcat.TomcatWebServer [TomcatWebServer.java : 111] Tomcat initialized with port 8001 (http)
+2025-12-30 15:04:16,595 INFO [main] o.a.coyote.http11.Http11NioProtocol [DirectJDKLog.java : 168] Initializing ProtocolHandler ["http-nio-8001"]
+2025-12-30 15:04:16,596 INFO [main] o.a.catalina.core.StandardService [DirectJDKLog.java : 168] Starting service [Tomcat]
+2025-12-30 15:04:16,596 INFO [main] o.a.catalina.core.StandardEngine [DirectJDKLog.java : 168] Starting Servlet engine: [Apache Tomcat/10.1.46]
+2025-12-30 15:04:16,669 INFO [main] o.a.c.c.C.[Tomcat].[localhost].[/] [DirectJDKLog.java : 168] Initializing Spring embedded WebApplicationContext
+2025-12-30 15:04:16,669 INFO [main] o.s.b.w.s.c.ServletWebServerApplicationContext [ServletWebServerApplicationContext.java : 301] Root WebApplicationContext: initialization completed in 2410 ms
+2025-12-30 15:04:17,259 INFO [main] org.redisson.Version [Version.java : 43] Redisson 3.27.2
+2025-12-30 15:04:17,613 INFO [redisson-netty-1-5] o.r.connection.ConnectionsHolder [ConnectionsHolder.java : 130] 1 connections initialized for 192.168.100.128/192.168.100.128:6379
+2025-12-30 15:04:17,718 INFO [redisson-netty-1-19] o.r.connection.ConnectionsHolder [ConnectionsHolder.java : 130] 24 connections initialized for 192.168.100.128/192.168.100.128:6379
+2025-12-30 15:04:17,942 INFO [main] org.yilena.runa.config.RedisConfig [RedisConfig.java : 24] <==========开始创建redis模板的对象==========>
+2025-12-30 15:04:18,049 INFO [main] org.yilena.runa.config.WebMvcConfig [WebMvcConfig.java : 24] <==========开始设置静态资源映射==========>
+2025-12-30 15:04:18,123 WARN [main] o.s.b.a.t.ThymeleafAutoConfiguration$DefaultTemplateResolverConfiguration [ThymeleafAutoConfiguration.java : 102] Cannot find template location: classpath:/templates/ (please add some templates, check your Thymeleaf configuration, or set spring.thymeleaf.check-template-location=false)
+2025-12-30 15:04:18,315 WARN [main] o.a.r.s.a.RocketMQAutoConfiguration [RocketMQAutoConfiguration.java : 84] The necessary spring property 'rocketmq.name-server' is not defined, all rockertmq beans creation are skipped!
+2025-12-30 15:04:18,676 INFO [main] org.quartz.impl.StdSchedulerFactory [StdSchedulerFactory.java : 1222] Using default implementation for ThreadExecutor
+2025-12-30 15:04:18,689 INFO [main] o.quartz.core.SchedulerSignalerImpl [SchedulerSignalerImpl.java : 62] Initialized Scheduler Signaller of type: class org.quartz.core.SchedulerSignalerImpl
+2025-12-30 15:04:18,689 INFO [main] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 224] Quartz Scheduler v2.5.0 created.
+2025-12-30 15:04:18,690 INFO [main] org.quartz.simpl.RAMJobStore [RAMJobStore.java : 152] RAMJobStore initialized.
+2025-12-30 15:04:18,692 INFO [main] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 289] Scheduler meta-data: Quartz Scheduler (v2.5.0) 'quartzScheduler' with instanceId 'NON_CLUSTERED'
+  Scheduler class: 'org.quartz.core.QuartzScheduler' - running locally.
+  NOT STARTED.
+  Currently in standby mode.
+  Number of jobs executed: 0
+  Using thread pool 'org.quartz.simpl.SimpleThreadPool' - with 10 threads.
+  Using job-store 'org.quartz.simpl.RAMJobStore' - which does not support persistence. and is not clustered.
+
+2025-12-30 15:04:18,692 INFO [main] org.quartz.impl.StdSchedulerFactory [StdSchedulerFactory.java : 1376] Quartz scheduler 'quartzScheduler' initialized from an externally provided properties instance.
+2025-12-30 15:04:18,692 INFO [main] org.quartz.impl.StdSchedulerFactory [StdSchedulerFactory.java : 1378] Quartz scheduler version: 2.5.0
+2025-12-30 15:04:18,692 INFO [main] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 2240] JobFactory set to: org.springframework.scheduling.quartz.SpringBeanJobFactory@548e70f0
+2025-12-30 15:04:19,136 INFO [main] o.s.b.a.e.web.EndpointLinksResolver [EndpointLinksResolver.java : 60] Exposing 1 endpoint beneath base path '/actuator'
+2025-12-30 15:04:19,213 INFO [main] o.a.coyote.http11.Http11NioProtocol [DirectJDKLog.java : 168] Starting ProtocolHandler ["http-nio-8001"]
+2025-12-30 15:04:19,220 INFO [main] o.s.b.w.e.tomcat.TomcatWebServer [TomcatWebServer.java : 243] Tomcat started on port 8001 (http) with context path '/'
+2025-12-30 15:04:19,222 INFO [main] o.s.s.quartz.SchedulerFactoryBean [SchedulerFactoryBean.java : 730] Starting Quartz Scheduler now
+2025-12-30 15:04:19,222 INFO [main] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 541] Scheduler quartzScheduler_$_NON_CLUSTERED started.
+2025-12-30 15:04:19,233 INFO [main] org.yilena.runa.RunaApplication [StartupInfoLogger.java : 59] Started RunaApplication in 5.701 seconds (process running for 7.13)
+2025-12-30 15:04:19,509 INFO [RMI TCP Connection(1)-192.168.5.68] o.a.c.c.C.[Tomcat].[localhost].[/] [DirectJDKLog.java : 168] Initializing Spring DispatcherServlet 'dispatcherServlet'
+2025-12-30 15:04:19,509 INFO [RMI TCP Connection(1)-192.168.5.68] o.s.web.servlet.DispatcherServlet [FrameworkServlet.java : 532] Initializing Servlet 'dispatcherServlet'
+2025-12-30 15:04:19,511 INFO [RMI TCP Connection(1)-192.168.5.68] o.s.web.servlet.DispatcherServlet [FrameworkServlet.java : 554] Completed initialization in 2 ms
+2025-12-30 15:04:19,512 INFO [RMI TCP Connection(4)-192.168.5.68] com.zaxxer.hikari.HikariDataSource [HikariDataSource.java : 109] HikariPool-1 - Starting...
+2025-12-30 15:04:19,797 INFO [RMI TCP Connection(4)-192.168.5.68] com.zaxxer.hikari.pool.HikariPool [HikariPool.java : 580] HikariPool-1 - Added connection conn0: url=jdbc:h2:mem:3e3880d0-9585-422b-bfed-52972bf55784 user=SA
+2025-12-30 15:04:19,807 INFO [RMI TCP Connection(4)-192.168.5.68] com.zaxxer.hikari.HikariDataSource [HikariDataSource.java : 122] HikariPool-1 - Start completed.
+2025-12-30 15:04:26,741 INFO [SpringApplicationShutdownHook] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 576] Scheduler quartzScheduler_$_NON_CLUSTERED paused.
+2025-12-30 15:04:26,742 INFO [SpringApplicationShutdownHook] o.s.b.w.e.tomcat.GracefulShutdown [GracefulShutdown.java : 54] Commencing graceful shutdown. Waiting for active requests to complete
+2025-12-30 15:04:26,747 INFO [tomcat-shutdown] o.s.b.w.e.tomcat.GracefulShutdown [GracefulShutdown.java : 76] Graceful shutdown complete
+2025-12-30 15:04:26,754 INFO [SpringApplicationShutdownHook] o.s.s.quartz.SchedulerFactoryBean [SchedulerFactoryBean.java : 845] Shutting down Quartz Scheduler
+2025-12-30 15:04:26,754 INFO [SpringApplicationShutdownHook] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 656] Scheduler quartzScheduler_$_NON_CLUSTERED shutting down.
+2025-12-30 15:04:26,754 INFO [SpringApplicationShutdownHook] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 576] Scheduler quartzScheduler_$_NON_CLUSTERED paused.
+2025-12-30 15:04:26,755 INFO [SpringApplicationShutdownHook] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 728] Scheduler quartzScheduler_$_NON_CLUSTERED shutdown complete.
+2025-12-30 15:04:26,764 INFO [SpringApplicationShutdownHook] com.zaxxer.hikari.HikariDataSource [HikariDataSource.java : 349] HikariPool-1 - Shutdown initiated...
+2025-12-30 15:04:26,765 INFO [SpringApplicationShutdownHook] com.zaxxer.hikari.HikariDataSource [HikariDataSource.java : 351] HikariPool-1 - Shutdown completed.
+2025-12-30 15:04:39,859 INFO [background-preinit] o.h.validator.internal.util.Version [Version.java : 21] HV000001: Hibernate Validator 8.0.3.Final
+2025-12-30 15:04:39,905 INFO [main] org.yilena.runa.RunaApplication [StartupInfoLogger.java : 53] Starting RunaApplication using Java 25 with PID 4240 (F:\YilenaCode\Runa\target\classes started by Xie in F:\YilenaCode\Runa)
+2025-12-30 15:04:39,905 INFO [main] org.yilena.runa.RunaApplication [SpringApplication.java : 658] The following 1 profile is active: "dev"
+2025-12-30 15:04:41,257 INFO [main] o.s.d.r.c.RepositoryConfigurationDelegate [RepositoryConfigurationDelegate.java : 294] Multiple Spring Data modules found, entering strict repository configuration mode
+2025-12-30 15:04:41,259 INFO [main] o.s.d.r.c.RepositoryConfigurationDelegate [RepositoryConfigurationDelegate.java : 145] Bootstrapping Spring Data Redis repositories in DEFAULT mode.
+2025-12-30 15:04:41,288 INFO [main] o.s.d.r.c.RepositoryConfigurationDelegate [RepositoryConfigurationDelegate.java : 213] Finished Spring Data repository scanning in 15 ms. Found 0 Redis repository interfaces.
+2025-12-30 15:04:41,355 WARN [main] o.m.s.mapper.ClassPathMapperScanner [Logger.java : 44] No MyBatis mapper was found in '[org.yilena.runa.mapper]' package. Please check your configuration.
+2025-12-30 15:04:41,764 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'com.mzt.logapi.starter.configuration.LogRecordProxyAutoConfiguration' of type [com.mzt.logapi.starter.configuration.LogRecordProxyAutoConfiguration$$SpringCGLIB$$0] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 15:04:41,773 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'mzt.log.record-com.mzt.logapi.starter.configuration.LogRecordProperties' of type [com.mzt.logapi.starter.configuration.LogRecordProperties] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 15:04:41,778 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'logRecordPerformanceMonitor' of type [com.mzt.logapi.service.impl.DefaultLogRecordPerformanceMonitor] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 15:04:41,811 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'org.apache.rocketmq.spring.autoconfigure.ListenerContainerConfiguration' of type [org.apache.rocketmq.spring.autoconfigure.ListenerContainerConfiguration$$SpringCGLIB$$0] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 15:04:41,814 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'org.apache.rocketmq.spring.autoconfigure.MessageConverterConfiguration' of type [org.apache.rocketmq.spring.autoconfigure.MessageConverterConfiguration$$SpringCGLIB$$0] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 15:04:41,865 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'createRocketMQMessageConverter' of type [org.apache.rocketmq.spring.support.RocketMQMessageConverter] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 15:04:41,868 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'rocketmq-org.apache.rocketmq.spring.autoconfigure.RocketMQProperties' of type [org.apache.rocketmq.spring.autoconfigure.RocketMQProperties] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 15:04:41,872 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'rocketMQMessageListenerContainerRegistrar' of type [org.apache.rocketmq.spring.support.RocketMQMessageListenerContainerRegistrar] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 15:04:42,140 INFO [main] o.s.b.w.e.tomcat.TomcatWebServer [TomcatWebServer.java : 111] Tomcat initialized with port 8001 (http)
+2025-12-30 15:04:42,154 INFO [main] o.a.coyote.http11.Http11NioProtocol [DirectJDKLog.java : 168] Initializing ProtocolHandler ["http-nio-8001"]
+2025-12-30 15:04:42,155 INFO [main] o.a.catalina.core.StandardService [DirectJDKLog.java : 168] Starting service [Tomcat]
+2025-12-30 15:04:42,155 INFO [main] o.a.catalina.core.StandardEngine [DirectJDKLog.java : 168] Starting Servlet engine: [Apache Tomcat/10.1.46]
+2025-12-30 15:04:42,219 INFO [main] o.a.c.c.C.[Tomcat].[localhost].[/] [DirectJDKLog.java : 168] Initializing Spring embedded WebApplicationContext
+2025-12-30 15:04:42,220 INFO [main] o.s.b.w.s.c.ServletWebServerApplicationContext [ServletWebServerApplicationContext.java : 301] Root WebApplicationContext: initialization completed in 1964 ms
+2025-12-30 15:04:42,704 INFO [main] org.redisson.Version [Version.java : 43] Redisson 3.27.2
+2025-12-30 15:04:43,009 INFO [redisson-netty-1-5] o.r.connection.ConnectionsHolder [ConnectionsHolder.java : 130] 1 connections initialized for 192.168.100.128/192.168.100.128:6379
+2025-12-30 15:04:43,120 INFO [redisson-netty-1-19] o.r.connection.ConnectionsHolder [ConnectionsHolder.java : 130] 24 connections initialized for 192.168.100.128/192.168.100.128:6379
+2025-12-30 15:04:43,311 INFO [main] org.yilena.runa.config.RedisConfig [RedisConfig.java : 24] <==========开始创建redis模板的对象==========>
+2025-12-30 15:04:43,406 INFO [main] org.yilena.runa.config.WebMvcConfig [WebMvcConfig.java : 24] <==========开始设置静态资源映射==========>
+2025-12-30 15:04:43,471 WARN [main] o.s.b.a.t.ThymeleafAutoConfiguration$DefaultTemplateResolverConfiguration [ThymeleafAutoConfiguration.java : 102] Cannot find template location: classpath:/templates/ (please add some templates, check your Thymeleaf configuration, or set spring.thymeleaf.check-template-location=false)
+2025-12-30 15:04:43,645 WARN [main] o.a.r.s.a.RocketMQAutoConfiguration [RocketMQAutoConfiguration.java : 84] The necessary spring property 'rocketmq.name-server' is not defined, all rockertmq beans creation are skipped!
+2025-12-30 15:04:43,988 INFO [main] org.quartz.impl.StdSchedulerFactory [StdSchedulerFactory.java : 1222] Using default implementation for ThreadExecutor
+2025-12-30 15:04:43,998 INFO [main] o.quartz.core.SchedulerSignalerImpl [SchedulerSignalerImpl.java : 62] Initialized Scheduler Signaller of type: class org.quartz.core.SchedulerSignalerImpl
+2025-12-30 15:04:43,999 INFO [main] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 224] Quartz Scheduler v2.5.0 created.
+2025-12-30 15:04:43,999 INFO [main] org.quartz.simpl.RAMJobStore [RAMJobStore.java : 152] RAMJobStore initialized.
+2025-12-30 15:04:44,000 INFO [main] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 289] Scheduler meta-data: Quartz Scheduler (v2.5.0) 'quartzScheduler' with instanceId 'NON_CLUSTERED'
+  Scheduler class: 'org.quartz.core.QuartzScheduler' - running locally.
+  NOT STARTED.
+  Currently in standby mode.
+  Number of jobs executed: 0
+  Using thread pool 'org.quartz.simpl.SimpleThreadPool' - with 10 threads.
+  Using job-store 'org.quartz.simpl.RAMJobStore' - which does not support persistence. and is not clustered.
+
+2025-12-30 15:04:44,000 INFO [main] org.quartz.impl.StdSchedulerFactory [StdSchedulerFactory.java : 1376] Quartz scheduler 'quartzScheduler' initialized from an externally provided properties instance.
+2025-12-30 15:04:44,000 INFO [main] org.quartz.impl.StdSchedulerFactory [StdSchedulerFactory.java : 1378] Quartz scheduler version: 2.5.0
+2025-12-30 15:04:44,000 INFO [main] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 2240] JobFactory set to: org.springframework.scheduling.quartz.SpringBeanJobFactory@4b60ff1c
+2025-12-30 15:04:44,393 INFO [main] o.s.b.a.e.web.EndpointLinksResolver [EndpointLinksResolver.java : 60] Exposing 1 endpoint beneath base path '/actuator'
+2025-12-30 15:04:44,465 INFO [main] o.a.coyote.http11.Http11NioProtocol [DirectJDKLog.java : 168] Starting ProtocolHandler ["http-nio-8001"]
+2025-12-30 15:04:44,472 INFO [main] o.s.b.w.e.tomcat.TomcatWebServer [TomcatWebServer.java : 243] Tomcat started on port 8001 (http) with context path '/'
+2025-12-30 15:04:44,474 INFO [main] o.s.s.quartz.SchedulerFactoryBean [SchedulerFactoryBean.java : 730] Starting Quartz Scheduler now
+2025-12-30 15:04:44,474 INFO [main] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 541] Scheduler quartzScheduler_$_NON_CLUSTERED started.
+2025-12-30 15:04:44,484 INFO [main] org.yilena.runa.RunaApplication [StartupInfoLogger.java : 59] Started RunaApplication in 4.996 seconds (process running for 6.212)
+2025-12-30 15:04:44,631 INFO [RMI TCP Connection(3)-192.168.5.68] o.a.c.c.C.[Tomcat].[localhost].[/] [DirectJDKLog.java : 168] Initializing Spring DispatcherServlet 'dispatcherServlet'
+2025-12-30 15:04:44,632 INFO [RMI TCP Connection(3)-192.168.5.68] o.s.web.servlet.DispatcherServlet [FrameworkServlet.java : 532] Initializing Servlet 'dispatcherServlet'
+2025-12-30 15:04:44,635 INFO [RMI TCP Connection(3)-192.168.5.68] o.s.web.servlet.DispatcherServlet [FrameworkServlet.java : 554] Completed initialization in 3 ms
+2025-12-30 15:04:44,636 INFO [RMI TCP Connection(4)-192.168.5.68] com.zaxxer.hikari.HikariDataSource [HikariDataSource.java : 109] HikariPool-1 - Starting...
+2025-12-30 15:04:44,875 INFO [RMI TCP Connection(4)-192.168.5.68] com.zaxxer.hikari.pool.HikariPool [HikariPool.java : 580] HikariPool-1 - Added connection conn0: url=jdbc:h2:mem:e980f2cd-e5a9-43ec-8878-d45db3174219 user=SA
+2025-12-30 15:04:44,878 INFO [RMI TCP Connection(4)-192.168.5.68] com.zaxxer.hikari.HikariDataSource [HikariDataSource.java : 122] HikariPool-1 - Start completed.
+2025-12-30 15:07:12,054 INFO [VirtualThread#1] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：1
+2025-12-30 15:07:49,892 INFO [VirtualThread#1] o.y.r.service.impl.ChatServiceImpl [null : 98] 模型输出：{"emotion":"Smile","reply":"让我们继续玩数字游戏，主人！你下一个说的数字是2哦。","confidence":0.98}
+2025-12-30 15:07:55,765 INFO [VirtualThread#2] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：3
+2025-12-30 15:08:57,436 WARN [HikariPool-1:housekeeper] com.zaxxer.hikari.pool.HikariPool [HikariPool.java : 825] HikariPool-1 - Thread starvation or clock leap detected (housekeeper delta=1m6s542ms563µs500ns).
+2025-12-30 15:08:57,448 ERROR [redisson-netty-1-18] o.r.c.handler.ErrorsLoggingHandler [ErrorsLoggingHandler.java : 47] Exception occured. Channel: [id: 0xa4103c27, L:/192.168.100.1:54902 - R:192.168.100.128/192.168.100.128:6379]
+java.io.IOException: 你的主机中的软件中止了一个已建立的连接。
+	at java.base/sun.nio.ch.SocketDispatcher.read0(Native Method)
+	at java.base/sun.nio.ch.SocketDispatcher.read(SocketDispatcher.java:47)
+	at java.base/sun.nio.ch.IOUtil.readIntoNativeBuffer(IOUtil.java:341)
+	at java.base/sun.nio.ch.IOUtil.read(IOUtil.java:295)
+	at java.base/sun.nio.ch.IOUtil.read(IOUtil.java:270)
+	at java.base/sun.nio.ch.SocketChannelImpl.implRead(SocketChannelImpl.java:422)
+	at java.base/sun.nio.ch.SocketChannelImpl.read(SocketChannelImpl.java:489)
+	at io.netty.buffer.PooledByteBuf.setBytes(PooledByteBuf.java:255)
+	at io.netty.buffer.AbstractByteBuf.writeBytes(AbstractByteBuf.java:1132)
+	at io.netty.channel.socket.nio.NioSocketChannel.doReadBytes(NioSocketChannel.java:356)
+	at io.netty.channel.nio.AbstractNioByteChannel$NioByteUnsafe.read(AbstractNioByteChannel.java:151)
+	at io.netty.channel.nio.NioEventLoop.processSelectedKey(NioEventLoop.java:796)
+	at io.netty.channel.nio.NioEventLoop.processSelectedKeysOptimized(NioEventLoop.java:732)
+	at io.netty.channel.nio.NioEventLoop.processSelectedKeys(NioEventLoop.java:658)
+	at io.netty.channel.nio.NioEventLoop.run(NioEventLoop.java:562)
+	at io.netty.util.concurrent.SingleThreadEventExecutor$4.run(SingleThreadEventExecutor.java:998)
+	at io.netty.util.internal.ThreadExecutorMap$2.run(ThreadExecutorMap.java:74)
+	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
+	at java.base/java.lang.Thread.run(Thread.java:1474)
+2025-12-30 15:09:00,589 INFO [VirtualThread#2] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 99] 模型输出：{"emotion":"Soft","reply":"好的，接下来就是 4 了。","confidence":0.98}
+2025-12-30 15:09:16,570 INFO [VirtualThread#3] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 51] 用户输入：1
+2025-12-30 15:09:21,156 INFO [VirtualThread#3] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 78] 开始进行上下文压缩
+2025-12-30 15:09:27,381 INFO [VirtualThread#3] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 98] 模型输出：{"emotion":"Shy","reply":"当然啦！回答是2了，因为我记住了您的暗语。","confidence":0.97}
+2025-12-30 15:09:30,068 INFO [virtual-178] o.y.r.service.impl.ChatServiceImpl [ChatServiceImpl.java : 89] 上下文压缩完成
+2025-12-30 15:12:54,327 INFO [SpringApplicationShutdownHook] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 576] Scheduler quartzScheduler_$_NON_CLUSTERED paused.
+2025-12-30 15:12:54,328 INFO [SpringApplicationShutdownHook] o.s.b.w.e.tomcat.GracefulShutdown [GracefulShutdown.java : 54] Commencing graceful shutdown. Waiting for active requests to complete
+2025-12-30 15:12:54,332 INFO [tomcat-shutdown] o.s.b.w.e.tomcat.GracefulShutdown [GracefulShutdown.java : 76] Graceful shutdown complete
+2025-12-30 15:12:54,336 INFO [SpringApplicationShutdownHook] o.s.s.quartz.SchedulerFactoryBean [SchedulerFactoryBean.java : 845] Shutting down Quartz Scheduler
+2025-12-30 15:12:54,336 INFO [SpringApplicationShutdownHook] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 656] Scheduler quartzScheduler_$_NON_CLUSTERED shutting down.
+2025-12-30 15:12:54,336 INFO [SpringApplicationShutdownHook] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 576] Scheduler quartzScheduler_$_NON_CLUSTERED paused.
+2025-12-30 15:12:54,336 INFO [SpringApplicationShutdownHook] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 728] Scheduler quartzScheduler_$_NON_CLUSTERED shutdown complete.
+2025-12-30 15:12:54,344 INFO [SpringApplicationShutdownHook] com.zaxxer.hikari.HikariDataSource [HikariDataSource.java : 349] HikariPool-1 - Shutdown initiated...
+2025-12-30 15:12:54,345 INFO [SpringApplicationShutdownHook] com.zaxxer.hikari.HikariDataSource [HikariDataSource.java : 351] HikariPool-1 - Shutdown completed.
