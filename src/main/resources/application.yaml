@@ -1,0 +1,50 @@
+server:
+  port: 8001
+
+spring:
+  application:
+    name: runa
+
+  profiles:
+    active: dev
+
+  main:
+    allow-circular-references: true
+
+  cloud:
+    nacos:
+      config:
+        import-check:
+          enabled: false
+      discovery:
+        enabled: false
+
+  data:
+    redis:
+      host: 192.168.100.128
+      port: 6379
+      database: 5
+      lettuce:
+        pool:
+          max-active: 300
+          max-idle: 50
+          min-idle: 10
+          time-between-eviction-runs: 10s
+
+ollama:
+  base-url: http://localhost:11434
+  model: mistral:7b-instruct-v0.3-q5_K_M
+  timeout-ms: 60000
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+  api-docs:
+    path: /v3/api-docs
+
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn

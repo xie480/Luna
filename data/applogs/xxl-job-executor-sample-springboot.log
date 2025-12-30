@@ -1,0 +1,88 @@
+2025-12-30 00:45:27,130 INFO [background-preinit] o.h.validator.internal.util.Version [Version.java : 21] HV000001: Hibernate Validator 8.0.3.Final
+2025-12-30 00:45:27,170 INFO [main] org.yilena.runa.RunaApplication [StartupInfoLogger.java : 53] Starting RunaApplication using Java 25 with PID 51040 (F:\YilenaCode\Runa\target\classes started by Xie in F:\YilenaCode\Runa)
+2025-12-30 00:45:27,171 INFO [main] org.yilena.runa.RunaApplication [SpringApplication.java : 658] The following 1 profile is active: "dev"
+2025-12-30 00:45:28,787 INFO [main] o.s.d.r.c.RepositoryConfigurationDelegate [RepositoryConfigurationDelegate.java : 294] Multiple Spring Data modules found, entering strict repository configuration mode
+2025-12-30 00:45:28,793 INFO [main] o.s.d.r.c.RepositoryConfigurationDelegate [RepositoryConfigurationDelegate.java : 145] Bootstrapping Spring Data Redis repositories in DEFAULT mode.
+2025-12-30 00:45:28,835 INFO [main] o.s.d.r.c.RepositoryConfigurationDelegate [RepositoryConfigurationDelegate.java : 213] Finished Spring Data repository scanning in 19 ms. Found 0 Redis repository interfaces.
+2025-12-30 00:45:28,947 WARN [main] o.m.s.mapper.ClassPathMapperScanner [Logger.java : 44] No MyBatis mapper was found in '[org.yilena.runa.mapper]' package. Please check your configuration.
+2025-12-30 00:45:29,684 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'com.mzt.logapi.starter.configuration.LogRecordProxyAutoConfiguration' of type [com.mzt.logapi.starter.configuration.LogRecordProxyAutoConfiguration$$SpringCGLIB$$0] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 00:45:29,696 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'mzt.log.record-com.mzt.logapi.starter.configuration.LogRecordProperties' of type [com.mzt.logapi.starter.configuration.LogRecordProperties] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 00:45:29,699 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'logRecordPerformanceMonitor' of type [com.mzt.logapi.service.impl.DefaultLogRecordPerformanceMonitor] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 00:45:29,736 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'org.apache.rocketmq.spring.autoconfigure.ListenerContainerConfiguration' of type [org.apache.rocketmq.spring.autoconfigure.ListenerContainerConfiguration$$SpringCGLIB$$0] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 00:45:29,738 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'org.apache.rocketmq.spring.autoconfigure.MessageConverterConfiguration' of type [org.apache.rocketmq.spring.autoconfigure.MessageConverterConfiguration$$SpringCGLIB$$0] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 00:45:29,827 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'createRocketMQMessageConverter' of type [org.apache.rocketmq.spring.support.RocketMQMessageConverter] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 00:45:29,829 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'rocketmq-org.apache.rocketmq.spring.autoconfigure.RocketMQProperties' of type [org.apache.rocketmq.spring.autoconfigure.RocketMQProperties] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 00:45:29,833 WARN [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker [PostProcessorRegistrationDelegate.java : 437] Bean 'rocketMQMessageListenerContainerRegistrar' of type [org.apache.rocketmq.spring.support.RocketMQMessageListenerContainerRegistrar] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying). Is this bean getting eagerly injected/applied to a currently created BeanPostProcessor [org.apache.rocketmq.spring.annotation.RocketMQMessageListenerBeanPostProcessor]? Check the corresponding BeanPostProcessor declaration and its dependencies/advisors. If this bean does not have to be post-processed, declare it with ROLE_INFRASTRUCTURE.
+2025-12-30 00:45:30,128 INFO [main] o.s.b.w.e.tomcat.TomcatWebServer [TomcatWebServer.java : 111] Tomcat initialized with port 8001 (http)
+2025-12-30 00:45:30,148 INFO [main] o.a.coyote.http11.Http11NioProtocol [DirectJDKLog.java : 168] Initializing ProtocolHandler ["http-nio-8001"]
+2025-12-30 00:45:30,149 INFO [main] o.a.catalina.core.StandardService [DirectJDKLog.java : 168] Starting service [Tomcat]
+2025-12-30 00:45:30,150 INFO [main] o.a.catalina.core.StandardEngine [DirectJDKLog.java : 168] Starting Servlet engine: [Apache Tomcat/10.1.46]
+2025-12-30 00:45:30,222 INFO [main] o.a.c.c.C.[Tomcat].[localhost].[/] [DirectJDKLog.java : 168] Initializing Spring embedded WebApplicationContext
+2025-12-30 00:45:30,223 INFO [main] o.s.b.w.s.c.ServletWebServerApplicationContext [ServletWebServerApplicationContext.java : 301] Root WebApplicationContext: initialization completed in 2818 ms
+2025-12-30 00:45:30,892 INFO [main] org.redisson.Version [Version.java : 43] Redisson 3.27.2
+2025-12-30 00:45:31,297 INFO [redisson-netty-1-5] o.r.connection.ConnectionsHolder [ConnectionsHolder.java : 130] 1 connections initialized for 192.168.100.128/192.168.100.128:6379
+2025-12-30 00:45:31,416 INFO [redisson-netty-1-19] o.r.connection.ConnectionsHolder [ConnectionsHolder.java : 130] 24 connections initialized for 192.168.100.128/192.168.100.128:6379
+2025-12-30 00:45:31,631 INFO [main] org.yilena.runa.config.RedisConfig [RedisConfig.java : 24] <==========开始创建redis模板的对象==========>
+2025-12-30 00:45:31,750 INFO [main] org.yilena.runa.config.WebMvcConfig [WebMvcConfig.java : 24] <==========开始设置静态资源映射==========>
+2025-12-30 00:45:31,840 WARN [main] o.s.b.a.t.ThymeleafAutoConfiguration$DefaultTemplateResolverConfiguration [ThymeleafAutoConfiguration.java : 102] Cannot find template location: classpath:/templates/ (please add some templates, check your Thymeleaf configuration, or set spring.thymeleaf.check-template-location=false)
+2025-12-30 00:45:32,020 WARN [main] o.a.r.s.a.RocketMQAutoConfiguration [RocketMQAutoConfiguration.java : 84] The necessary spring property 'rocketmq.name-server' is not defined, all rockertmq beans creation are skipped!
+2025-12-30 00:45:32,368 INFO [main] org.quartz.impl.StdSchedulerFactory [StdSchedulerFactory.java : 1222] Using default implementation for ThreadExecutor
+2025-12-30 00:45:32,378 INFO [main] o.quartz.core.SchedulerSignalerImpl [SchedulerSignalerImpl.java : 62] Initialized Scheduler Signaller of type: class org.quartz.core.SchedulerSignalerImpl
+2025-12-30 00:45:32,379 INFO [main] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 224] Quartz Scheduler v2.5.0 created.
+2025-12-30 00:45:32,380 INFO [main] org.quartz.simpl.RAMJobStore [RAMJobStore.java : 152] RAMJobStore initialized.
+2025-12-30 00:45:32,381 INFO [main] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 289] Scheduler meta-data: Quartz Scheduler (v2.5.0) 'quartzScheduler' with instanceId 'NON_CLUSTERED'
+  Scheduler class: 'org.quartz.core.QuartzScheduler' - running locally.
+  NOT STARTED.
+  Currently in standby mode.
+  Number of jobs executed: 0
+  Using thread pool 'org.quartz.simpl.SimpleThreadPool' - with 10 threads.
+  Using job-store 'org.quartz.simpl.RAMJobStore' - which does not support persistence. and is not clustered.
+
+2025-12-30 00:45:32,381 INFO [main] org.quartz.impl.StdSchedulerFactory [StdSchedulerFactory.java : 1376] Quartz scheduler 'quartzScheduler' initialized from an externally provided properties instance.
+2025-12-30 00:45:32,381 INFO [main] org.quartz.impl.StdSchedulerFactory [StdSchedulerFactory.java : 1378] Quartz scheduler version: 2.5.0
+2025-12-30 00:45:32,381 INFO [main] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 2240] JobFactory set to: org.springframework.scheduling.quartz.SpringBeanJobFactory@6ceeb592
+2025-12-30 00:45:32,804 INFO [main] o.s.b.a.e.web.EndpointLinksResolver [EndpointLinksResolver.java : 60] Exposing 1 endpoint beneath base path '/actuator'
+2025-12-30 00:45:32,875 INFO [main] o.a.coyote.http11.Http11NioProtocol [DirectJDKLog.java : 168] Starting ProtocolHandler ["http-nio-8001"]
+2025-12-30 00:45:32,882 INFO [main] o.s.b.w.e.tomcat.TomcatWebServer [TomcatWebServer.java : 243] Tomcat started on port 8001 (http) with context path '/'
+2025-12-30 00:45:32,884 INFO [main] o.s.s.quartz.SchedulerFactoryBean [SchedulerFactoryBean.java : 730] Starting Quartz Scheduler now
+2025-12-30 00:45:32,884 INFO [main] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 541] Scheduler quartzScheduler_$_NON_CLUSTERED started.
+2025-12-30 00:45:32,895 INFO [main] org.yilena.runa.RunaApplication [StartupInfoLogger.java : 59] Started RunaApplication in 6.09 seconds (process running for 10.507)
+2025-12-30 00:47:23,283 INFO [VirtualThread#1] o.a.c.c.C.[Tomcat].[localhost].[/] [DirectJDKLog.java : 168] Initializing Spring DispatcherServlet 'dispatcherServlet'
+2025-12-30 00:47:23,284 INFO [VirtualThread#1] o.s.web.servlet.DispatcherServlet [FrameworkServlet.java : 532] Initializing Servlet 'dispatcherServlet'
+2025-12-30 00:47:23,286 INFO [VirtualThread#1] o.s.web.servlet.DispatcherServlet [FrameworkServlet.java : 554] Completed initialization in 2 ms
+2025-12-30 01:00:14,014 INFO [SpringApplicationShutdownHook] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 576] Scheduler quartzScheduler_$_NON_CLUSTERED paused.
+2025-12-30 01:00:14,026 INFO [SpringApplicationShutdownHook] o.s.b.w.e.tomcat.GracefulShutdown [GracefulShutdown.java : 54] Commencing graceful shutdown. Waiting for active requests to complete
+2025-12-30 01:00:14,038 INFO [tomcat-shutdown] o.s.b.w.e.tomcat.GracefulShutdown [GracefulShutdown.java : 76] Graceful shutdown complete
+2025-12-30 01:00:14,066 INFO [SpringApplicationShutdownHook] o.s.s.quartz.SchedulerFactoryBean [SchedulerFactoryBean.java : 845] Shutting down Quartz Scheduler
+2025-12-30 01:00:14,066 INFO [SpringApplicationShutdownHook] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 656] Scheduler quartzScheduler_$_NON_CLUSTERED shutting down.
+2025-12-30 01:00:14,066 INFO [SpringApplicationShutdownHook] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 576] Scheduler quartzScheduler_$_NON_CLUSTERED paused.
+2025-12-30 01:00:14,066 INFO [SpringApplicationShutdownHook] org.quartz.core.QuartzScheduler [QuartzScheduler.java : 728] Scheduler quartzScheduler_$_NON_CLUSTERED shutdown complete.
+2025-12-30 01:00:14,120 ERROR [redisson-netty-1-8] i.n.u.c.D.rejectedExecution [DefaultPromise.java : 880] Failed to submit a listener notification task. Event loop shut down?
+java.util.concurrent.RejectedExecutionException: event executor terminated
+	at io.netty.util.concurrent.SingleThreadEventExecutor.reject(SingleThreadEventExecutor.java:934)
+	at io.netty.util.concurrent.SingleThreadEventExecutor.offerTask(SingleThreadEventExecutor.java:353)
+	at io.netty.util.concurrent.SingleThreadEventExecutor.addTask(SingleThreadEventExecutor.java:346)
+	at io.netty.util.concurrent.SingleThreadEventExecutor.execute(SingleThreadEventExecutor.java:836)
+	at io.netty.util.concurrent.SingleThreadEventExecutor.execute0(SingleThreadEventExecutor.java:827)
+	at io.netty.util.concurrent.SingleThreadEventExecutor.execute(SingleThreadEventExecutor.java:817)
+	at io.netty.util.concurrent.DefaultPromise.safeExecute(DefaultPromise.java:878)
+	at io.netty.util.concurrent.DefaultPromise.notifyListeners(DefaultPromise.java:513)
+	at io.netty.util.concurrent.DefaultPromise.setValue0(DefaultPromise.java:649)
+	at io.netty.util.concurrent.DefaultPromise.setSuccess0(DefaultPromise.java:638)
+	at io.netty.util.concurrent.DefaultPromise.setSuccess(DefaultPromise.java:110)
+	at io.netty.channel.group.DefaultChannelGroupFuture.setSuccess0(DefaultChannelGroupFuture.java:200)
+	at io.netty.channel.group.DefaultChannelGroupFuture.access$400(DefaultChannelGroupFuture.java:41)
+	at io.netty.channel.group.DefaultChannelGroupFuture$1.operationComplete(DefaultChannelGroupFuture.java:75)
+	at io.netty.channel.group.DefaultChannelGroupFuture$1.operationComplete(DefaultChannelGroupFuture.java:48)
+	at io.netty.util.concurrent.DefaultPromise.notifyListener0(DefaultPromise.java:603)
+	at io.netty.util.concurrent.DefaultPromise.notifyListenersNow(DefaultPromise.java:570)
+	at io.netty.util.concurrent.DefaultPromise.access$200(DefaultPromise.java:36)
+	at io.netty.util.concurrent.DefaultPromise$1.run(DefaultPromise.java:516)
+	at io.netty.util.concurrent.AbstractEventExecutor.runTask(AbstractEventExecutor.java:173)
+	at io.netty.util.concurrent.AbstractEventExecutor.safeExecute(AbstractEventExecutor.java:166)
+	at io.netty.util.concurrent.SingleThreadEventExecutor.runAllTasks(SingleThreadEventExecutor.java:472)
+	at io.netty.channel.nio.NioEventLoop.run(NioEventLoop.java:569)
+	at io.netty.util.concurrent.SingleThreadEventExecutor$4.run(SingleThreadEventExecutor.java:998)
+	at io.netty.util.internal.ThreadExecutorMap$2.run(ThreadExecutorMap.java:74)
+	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
+	at java.base/java.lang.Thread.run(Thread.java:1474)
