@@ -5,11 +5,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
-@ConfigurationProperties(prefix = "ollama")
+@ConfigurationProperties(prefix = "qwen")
 @Data
-public class OllamaProperties {
-    private String baseUrl;
-    private String model;
-    private int timeoutMs = 60000;
+public class QwenProperty {
+    private String apiKey;
+    private String LunaId;
+    private String SummaryId;
 }
-

@@ -3,7 +3,7 @@ package org.yilena.runa.client;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import org.yilena.runa.properties.OllamaProperties;
+import org.yilena.runa.properties.OllamaProperty;
 
 import java.io.IOException;
 import java.net.URI;
@@ -20,7 +20,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class OllamaClient {
 
-    private final OllamaProperties props;
+    private final OllamaProperty props;
     private final ObjectMapper mapper = new ObjectMapper();
 
     private final HttpClient httpClient = HttpClient.newBuilder()

@@ -10,7 +10,7 @@ import org.yilena.runa.service.ChatService;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/llm/api/chat")
+@RequestMapping("/luna/api/chat")
 @Tag(name = "对话接口")
 public class ChatController {
 
@@ -20,5 +20,18 @@ public class ChatController {
     @PostMapping("/message")
     public ResponseEntity<String> chat(@RequestBody ChatRequest chatRequest){
         return chatService.chat(chatRequest);
+    }
+
+    @Operation(description = "开机")
+    @PostMapping("/startup")
+    public ResponseEntity<String> startup(){
+        return chatService.startup();
+    }
+
+    @Operation(description = "关机")
+    @PostMapping("/shutdown")
+    public ResponseEntity<Void> shutdown(){
+        chatService.shutdown();
+        return ResponseEntity.ok().build();
     }
 }

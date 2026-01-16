@@ -5,4 +5,8 @@ import org.yilena.runa.entity.ChatRequest;
 
 public interface ChatService {
     ResponseEntity<String> chat(ChatRequest chatRequest);
+
+    ResponseEntity<String> startup();
+
+    void shutdown();
 }

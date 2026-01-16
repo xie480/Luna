@@ -1,10 +1,11 @@
 package org.yilena.runa.service.impl;
 
-import cn.hutool.core.date.DateTime;
+import com.alibaba.dashscope.app.Application;
+import com.alibaba.dashscope.app.ApplicationParam;
+import com.alibaba.dashscope.app.ApplicationResult;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -17,21 +18,19 @@ import org.yilena.runa.constants.RedisKeyConstant;
 import org.yilena.runa.constants.SymbolConstant;
 import org.yilena.runa.entity.ChatMessage;
 import org.yilena.runa.entity.ChatRequest;
-import org.yilena.runa.enums.EmotionEnum;
 import org.yilena.runa.prompt.PromptAssembler;
 import org.yilena.runa.prompt.PromptTemplates;
+import org.yilena.runa.properties.QwenProperty;
 import org.yilena.runa.service.ChatService;
 import org.yilena.runa.service.SessionService;
 import org.yilena.runa.utils.ServiceCommunicateUtil;
 
-import javax.swing.text.DateFormatter;
-import java.io.IOException;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Date;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -43,6 +42,7 @@ public class ChatServiceImpl implements ChatService {
     private final ObjectMapper mapper = new ObjectMapper();
     private final SessionService sessionService;
     private final StringRedisTemplate stringRedisTemplate;
+    private final QwenProperty qwenProperty;
 
     private static final DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy:MM:dd");
 
@@ -59,233 +59,214 @@ public class ChatServiceImpl implements ChatService {
                 .trim();
         // 检查用户输入
         if (input.isEmpty()){
+            log.error("用户输入为空");
             return ResponseEntity.badRequest().body("用户输入为空");
         }
 
         // 将当前输入加入用户会话上下文当中
-        sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.USER, input));
+        sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.USER, input, LocalTime.now()));
 
         // 获取上下文最近N条信息
-        List<ChatMessage> recent = sessionService.getRecentMessages(keyPrefix, 20);
+        List<ChatMessage> recent = sessionService.getRecentMessages(keyPrefix);
+        if (recent == null) {
+            recent = Collections.emptyList();
+        }
 
         // 提取上下文信息
         List<String> memorySnippets = recent.stream()
-                .map(m -> m.getRole().name() + ": " + m.getContent())
+                .map(m -> m.getRole().name() + ": " + m.getContent() + ": " + m.getTime())
                 .collect(Collectors.toList());
 
         // 判断是否需要压缩
-        if(ServiceCommunicateUtil.getSymbol(SymbolConstant.CONTEXT_SUMMARY_FLAG) == 1){
-            log.info("开始进行上下文压缩");
-            // 恢复标识
+        if (ServiceCommunicateUtil.getSymbol(SymbolConstant.CONTEXT_SUMMARY_FLAG) == 1) {
+            log.info("触发上下文压缩（异步），sessionKey={}。", keyPrefix);
+            // 先移除标识，避免重复触发
             ServiceCommunicateUtil.removeSymbol(SymbolConstant.CONTEXT_SUMMARY_FLAG);
-            // 开启一条异步线程
             Thread.ofVirtual().start(() -> {
-                // 获取压缩提示词
-                String prompt = promptAssembler.buildSummaryPrompt(memorySnippets);
-                // 发送给Luna
-                SendToLuna result = getSendToLuna(prompt, keyPrefix);
-                // 存储
-                sessionService.replaceHistoryWithSummary(keyPrefix, result.replyText());
-                log.info("上下文压缩完成");
+                try {
+                    String summaryPrompt = promptAssembler.buildSummaryPrompt(memorySnippets);
+                    if (summaryPrompt.isBlank()) {
+                        log.info("上下文压缩：没有足够的 memory 片段可供压缩，sessionKey={}", keyPrefix);
+                        return;
+                    }
+                    SendToLuna summaryResult = getSendToSummaryModel(summaryPrompt);
+                    if (summaryResult.replyText() != null) {
+                        sessionService.replaceHistoryWithSummary(keyPrefix, summaryResult.replyText());
+                        log.info("上下文压缩完成，sessionKey={}", keyPrefix);
+                    } else {
+                        log.error("上下文压缩失败：模型返回为空，sessionKey={}", keyPrefix);
+                    }
+                } catch (Exception ex) {
+                    log.error("上下文压缩线程发生异常，sessionKey={}, 错误信息={}", keyPrefix, ex.getMessage(), ex);
+                }
             });
         }
 
         // 组装提示词
-        String prompt = promptAssembler.assemble(memorySnippets, ModelHintConstant.UNSPECIFIED, ModelHintConstant.UNSPECIFIED, input);
+        String prompt = promptAssembler.assemble(memorySnippets, input);
 
         // 发送请求
-        SendToLuna result = getSendToLuna(prompt, keyPrefix);
-        log.info("模型输出：{}", result.valid());
+        SendToLuna result = getSendToLuna(prompt);
+        log.info("整理后模型输出：{}", result.valid());
 
         // 将模型输出加入上下文当中
-        sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.ASSISTANT, result.replyText()));
+        sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.LUNA, result.replyText(), LocalTime.now()));
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(result.valid());
     }
 
-    private SendToLuna getSendToLuna(String prompt, String keyPrefix) {
-        // 发送请求到大模型端
-        String raw = null;
-        try {
-            raw = ollamaClient.generateSync(prompt);
-        } catch (IOException | InterruptedException e) {
-            throw new RuntimeException(e);
+    @Override
+    public ResponseEntity<String> startup() {
+        log.info("开始启动流程");
+        LocalDateTime today = LocalDateTime.now();
+        String keyPrefix = dateFormatter.format(today);
+        List<ChatMessage> recent = null;
+        String redisKey = RedisKeyConstant.CONTEXT_KEY_PREFIX + keyPrefix;
+        if (!stringRedisTemplate.hasKey(redisKey)) {
+            // 今日首次启动，尝试获取昨天上下文
+            recent = sessionService.getRecentMessages(dateFormatter.format(today.minusDays(1)));
+            if (recent == null){
+                recent = Collections.emptyList();
+            }
+            log.info("启动：今日无上下文，尝试加载昨日上下文，共 {} 条", recent.size());
+        } else {
+            recent = sessionService.getRecentMessages(keyPrefix);
+            if (recent == null){
+                recent = Collections.emptyList();
+            }
+            log.info("启动：加载今日上下文，共 {} 条", recent.size());
         }
-        // 判断模型返回结果是否合法
-        String valid = validateOrRepair(raw, prompt, keyPrefix);
+        // 将开机命令加入上下文
+        sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.STARTUP, "用户启动", LocalTime.now()));
+        List<String> memorySnippets = recent.stream()
+                .map(m -> m.getRole().name() + ": " + m.getContent() + ": " + m.getTime())
+                .toList();
+        // 组装开机提示词
+        String prompt = promptAssembler.assembleStartupPrompt(memorySnippets);
+        // 发送
+        SendToLuna result = getSendToLuna(prompt);
+        // 将模型输出加入到上下文
+        sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.LUNA, result.replyText(), LocalTime.now()));
+        return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(result.valid());
+    }
 
-        // 解析为JSON
-        JsonNode node = null;
+    @Override
+    public void shutdown() {
+        log.info("开始关机流程");
+        LocalDateTime today = LocalDateTime.now();
+        String keyPrefix = dateFormatter.format(today);
+        // 将关机命令加入上下文
+        sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.SHUTDOWN, "用户关机", LocalTime.now()));
+    }
+
+    private ApplicationResult callApplication(String appId, String prompt) {
         try {
-            node = mapper.readTree(valid);
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException(e);
+            ApplicationParam param = ApplicationParam.builder()
+                    .apiKey(qwenProperty.getApiKey())
+                    .appId(appId)
+                    .prompt(prompt)
+                    .build();
+
+            Application application = new Application();
+            return application.call(param);
+        } catch (Exception e) {
+            log.error("调用模型失败，appId={}, 错误信息={}", appId, e.getMessage(), e);
+            return null;
         }
+    }
+
+    private SendToLuna getSendToSummaryModel(String prompt) {
+        ApplicationResult raw = callApplication(qwenProperty.getSummaryId(), prompt);
+        if (raw == null) {
+            log.warn("调用Summary模型返回空结果");
+            return new SendToLuna("{\"emotion\":\"Solemn\",\"reply\":\"<error>生成摘要失败</error>\"}", "<error>生成摘要失败</error>");
+        }
+        String text = raw.getOutput() == null ? "" : raw.getOutput().getText();
+        return new SendToLuna(text, text);
+    }
+
+    private SendToLuna getSendToLuna(String prompt) {
+        ApplicationResult raw = callApplication(qwenProperty.getLunaId(), prompt);
+        if (raw == null) {
+            log.error("主模型调用失败，返回降级回复");
+            String fallback = createFallbackJson();
+            return new SendToLuna(fallback, extractReplyFromJsonSafe(fallback));
+        }
+
+        String valid = raw.getOutput() == null ? "" : raw.getOutput().getText();
+        JsonNode node = tryParseJsonNode(valid);
+        // 如果解析失败或不包含reply字段，尝试用REPAIR_PROMPT修复
+        if (!isValidReplyNode(node)) {
+            log.warn("模型输出无法解析或不包含 reply 字段，尝试修复。原始输出：{}", valid);
+            // 设置降级标记
+            String fallbackKey = RedisKeyConstant.GENERATE_FALLBACK_KEY;
+            try {
+                stringRedisTemplate.opsForValue().set(fallbackKey, "1");
+            } catch (Exception e) {
+                log.error("设置降级标记失败：{}", e.getMessage());
+            }
+
+            try {
+                // 获取修复Prompt
+                String repairPrompt = PromptTemplates.REPAIR_PROMPT.formatted(valid);
+                ApplicationResult repairedRaw = callApplication(qwenProperty.getLunaId(), repairPrompt);
+                if (repairedRaw != null && repairedRaw.getOutput() != null) {
+                    String repairedText = repairedRaw.getOutput().getText();
+                    JsonNode repairedNode = tryParseJsonNode(repairedText);
+                    if (isValidReplyNode(repairedNode)) {
+                        log.info("REPAIR_PROMPT 修复成功");
+                        return new SendToLuna(repairedText, repairedNode.get(ModelHintConstant.REPLY).asText());
+                    } else {
+                        log.error("REPAIR_PROMPT 修复后仍不合规，repairedText={}", repairedText);
+                    }
+                } else {
+                    log.error("REPAIR_PROMPT 未获得有效返回");
+                }
+            } catch (Exception ex) {
+                log.error("调用 REPAIR_PROMPT 过程中发生异常：{}", ex.getMessage(), ex);
+            } finally {
+                stringRedisTemplate.delete(fallbackKey);
+            }
+            // 修复失败，返回降级JSON
+            String fallback = createFallbackJson();
+            log.error("模型输出最终不可用，返回降级内容：{}", fallback);
+            return new SendToLuna(fallback, extractReplyFromJsonSafe(fallback));
+        }
+
+        // 解析成功且包含 reply 字段
         String replyText = node.get(ModelHintConstant.REPLY).asText();
-        SendToLuna result = new SendToLuna(valid, replyText);
-        return result;
+        return new SendToLuna(valid, replyText);
+    }
+
+    private JsonNode tryParseJsonNode(String text) {
+        if (text == null) return null;
+        try {
+            return mapper.readTree(text);
+        } catch (JsonProcessingException e) {
+            log.warn("解析 JSON 失败：{}", e.getMessage());
+            return null;
+        } catch (Exception e) {
+            log.warn("解析 JSON 发生意外错误：{}", e.getMessage(), e);
+            return null;
+        }
+    }
+
+    private boolean isValidReplyNode(JsonNode node) {
+        return node != null && node.hasNonNull(ModelHintConstant.REPLY) && node.get(ModelHintConstant.REPLY).isTextual();
+    }
+
+    private String createFallbackJson() {
+        // 降级返回，仅包含 emotion + reply，便于后端解析
+        return "{\"emotion\":\"Solemn\",\"reply\":\"生成回复失败，请稍后重试。\"}";
+    }
+
+    private String extractReplyFromJsonSafe(String json) {
+        JsonNode node = tryParseJsonNode(json);
+        if (node != null && node.hasNonNull(ModelHintConstant.REPLY)) {
+            return node.get(ModelHintConstant.REPLY).asText();
+        }
+        return "";
     }
 
     private record SendToLuna(String valid, String replyText) {
-    }
-
-    private String validateOrRepair(String raw, String originalContext, String sessionId) {
-        String key = String.format(RedisKeyConstant.GENERATE_FALLBACK_KEY, sessionId);
-
-        // 包装成函数，用于标准化和校验JSON节点
-        Function<JsonNode, String> normalizeAndValidate = (JsonNode candidate) -> {
-            if (candidate == null || !candidate.isObject()) {
-                throw new IllegalArgumentException("候选节点不是对象类型");
-            }
-            ObjectNode obj = (ObjectNode) candidate;
-
-            // emotion字段检查
-            if (!obj.has(ModelHintConstant.EMOTION) || obj.get(ModelHintConstant.EMOTION).isNull()) {
-                throw new IllegalArgumentException("缺少emotion字段");
-            }
-            String emotion = obj.get(ModelHintConstant.EMOTION).asText().trim();
-            if (!EmotionEnum.contains(emotion)) {
-                throw new IllegalArgumentException("emotion值不合法: " + emotion);
-            }
-            // reply字段检查
-            if (!obj.has(ModelHintConstant.REPLY) || obj.get(ModelHintConstant.REPLY).isNull()) {
-                throw new IllegalArgumentException("缺少reply字段");
-            }
-            String reply = obj.get(ModelHintConstant.REPLY).asText().trim();
-            if (reply.isEmpty()) {
-                throw new IllegalArgumentException("reply内容为空");
-            }
-            // 如果超过最大长度 140，截断
-            if (reply.length() > 140) {
-                reply = reply.substring(0, 140);
-            }
-            // confidence 字段检查
-            if (!obj.has(ModelHintConstant.CONFIDENCE) || obj.get(ModelHintConstant.CONFIDENCE).isNull()) {
-                throw new IllegalArgumentException("缺少confidence字段");
-            }
-            double confidence;
-            JsonNode confNode = obj.get(ModelHintConstant.CONFIDENCE);
-            if (confNode.isNumber()) {
-                confidence = confNode.asDouble();
-            } else {
-                try {
-                    confidence = Double.parseDouble(confNode.asText());
-                } catch (Exception ex) {
-                    throw new IllegalArgumentException("confidence解析失败");
-                }
-            }
-            if (Double.isNaN(confidence) || confidence < 0.0 || confidence > 1.0) {
-                throw new IllegalArgumentException("confidence值不在[0,1]范围");
-            }
-            // 保留两位小数
-            java.math.BigDecimal bd = new java.math.BigDecimal(Double.toString(confidence));
-            bd = bd.setScale(2, java.math.RoundingMode.HALF_UP);
-            double confRounded = bd.doubleValue();
-            // 构建标准化后的对象
-            ObjectNode normalized = mapper.createObjectNode();
-            normalized.put(ModelHintConstant.EMOTION, emotion);
-            normalized.put(ModelHintConstant.REPLY, reply);
-            normalized.put(ModelHintConstant.CONFIDENCE, confRounded);
-            try {
-                return mapper.writeValueAsString(normalized);
-            } catch (JsonProcessingException ex) {
-                throw new RuntimeException("JSON序列化失败", ex);
-            }
-        };
-
-        // 尝试从raw字符串中提取候选JSON节点
-        Function<String, JsonNode> extractCandidate = (String text) -> {
-            if (text == null) return null;
-            text = text.trim();
-            try {
-                JsonNode root = mapper.readTree(text);
-                // 情况 A：顶层已有 emotion/reply/confidence
-                if (root.has(ModelHintConstant.EMOTION) && root.has(ModelHintConstant.REPLY) && root.has(ModelHintConstant.CONFIDENCE)) {
-                    return root;
-                }
-                // 情况 B：Ollama 风格，response 字段可能是文本或对象
-                if (root.has("response")) {
-                    JsonNode resp = root.get("response");
-                    if (resp.isTextual()) {
-                        String inner = resp.asText().trim();
-                        try {
-                            JsonNode innerNode = mapper.readTree(inner);
-                            if (innerNode.has(ModelHintConstant.EMOTION) && innerNode.has(ModelHintConstant.REPLY) && innerNode.has(ModelHintConstant.CONFIDENCE)) {
-                                return innerNode;
-                            } else {
-                                // 内部 JSON 不完整
-                                return null;
-                            }
-                        } catch (Exception ex) {
-                            // response 是普通文本，无法解析为 JSON
-                            return null;
-                        }
-                    } else if (resp.isObject()) {
-                        if (resp.has(ModelHintConstant.EMOTION) && resp.has(ModelHintConstant.REPLY) && resp.has(ModelHintConstant.CONFIDENCE)) {
-                            return resp;
-                        } else {
-                            return null;
-                        }
-                    } else {
-                        return null;
-                    }
-                }
-                // 其他情况，没有候选节点
-                return null;
-            } catch (IOException parseEx) {
-                // raw 不是标准 JSON，尝试提取首尾大括号内容
-                int first = text.indexOf('{');
-                int last = text.lastIndexOf('}');
-                if (first >= 0 && last > first) {
-                    String sub = text.substring(first, last + 1);
-                    try {
-                        JsonNode root2 = mapper.readTree(sub);
-                        if (root2.has(ModelHintConstant.EMOTION) && root2.has(ModelHintConstant.REPLY) && root2.has(ModelHintConstant.CONFIDENCE)) {
-                            return root2;
-                        }
-                    } catch (Exception ex) {
-                        // 忽略
-                    }
-                }
-                return null;
-            }
-        };
-
-        try {
-            JsonNode candidate = extractCandidate.apply(raw);
-            if (candidate != null) {
-                String normalized = normalizeAndValidate.apply(candidate);
-                // 删除降级标记
-                stringRedisTemplate.delete(key);
-                return normalized;
-            } else {
-                throw new IllegalArgumentException("raw中没有有效候选节点");
-            }
-        } catch (Exception e) {
-            // 降级策略
-            if (stringRedisTemplate.hasKey(key)) {
-                stringRedisTemplate.delete(key);
-                // 返回降级 fallback，置信度 1.00
-                return "{\"emotion\":\"Solemn\",\"reply\":\"回复触发了降级策略。\",\"confidence\":1.00}";
-            }
-            // 设置降级标记
-            stringRedisTemplate.opsForValue().set(key, "1");
-            // 尝试修复
-            String repairPrompt = PromptTemplates.REPAIR_PROMPT.formatted(originalContext);
-            try {
-                String repaired = ollamaClient.generateSync(repairPrompt);
-                JsonNode repairedNode = extractCandidate.apply(repaired);
-                if (repairedNode != null) {
-                    String normalized = normalizeAndValidate.apply(repairedNode);
-                    stringRedisTemplate.delete(key);
-                    return normalized;
-                } else {
-                    stringRedisTemplate.delete(key);
-                    return "{\"emotion\":\"Solemn\",\"reply\":\"回复触发了降级策略。\",\"confidence\":1.00}";
-                }
-            } catch (Exception ex) {
-                stringRedisTemplate.delete(key);
-                return "{\"emotion\":\"Solemn\",\"reply\":\"回复触发了降级策略。\",\"confidence\":1.00}";
-            }
-        }
     }
 }

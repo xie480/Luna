@@ -23,7 +23,7 @@ spring:
     redis:
       host: 192.168.100.128
       port: 6379
-      database: 5
+      database: 1
       lettuce:
         pool:
           max-active: 300
@@ -31,10 +31,10 @@ spring:
           min-idle: 10
           time-between-eviction-runs: 10s
 
-ollama:
-  base-url: http://localhost:11434
-  model: mistral:7b-instruct-v0.3-q5_K_M
-  timeout-ms: 60000
+qwen:
+  api-key: sk-9542a01bce22464396b3c0d050afed68
+  luna-id: ae8cc4b7551f4ddc8233e9666359a2ba
+  summary-id: a427e617960545ab878de348075015f9
 
 springdoc:
   swagger-ui:

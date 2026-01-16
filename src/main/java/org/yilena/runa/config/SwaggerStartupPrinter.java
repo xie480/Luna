@@ -21,7 +21,7 @@ public class SwaggerStartupPrinter implements ApplicationRunner {
 
         System.out.println();
         System.out.println("=================================================");
-        System.out.println("🚀 YilenaJapaneseLab LLM 服务启动成功");
+        System.out.println("🚀 Luna启动成功");
         System.out.println();
         System.out.println("📘 Swagger UI:");
         System.out.println("   http://localhost:" + port + contextPath + "/swagger-ui/index.html");

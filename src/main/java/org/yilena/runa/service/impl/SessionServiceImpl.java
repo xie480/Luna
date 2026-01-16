@@ -12,6 +12,7 @@ import org.yilena.runa.entity.ChatMessage;
 import org.yilena.runa.service.SessionService;
 import org.yilena.runa.utils.ServiceCommunicateUtil;
 
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -44,7 +45,7 @@ public class SessionServiceImpl implements SessionService {
     }
 
     @Override
-    public List<ChatMessage> getRecentMessages(String keyPrefix, int maxItems) {
+    public List<ChatMessage> getRecentMessages(String keyPrefix) {
         String key = String.format(RedisKeyConstant.CONTEXT_KEY_PREFIX, keyPrefix);
         // 获取最近N条
         List<String> jsons = redis.opsForList().range(key, 0, -1);
@@ -71,16 +72,54 @@ public class SessionServiceImpl implements SessionService {
     }
 
     public void clearSession(String sessionId) {
-        redis.delete(String.format(RedisKeyConstant.CONTEXT_KEY_PREFIX, sessionId));
+        String key = String.format(RedisKeyConstant.CONTEXT_KEY_PREFIX, sessionId);
+
+        List<String> rawList = redis.opsForList().range(key, 0, -1);
+        if (rawList == null || rawList.isEmpty()) {
+            log.info("清理会话历史：Redis 中不存在会话记录，sessionId={}", sessionId);
+            return;
+        }
+
+        List<String> retainedMessages = new ArrayList<>();
+        int removedCount = 0;
+
+        for (int i = 0; i < rawList.size(); i++) {
+            String raw = rawList.get(i);
+            try {
+                ChatMessage msg = mapper.readValue(raw, ChatMessage.class);
+                if (msg == null || msg.getRole() == null) {
+                    // 异常数据直接保留，避免误删
+                    retainedMessages.add(raw);
+                    continue;
+                }
+                // 仅删除 USER / LUNA
+                if (msg.getRole() == ChatMessage.Role.USER || msg.getRole() == ChatMessage.Role.LUNA) {
+                    removedCount++;
+                    continue;
+                }
+                retainedMessages.add(raw);
+            } catch (Exception e) {
+                log.warn("解析 Redis 中的聊天消息失败，已保留该条记录，sessionId={}, index={}, 错误信息={}", sessionId, i, e.getMessage());
+                retainedMessages.add(raw);
+            }
+        }
+        // 重写 Redis List
+        redis.delete(key);
+        if (!retainedMessages.isEmpty()) {
+            redis.opsForList().rightPushAll(key, retainedMessages);
+        }
+        log.info("清理会话历史完成：已删除 USER/LUNA 消息，sessionId={}, 删除条数={}, 剩余条数={}", sessionId, removedCount, retainedMessages.size());
     }
+
+
 
     // 将历史压缩成一条summary
     @Override
     public void replaceHistoryWithSummary(String sessionId, String summary) {
-        // 添加新的
-        ChatMessage summaryMsg = new ChatMessage(ChatMessage.Role.SYSTEM, "[SUMMARY] " + summary);
-        // 清空历史
+        ChatMessage summaryMsg = new ChatMessage(ChatMessage.Role.CONTEXT_SUMMARY, summary, LocalTime.now());
+        log.info("开始用 SUMMARY 替换历史聊天记录");
         clearSession(sessionId);
         appendMessage(sessionId, summaryMsg);
+        log.info("历史聊天记录已成功压缩为 SUMMARY");
     }
 }

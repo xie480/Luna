@@ -17,8 +17,8 @@ public class SwaggerConfig {
     @Bean
     public GroupedOpenApi userApi() {
         return GroupedOpenApi.builder()
-                .group("LLM服务接口")
-                .pathsToMatch("/org/yilena/runa/**")
+                .group("Luna服务接口")
+                .pathsToMatch("/org/yilena/luna/**")
                 .build();
     }
 
@@ -26,8 +26,8 @@ public class SwaggerConfig {
     public OpenAPI springShopOpenAPI() {
         return new OpenAPI()
                 .info(new Info()
-                        .title("YilenaJapaneseLab接口文档")
-                        .description("YilenaJapaneseLab接口文档")
+                        .title("Luna接口文档")
+                        .description("Luna接口文档")
                         .version("v1")
                         .contact(new Contact().name("yilena"))
                         .license(new License().name("Apache 2.0")
