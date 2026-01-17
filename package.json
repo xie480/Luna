@@ -1,0 +1,23 @@
+{
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "build": "vite build",
+    "pack": "npm run build && electron-builder"
+  },
+  "build": {
+    "appId": "org.yilena.luna",
+    "productName": "Luna",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    }
+  },
+  "type": "module"
+}
