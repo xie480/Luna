@@ -8,6 +8,8 @@ import org.springframework.web.bind.annotation.*;
 import org.yilena.runa.entity.ChatRequest;
 import org.yilena.runa.service.ChatService;
 
+import java.util.List;
+
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/luna/api/chat")
@@ -33,5 +35,17 @@ public class ChatController {
     public ResponseEntity<Void> shutdown(){
         chatService.shutdown();
         return ResponseEntity.ok().build();
+    }
+
+    @Operation(description = "根据年月获取存在对话历史的日期")
+    @GetMapping("/history/date")
+    public ResponseEntity<List<String>> getHistoryDate(@RequestParam("ym") String yearMonth){
+        return ResponseEntity.ok(chatService.getHistoryDate(yearMonth));
+    }
+
+    @Operation(description = "根据年月日获取对话历史")
+    @GetMapping("/history")
+    public ResponseEntity<List<String>> getHistory(@RequestParam("ymd") String yearMonthDay){
+        return ResponseEntity.ok(chatService.getHistory(yearMonthDay));
     }
 }

@@ -8,6 +8,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.connection.RedisConnection;
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -25,12 +28,11 @@ import org.yilena.runa.service.ChatService;
 import org.yilena.runa.service.SessionService;
 import org.yilena.runa.utils.ServiceCommunicateUtil;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Collections;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -67,7 +69,7 @@ public class ChatServiceImpl implements ChatService {
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.USER, input, LocalTime.now()));
 
         // 获取上下文最近N条信息
-        List<ChatMessage> recent = sessionService.getRecentMessages(keyPrefix);
+        List<ChatMessage> recent = sessionService.getRecentMessages(keyPrefix, false);
         if (recent == null) {
             recent = Collections.emptyList();
         }
@@ -120,16 +122,19 @@ public class ChatServiceImpl implements ChatService {
         LocalDateTime today = LocalDateTime.now();
         String keyPrefix = dateFormatter.format(today);
         List<ChatMessage> recent = null;
-        String redisKey = RedisKeyConstant.CONTEXT_KEY_PREFIX + keyPrefix;
+        String redisKey = String.format(RedisKeyConstant.CONTEXT_KEY_PREFIX, keyPrefix);
         if (!stringRedisTemplate.hasKey(redisKey)) {
-            // 今日首次启动，尝试获取昨天上下文
-            recent = sessionService.getRecentMessages(dateFormatter.format(today.minusDays(1)));
-            if (recent == null){
-                recent = Collections.emptyList();
+            int index = 1;
+            while(index <= 30 && (recent == null || recent.isEmpty())) {
+                // 今日首次启动，尝试获取之前的上下文
+                recent = sessionService.getRecentMessages(dateFormatter.format(today.minusDays(index++)), true);
+                if (recent == null) {
+                    recent = Collections.emptyList();
+                }
             }
             log.info("启动：今日无上下文，尝试加载昨日上下文，共 {} 条", recent.size());
         } else {
-            recent = sessionService.getRecentMessages(keyPrefix);
+            recent = sessionService.getRecentMessages(keyPrefix, false);
             if (recent == null){
                 recent = Collections.emptyList();
             }
@@ -144,6 +149,7 @@ public class ChatServiceImpl implements ChatService {
         String prompt = promptAssembler.assembleStartupPrompt(memorySnippets);
         // 发送
         SendToLuna result = getSendToLuna(prompt);
+        log.info("整理后模型输出：{}", result.valid());
         // 将模型输出加入到上下文
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.LUNA, result.replyText(), LocalTime.now()));
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(result.valid());
@@ -157,6 +163,36 @@ public class ChatServiceImpl implements ChatService {
         // 将关机命令加入上下文
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.SHUTDOWN, "用户关机", LocalTime.now()));
     }
+
+    @Override
+    public List<String> getHistoryDate(String yearMonth) {
+        String cacheKeyPrefix = String.format(RedisKeyConstant.CONTEXT_KEY_PREFIX , yearMonth) + ":";
+        // 构造
+        ScanOptions options = ScanOptions.scanOptions()
+                .match(cacheKeyPrefix + "*")
+                .count(32)
+                .build();
+        List<String> result = new ArrayList<>();
+        RedisConnection connection = Objects.requireNonNull(stringRedisTemplate.getConnectionFactory())
+                .getConnection();
+        try (Cursor<byte[]> cursor = connection.keyCommands().scan(options)) {
+            while (cursor.hasNext()) {
+                String key = new String(cursor.next(), StandardCharsets.UTF_8);
+                // 去掉前缀，保留日期部分
+                result.add(key.substring(cacheKeyPrefix.length()));
+            }
+        }
+        return result;
+    }
+
+    @Override
+    public List<String> getHistory(String yearMonthDay) {
+        List<ChatMessage> chats = sessionService.getRecentMessages(yearMonthDay, true);
+        return chats.stream()
+                .map(m -> m.getRole().name() + ":" + m.getContent() + ":" + m.getTime())
+                .toList();
+    }
+
 
     private ApplicationResult callApplication(String appId, String prompt) {
         try {

@@ -13,6 +13,7 @@ import org.yilena.runa.service.SessionService;
 import org.yilena.runa.utils.ServiceCommunicateUtil;
 
 import java.time.LocalTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -33,6 +34,8 @@ public class SessionServiceImpl implements SessionService {
 
     @Override
     public void appendMessage(String keyPrefix, ChatMessage msg) {
+        // 将时间截断到秒级，去掉毫秒部分
+        msg.setTime(msg.getTime().truncatedTo(ChronoUnit.SECONDS));
         try {
             // 转为JSON
             String json = mapper.writeValueAsString(msg);
@@ -45,7 +48,7 @@ public class SessionServiceImpl implements SessionService {
     }
 
     @Override
-    public List<ChatMessage> getRecentMessages(String keyPrefix) {
+    public List<ChatMessage> getRecentMessages(String keyPrefix, boolean isOld) {
         String key = String.format(RedisKeyConstant.CONTEXT_KEY_PREFIX, keyPrefix);
         // 获取最近N条
         List<String> jsons = redis.opsForList().range(key, 0, -1);
@@ -64,7 +67,7 @@ public class SessionServiceImpl implements SessionService {
                 log.error("解析数据失败: {}", s, ex);
             }
         }
-        if (len > MAX_CHARACTERS || out.size() > MAX_MESSAGES) {
+        if (!isOld && (len > MAX_CHARACTERS || out.size() > MAX_MESSAGES)) {
             // 通知chatService应该要压缩了
             ServiceCommunicateUtil.addSymbol(SymbolConstant.CONTEXT_SUMMARY_FLAG, 1);
         }

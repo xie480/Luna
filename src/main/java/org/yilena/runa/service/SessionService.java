@@ -8,7 +8,7 @@ import java.util.List;
 public interface SessionService {
     void appendMessage(String userId, ChatMessage chatMessage);
 
-    List<ChatMessage> getRecentMessages(String userId);
+    List<ChatMessage> getRecentMessages(String userId, boolean isOld);
 
     void replaceHistoryWithSummary(String prefix, String summary);
 }
