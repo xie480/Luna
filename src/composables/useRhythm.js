@@ -5,75 +5,66 @@ export function useRhythm() {
   const showSystemAudioListening = ref(false);
 
   const state = {
-    isListening:    false,
-    currentStream:  null,
-    audioContext:   null,
-    analyser:       null,
-    dataArray:      null,
-    source:         null,
-    bassLevel:      0,
-    midLevel:       0,
-    beatDetected:   false,
-    beatIntensity:  0,
-    bodySway:       0,
-    headNod:        0,
-    breath:         0.5,
-    rafId:          null,
+    isListening:   false,
+    currentStream: null,
+    audioContext:  null,
+    analyser:      null,
+    dataArray:     null,
+    source:        null,
+    bassLevel:     0,
+    midLevel:      0,
+    beatDetected:  false,
+    beatIntensity: 0,
+    bodySway:      0,
+    headNod:       0,
+    breath:        0.5,
+    rafId:         null,
   };
-                                                                                                                                                                                                      
+
   const RHYTHM_CFG = {
     fftSize:   512,
-    smoothing: 0.75,
+    smoothing: 0.80,
     bands: {
-      bass:   { start: 0,  end: 4  },
-      lowMid: { start: 5,  end: 18 },
-      mid:    { start: 19, end: 55 },
+      bass: { start: 0,  end: 4  },
+      mid:  { start: 5,  end: 30 },
     },
     envelope: {
-      bassAttack:  0.22,
-      bassRelease: 0.06,
-      midAttack:   0.15,
-      midRelease:  0.09,
+      bassAttack:  0.18,
+      bassRelease: 0.04,
+      midAttack:   0.12,
+      midRelease:  0.06,
     },
     beatDetection: {
-      threshold: 0.12,
-      decay:     0.80,
-      cooldown:  6,
+      threshold: 0.10,
+      decay:     0.75,
+      cooldown:  8,
     },
+    // 身体只做极轻微左右晃动
     body: {
-      maxSway:        14.0,
-      smoothness:     0.10,
-      leanFactor:     0.55,
-      sinSpeed:       0.06,
-      bassMultiplier: 3.5,
+      maxSway:        3.5,
+      smoothness:     0.06,
+      sinSpeed:       0.03,
+      bassMultiplier: 1.2,
     },
+    // 头部：点头为主，轻微左右
     head: {
-      nodIntensity:  1200,
-      microNodScale: 4.5,
-      nodSmoothness: 0.28,
-      returnSpeed:   0.04,
-    },
-    eye: {
-      maxBallX: 0.35,
-      smooth:   0.12,
+      nodMaxAngle:   8.0,   // Z轴点头最大角度（小幅）
+      swayMaxAngle:  3.0,   // Y轴左右最大角度
+      nodSmoothness: 0.14,
+      returnSpeed:   0.05,
+      microSway:     0.04,
     },
     breath: {
-      baseRate:  0.42,
-      amplitude: 0.22,
-      speed:     0.28,
-    },
-    mouth: {
-      enabled:     true,
-      sensitivity: 0.65,
-      minOpen:     0.05,
-      maxOpen:     100,
+      baseRate:  0.45,
+      amplitude: 0.18,
+      speed:     0.25,
     },
   };
 
   function detectBeat(bassLevel, prevBass) {
     const rise  = bassLevel - prevBass;
-    const isBeat = rise > RHYTHM_CFG.beatDetection.threshold && bassLevel > 0.08;
-    return { isBeat, intensity: Math.min(1.0, rise * 2.5) };
+    const isBeat = rise > RHYTHM_CFG.beatDetection.threshold && bassLevel > 0.06;
+    return { isBeat, intensity: Math.min(1.0, rise * 2.0) };
   }
 
   function startNaturalRhythm(core) {
@@ -86,12 +77,10 @@ export function useRhythm() {
     const binCount = analyser.frequencyBinCount;
 
     let bodyPhase    = Math.random() * Math.PI * 2;
-    let headPhase    = Math.random() * Math.PI * 2;
+    let headSwayPhase = Math.random() * Math.PI * 2;
     let breathPhase  = Math.random() * Math.PI * 2;
-    let eyePhase     = Math.random() * Math.PI * 2;
     let prevBass     = 0;
     let beatCooldown = 0;
-    let smoothEyeX   = 0;
 
     function frame() {
       if (!state.isListening) {
@@ -102,23 +91,19 @@ export function useRhythm() {
       analyser.getByteFrequencyData(dataArray);
 
       // —— 频段能量 ——
-      const { bass, lowMid, mid } = RHYTHM_CFG.bands;
+      const { bass, mid } = RHYTHM_CFG.bands;
       let bassSum = 0, midSum = 0;
 
       for (let i = bass.start; i <= bass.end && i < binCount; i++) bassSum += dataArray[i];
       const bassEnergy = bassSum / ((bass.end - bass.start + 1) * 255);
 
-      for (let i = lowMid.start; i <= mid.end && i < binCount; i++) midSum += dataArray[i];
-      const midEnergy = midSum / ((mid.end - lowMid.start + 1) * 255);
-                                                                                                                                                                                                      
-      // —— 包络跟踪 ——
-      const bAtk = RHYTHM_CFG.envelope.bassAttack;
-      const bRel = RHYTHM_CFG.envelope.bassRelease;
-      const mAtk = RHYTHM_CFG.envelope.midAttack;
-      const mRel = RHYTHM_CFG.envelope.midRelease;
+      for (let i = mid.start; i <= mid.end && i < binCount; i++) midSum += dataArray[i];
+      const midEnergy = midSum / ((mid.end - mid.start + 1) * 255);
 
-      state.bassLevel += (bassEnergy - state.bassLevel) * (bassEnergy > state.bassLevel ? bAtk : bRel);
-      state.midLevel  += (midEnergy  - state.midLevel)  * (midEnergy  > state.midLevel  ? mAtk : mRel);
+      // —— 包络跟踪 ——
+      const { bassAttack, bassRelease, midAttack, midRelease } = RHYTHM_CFG.envelope;
+      state.bassLevel += (bassEnergy - state.bassLevel) * (bassEnergy > state.bassLevel ? bassAttack  : bassRelease);
+      state.midLevel  += (midEnergy  - state.midLevel)  * (midEnergy  > state.midLevel  ? midAttack   : midRelease);
 
       // —— 节拍检测 ——
       if (beatCooldown > 0) {
@@ -129,69 +114,51 @@ export function useRhythm() {
           state.beatDetected  = true;
           state.beatIntensity = beat.intensity;
           beatCooldown        = RHYTHM_CFG.beatDetection.cooldown;
-          bodyPhase += (Math.random() - 0.5) * 0.8;
-          headPhase += (Math.random() - 0.5) * 0.5;
         }
       }
 
       state.beatIntensity *= RHYTHM_CFG.beatDetection.decay;
-      if (state.beatIntensity < 0.03) state.beatDetected = false;
+      if (state.beatIntensity < 0.02) state.beatDetected = false;
 
       const cfg = RHYTHM_CFG;
 
-      // —— 身体摇摆（X轴）——
-      const baseSway    = Math.sin(bodyPhase) * (1 + state.bassLevel * cfg.body.bassMultiplier) * cfg.body.maxSway * 0.5;
-      const beatSway    = state.beatIntensity * cfg.body.maxSway * Math.sin(bodyPhase * 2.7) * 0.55;
-      const targetBodyX = baseSway + beatSway;
+      // —— 身体极轻微左右晃动（X轴）——
+      const targetBodyX = Math.sin(bodyPhase) * (1 + state.bassLevel * cfg.body.bassMultiplier) * cfg.body.maxSway * 0.5;
 
-      // 身体前后倾（Z轴）
-      const targetBodyZ = Math.sin(bodyPhase * 1.3 + 0.8) * state.midLevel * cfg.body.leanFactor * 8;
-
-      // —— 头部点头（Z轴）——
+      // —— 头部点头（Z轴）：节拍时轻点，无节拍时微幅随中频起伏 ——
       let targetHeadZ;
       if (state.beatDetected) {
-        targetHeadZ = -state.beatIntensity * cfg.head.nodIntensity;
+        // 节拍触发时轻柔点头，幅度受 beatIntensity 控制
+        targetHeadZ = state.beatIntensity * cfg.head.nodMaxAngle;
       } else {
-        targetHeadZ = Math.sin(headPhase * 1.7) * state.midLevel * cfg.head.microNodScale * 18;
+        // 无节拍时极轻微随音乐能量微动
+        targetHeadZ = Math.sin(headSwayPhase * 0.7) * state.midLevel * cfg.head.nodMaxAngle * 0.35;
       }
 
-      // 头部左右（Y轴）
-      const targetHeadY = Math.sin(bodyPhase * 0.8 + 0.4) * state.bassLevel * 12;
+      // —— 头部轻微左右（Y轴），仅随身体极小幅联动 ——
+      const targetHeadY = Math.sin(headSwayPhase) * state.bassLevel * cfg.head.swayMaxAngle * 0.4;
 
       // —— 呼吸 ——
-      const targetBreath = cfg.breath.baseRate + Math.sin(breathPhase) * cfg.breath.amplitude * (1 + state.midLevel * 0.8);
-
-      // —— 眼球漂移 ——
-      const targetEyeX = Math.sin(eyePhase) * state.bassLevel * cfg.eye.maxBallX;
-      smoothEyeX += (targetEyeX - smoothEyeX) * cfg.eye.smooth;
+      const targetBreath = cfg.breath.baseRate + Math.sin(breathPhase) * cfg.breath.amplitude * (1 + state.midLevel * 0.5);
 
       // —— 平滑过渡（lerp）——
-      const bodySmooth = cfg.body.smoothness;
       const headSmooth = state.beatDetected ? cfg.head.nodSmoothness : cfg.head.returnSpeed;
 
-      state.bodySway += (targetBodyX  - state.bodySway) * bodySmooth;
+      state.bodySway += (targetBodyX  - state.bodySway) * cfg.body.smoothness;
       state.headNod  += (targetHeadZ  - state.headNod)  * headSmooth;
-      state.breath   += (targetBreath - state.breath)   * 0.08;
+      state.breath   += (targetBreath - state.breath)   * 0.07;
 
-      // —— 推进相位 ——
-      bodyPhase   = (bodyPhase   + cfg.body.sinSpeed * (1 + state.bassLevel * 1.2)) % (Math.PI * 2);
-      headPhase   = (headPhase   + 0.035 * (1 + state.midLevel  * 0.6))             % (Math.PI * 2);
-      breathPhase = (breathPhase + cfg.breath.speed * 0.045)                        % (Math.PI * 2);
-      eyePhase    = (eyePhase    + 0.028 * (1 + state.bassLevel * 0.5))             % (Math.PI * 2);
+      // —— 推进相位（缓慢，保持自然感）——
+      bodyPhase     = (bodyPhase     + cfg.body.sinSpeed * (1 + state.bassLevel * 0.6)) % (Math.PI * 2);
+      headSwayPhase = (headSwayPhase + cfg.head.microSway * (1 + state.midLevel  * 0.4)) % (Math.PI * 2);
+      breathPhase   = (breathPhase   + cfg.breath.speed * 0.04)                          % (Math.PI * 2);
 
       // —— 写入模型参数 ——
       try {
-        core.setParameterValueById("ParamBodyAngleX",  state.bodySway);
-        core.setParameterValueById("ParamBodyAngleZ",  targetBodyZ);
-        core.setParameterValueById("ParamAngleZ",      state.headNod);
-        core.setParameterValueById("ParamAngleY",      targetHeadY);
-        core.setParameterValueById("ParamBreath",      state.breath);
-        core.setParameterValueById("ParamEyeBallX",    smoothEyeX);
-
-        if (cfg.mouth.enabled) {
-          const mouthOpen = cfg.mouth.minOpen + state.midLevel * cfg.mouth.sensitivity;
-          core.setParameterValueById("ParamMouthOpenY", Math.min(cfg.mouth.maxOpen, mouthOpen));
-        }
+        core.setParameterValueById("ParamBodyAngleX", state.bodySway);
+        core.setParameterValueById("ParamAngleZ",     state.headNod);
+        core.setParameterValueById("ParamAngleY",     targetHeadY);
+        core.setParameterValueById("ParamBreath",     state.breath);
       } catch {}
 
       prevBass    = state.bassLevel;
@@ -201,7 +168,7 @@ export function useRhythm() {
     state.rafId = requestAnimationFrame(frame);
     console.log("[律动] 自然律动循环启动");
   }
-                                                                                                                                                                                                      
+
   function stopRhythmLoop() {
     if (state.rafId) {
       cancelAnimationFrame(state.rafId);
@@ -214,33 +181,24 @@ export function useRhythm() {
 
     const resetState = {
       bodyX:  core.getParameterValueById("ParamBodyAngleX") || 0,
-      bodyZ:  core.getParameterValueById("ParamBodyAngleZ") || 0,
       headZ:  core.getParameterValueById("ParamAngleZ")     || 0,
       headY:  core.getParameterValueById("ParamAngleY")     || 0,
       breath: core.getParameterValueById("ParamBreath")     || 0.5,
-      mouth:  core.getParameterValueById("ParamMouthOpenY") || 0,
-      eyeX:   core.getParameterValueById("ParamEyeBallX")   || 0,
     };
 
     gsap.to(resetState, {
-      duration: 1.0,
+      duration: 1.2,
       bodyX:    0,
-      bodyZ:    0,
       headZ:    0,
       headY:    0,
       breath:   0.5,
-      mouth:    0,
-      eyeX:     0,
       ease:     "power2.out",
       onUpdate() {
         try {
-          core.setParameterValueById("ParamBodyAngleX",  resetState.bodyX);
-          core.setParameterValueById("ParamBodyAngleZ",  resetState.bodyZ);
-          core.setParameterValueById("ParamAngleZ",      resetState.headZ);
-          core.setParameterValueById("ParamAngleY",      resetState.headY);
-          core.setParameterValueById("ParamBreath",      resetState.breath);
-          core.setParameterValueById("ParamMouthOpenY",  resetState.mouth);
-          core.setParameterValueById("ParamEyeBallX",    resetState.eyeX);
+          core.setParameterValueById("ParamBodyAngleX", resetState.bodyX);
+          core.setParameterValueById("ParamAngleZ",     resetState.headZ);
+          core.setParameterValueById("ParamAngleY",     resetState.headY);
+          core.setParameterValueById("ParamBreath",     resetState.breath);
         } catch {}
       },
       onComplete() {
@@ -256,13 +214,13 @@ export function useRhythm() {
     }
 
     if (trackingEnabled.value) trackingEnabled.value = false;
-                                                                                                                                                                                                      
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { mandatory: { chromeMediaSource: "desktop" } },
         video: { mandatory: { chromeMediaSource: "desktop" } },
       });
-                                                                                                                                                                                                      
+
       state.currentStream = stream;
 
       if (!state.audioContext) {
@@ -270,11 +228,11 @@ export function useRhythm() {
       }
 
       const analyser = state.audioContext.createAnalyser();
-      analyser.fftSize                  = RHYTHM_CFG.fftSize;
-      analyser.smoothingTimeConstant    = RHYTHM_CFG.smoothing;
+      analyser.fftSize               = RHYTHM_CFG.fftSize;
+      analyser.smoothingTimeConstant = RHYTHM_CFG.smoothing;
       state.analyser  = analyser;
       state.dataArray = new Uint8Array(analyser.frequencyBinCount);
-                                                                                                                                                                                                      
+
       state.source = state.audioContext.createMediaStreamSource(stream);
       state.source.connect(analyser);
 
@@ -323,10 +281,10 @@ export function useRhythm() {
       stopRhythmLoop();
     }
   }
-                                                                                                                                                                                                      
+
   return {
     showSystemAudioListening,
     toggleSystemAudio,
     dispose,
   };
-}                                                             
+}
