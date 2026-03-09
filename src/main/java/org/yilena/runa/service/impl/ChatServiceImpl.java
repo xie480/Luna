@@ -1,8 +1,5 @@
 package org.yilena.runa.service.impl;
 
-import com.alibaba.dashscope.app.Application;
-import com.alibaba.dashscope.app.ApplicationParam;
-import com.alibaba.dashscope.app.ApplicationResult;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,11 +20,15 @@ import org.yilena.runa.entity.ChatMessage;
 import org.yilena.runa.entity.ChatRequest;
 import org.yilena.runa.prompt.PromptAssembler;
 import org.yilena.runa.prompt.PromptTemplates;
-import org.yilena.runa.properties.QwenProperty;
+import org.yilena.runa.properties.GeminiProperty;
 import org.yilena.runa.service.ChatService;
 import org.yilena.runa.service.SessionService;
 import org.yilena.runa.utils.ServiceCommunicateUtil;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -41,15 +42,22 @@ import java.util.stream.Collectors;
 public class ChatServiceImpl implements ChatService {
     private final OllamaClient ollamaClient;
     private final PromptAssembler promptAssembler;
-    private final ObjectMapper mapper = new ObjectMapper();
     private final SessionService sessionService;
     private final StringRedisTemplate stringRedisTemplate;
-    private final QwenProperty qwenProperty;
+
+    // 替换原有的 QwenProperty，改用 GeminiProperty 读取中转站配置（url、api、模型名称等）
+    private final GeminiProperty geminiProperty;
+
+    // ObjectMapper 用于序列化请求体与解析响应
+    private final ObjectMapper mapper = new ObjectMapper();
+
+    // 使用 JDK 内置 HttpClient 发送 HTTP 请求到中转站，声明为静态避免被 Lombok 注入
+    private static final HttpClient httpClient = HttpClient.newHttpClient();
 
     private static final DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy:MM:dd");
 
     @Override
-    public ResponseEntity<String> chat(ChatRequest chatRequest){
+    public ResponseEntity<String> chat(ChatRequest chatRequest) {
         log.info("用户输入：{}", chatRequest.getUserInput());
         // 获取当天日期
         LocalDateTime today = LocalDateTime.now();
@@ -60,7 +68,7 @@ public class ChatServiceImpl implements ChatService {
                 .orElse("")
                 .trim();
         // 检查用户输入
-        if (input.isEmpty()){
+        if (input.isEmpty()) {
             log.error("用户输入为空");
             return ResponseEntity.badRequest().body("用户输入为空");
         }
@@ -91,6 +99,7 @@ public class ChatServiceImpl implements ChatService {
                         log.info("上下文压缩：没有足够的 memory 片段可供压缩，sessionKey={}", keyPrefix);
                         return;
                     }
+                    // 使用摘要模型进行上下文压缩
                     SendToLuna summaryResult = getSendToSummaryModel(summaryPrompt);
                     if (summaryResult.replyText() != null) {
                         sessionService.replaceHistoryWithSummary(keyPrefix, summaryResult.replyText());
@@ -125,7 +134,7 @@ public class ChatServiceImpl implements ChatService {
         String redisKey = String.format(RedisKeyConstant.CONTEXT_KEY_PREFIX, keyPrefix);
         if (!stringRedisTemplate.hasKey(redisKey)) {
             int index = 1;
-            while(index <= 30 && (recent == null || recent.isEmpty())) {
+            while (index <= 30 && (recent == null || recent.isEmpty())) {
                 // 今日首次启动，尝试获取之前的上下文
                 recent = sessionService.getRecentMessages(dateFormatter.format(today.minusDays(index++)), true);
                 if (recent == null) {
@@ -135,7 +144,7 @@ public class ChatServiceImpl implements ChatService {
             log.info("启动：今日无上下文，尝试加载昨日上下文，共 {} 条", recent.size());
         } else {
             recent = sessionService.getRecentMessages(keyPrefix, false);
-            if (recent == null){
+            if (recent == null) {
                 recent = Collections.emptyList();
             }
             log.info("启动：加载今日上下文，共 {} 条", recent.size());
@@ -166,7 +175,7 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public List<String> getHistoryDate(String yearMonth) {
-        String cacheKeyPrefix = String.format(RedisKeyConstant.CONTEXT_KEY_PREFIX , yearMonth) + ":";
+        String cacheKeyPrefix = String.format(RedisKeyConstant.CONTEXT_KEY_PREFIX, yearMonth) + ":";
         // 构造
         ScanOptions options = ScanOptions.scanOptions()
                 .match(cacheKeyPrefix + "*")
@@ -193,42 +202,77 @@ public class ChatServiceImpl implements ChatService {
                 .toList();
     }
 
-
-    private ApplicationResult callApplication(String appId, String prompt) {
+    /**
+     * 通过中转站（OpenAI 兼容接口）调用指定模型。
+     *
+     * @param modelName 模型名称，由 GeminiProperty 提供（chatModelName 或 summaryModelName）
+     * @param prompt    发送给模型的提示词
+     * @return 模型返回的文本内容，失败时返回 null
+     */
+    private String callRelay(String modelName, String prompt) {
         try {
-            ApplicationParam param = ApplicationParam.builder()
-                    .apiKey(qwenProperty.getApiKey())
-                    .appId(appId)
-                    .prompt(prompt)
+            // 构造符合 OpenAI 兼容规范的请求体（messages 数组 + model 字段）
+            String requestBody = mapper.writeValueAsString(Map.of(
+                    "model", modelName,
+                    "messages", List.of(
+                            Map.of("role", "user", "content", prompt)
+                    )
+            ));
+
+            // 构造 HTTP POST 请求，携带中转站 URL 及 Bearer Token 形式的 API 密钥
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(geminiProperty.getUrl()))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + geminiProperty.getApi())
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
                     .build();
 
-            Application application = new Application();
-            return application.call(param);
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+            // 非200状态码视为调用失败
+            if (response.statusCode() != 200) {
+                log.error("中转站返回非200状态码，model={}，statusCode={}，body={}", modelName, response.statusCode(), response.body());
+                return null;
+            }
+
+            // 解析 OpenAI 兼容格式的响应，提取 choices[0].message.content
+            JsonNode root = mapper.readTree(response.body());
+            JsonNode content = root.path("choices").path(0).path("message").path("content");
+            if (content.isMissingNode() || content.isNull()) {
+                log.error("中转站响应中未找到 choices[0].message.content，model={}，body={}", modelName, response.body());
+                return null;
+            }
+            return content.asText();
+
         } catch (Exception e) {
-            log.error("调用模型失败，appId={}, 错误信息={}", appId, e.getMessage(), e);
+            log.error("调用中转站模型失败，model={}，错误信息={}", modelName, e.getMessage(), e);
             return null;
         }
     }
 
+    /**
+     * 调用摘要模型（使用 GeminiProperty 中配置的 summaryModelName）
+     */
     private SendToLuna getSendToSummaryModel(String prompt) {
-        ApplicationResult raw = callApplication(qwenProperty.getSummaryId(), prompt);
-        if (raw == null) {
+        String text = callRelay(geminiProperty.getSummaryModelName(), prompt);
+        if (text == null) {
             log.warn("调用Summary模型返回空结果");
             return new SendToLuna("{\"emotion\":\"Solemn\",\"reply\":\"<error>生成摘要失败</error>\"}", "<error>生成摘要失败</error>");
         }
-        String text = raw.getOutput() == null ? "" : raw.getOutput().getText();
         return new SendToLuna(text, text);
     }
 
+    /**
+     * 调用主对话模型（使用 GeminiProperty 中配置的 chatModelName），并处理 JSON 校验与修复逻辑
+     */
     private SendToLuna getSendToLuna(String prompt) {
-        ApplicationResult raw = callApplication(qwenProperty.getLunaId(), prompt);
-        if (raw == null) {
+        String valid = callRelay(geminiProperty.getChatModelName(), prompt);
+        if (valid == null) {
             log.error("主模型调用失败，返回降级回复");
             String fallback = createFallbackJson();
             return new SendToLuna(fallback, extractReplyFromJsonSafe(fallback));
         }
 
-        String valid = raw.getOutput() == null ? "" : raw.getOutput().getText();
         JsonNode node = tryParseJsonNode(valid);
         // 如果解析失败或不包含reply字段，尝试用REPAIR_PROMPT修复
         if (!isValidReplyNode(node)) {
@@ -244,9 +288,9 @@ public class ChatServiceImpl implements ChatService {
             try {
                 // 获取修复Prompt
                 String repairPrompt = PromptTemplates.REPAIR_PROMPT.formatted(valid);
-                ApplicationResult repairedRaw = callApplication(qwenProperty.getLunaId(), repairPrompt);
-                if (repairedRaw != null && repairedRaw.getOutput() != null) {
-                    String repairedText = repairedRaw.getOutput().getText();
+                // 使用主模型尝试修复不合规的输出
+                String repairedText = callRelay(geminiProperty.getChatModelName(), repairPrompt);
+                if (repairedText != null) {
                     JsonNode repairedNode = tryParseJsonNode(repairedText);
                     if (isValidReplyNode(repairedNode)) {
                         log.info("REPAIR_PROMPT 修复成功");
