@@ -8,5 +8,16 @@ contextBridge.exposeInMainWorld("desktopApi", {
     ipcRenderer.invoke("luna.api.chat.startup"),
 
   shutdown: () =>
-    ipcRenderer.invoke("luna.api.chat.shutdown")
+    ipcRenderer.invoke("luna.api.chat.shutdown"),
+
+  historyDate: (date) =>
+    ipcRenderer.invoke("luna.api.chat.history.date", date),
+  
+  history: (date) =>
+    ipcRenderer.invoke("luna.api.chat.history", date),
+});
+
+contextBridge.exposeInMainWorld("pet", {
+  enter: () => ipcRenderer.send("pet:mouse-enter"),
+  leave: () => ipcRenderer.send("pet:mouse-leave"),
 });

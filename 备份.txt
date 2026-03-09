@@ -240,7 +240,7 @@
       @mouseleave="uiLeave"
 >
   <div class="chat-header drag-handle1" @mousedown="startDrag">
-    <div class="h2">与 Luna 的聊天记录: {{ selectedHistoryDate }}</div>
+    <div class="h2">历史详情: {{ selectedHistoryDate }}</div>
     <button class="close-btn" @click.stop="detailVisible = false">×</button>
   </div>
   
@@ -253,7 +253,7 @@
         </span>
       </div>
 
-      <div v-else :class="['message', msg.role === 'USER' ? 'outgoing' : 'incoming']">
+      <div v-else :class="['message', msg.role === 'User' ? 'outgoing' : 'incoming']">
   <p class="msg-text">{{ msg.content }}</p>
   <span class="msg-time">{{ msg.time }}</span>
 </div>
@@ -510,9 +510,8 @@ async function fetchHistoryForMonth(year, month) {
   
   try {
     const yearMonth = year + ':' + String(month).padStart(2, '0');
-    console.log('[History] fetching available dates for', yearMonth);
+    
     const arr = await historyDateApi(yearMonth);
-    console.log('[History] available dates:', arr);
     const days = (arr || []).map(d => Number(d)).filter(d => !isNaN(d));
 
     // 强制触发响应式更新
@@ -1202,459 +1201,118 @@ function stopBreath() {
 
 /* ================= 音乐跟随 ================= */
 
-// === 状态 ===
+const targetParamValues = {
+  ParamBodyAngleX: 0,
+  ParamAngleZ: 0,
+};
+const currentParamValues = {};
+
+// --- 律动系统状态 ---
 const rhythmState = {
-  showSystemAudioListening: ref(false),
-  isListening: false,
+  showSystemAudioListening: ref(false), // UI 响应式
+  isListening: false,                  // 核心更新循环开关
   currentStream: null,
   audioContext: null,
   analyser: null,
   dataArray: null,
   source: null,
   
-  // 更简单的状态
-  bassLevel: 0,
-  midLevel: 0,
-  beatDetected: false,
-  beatIntensity: 0,
-  
-  // 动画状态
-  bodySway: 0,
-  headNod: 0,
-  breath: 0.5,
-  
-  rafId: null,
+  // 平滑历史值（用于平滑动画）
+  smoothBass: 0,
+  smoothVocal: 0,
 };
 
-// === 自然律动配置 ===
-const RHYTHM_CFG = {
-  // 频段设置（基于256点FFT，更轻量）
-  fftSize: 256,
-  smoothing: 0.7,
-  
-  // 频段范围（索引，256点FFT约20-12000Hz，每个索引约47Hz）
-  bands: {
-    bass: { start: 0, end: 3 },    // 0-188Hz（超低频）
-    lowMid: { start: 4, end: 12 },  // 188-564Hz（低频）
-    mid: { start: 13, end: 40 },    // 564-1880Hz（中频）
-  },
-  
-  // 包络响应速度
-  envelope: {
-    bassAttack: 0.15,
-    bassRelease: 0.05,
-    midAttack: 0.1,
-    midRelease: 0.08,
-  },
-  
-  // 节奏检测
-  beatDetection: {
-    threshold: 0.15,
-    decay: 0.85,
-    cooldown: 8, // 帧数
-  },
-  
-  // 身体动作（更柔和自然）
-  body: {
-    baseFrequency: 0.8,     // 基础摇摆频率
-    bassMultiplier: 2.5,    // 低频增强倍数
-    maxSway: 6.0,           // 最大摇摆幅度
-    smoothness: 0.15,       // 平滑系数
-    leanFactor: 0.3,        // 身体前倾系数
-  },
-  
-  // 头部动作（更自然的点头）
-  head: {
-    nodIntensity: 25,      // 点头强度
-    nodSmoothness: 0.3,    // 点头平滑
-    returnSpeed: 0.05,      // 回弹速度
-    microNods: 2,         // 微点头强度
-  },
-  
-  // 呼吸（更自然）
-  breath: {
-    baseRate: 0.4,
-    amplitude: 0.15,
-    speed: 0.3,
-  },
-  
-  // 嘴部动作（可选）
-  mouth: {
-    enabled: true,
-    sensitivity: 0.4,
-    minOpen: 0.05,
-    maxOpen: 100,
-  }
+const RHYTHM_CONFIG = {
+  bassThreshold: 20,  // <- 表示 smoothBass - baseline 超过 20 才点头
+  bodySway: 6.0,
+  headNod: 4.0,
+  mouthOpen: 0.0,
+  lerpFactor: 0.12,
 };
 
-// === 音频捕获 ===
+
 async function toggleSystemAudio() {
   if (rhythmState.showSystemAudioListening.value) {
     stopSystemAudioListening();
     return;
   }
-  if(trackingEnabled.value == true){
-    trackingEnabled.value = false;
-  }
 
   try {
+    // 1. 捕获系统音频 (Electron 特有)
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { mandatory: { chromeMediaSource: "desktop" } },
-      video: { mandatory: { chromeMediaSource: "desktop" } },
+      audio: { mandatory: { chromeMediaSource: 'desktop' } },
+      video: { mandatory: { chromeMediaSource: 'desktop' } } // Windows 捕获音频通常需要带上 video 轨道
     });
 
     rhythmState.currentStream = stream;
 
+    // 2. 初始化上下文（单例模式）
     if (!rhythmState.audioContext) {
       rhythmState.audioContext = new (window.AudioContext || window.webkitAudioContext)();
     }
-
-    const analyser = rhythmState.audioContext.createAnalyser();
-    analyser.fftSize = RHYTHM_CFG.fftSize;
-    analyser.smoothingTimeConstant = RHYTHM_CFG.smoothing;
-    rhythmState.analyser = analyser;
-    rhythmState.dataArray = new Uint8Array(analyser.frequencyBinCount);
+    
+    rhythmState.analyser = rhythmState.audioContext.createAnalyser();
+    rhythmState.analyser.minDecibels = -90;
+    rhythmState.analyser.maxDecibels = -20;
+    rhythmState.analyser.smoothingTimeConstant = 0.8;
+    rhythmState.analyser.fftSize = 256; // 律动不需要太高频率分辨率，256 性能更好
+    rhythmState.dataArray = new Uint8Array(rhythmState.analyser.frequencyBinCount);
 
     rhythmState.source = rhythmState.audioContext.createMediaStreamSource(stream);
-    rhythmState.source.connect(analyser);
+    rhythmState.source.connect(rhythmState.analyser);
 
-    rhythmState.isListening = true;
+    // 3. 状态同步
     rhythmState.showSystemAudioListening.value = true;
-
-    startNaturalRhythm();
-
-    console.log("Luna: 已连接到系统音频");
-  } catch (err) {
-    console.error("音频初始化失败:", err);
-  }
-}
-
-function stopSystemAudioListening() {
-  if(trackingEnabled.value == false){
-    trackingEnabled.value = true;
-  }
-  rhythmState.isListening = false;
-  rhythmState.showSystemAudioListening.value = false;
-
-  stopRhythmLoop();
-  smoothReset();
-
-  if (rhythmState.currentStream) {
-    rhythmState.currentStream.getTracks().forEach(t => t.stop());
-    rhythmState.currentStream = null;
-  }
-  if (rhythmState.source) {
-    try { rhythmState.source.disconnect(); } catch(e){ }
-    rhythmState.source = null;
-  }
-
-  console.log("Luna: 已断开音频连接");
-}
-
-// === 节奏检测（更简单直接）===
-function detectBeat(bassLevel, prevBass) {
-  const threshold = RHYTHM_CFG.beatDetection.threshold;
-  
-  // 检测明显的能量上升
-  const rise = bassLevel - prevBass;
-  const isBeat = rise > threshold && bassLevel > 0.1;
-  
-  return {
-    isBeat: isBeat,
-    intensity: Math.min(1.0, rise * 2)
-  };
-}
-
-// === 自然律动主循环 ===
-function startNaturalRhythm() {
-  const core = model.internalModel.coreModel;
-  if (!rhythmState.analyser) return;
-
-  const analyser = rhythmState.analyser;
-  const binCount = analyser.frequencyBinCount;
-  const dataArray = rhythmState.dataArray;
-  
-  // 历史值
-  let prevBass = 0;
-  let prevMid = 0;
-  let beatCooldown = 0;
-  let lastBeatTime = 0;
-  
-  // 正弦波状态（用于自然摆动）
-  let bodyPhase = Math.random() * Math.PI * 2;
-  let headPhase = Math.random() * Math.PI * 2;
-  let breathPhase = Math.random() * Math.PI * 2;
-  
-  function frame() {
-    if (!rhythmState.isListening) {
-      rhythmState.rafId = null;
-      return;
-    }
-
-    const now = performance.now();
-    const time = now / 1000;
+    rhythmState.isListening = true;
     
-    // 读取频谱
+    setupUpdateHook();
+    console.log("Luna: 我能听到电脑的声音了~");
+  } catch (e) {
+    console.error("Luna 听力初始化失败:", e);
+  }
+}
+
+function setupUpdateHook() {
+  if (model._hasRhythmHook) return;
+
+  model.on('beforeRender', () => {
+    if (!rhythmState.isListening || !rhythmState.analyser) return;
+
+    const { analyser, dataArray } = rhythmState;
     analyser.getByteFrequencyData(dataArray);
-    
-    // === 计算频段能量（0-1范围）===
-    let bassSum = 0, midSum = 0;
-    const { bass, lowMid, mid } = RHYTHM_CFG.bands;
-    
-    // 低频（鼓点）
-    for (let i = bass.start; i <= bass.end && i < binCount; i++) {
-      bassSum += dataArray[i];
-    }
-    const bassEnergy = bassSum / ((bass.end - bass.start + 1) * 255);
-    
-    // 中频（旋律/人声）
-    for (let i = lowMid.start; i <= mid.end && i < binCount; i++) {
-      midSum += dataArray[i];
-    }
-    const midEnergy = midSum / ((mid.end - lowMid.start + 1) * 255);
-    
-    // === 包络跟踪（带不同attack/release）===
-    // 低频：快速attack，慢速release（捕捉鼓点）
-    if (bassEnergy > rhythmState.bassLevel) {
-      rhythmState.bassLevel += (bassEnergy - rhythmState.bassLevel) * RHYTHM_CFG.envelope.bassAttack;
-    } else {
-      rhythmState.bassLevel += (bassEnergy - rhythmState.bassLevel) * RHYTHM_CFG.envelope.bassRelease;
-    }
-    
-    // 中频：中等速度
-    if (midEnergy > rhythmState.midLevel) {
-      rhythmState.midLevel += (midEnergy - rhythmState.midLevel) * RHYTHM_CFG.envelope.midAttack;
-    } else {
-      rhythmState.midLevel += (midEnergy - rhythmState.midLevel) * RHYTHM_CFG.envelope.midRelease;
-    }
-    
-    // === 节奏检测 ===
-    if (beatCooldown > 0) {
-      beatCooldown--;
-    } else {
-      const beat = detectBeat(rhythmState.bassLevel, prevBass);
-      if (beat.isBeat) {
-        rhythmState.beatDetected = true;
-        rhythmState.beatIntensity = beat.intensity;
-        beatCooldown = RHYTHM_CFG.beatDetection.cooldown;
-        lastBeatTime = time;
-        
-        // 轻微随机变化，增加自然感
-        bodyPhase += (Math.random() - 0.5) * 0.5;
-        headPhase += (Math.random() - 0.5) * 0.3;
-      }
-    }
-    
-    // 衰减beat状态
-    rhythmState.beatIntensity *= RHYTHM_CFG.beatDetection.decay;
-    if (rhythmState.beatIntensity < 0.05) {
-      rhythmState.beatDetected = false;
-    }
-    
-    // === 计算动作目标值（关键改进）===
-    
-    // 1. 身体摇摆（基于正弦波，用低频能量调节幅度和频率）
-    const bodyFreq = RHYTHM_CFG.body.baseFrequency + 
-                     rhythmState.bassLevel * RHYTHM_CFG.body.bassMultiplier;
-    
-    // 基础摆动（更流畅的正弦波）
-    const baseSway = Math.sin(bodyPhase) * 
-                    rhythmState.bassLevel * 
-                    RHYTHM_CFG.body.maxSway;
-    
-    // 添加节拍冲击
-    const beatSway = rhythmState.beatIntensity * 
-                    RHYTHM_CFG.body.maxSway * 
-                    Math.sin(bodyPhase * 3) * 0.5;
-    
-    const targetBodyX = baseSway + beatSway;
-    
-    // 身体前倾（跟随中频能量）
-    const targetBodyZ = rhythmState.midLevel * RHYTHM_CFG.body.leanFactor;
-    
-    // 2. 头部点头（自然流畅）
-    let targetHeadZ = 0;
-    
-    if (rhythmState.beatDetected) {
-      // 节拍点头（有力度）
-      targetHeadZ = -rhythmState.beatIntensity * RHYTHM_CFG.head.nodIntensity * 600;
-    } else {
-      // 微点头（自然晃动）
-      const microNod = Math.sin(headPhase * 2) * 
-                      rhythmState.midLevel * 
-                      RHYTHM_CFG.head.microNods;
-      targetHeadZ = microNod;
-    }
-    
-    // 3. 呼吸（独立循环）
-    const targetBreath = RHYTHM_CFG.breath.baseRate + 
-                        Math.sin(breathPhase) * 
-                        RHYTHM_CFG.breath.amplitude;
-    
-    // === 平滑过渡（使用lerp而不是弹簧）===
-    rhythmState.bodySway += (targetBodyX - rhythmState.bodySway) * RHYTHM_CFG.body.smoothness;
-    
-    // 头部点头有不同的平滑：快速点头，慢速恢复
-    const headSmooth = rhythmState.beatDetected ? 
-                      RHYTHM_CFG.head.nodSmoothness : 
-                      RHYTHM_CFG.head.returnSpeed;
-    rhythmState.headNod += (targetHeadZ - rhythmState.headNod) * headSmooth;
-    
-    rhythmState.breath += (targetBreath - rhythmState.breath) * 0.1;
-    
-    // === 更新相位（确保连续性）===
-    bodyPhase += 0.05 * (1 + rhythmState.bassLevel);
-    headPhase += 0.03 * (1 + rhythmState.midLevel * 0.5);
-    breathPhase += RHYTHM_CFG.breath.speed * 0.05;
-    
-    // 保持相位在合理范围
-    bodyPhase %= Math.PI * 2;
-    headPhase %= Math.PI * 2;
-    breathPhase %= Math.PI * 2;
-    
-    // === 写入模型 ===
-    try {
-      // 身体动作
-      core.setParameterValueById('ParamBodyAngleX', rhythmState.bodySway);
-      core.setParameterValueById('ParamBodyAngleZ', targetBodyZ);
-      
-      // 头部动作
-      core.setParameterValueById('ParamAngleZ', rhythmState.headNod);
-      
-      // 呼吸
-      core.setParameterValueById('ParamBreath', rhythmState.breath);
-      
-      // 可选：嘴部微动（更自然）
-      if (RHYTHM_CFG.mouth.enabled) {
-        const mouthOpen = RHYTHM_CFG.mouth.minOpen + 
-                         rhythmState.midLevel * RHYTHM_CFG.mouth.sensitivity;
-        core.setParameterValueById('ParamMouthOpenY', 
-          Math.min(RHYTHM_CFG.mouth.maxOpen, mouthOpen)
-        );
-      }
-      
-      // 可选：头部轻微旋转（跟随节奏）
-      const headRotY = Math.sin(bodyPhase * 0.7) * rhythmState.bassLevel * 3;
-      core.setParameterValueById('ParamAngleY', headRotY);
-      
-    } catch (e) {
-      // 忽略错误
-    }
-    
-    // 调试输出（每2秒一次）
-    if (Math.floor(time) % 2 === 0 && Math.floor(time) !== Math.floor(lastBeatTime)) {
-      console.log('[律动]', {
-        bass: rhythmState.bassLevel.toFixed(3),
-        beat: rhythmState.beatDetected ? '✓' : '✗',
-        body: rhythmState.bodySway.toFixed(2),
-        head: rhythmState.headNod.toFixed(2)
-      });
-    }
-    
-    // 更新历史值
-    prevBass = rhythmState.bassLevel;
-    prevMid = rhythmState.midLevel;
-    
-    rhythmState.rafId = requestAnimationFrame(frame);
-  }
-  
-  // 启动
-  rhythmState.rafId = requestAnimationFrame(frame);
-  console.log('[律动] 自然律动循环启动');
-}
 
-function stopRhythmLoop() {
-  if (rhythmState.rafId) {
-    cancelAnimationFrame(rhythmState.rafId);
-    rhythmState.rafId = null;
-  }
-  console.log('[律动] 循环已停止');
-}
+    // === 低频 ===
+    let bass = 0;
+    for (let i = 0; i < 5; i++) bass += dataArray[i];
+    bass /= 5;
 
-// === 平滑重置 ===
-function smoothReset() {
-  const core = model.internalModel.coreModel;
-  
-  // 获取当前值
-  const curBodyX = core.getParameterValueById('ParamBodyAngleX') || 0;
-  const curBodyZ = core.getParameterValueById('ParamBodyAngleZ') || 0;
-  const curHeadZ = core.getParameterValueById('ParamAngleZ') || 0;
-  const curBreath = core.getParameterValueById('ParamBreath') || 0.5;
-  
-  const resetState = {
-    bodyX: curBodyX,
-    bodyZ: curBodyZ,
-    headZ: curHeadZ,
-    breath: curBreath
-  };
-  
-  // 使用GSAP平滑过渡到0
-  gsap.to(resetState, {
-    duration: 0.8,
-    bodyX: 0,
-    bodyZ: 0,
-    headZ: 0,
-    breath: 0.5,
-    ease: "power2.out",
-    onUpdate: function() {
-      try {
-        core.setParameterValueById('ParamBodyAngleX', resetState.bodyX);
-        core.setParameterValueById('ParamBodyAngleZ', resetState.bodyZ);
-        core.setParameterValueById('ParamAngleZ', resetState.headZ);
-        core.setParameterValueById('ParamBreath', resetState.breath);
-      } catch (e) {}
-    },
-    onComplete: function() {
-      console.log('[律动] 模型已重置');
-    }
+    rhythmState.smoothBass += (bass - rhythmState.smoothBass) * RHYTHM_CONFIG.lerpFactor;
+
+    // === 能量 ===
+    const energy = 255 - rhythmState.smoothBass;
+    const bassNorm = Math.min(Math.max(energy / 120, 0), 1);
+    const time = performance.now() / 1000;
+
+    // === 律动 ===
+    const offsetBodyX = Math.sin(time * 4) * bassNorm * 6;
+    const offsetHeadZ = bassNorm > 0.6 ? -4 * bassNorm : 0;
+
+    // === 🔥 最终叠加（绝不会被覆盖） ===
+    model.internalModel.coreModel.addParameterValueById(
+      'ParamBodyAngleX',
+      offsetBodyX
+    );
+
+    model.internalModel.coreModel.addParameterValueById(
+      'ParamAngleZ',
+      offsetHeadZ
+    );
   });
+
+  model._hasRhythmHook = true;
 }
 
-// === 快速测试函数 ===
-function testNaturalRhythm() {
-  console.log('[测试] 启动自然律动测试...');
-  
-  const core = model.internalModel.coreModel;
-  const testState = {
-    bass: 0,
-    beat: false,
-    intensity: 0
-  };
-  
-  // 模拟节奏
-  const simAnim = gsap.to(testState, {
-    duration: 10,
-    repeat: -1,
-    bass: 0.5,
-    ease: "sine.inOut",
-    yoyo: true,
-    onRepeat: function() {
-      // 模拟节拍
-      testState.beat = true;
-      testState.intensity = 0.6 + Math.random() * 0.4;
-      
-      // 设置模拟值
-      rhythmState.bassLevel = testState.bass;
-      rhythmState.beatDetected = testState.beat;
-      rhythmState.beatIntensity = testState.intensity;
-      
-      console.log(`[测试] 模拟节拍: ${testState.intensity.toFixed(2)}`);
-      
-      // 1秒后重置节拍
-      setTimeout(() => {
-        testState.beat = false;
-        rhythmState.beatDetected = false;
-      }, 200);
-    }
-  });
-  
-  // 10秒后停止
-  setTimeout(() => {
-    simAnim.kill();
-    smoothReset();
-    console.log('[测试] 自然律动测试完成');
-  }, 10000);
-}
+
 /* ================= 表情合成 ================= */
 const emotion = "Solemn";
 
