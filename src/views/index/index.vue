@@ -1,7 +1,12 @@
 <template>
   <div class="app-root">
 
-    <!-- ===== 調試 UI ===== -->
+    <!-- ===== 背景装饰粒子 ===== -->
+    <div class="bg-particles">
+      <span v-for="i in 18" :key="i" class="particle" :style="particleStyle(i)"></span>
+    </div>
+
+    <!-- ===== 调试 UI ===== -->
     <div
       v-if="showDebugUI"
       ref="uiRef"
@@ -9,56 +14,71 @@
       @mouseenter="uiEnter"
       @mouseleave="uiLeave"
     >
-      <button @click="toggleTracking">
-        {{ trackingEnabled ? "Tracking: ON" : "Tracking: OFF" }}
+      <button class="cute-btn" @click="toggleTracking">
+        <span class="btn-dot" :class="trackingEnabled ? 'green' : 'red'"></span>
+        {{ trackingEnabled ? "视线追踪 ON" : "视线追踪 OFF" }}
       </button>
-      <button @click="startSetOrigin">
-        {{ isSettingOrigin ? "Click canvas..." : "Set Origin" }}
+      <button class="cute-btn" @click="startSetOrigin">
+        {{ isSettingOrigin ? "点击画布设置..." : "设置原点" }}
       </button>
-      <button @click="clearOrigin">Clear Origin</button>
+      <button class="cute-btn" @click="clearOrigin">清除原点</button>
     </div>
 
-    <!-- ===== 輸入框 ===== -->
-    <div
-      v-if="showMessageBox"
-      class="messageBox"
-      ref="messageBoxRef"
-      @mouseenter="uiEnter"
-      @mouseleave="uiLeave"
-      @contextmenu.stop
-      @click.stop
-    >
-      <div class="fileUploadWrapper">
-        <label for="file">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 337 337">
-            <circle stroke-width="20" stroke="#6c6c6c" fill="none" r="158.5" cy="168.5" cx="168.5"></circle>
-            <path stroke-linecap="round" stroke-width="25" stroke="#6c6c6c" d="M167.759 79V259"></path>
-            <path stroke-linecap="round" stroke-width="25" stroke="#6c6c6c" d="M79 167.138H259"></path>
+    <!-- ===== 输入框 ===== -->
+    <transition name="msgbox-fade">
+      <div
+        v-if="showMessageBox"
+        class="messageBox"
+        :class="[`emotion-${currentEmotion}`]"
+        ref="messageBoxRef"
+        @mouseenter="uiEnter"
+        @mouseleave="uiLeave"
+        @contextmenu.stop
+        @click.stop
+      >
+        <!-- 情绪指示灯 -->
+        <div class="emotion-indicator" :class="`ei-${currentEmotion}`">
+          <span class="ei-dot"></span>
+          <span class="ei-label">{{ emotionLabel }}</span>
+        </div>
+
+        <div class="fileUploadWrapper">
+          <label for="file">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 337 337">
+              <circle stroke-width="20" stroke="#aaa" fill="none" r="158.5" cy="168.5" cx="168.5"></circle>
+              <path stroke-linecap="round" stroke-width="25" stroke="#aaa" d="M167.759 79V259"></path>
+              <path stroke-linecap="round" stroke-width="25" stroke="#aaa" d="M79 167.138H259"></path>
+            </svg>
+            <span class="tooltip">上传文件</span>
+          </label>
+          <input type="file" id="file" name="file" />
+        </div>
+
+        <input
+          required
+          :disabled="isLoading"
+          :placeholder="isLoading ? '' : idlePlaceholder"
+          type="text"
+          id="messageInput"
+          v-model="input"
+          @keydown.enter.prevent="onSend"
+        />
+
+        <!-- 可爱加载动画 -->
+        <div v-if="isLoading" class="loading-dots">
+          <span></span><span></span><span></span>
+        </div>
+
+        <button id="sendButton" @click="onSend" :disabled="sending" class="send-btn-cute">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 664 663">
+            <path fill="none" d="M646.293 331.888L17.7538 17.6187L155.245 331.888M646.293 331.888L17.753 646.157L155.245 331.888M646.293 331.888L318.735 330.228L155.245 331.888"></path>
+            <path stroke-linejoin="round" stroke-linecap="round" stroke-width="33.67" stroke="#fff" d="M646.293 331.888L17.7538 17.6187L155.245 331.888M646.293 331.888L17.753 646.157L155.245 331.888M646.293 331.888L318.735 330.228L155.245 331.888"></path>
           </svg>
-          <span class="tooltip">上傳文件</span>
-        </label>
-        <input type="file" id="file" name="file" />
+        </button>
       </div>
+    </transition>
 
-      <input
-        required
-        :disabled="isLoading"
-        :placeholder="isLoading ? loadingPlaceholder : idlePlaceholder"
-        type="text"
-        :class="{ loading: isLoading }"
-        id="messageInput"
-        v-model="input"
-        @keydown.enter.prevent="onSend"
-      />
-      <button id="sendButton" @click="onSend" :disabled="sending">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 664 663">
-          <path fill="none" d="M646.293 331.888L17.7538 17.6187L155.245 331.888M646.293 331.888L17.753 646.157L155.245 331.888M646.293 331.888L318.735 330.228L155.245 331.888"></path>
-          <path stroke-linejoin="round" stroke-linecap="round" stroke-width="33.67" stroke="#6c6c6c" d="M646.293 331.888L17.7538 17.6187L155.245 331.888M646.293 331.888L17.753 646.157L155.245 331.888M646.293 331.888L318.735 330.228L155.245 331.888"></path>
-        </svg>
-      </button>
-    </div>
-
-    <!-- ===== 聊天氣泡容器 ===== -->
+    <!-- ===== 聊天气泡容器 ===== -->
     <div
       class="bubble-stack"
       :style="{ left: bubbleAnchor.x + 'px', top: bubbleAnchor.y + 'px' }"
@@ -70,54 +90,64 @@
         :class="{ leaving: bubble.leaving }"
         :ref="el => registerBubble(el, bubble.id)"
       >
+        <span class="bubble-avatar">🌙</span>
         {{ bubble.text }}
       </div>
     </div>
 
-    <!-- ===== 右鍵菜單 ===== -->
-    <div
-      v-if="contextMenu.visible"
-      ref="contextMenuRef"
-      class="context-menu"
-      :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
-      @mouseenter="uiEnter"
-      @mouseleave="uiLeave"
-      @click.stop
-    >
-      <div class="menu-item" @click="toggleDebugUI">
-        {{ showDebugUI ? "隱藏追蹤點設置UI" : "顯示追蹤點設置UI" }}
+    <!-- ===== 右键菜单 ===== -->
+    <transition name="menu-pop">
+      <div
+        v-if="contextMenu.visible"
+        ref="contextMenuRef"
+        class="context-menu"
+        :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+        @mouseenter="uiEnter"
+        @mouseleave="uiLeave"
+        @click.stop
+      >
+        <div class="menu-header">
+          <span class="menu-logo">🌙 Luna</span>
+        </div>
+        <div class="menu-item" @click="toggleDebugUI">
+          <span class="mi-icon">{{ showDebugUI ? '🔴' : '🟢' }}</span>
+          {{ showDebugUI ? "隐藏调试UI" : "显示调试UI" }}
+        </div>
+        <div class="menu-item" @click="toggleMessageBox">
+          <span class="mi-icon">💬</span>
+          {{ showMessageBox ? "隐藏输入框" : "显示输入框" }}
+        </div>
+        <div class="menu-item" @click="openAppearancePanelAt(contextMenu.x, contextMenu.y)">
+          <span class="mi-icon">✨</span>外貌设置
+        </div>
+        <div class="menu-item" @click="resetModelState">
+          <span class="mi-icon">🔄</span>重置模型表情
+        </div>
+        <div class="menu-item" @click="onToggleSystemAudio">
+          <span class="mi-icon">{{ rhythmShowListening ? '🔇' : '🎵' }}</span>
+          {{ rhythmShowListening ? "关闭音频律动" : "开启音频律动" }}
+        </div>
+        <div class="menu-item" @click="openHistoryPanelAt(contextMenu.x, contextMenu.y)">
+          <span class="mi-icon">📖</span>历史记录
+        </div>
+        <div class="menu-divider"></div>
+        <div class="menu-item danger" @click="closeLuna">
+          <span class="mi-icon">💔</span>关闭 Luna
+        </div>
       </div>
-      <div class="menu-item" @click="toggleMessageBox">
-        {{ showMessageBox ? "隱藏輸入框" : "顯示輸入框" }}
-      </div>
-      <div class="menu-item" @click="openAppearancePanelAt(contextMenu.x, contextMenu.y)">
-        外貌設置
-      </div>
-      <div class="menu-item" @click="resetModelState">
-        重置模型表情
-      </div>
-      <div class="menu-item" @click="onToggleSystemAudio" style="margin-top:5px;">
-        {{ rhythmShowListening ? "關閉系統音頻監聽" : "開啟系統音頻監聽" }}
-      </div>
-      <div class="menu-item" @click="openHistoryPanelAt(contextMenu.x, contextMenu.y)">
-        查看歷史記錄
-      </div>
-      <div class="menu-item" @click="closeLuna">
-        關閉 Luna
-      </div>
-    </div>
+    </transition>
 
-    <!-- ===== 外貌設置面板 ===== -->
+    <!-- ===== 外貌设置面板 ===== -->
     <div
       v-if="appearancePanel.visible"
-      class="appearance-panel"
+      class="appearance-panel cute-panel"
       :style="{ left: appearancePanel.x + 'px', top: appearancePanel.y + 'px' }"
       @mouseenter="uiEnter"
       @mouseleave="uiLeave"
     >
       <div class="panel-header drag-handle" @pointerdown="onAppearanceDragStart">
-        <span>外貌設置</span>
-        <button class="close" @click="closeAppearancePanel">×</button>
+        <span>✨ 外貌设置</span>
+        <button class="close-x" @click="closeAppearancePanel">×</button>
       </div>
       <div class="panel-body">
         <div class="appearance-controls">
@@ -130,16 +160,16 @@
         </div>
       </div>
       <div class="panel-footer">
-        <button @click="applyAllEnabledUI">應用已啟用項</button>
-        <button @click="disableAllUI">全部禁用</button>
+        <button class="cute-btn small" @click="applyAllEnabledUI">应用已启用</button>
+        <button class="cute-btn small danger" @click="disableAllUI">全部禁用</button>
       </div>
       <div class="appearance-hint" v-if="appearanceHint">{{ appearanceHint }}</div>
     </div>
 
-    <!-- ===== 歷史記錄面板 ===== -->
+    <!-- ===== 历史记录面板 ===== -->
     <div
       v-if="historyPanel.visible"
-      class="history-panel"
+      class="history-panel cute-panel"
       :style="{ left: historyPanel.x + 'px', top: historyPanel.y + 'px' }"
       ref="historyPanelRef"
       @mouseenter="uiEnter"
@@ -147,22 +177,18 @@
       @click.stop
       @pointerdown.stop
     >
-      <div class="header drag-handle" @pointerdown="onHistoryDragStart">
-        <div class="header">
-          <div class="header-left">
-            <button class="nav-btn" @click="changeMonth(-1)" title="上個月">‹</button>
-            <button class="nav-btn" @click="changeMonth(1)" title="下個月">›</button>
-          </div>
-          <div class="header-center">
-            <select v-model="historyPanel.selectedYear" @change="onYearChange">
-              <option v-for="y in historyPanel.years" :key="y" :value="y">{{ y }}</option>
-            </select>
-            <select v-model="historyPanel.selectedMonth" @change="onMonthChange">
-              <option v-for="m in historyPanel.months" :key="m" :value="m">{{ m }} 月</option>
-            </select>
-          </div>
-          <button class="close" @click="closeHistoryPanel">×</button>
+      <div class="panel-header drag-handle" @pointerdown="onHistoryDragStart">
+        <div class="header-left">
+          <button class="nav-btn" @click="changeMonth(-1)">‹</button>
+          <button class="nav-btn" @click="changeMonth(1)">›</button>
+          <select v-model="historyPanel.selectedYear" @change="onYearChange">
+            <option v-for="y in historyPanel.years" :key="y" :value="y">{{ y }}</option>
+          </select>
+          <select v-model="historyPanel.selectedMonth" @change="onMonthChange">
+            <option v-for="m in historyPanel.months" :key="m" :value="m">{{ m }} 月</option>
+          </select>
         </div>
+        <button class="close-x" @click="closeHistoryPanel">×</button>
       </div>
       <div class="dates-grid">
         <div
@@ -175,24 +201,22 @@
             disabled: !historyPanel.availableDatesSet.has(d)
           }"
           @click="onDateClick(d)"
-        >
-          {{ d }}
-        </div>
+        >{{ d }}</div>
       </div>
     </div>
 
-    <!-- ===== 聊天記錄詳情面板 ===== -->
+    <!-- ===== 聊天记录详情面板 ===== -->
     <div
       v-if="detailVisible"
-      class="chat-detail-panel"
+      class="chat-detail-panel cute-panel"
       :style="{ left: detailPos.x + 'px', top: detailPos.y + 'px' }"
       @mousedown.stop
       @mouseenter="uiEnter"
       @mouseleave="uiLeave"
     >
-      <div class="chat-header drag-handle1" @mousedown="startDrag">
-        <div class="h2">與 Luna 的聊天記錄: {{ selectedHistoryDate }}</div>
-        <button class="close-btn" @click.stop="detailVisible = false">×</button>
+      <div class="panel-header drag-handle1" @mousedown="startDrag">
+        <span class="h2">📖 {{ selectedHistoryDate }}</span>
+        <button class="close-x" @click.stop="detailVisible = false">×</button>
       </div>
       <div class="chat-body" @mousedown.stop>
         <div v-for="(msg, idx) in chatRecords" :key="idx" class="msg-wrapper">
@@ -211,9 +235,18 @@
     </div>
 
     <!-- ===== PIXI Canvas ===== -->
-    <div ref="wrapperRef" class="interactive-wrapper no-drag">
+    <div ref="wrapperRef" class="interactive-wrapper">
       <canvas ref="canvasRef" @contextmenu.prevent="onCanvasRightClick"></canvas>
     </div>
+
+    <!-- ===== Luna 入场遮罩 ===== -->
+    <transition name="luna-intro">
+      <div v-if="lunaIntroVisible" class="luna-intro-mask">
+        <div class="luna-intro-text">
+          <span class="luna-dot" v-for="i in 3" :key="i"></span>
+        </div>
+      </div>
+    </transition>
 
   </div>
 </template>
@@ -232,7 +265,6 @@ import {
 import { EMOTION_EXPRESSIONS } from "../../utils/emotion-expressions";
 import { Live2DModel } from "pixi-live2d-display/cubism4";
 
-// 拆分出的 composable
 import { useBubble } from "../../composables/useBubble.js";
 import { useAppearance } from "../../composables/useAppearance.js";
 import { useRhythm } from "../../composables/useRhythm.js";
@@ -245,21 +277,52 @@ const contextMenuRef = ref(null);
 const messageBoxRef = ref(null);
 const historyPanelRef = ref(null);
 
-/* ================= 基礎狀態 ================= */
+/* ================= 基础状态 ================= */
 const showDebugUI = ref(false);
 const showMessageBox = ref(false);
 const trackingEnabled = ref(true);
 const isSettingOrigin = ref(false);
+const lunaIntroVisible = ref(true);
 
-// Live2D 核心對象（非響應式）
+// emotion 状态
+const currentEmotion = ref("neutral");
+const EMOTION_LABEL_MAP = {
+  neutral: "平静",
+  happy: "开心",
+  sad: "难过",
+  angry: "生气",
+  surprised: "惊讶",
+  shy: "害羞",
+  Solemn: "庄重",
+};
+const emotionLabel = computed(() => EMOTION_LABEL_MAP[currentEmotion.value] || currentEmotion.value);
+
+// 粒子样式（纯装饰，pointer-events: none）
+function particleStyle(i) {
+  const size = 4 + (i % 5) * 3;
+  const left = ((i * 37 + 11) % 100);
+  const top = ((i * 53 + 7) % 100);
+  const delay = (i * 0.4) % 3;
+  const dur = 3 + (i % 4);
+  return {
+    width: `${size}px`,
+    height: `${size}px`,
+    left: `${left}%`,
+    top: `${top}%`,
+    animationDelay: `${delay}s`,
+    animationDuration: `${dur}s`,
+  };
+}
+
+// Live2D 核心对象（非响应式）
 let app = null;
 let container = null;
 let model = null;
 
-// 表情緩存（避免重複 fetch）
+// 表情缓存
 const expressionCache = new Map();
 
-/* ================= 氣泡（composable） ================= */
+/* ================= 气泡（composable） ================= */
 const {
   chatBubbles,
   bubbleAnchor,
@@ -284,15 +347,13 @@ const {
   onAppearanceToggle,
 } = useAppearance();
 
-/* ================= 音頻律動（composable） ================= */
+/* ================= 音频律动（composable） ================= */
 const { showSystemAudioListening: rhythmShowListening, toggleSystemAudio, dispose: disposeRhythm } = useRhythm();
 
-/** 獲取當前 coreModel（帶空值保護） */
 function getCoreModel() {
   return model?.internalModel?.coreModel ?? null;
 }
 
-/* ================= UI 橋接方法（傳入 core） ================= */
 async function onAppearanceToggleUI(file) {
   await onAppearanceToggle(file, getCoreModel());
 }
@@ -306,36 +367,23 @@ async function onToggleSystemAudio() {
   await toggleSystemAudio(getCoreModel(), trackingEnabled);
 }
 
-/* ================= 聊天輸入 ================= */
+/* ================= 聊天输入 ================= */
 const input = ref("");
 const sending = ref(false);
 const lastReply = ref({ loading: false, text: "" });
 
 const isLoading = computed(() => sending.value || lastReply.value.loading);
-const idlePlaceholder = "和 Luna 說點什麼吧…";
+const idlePlaceholder = "和 Luna 说点什么吧…";
 const loadingPlaceholder = ref("…");
 
-// 加載中省略號動畫計時器
 let dotsTimer = null;
-
 watch(isLoading, (loading) => {
   clearInterval(dotsTimer);
   dotsTimer = null;
-  if (loading) {
-    let count = 1;
-    loadingPlaceholder.value = "·";
-    dotsTimer = setInterval(() => {
-      count = (count % 3) + 1;
-      loadingPlaceholder.value = "·".repeat(count);
-    }, 500);
-  } else {
-    loadingPlaceholder.value = idlePlaceholder;
-  }
+  if (!loading) loadingPlaceholder.value = idlePlaceholder;
 });
 
-/* ================= 響應處理 ================= */
-
-/** 統一規範化後端響應格式 */
+/* ================= 响应处理 ================= */
 function normalizeResponse(res) {
   const data = res?.data ?? res;
   if (typeof data === "string") {
@@ -344,22 +392,17 @@ function normalizeResponse(res) {
   return data;
 }
 
-/**
- * 處理模型回復（表情 + 氣泡）
- * @param {object} res - 已規範化的響應 { emotion, reply }
- */
 async function handleModelReply(res) {
-  console.log("[Luna] 模型已返回內容", res);
+  console.log("[Luna] 模型已返回内容", res);
   lastReply.value.loading = false;
-
   if (!res) return;
 
   const em = res.emotion || "";
   const replyText = res.reply || res.text || "";
-
   if (!replyText) return;
 
   if (em) {
+    currentEmotion.value = em;
     try { await applyEmotionExpressions(em); } catch {}
   }
 
@@ -367,13 +410,12 @@ async function handleModelReply(res) {
   lastReply.value.text = replyText;
 }
 
-/** 網絡錯誤輕處理 */
 function handleNetworkError() {
   lastReply.value.loading = false;
-  showAppearanceHint("網絡請求失敗");
+  showAppearanceHint("网络请求失败");
 }
 
-/* ================= 發送消息 ================= */
+/* ================= 发送消息 ================= */
 async function onSend() {
   if (sending.value) return;
   const text = input.value.trim();
@@ -387,7 +429,7 @@ async function onSend() {
     const res = await chatApi({ userInput: text });
     await handleModelReply(normalizeResponse(res));
   } catch (e) {
-    console.error("[Luna] 發送失敗", e);
+    console.error("[Luna] 发送失败", e);
     handleNetworkError();
   } finally {
     sending.value = false;
@@ -395,14 +437,14 @@ async function onSend() {
   }
 }
 
-/* ================= 啟動 / 關閉 ================= */
+/* ================= 启动 / 关闭 ================= */
 async function callStartup() {
   lastReply.value.loading = true;
   try {
     const res = await startupApi();
     await handleModelReply(normalizeResponse(res));
   } catch (e) {
-    console.error("[Luna] 啟動失敗", e);
+    console.error("[Luna] 启动失败", e);
     handleNetworkError();
   }
 }
@@ -410,17 +452,16 @@ async function callStartup() {
 async function callShutdown() {
   lastReply.value.loading = true;
   try {
-    // 修復：統一使用 normalizeResponse 處理響應
     const res = await shutdownApi();
     await handleModelReply(normalizeResponse(res));
   } catch (e) {
-    console.error("[Luna] 關閉失敗", e);
+    console.error("[Luna] 关闭失败", e);
   } finally {
     lastReply.value.loading = false;
   }
 }
 
-/* ================= 歷史記錄面板 ================= */
+/* ================= 历史记录面板 ================= */
 const historyPanel = ref({
   visible: false,
   x: 100,
@@ -429,13 +470,12 @@ const historyPanel = ref({
   months: [],
   selectedYear: null,
   selectedMonth: null,
-  selectedDay: null, // 修復：直接在初始化對象內聲明
+  selectedDay: null,
   availableDates: [],
   availableDatesSet: new Set(),
   loading: false,
 });
 
-// 初始化年份和月份選項
 ;(function initHistoryDefaults() {
   const now = new Date();
   const cy = now.getFullYear();
@@ -452,7 +492,6 @@ const daysInSelectedMonth = computed(() => {
   return Array.from({ length: new Date(y, m, 0).getDate() }, (_, i) => i + 1);
 });
 
-/** 拉取指定年月的可用日期列表 */
 async function fetchHistoryForMonth(year, month) {
   if (!year || !month) return;
   historyPanel.value.loading = true;
@@ -464,41 +503,31 @@ async function fetchHistoryForMonth(year, month) {
     historyPanel.value.availableDates = [...days];
     historyPanel.value.availableDatesSet = new Set(days);
   } catch (e) {
-    console.error("[History] fetchHistoryForMonth 失敗", e);
+    console.error("[History] fetchHistoryForMonth 失败", e);
   } finally {
     historyPanel.value.loading = false;
   }
 }
 
-/** 切換月份（支持跨年） */
 async function changeMonth(delta) {
   const now = new Date();
   if (!historyPanel.value.selectedYear) historyPanel.value.selectedYear = now.getFullYear();
   if (!historyPanel.value.selectedMonth) historyPanel.value.selectedMonth = 1;
-
   let y = historyPanel.value.selectedYear;
   let m = historyPanel.value.selectedMonth + delta;
-
   if (m < 1) { m = 12; y--; }
   else if (m > 12) { m = 1; y++; }
-
   historyPanel.value.selectedYear = y;
   historyPanel.value.selectedMonth = m;
-
   if (!historyPanel.value.years.includes(y)) {
     historyPanel.value.years.push(y);
     historyPanel.value.years.sort((a, b) => b - a);
   }
-
   await fetchHistoryForMonth(y, m);
 }
 
-function onYearChange() {
-  fetchHistoryForMonth(historyPanel.value.selectedYear, historyPanel.value.selectedMonth);
-}
-function onMonthChange() {
-  fetchHistoryForMonth(historyPanel.value.selectedYear, historyPanel.value.selectedMonth);
-}
+function onYearChange() { fetchHistoryForMonth(historyPanel.value.selectedYear, historyPanel.value.selectedMonth); }
+function onMonthChange() { fetchHistoryForMonth(historyPanel.value.selectedYear, historyPanel.value.selectedMonth); }
 
 function openHistoryPanelAt(x, y) {
   historyPanel.value.visible = true;
@@ -509,12 +538,8 @@ function openHistoryPanelAt(x, y) {
   historyPanel.value.selectedMonth = historyPanel.value.selectedMonth || now.getMonth() + 1;
   fetchHistoryForMonth(historyPanel.value.selectedYear, historyPanel.value.selectedMonth);
 }
+function closeHistoryPanel() { historyPanel.value.visible = false; }
 
-function closeHistoryPanel() {
-  historyPanel.value.visible = false;
-}
-
-/* 歷史面板拖拽 */
 let draggingHistoryPanel = false;
 let historyDragStart = { x: 0, y: 0 };
 let historyPanelStart = { x: 0, y: 0 };
@@ -527,24 +552,20 @@ function onHistoryDragStart(e) {
   document.addEventListener("pointermove", onHistoryDragMove);
   document.addEventListener("pointerup", onHistoryDragEnd);
 }
-
 function onHistoryDragMove(e) {
   if (!draggingHistoryPanel) return;
   const dx = e.clientX - historyDragStart.x;
   const dy = e.clientY - historyDragStart.y;
-  const maxX = window.innerWidth - 320;
-  const maxY = window.innerHeight - 300;
-  historyPanel.value.x = Math.min(maxX, Math.max(0, historyPanelStart.x + dx));
-  historyPanel.value.y = Math.min(maxY, Math.max(0, historyPanelStart.y + dy));
+  historyPanel.value.x = Math.min(window.innerWidth - 320, Math.max(0, historyPanelStart.x + dx));
+  historyPanel.value.y = Math.min(window.innerHeight - 300, Math.max(0, historyPanelStart.y + dy));
 }
-
 function onHistoryDragEnd() {
   draggingHistoryPanel = false;
   document.removeEventListener("pointermove", onHistoryDragMove);
   document.removeEventListener("pointerup", onHistoryDragEnd);
 }
 
-/* ================= 聊天記錄詳情 ================= */
+/* ================= 聊天记录详情 ================= */
 const detailVisible = ref(false);
 const chatRecords = ref([]);
 const selectedHistoryDate = ref("");
@@ -561,34 +582,27 @@ function startDrag(e) {
   window.addEventListener("mousemove", onDragging);
   window.addEventListener("mouseup", stopDrag);
 }
-
 function onDragging(e) {
   if (!isDragging) return;
   detailPos.value.x = e.clientX - startX;
   detailPos.value.y = e.clientY - startY;
 }
-
 function stopDrag() {
   isDragging = false;
   window.removeEventListener("mousemove", onDragging);
   window.removeEventListener("mouseup", stopDrag);
 }
 
-/** 點擊日期格，拉取當天聊天記錄 */
 async function onDateClick(d) {
   if (!historyPanel.value.availableDatesSet.has(d)) return;
-
   const y = historyPanel.value.selectedYear;
   const m = historyPanel.value.selectedMonth;
   historyPanel.value.selectedDay = d;
   const dateStr = `${y}:${String(m).padStart(2, "0")}:${String(d).padStart(2, "0")}`;
   selectedHistoryDate.value = dateStr;
-
   try {
     const res = await historyApi(dateStr);
     const rawList = res?.data ?? res;
-
-    // 修復：加入類型校驗，防止 item 不是字符串時報錯
     chatRecords.value = (Array.isArray(rawList) ? rawList : [])
       .filter((item) => typeof item === "string")
       .map((item) => {
@@ -598,26 +612,22 @@ async function onDateClick(d) {
         const content = parts.slice(1, -3).join(":");
         return { role, content, time };
       });
-
-    // 修復：移除重複賦值，只賦值一次
     detailVisible.value = true;
   } catch (e) {
-    console.error("[History] 獲取聊天詳情失敗:", e);
+    console.error("[History] 获取聊天详情失败:", e);
   }
 }
 
-/* ================= 右鍵菜單 ================= */
+/* ================= 右键菜单 ================= */
 function onRightClick(e) {
   if (uiRef.value?.contains(e.target)) return;
   if (messageBoxRef.value?.contains(e.target)) return;
   showContextMenu(e.clientX, e.clientY);
 }
-
 function onCanvasRightClick(e) {
   showContextMenu(e.clientX, e.clientY);
   e.preventDefault();
 }
-
 function showContextMenu(x, y) {
   contextMenu.value = { visible: true, x, y };
   nextTick(() => {
@@ -627,7 +637,6 @@ function showContextMenu(x, y) {
     if (y + height > window.innerHeight) contextMenu.value.y = window.innerHeight - height - 10;
   });
 }
-
 const contextMenu = ref({ visible: false, x: 0, y: 0 });
 
 function handleClickOutside(e) {
@@ -641,7 +650,6 @@ function handleClickOutside(e) {
 
 /* ================= 外貌面板 ================= */
 const appearancePanel = ref({ visible: false, x: 100, y: 100 });
-
 let draggingAppearance = false;
 let dragStart = { x: 0, y: 0 };
 let panelStart = { x: 0, y: 0 };
@@ -654,7 +662,6 @@ function onAppearanceDragStart(e) {
   document.addEventListener("pointermove", onAppearanceDragMove);
   document.addEventListener("pointerup", onAppearanceDragEnd);
 }
-
 function onAppearanceDragMove(e) {
   if (!draggingAppearance) return;
   const maxX = window.innerWidth - 420;
@@ -662,7 +669,6 @@ function onAppearanceDragMove(e) {
   appearancePanel.value.x = Math.min(maxX, Math.max(0, panelStart.x + e.clientX - dragStart.x));
   appearancePanel.value.y = Math.min(maxY, Math.max(0, panelStart.y + e.clientY - dragStart.y));
 }
-
 function onAppearanceDragEnd() {
   draggingAppearance = false;
   document.removeEventListener("pointermove", onAppearanceDragMove);
@@ -680,7 +686,6 @@ function openAppearancePanelAt(x, y) {
   window.pet?.enter();
   contextMenu.value.visible = false;
 }
-
 function closeAppearancePanel() {
   appearancePanel.value.visible = false;
   overUI = false;
@@ -695,16 +700,20 @@ function updatePetState() {
   if (overModel || overUI) window.pet?.enter();
   else window.pet?.leave();
 }
-
 function uiEnter() { overUI = true; updatePetState(); }
 function uiLeave() { overUI = false; updatePetState(); }
 
 watch(showMessageBox, (v) => { if (v) window.pet?.enter(); else updatePetState(); });
 watch(showDebugUI, (v) => { if (v) window.pet?.enter(); else updatePetState(); });
 
-/* ================= 拖拽模型 ================= */
+/* ================= 拖拽模型（仅模型本身） ================= */
 let dragging = false;
 let lastPos = { x: 0, y: 0 };
+
+function isPointInsideModel(globalPoint) {
+  if (!model) return false;
+  return model.getBounds().contains(globalPoint.x, globalPoint.y);
+}
 
 function onPointerDown(e) {
   const oe = e.data?.originalEvent;
@@ -714,7 +723,6 @@ function onPointerDown(e) {
   dragging = true;
   lastPos = { x: gp.x, y: gp.y };
 }
-
 function onPointerMove(e) {
   if (!dragging) return;
   const dx = e.data.global.x - lastPos.x;
@@ -723,76 +731,13 @@ function onPointerMove(e) {
   container.x += dx;
   container.y += dy;
 }
-
 function onPointerUp() { dragging = false; }
 
-function isPointInsideModel(globalPoint) {
-  if (!model) return false;
-  return model.getBounds().contains(globalPoint.x, globalPoint.y);
-}
-
-/* ================= 視線追蹤 ================= */
-const PARAM_CONFIG = {
-  HEAD_X: { param: "ParamAngleX", range: [-30, 30] },
-  HEAD_Y: { param: "ParamAngleY", range: [-30, 30] },
-  EYE_X:  { param: "ParamEyeBallX", range: [-1, 1] },
-  EYE_Y:  { param: "ParamEyeBallY", range: [-1, 1] },
-  BREATH: { param: "ParamBreath", range: [0, 1] },
-};
-
-const LOOK_ORIGIN_KEY = "live2d:look-origin";
-let lookOriginLocal = null;
-
-function applyLookAt(dx, dy) {
-  const core = getCoreModel();
-  if (!core) return;
-  const nx = Math.max(-1, Math.min(1, dx / (app.renderer.width / 2)));
-  const ny = -Math.max(-1, Math.min(1, dy / (app.renderer.height / 2)));
-  const mapRange = (v, [min, max]) => min + ((v + 1) / 2) * (max - min);
-  try {
-    core.setParameterValueById(PARAM_CONFIG.EYE_X.param, mapRange(nx, PARAM_CONFIG.EYE_X.range));
-    core.setParameterValueById(PARAM_CONFIG.EYE_Y.param, mapRange(ny, PARAM_CONFIG.EYE_Y.range));
-    core.setParameterValueById(PARAM_CONFIG.HEAD_X.param, mapRange(nx, PARAM_CONFIG.HEAD_X.range));
-    core.setParameterValueById(PARAM_CONFIG.HEAD_Y.param, mapRange(ny, PARAM_CONFIG.HEAD_Y.range));
-  } catch {}
-}
-
-function onGlobalPointerMove(ev) {
-  if (!trackingEnabled.value || !lookOriginLocal || !model) return;
-  const rect = canvasRef.value.getBoundingClientRect();
-  const world = new PIXI.Point(ev.clientX - rect.left, ev.clientY - rect.top);
-  const local = container.toLocal(world, app.stage);
-  applyLookAt(local.x - lookOriginLocal.x, local.y - lookOriginLocal.y);
-}
-
-function onCanvasClick(ev) {
-  if (!isSettingOrigin.value) return;
-  const rect = canvasRef.value.getBoundingClientRect();
-  const world = new PIXI.Point(ev.clientX - rect.left, ev.clientY - rect.top);
-  lookOriginLocal = container.toLocal(world, app.stage);
-  saveOrigin();
-  isSettingOrigin.value = false;
-}
-
-function saveOrigin() {
-  if (!lookOriginLocal) return;
-  localStorage.setItem(LOOK_ORIGIN_KEY, JSON.stringify({ x: lookOriginLocal.x, y: lookOriginLocal.y }));
-}
-
-function loadOrigin() {
-  const raw = localStorage.getItem(LOOK_ORIGIN_KEY);
-  if (raw) lookOriginLocal = JSON.parse(raw);
-}
-
-function clearOrigin() {
-  lookOriginLocal = null;
-  localStorage.removeItem(LOOK_ORIGIN_KEY);
-}
-
-/* ================= 滾輪縮放 ================= */
+/* ================= 滚轮缩放（仅命中模型时） ================= */
 function onWheel(ev) {
   const rect = canvasRef.value.getBoundingClientRect();
   const globalPoint = new PIXI.Point(ev.clientX - rect.left, ev.clientY - rect.top);
+  // 只有命中模型本身才缩放
   if (!isPointInsideModel(globalPoint)) return;
   ev.preventDefault();
   const factor = ev.deltaY > 0 ? 0.95 : 1.05;
@@ -800,836 +745,4 @@ function onWheel(ev) {
   const localPoint = container.toLocal(globalPoint, app.stage);
   container.scale.set(newScale);
   const newGlobal = container.toGlobal(localPoint);
-  container.position.x += globalPoint.x - newGlobal.x;
-  container.position.y += globalPoint.y - newGlobal.y;
-}
-
-/* ================= 調試 UI ================= */
-function toggleTracking() {
-  trackingEnabled.value = !trackingEnabled.value;
-  if (!trackingEnabled.value) {
-    const core = getCoreModel();
-    if (core) {
-      [PARAM_CONFIG.EYE_X.param, PARAM_CONFIG.EYE_Y.param,
-       PARAM_CONFIG.HEAD_X.param, PARAM_CONFIG.HEAD_Y.param]
-        .forEach((p) => { try { core.setParameterValueById(p, 0); } catch {} });
-    }
-  }
-}
-
-function startSetOrigin() {
-  isSettingOrigin.value = true;
-  window.pet?.enter();
-}
-
-function toggleDebugUI() {
-  showDebugUI.value = !showDebugUI.value;
-  contextMenu.value.visible = false;
-  if (!showDebugUI.value) { overUI = false; updatePetState(); }
-  else window.pet?.enter();
-}
-
-function toggleMessageBox() {
-  showMessageBox.value = !showMessageBox.value;
-  contextMenu.value.visible = false;
-  if (!showMessageBox.value) { overUI = false; updatePetState(); }
-}
-
-/* ================= 呼吸動畫 ================= */
-let breathTickerFn = null;
-
-function startBreath() {
-  const breathStart = performance.now() / 1000;
-  breathTickerFn = () => {
-    const core = getCoreModel();
-    if (!core) return;
-    const t = performance.now() / 1000 - breathStart;
-    const val = 0.5 + Math.sin(t * 0.9 * Math.PI * 2) * 0.15;
-    try { core.setParameterValueById(PARAM_CONFIG.BREATH.param, val); } catch {}
-  };
-  app.ticker.add(breathTickerFn);
-}
-
-function stopBreath() {
-  if (breathTickerFn && app?.ticker) {
-    app.ticker.remove(breathTickerFn);
-    breathTickerFn = null;
-  }
-}
-
-/* ================= 表情合成 ================= */
-
-/** 預設初始表情，可按需替換為動態配置 */
-const INITIAL_EMOTION = "Solemn";
-
-// 記錄當前表情修改的參數原始值，用於重置
-let currentEmotionMeta = {};
-
-async function resetToSolemn() {
-  const core = getCoreModel();
-  if (!core) return;
-  const keys = Object.keys(currentEmotionMeta);
-  if (!keys.length) return;
-  for (const id of keys) {
-    try {
-      core.setParameterValueById(id, typeof currentEmotionMeta[id] === "number" ? currentEmotionMeta[id] : 0);
-    } catch (e) {
-      console.warn("[Luna] resetToSolemn 恢復失敗:", id, e);
-    }
-  }
-  currentEmotionMeta = {};
-  await new Promise((r) => requestAnimationFrame(r));
-}
-
-function tweenParameters(core, targetValues, duration = 200) {
-  return new Promise((resolve) => {
-    const startTime = performance.now();
-    const fromValues = {};
-    for (const id in targetValues) {
-      fromValues[id] = core.getParameterValueById(id) ?? 0;
-    }
-    function step(now) {
-      const t = Math.min((now - startTime) / duration, 1);
-      const k = t * t * (3 - 2 * t); // smoothstep
-      for (const id in targetValues) {
-        core.setParameterValueById(id, fromValues[id] + (targetValues[id] - fromValues[id]) * k);
-      }
-      if (t < 1) requestAnimationFrame(step);
-      else resolve();
-    }
-    requestAnimationFrame(step);
-  });
-}
-
-async function applyEmotionExpressions(emotion) {
-  const core = getCoreModel();
-  if (!core) return;
-
-  await resetToSolemn();
-  await new Promise((r) => requestAnimationFrame(r));
-
-  const names = EMOTION_EXPRESSIONS?.[emotion] || [];
-  if (!names.length) return;
-
-  const targetValues = {};
-  const thisApplyPrev = {};
-
-  for (const cnName of names) {
-    const expJson = expressionCache.get(cnName);
-    if (!expJson) continue;
-    (expJson.Parameters || []).forEach(({ Id, Value, Blend }) => {
-      const base = targetValues[Id] ?? core.getParameterValueById(Id) ?? 0;
-      if (!(Id in thisApplyPrev)) thisApplyPrev[Id] = base;
-      if (Blend === "Add") targetValues[Id] = base + Value;
-      else if (Blend === "Multiply") targetValues[Id] = base * Value;
-      else targetValues[Id] = Value;
-    });
-  }
-
-  await tweenParameters(core, targetValues, 180);
-  currentEmotionMeta = thisApplyPrev;
-
-  // 重新應用外貌，防止表情覆蓋外貌參數
-  await applyAllEnabled(getCoreModel());
-}
-
-/* ================= 預加載表情文件 ================= */
-async function preloadExpressions() {
-    const allFiles = [
-    "眼-生气",           // 修復：繁體"生氣" -> 簡體"生气"
-    "脸红2隐藏",         // 修復：繁體"臉紅2隱藏" -> 簡體"脸红2隐藏"
-    "脸黑",              // 修復：繁體"臉黑" -> 簡體"脸黑"
-    "眼-哭哭",           // 正確，無需修改
-    "眼-泪眼汪汪",       // 修復：繁體"淚眼汪汪" -> 簡體"泪眼汪汪"
-    "眼-眩晕流汗",       // 修復：繁體"眩暈流汗" -> 簡體"眩晕流汗"
-    "脸红",              // 修復：繁體"臉紅" -> 簡體"脸红"
-    "眼-平静死鱼眼",     // 修復：繁體"平靜死魚眼" -> 簡體"平静死鱼眼"
-    "嘴-平静v形（不可张开", // 修復：繁體"張開" -> 簡體"张开"
-    "眼-星星眼",         // 正確，無需修改
-    "脸红-痴汉嘴（兼容吐舌", // 修復：繁體"臉紅-痴漢嘴" -> 簡體"脸红-痴汉嘴"
-    "眼-爱心眼",         // 修復：繁體"愛心眼" -> 簡體"爱心眼"
-  ];
-  console.log(`[Live2D] 開始預加載表情，共 ${allFiles.length} 個`);
-  await Promise.all(
-    allFiles.map(async (name) => {
-      try {
-        const res = await fetch(`/models/luna/${encodeURIComponent(name)}.exp3.json`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        expressionCache.set(name, await res.json());
-        console.log(`[Live2D] 加載成功: ${name}`);
-      } catch (e) {
-        console.error(`[Live2D] 加載失敗: ${name}`, e);
-      }
-    })
-  );
-  console.log("[Live2D] 表情預加載完成");
-}
-
-/* ================= 重置模型狀態 ================= */
-async function resetModelState() {
-  const core = getCoreModel();
-  if (!core) return;
-  for (const f in appearanceAppliedMeta) {
-    removeAppearanceFile(f, core);
-  }
-  await resetToSolemn();
-  await applyAllEnabled(core);
-  showAppearanceHint("模型表情已重置");
-}
-
-/* ================= 關閉 Luna ================= */
-function closeLuna() {
-  try {
-    stopBreath();
-    app?.destroy(true);
-    window.pet?.leave?.();
-  } catch (e) {
-    console.warn("[Luna] 關閉出錯", e);
-  }
-  if (wrapperRef.value) wrapperRef.value.innerHTML = "";
-  showMessageBox.value = false;
-  contextMenu.value.visible = false;
-}
-
-/* ================= 等待模型就緒 ================= */
-function waitForModelReady(timeout = 5000) {
-  return new Promise((resolve) => {
-    const start = performance.now();
-    (function poll() {
-      if (model?.internalModel?.coreModel) return resolve(true);
-      if (performance.now() - start > timeout) return resolve(false);
-      setTimeout(poll, 120);
-    })();
-  });
-}
-
-/* ================= 生命周期 ================= */
-onMounted(async () => {
-  window.PIXI = PIXI;
-
-  app = new PIXI.Application({
-    view: canvasRef.value,
-    backgroundAlpha: 0,
-    resizeTo: wrapperRef.value,
-  });
-
-  container = new PIXI.Container();
-  app.stage.addChild(container);
-
-  model = await Live2DModel.from("/models/luna/jk盐.model3.json", {
-    autoInteract: false,
-    ticker: PIXI.Ticker.shared,
-  });
-
-  model.scale.set(0.1);
-  model.anchor.set(0.5, 1);
-  model.x = app.renderer.width / 2;
-  model.y = app.renderer.height;
-  model.interactive = true;
-  model.cursor = "pointer";
-
-  model
-    .on("pointerdown", onPointerDown)
-    .on("pointermove", onPointerMove)
-    .on("pointerup", onPointerUp)
-    .on("pointerupoutside", onPointerUp);
-
-  model.on("pointerover", () => { overModel = true; updatePetState(); });
-  model.on("pointerout",  () => { overModel = false; updatePetState(); });
-  model.on("rightclick",  (e) => {
-    const rect = canvasRef.value.getBoundingClientRect();
-    showContextMenu(rect.left + e.data.global.x, rect.top + e.data.global.y);
-  });
-
-  container.addChild(model);
-  loadOrigin();
-
-  wrapperRef.value.addEventListener("pointermove", onGlobalPointerMove);
-  wrapperRef.value.addEventListener("pointerdown", onCanvasClick);
-  wrapperRef.value.addEventListener("wheel", onWheel, { passive: false });
-  document.addEventListener("click", handleClickOutside);
-  document.addEventListener("contextmenu", onRightClick);
-
-  await preloadExpressions();
-  startBreath();
-
-  loadAppearanceState();
-  await waitForModelReady(5000);
-  await nextTick();
-  await applyAllEnabled(getCoreModel());
-
-  applyEmotionExpressions(INITIAL_EMOTION);
-  callStartup();
-});
-
-onBeforeUnmount(() => {
-  // 清理省略號計時器（修復：原先未在卸載時清理）
-  clearInterval(dotsTimer);
-  dotsTimer = null;
-
-  stopBreath();
-
-  // 釋放音頻律動資源
-  disposeRhythm(getCoreModel(), trackingEnabled);
-
-  app?.destroy(true);
-  callShutdown();
-
-  document.removeEventListener("click", handleClickOutside);
-  document.removeEventListener("contextmenu", onRightClick);
-});
-</script>
-
-<style scoped>
-.css-chat-bubble {
-  max-width: 280px;
-  padding: 10px 14px;
-  width: fit-content;
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  background: linear-gradient(to bottom, rgba(255,255,255,0.95), rgba(245,245,245,0.9));
-  border-radius: 14px;
-  color: #333;
-  font-size: 14px;
-  line-height: 1.5;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  word-break: break-word;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
-  animation: bubbleIn 0.22s ease-out both;
-}
-
-@keyframes bubbleIn {
-  from { opacity: 0; transform: scale(0.85); }
-  to   { opacity: 1; transform: scale(1); }
-}
-
-@keyframes bubbleOut {
-  from { opacity: 1; transform: scale(1); }
-  to   { opacity: 0; transform: scale(0.9); }
-}
-
-.css-chat-bubble.leaving {
-  animation: bubbleOut 0.18s ease-in forwards;
-}
-
-.bubble-stack {
-  position: fixed;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  transform: translate(-50%, -100%);
-  pointer-events: none;
-  z-index: 1002;
-}
-
-/* ================= 輸入框 ================= */
-.messageBox {
-  position: absolute;
-  top: 800px;
-  left: 490px;
-  width: 700px;
-  height: 50px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background-color: #2d2d2d;
-  padding: 0 15px;
-  border-radius: 10px;
-  border: 1px solid rgb(63, 63, 63);
-  z-index: 1001;
-  pointer-events: auto;
-}
-
-.messageBox * { pointer-events: auto; }
-
-.messageBox:focus-within {
-  border: 1px solid rgb(110, 110, 110);
-}
-
-.fileUploadWrapper {
-  position: relative;
-  width: fit-content;
-  height: 110%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-#file { display: none; }
-
-.fileUploadWrapper label {
-  cursor: pointer;
-  width: fit-content;
-  height: fit-content;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-}
-
-.fileUploadWrapper label svg { height: 18px; }
-.fileUploadWrapper label svg path,
-.fileUploadWrapper label svg circle { transition: all 0.3s; }
-.fileUploadWrapper label:hover svg path { stroke: #fff; }
-.fileUploadWrapper label:hover svg circle { stroke: #fff; fill: #3c3c3c; }
-.fileUploadWrapper label:hover .tooltip { display: block; opacity: 1; }
-
-.tooltip {
-  position: absolute;
-  top: -40px;
-  display: none;
-  opacity: 0;
-  color: white;
-  font-size: 10px;
-  text-wrap: nowrap;
-  background-color: #000;
-  padding: 6px 10px;
-  border-radius: 5px;
-  border: 1px solid #3c3c3c;
-  box-shadow: 0px 5px 10px rgba(0,0,0,0.596);
-  transition: all 0.3s;
-}
-
-#messageInput {
-  width: 650px;
-  height: 100%;
-  background-color: transparent;
-  outline: none;
-  border: none;
-  padding-left: 10px;
-  color: white;
-}
-
-#messageInput:focus ~ #sendButton svg path,
-#messageInput:valid ~ #sendButton svg path {
-  fill: #3c3c3c;
-  stroke: white;
-}
-
-#sendButton {
-  width: fit-content;
-  height: 100%;
-  background-color: transparent;
-  outline: none;
-  border: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.3s;
-}
-
-#sendButton svg { height: 18px; transition: all 0.3s; }
-#sendButton svg path { transition: all 0.3s; }
-#sendButton:hover svg path { fill: #3c3c3c; stroke: white; }
-
-#messageInput.loading::placeholder {
-  animation: placeholderBlink 1.2s infinite;
-}
-
-@keyframes placeholderBlink {
-  0%   { opacity: 0.3; }
-  50%  { opacity: 1; }
-  100% { opacity: 0.3; }
-}
-
-/* ================= 通用佈局 ================= */
-.app-root {
-  width: 100vw;
-  height: 100vh;
-  position: relative;
-  overflow: hidden;
-  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-}
-
-.interactive-wrapper {
-  width: 100%;
-  height: 100%;
-  position: relative;
-  z-index: 1;
-}
-
-.no-drag { -webkit-app-region: no-drag; }
-
-/* ================= 調試 UI ================= */
-.debug-ui {
-  position: absolute;
-  top: 16px;
-  left: 16px;
-  z-index: 1002;
-  display: flex;
-  gap: 8px;
-  background: rgba(255,255,255,0.92);
-  padding: 10px;
-  border-radius: 10px;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.12);
-  pointer-events: auto;
-}
-
-.debug-ui button {
-  background: #2d2d2d;
-  color: #fff;
-  border: none;
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-size: 14px;
-  cursor: pointer;
-  transition: background 0.2s ease;
-}
-
-.debug-ui button:hover { background: #444; }
-
-/* ================= 右鍵菜單 ================= */
-.context-menu {
-  position: fixed;
-  z-index: 1003;
-  background: #1f1f1f;
-  border-radius: 8px;
-  padding: 6px 0;
-  color: #ececec;
-  min-width: 160px;
-  box-shadow: 0 8px 18px rgba(0,0,0,0.25);
-  font-size: 14px;
-  pointer-events: auto;
-  user-select: none;
-}
-
-.context-menu .menu-item {
-  padding: 10px 16px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.18s ease, padding-left 0.18s ease;
-}
-
-.context-menu .menu-item:hover {
-  background: #303030;
-  padding-left: 20px;
-  color: #fff;
-}
-
-.context-menu .menu-item:not(:last-child) {
-  border-bottom: 1px solid rgba(255,255,255,0.12);
-}
-
-/* ================= 外貌面板 ================= */
-.appearance-panel {
-  position: fixed;
-  z-index: 1004;
-  width: 420px;
-  height: 360px;
-  background: #111;
-  color: #efefef;
-  border-radius: 10px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.6);
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  pointer-events: auto;
-}
-
-.appearance-panel .panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px 8px;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
-  font-weight: 600;
-  cursor: move;
-  user-select: none;
-}
-
-.appearance-panel .panel-header .close {
-  background: transparent;
-  border: none;
-  color: #ddd;
-  font-size: 18px;
-  cursor: pointer;
-}
-
-.appearance-panel .panel-body {
-  padding: 8px;
-  overflow: auto;
-  flex: 1;
-}
-
-.appearance-controls { display: flex; flex-direction: column; gap: 6px; }
-.appearance-item { display: flex; align-items: center; }
-
-.checkbox-label {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  cursor: pointer;
-  user-select: none;
-}
-
-.checkbox-label input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: #4caf50;
-}
-
-.file-name {
-  font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 340px;
-}
-
-.appearance-panel .panel-footer {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  padding-top: 8px;
-  border-top: 1px solid rgba(255,255,255,0.03);
-}
-
-.appearance-panel .panel-footer button {
-  background: #222;
-  border: 1px solid rgba(255,255,255,0.06);
-  color: #fff;
-  padding: 6px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.appearance-panel .panel-footer button:hover { opacity: 0.9; }
-
-.appearance-hint {
-  margin-top: 6px;
-  font-size: 11px;
-  color: rgba(255,255,255,0.55);
-  text-align: right;
-  padding-right: 4px;
-  user-select: none;
-  pointer-events: none;
-  animation: appearanceHintFade 0.15s ease-out;
-}
-
-@keyframes appearanceHintFade {
-  from { opacity: 0; transform: translateY(-2px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-/* ================= 歷史面板 ================= */
-.history-panel {
-  position: absolute;
-  width: 320px;
-  background: #2d2d2d;
-  border: 1px solid #444;
-  border-radius: 10px;
-  padding: 12px;
-  z-index: 3000;
-  color: #fff;
-  pointer-events: auto;
-}
-
-.history-panel .header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.header-left { display: flex; gap: 6px; align-items: center; }
-.header-center { display: flex; gap: 8px; align-items: center; margin-left: 10px; }
-
-.nav-btn {
-  background: transparent;
-  border: 1px solid 1px rgba(255,255,255,0.06);
-  color: #fff;
-  border-radius: 6px;
-  width: 28px;
-  height: 28px;
-  cursor: pointer;
-}
-
-.history-panel select {
-  background: rgba(0,0,0,0.12);
-  color: #fff;
-  border: 1px solid rgba(255,255,255,0.04);
-  padding: 4px 8px;
-  border-radius: 6px;
-}
-
-.history-panel select option {
-  background-color: #3a3a3a;
-  color: #fff;
-}
-
-.drag-handle {
-  cursor: move;
-  padding: 4px 8px;
-  border-radius: 6px 6px 0 0;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.dates-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 6px;
-  padding: 6px;
-  pointer-events: auto;
-}
-
-.date-cell {
-  width: 36px;
-  height: 36px;
-  line-height: 36px;
-  text-align: center;
-  border-radius: 6px;
-  background-color: #3a3a3a;
-  cursor: pointer;
-  transition: all 0.2s;
-  pointer-events: auto;
-}
-
-.date-cell.available {
-  background: linear-gradient(180deg, rgba(78,162,255,0.12), rgba(78,162,255,0.06));
-  color: #dff3ff;
-  font-weight: 600;
-}
-
-.date-cell.available:hover { background: #4a90e2; }
-
-.date-cell.selected {
-  background: #4a90e2;
-  font-weight: bold;
-  color: #fff;
-  box-shadow: 0 6px 18px rgba(78,162,255,0.18);
-}
-
-.date-cell.disabled {
-  background: #1f1f1f;
-  color: #666;
-  cursor: not-allowed;
-}
-
-/* ================= 聊天記錄詳情面板 ================= */
-.chat-detail-panel {
-  position: fixed;
-  width: 360px;
-  height: 500px;
-  background: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.4);
-  display: flex;
-  flex-direction: column;
-  z-index: 9999;
-  overflow: hidden;
-  user-select: none;
-  border: 1px solid rgba(0,0,0,0.1);
-}
-
-.drag-handle1 {
-  cursor: move;
-  background: #f8f9fa;
-  border-bottom: 1px solid #eee;
-  padding: 10px 15px;
-}
-
-.chat-header {
-  padding: 12px;
-  background-color: #f8f9fa;
-  border-bottom: 1px solid #eee;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.chat-header .h2 { font-size: 14px; color: #333; font-weight: bold; }
-
-.close-btn {
-  background: none;
-  border: none;
-  font-size: 20px;
-  cursor: pointer;
-  color: #999;
-}
-
-.chat-body {
-  flex: 1;
-  padding: 15px;
-  overflow-y: auto;
-  background-color: #fdfdfd;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  pointer-events: auto;
-}
-
-.msg-wrapper { display: flex; flex-direction: column; }
-
-.msg-notice {
-  align-self: center;
-  margin: 8px 0;
-  text-align: center;
-  max-width: 90%;
-}
-
-.notice-content {
-  font-size: 11px;
-  color: #888;
-  background: #f0f0f0;
-  padding: 3px 10px;
-  border-radius: 10px;
-}
-
-.notice-time { margin-left: 5px; opacity: 0.7; font-size: 10px; }
-
-.message {
-  padding: 0px 14px;
-  border-radius: 12px;
-  max-width: 80%;
-  font-size: 14px;
-  line-height: 1.5;
-  display: flex;
-  flex-direction: column;
-  word-wrap: break-word;
-  margin-bottom: 4px;
-}
-
-.incoming {
-  align-self: flex-start;
-  background-color: #f0f0f0;
-  color: #333;
-  border-bottom-left-radius: 2px;
-  align-items: flex-start;
-}
-
-.incoming .msg-time {
-  text-align: left;
-  margin-top: -10px;
-  font-size: 10px;
-  opacity: 0.5;
-}
-
-.outgoing {
-  align-self: flex-end;
-  background-color: #4285f4;
-  color: #fff;
-  border-bottom-right-radius: 2px;
-  align-items: flex-end;
-}
-
-.outgoing .msg-text { margin-left: 5px; }
-
-.outgoing .msg-time {
-  text-align: right;
-  margin-top: -10px;
-  font-size: 10px;
-  opacity: 0.8;
-}
-
-@keyframes chatAnimation {
-  0%   { opacity: 0; transform: translateY(5px); }
-  100% { opacity: 1; transform: translateY(0); }
-}
-</style>
+  
