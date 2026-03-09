@@ -1,7 +1,7 @@
 <template>
   <div class="app-root">
 
-    <!-- ===== 调试 UI ===== -->
+    <!-- ===== 調試 UI ===== -->
     <div
       v-if="showDebugUI"
       ref="uiRef"
@@ -18,7 +18,7 @@
       <button @click="clearOrigin">Clear Origin</button>
     </div>
 
-    <!-- ===== 输入框组件 ===== -->
+    <!-- ===== 輸入框 ===== -->
     <div
       v-if="showMessageBox"
       class="messageBox"
@@ -31,34 +31,15 @@
       <div class="fileUploadWrapper">
         <label for="file">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 337 337">
-            <circle
-              stroke-width="20"
-              stroke="#6c6c6c"
-              fill="none"
-              r="158.5"
-              cy="168.5"
-              cx="168.5"
-            ></circle>
-            <path
-              stroke-linecap="round"
-              stroke-width="25"
-              stroke="#6c6c6c"
-              d="M167.759 79V259"
-            ></path>
-            <path
-              stroke-linecap="round"
-              stroke-width="25"
-              stroke="#6c6c6c"
-              d="M79 167.138H259"
-            ></path>
+            <circle stroke-width="20" stroke="#6c6c6c" fill="none" r="158.5" cy="168.5" cx="168.5"></circle>
+            <path stroke-linecap="round" stroke-width="25" stroke="#6c6c6c" d="M167.759 79V259"></path>
+            <path stroke-linecap="round" stroke-width="25" stroke="#6c6c6c" d="M79 167.138H259"></path>
           </svg>
-          <span class="tooltip">上传文件</span>
+          <span class="tooltip">上傳文件</span>
         </label>
         <input type="file" id="file" name="file" />
       </div>
 
-
-      <!-- 绑定 input 并支持回车发送 -->
       <input
         required
         :disabled="isLoading"
@@ -71,47 +52,29 @@
       />
       <button id="sendButton" @click="onSend" :disabled="sending">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 664 663">
-          <path
-            fill="none"
-            d="M646.293 331.888L17.7538 17.6187L155.245 331.888M646.293 331.888L17.753 646.157L155.245 331.888M646.293 331.888L318.735 330.228L155.245 331.888"
-          ></path>
-          <path
-            stroke-linejoin="round"
-            stroke-linecap="round"
-            stroke-width="33.67"
-            stroke="#6c6c6c"
-            d="M646.293 331.888L17.7538 17.6187L155.245 331.888M646.293 331.888L17.753 646.157L155.245 331.888M646.293 331.888L318.735 330.228L155.245 331.888"
-          ></path>
+          <path fill="none" d="M646.293 331.888L17.7538 17.6187L155.245 331.888M646.293 331.888L17.753 646.157L155.245 331.888M646.293 331.888L318.735 330.228L155.245 331.888"></path>
+          <path stroke-linejoin="round" stroke-linecap="round" stroke-width="33.67" stroke="#6c6c6c" d="M646.293 331.888L17.7538 17.6187L155.245 331.888M646.293 331.888L17.753 646.157L155.245 331.888M646.293 331.888L318.735 330.228L155.245 331.888"></path>
         </svg>
       </button>
     </div>
 
- <!-- ===== CSS 聊天气泡（⭐ 新） ===== -->
-<!-- 聊天气泡容器 -->
-<div
-  class="bubble-stack"
-  :style="{
-    left: bubbleAnchor.x + 'px',
-    top: bubbleAnchor.y + 'px'
-  }"
->
-  <div
-    v-for="bubble in chatBubbles"
-    :key="bubble.id"
-    class="css-chat-bubble"
-    :class="{ leaving: bubble.leaving }"
-    :ref="el => registerBubble(el, bubble.id)"
-  >
-    {{ bubble.text }}
-  </div>
-</div>
+    <!-- ===== 聊天氣泡容器 ===== -->
+    <div
+      class="bubble-stack"
+      :style="{ left: bubbleAnchor.x + 'px', top: bubbleAnchor.y + 'px' }"
+    >
+      <div
+        v-for="bubble in chatBubbles"
+        :key="bubble.id"
+        class="css-chat-bubble"
+        :class="{ leaving: bubble.leaving }"
+        :ref="el => registerBubble(el, bubble.id)"
+      >
+        {{ bubble.text }}
+      </div>
+    </div>
 
-
-
-
-
-
-    <!-- ===== 右键菜单 ===== -->
+    <!-- ===== 右鍵菜單 ===== -->
     <div
       v-if="contextMenu.visible"
       ref="contextMenuRef"
@@ -122,29 +85,29 @@
       @click.stop
     >
       <div class="menu-item" @click="toggleDebugUI">
-        {{ showDebugUI ? "隐藏追踪点设置UI" : "显示追踪点设置UI" }}
+        {{ showDebugUI ? "隱藏追蹤點設置UI" : "顯示追蹤點設置UI" }}
       </div>
       <div class="menu-item" @click="toggleMessageBox">
-        {{ showMessageBox ? "隐藏输入框" : "显示输入框" }}
+        {{ showMessageBox ? "隱藏輸入框" : "顯示輸入框" }}
       </div>
       <div class="menu-item" @click="openAppearancePanelAt(contextMenu.x, contextMenu.y)">
-        外貌设置
+        外貌設置
       </div>
       <div class="menu-item" @click="resetModelState">
-            重置模型表情
+        重置模型表情
       </div>
-      <div class="menu-item" @click="toggleSystemAudio" style="margin-top:5px;">
-        {{ rhythmState.showSystemAudioListening.value ? "关闭系统音频监听" : "开启系统音频监听" }}
+      <div class="menu-item" @click="onToggleSystemAudio" style="margin-top:5px;">
+        {{ rhythmShowListening ? "關閉系統音頻監聽" : "開啟系統音頻監聽" }}
       </div>
       <div class="menu-item" @click="openHistoryPanelAt(contextMenu.x, contextMenu.y)">
-          查看历史记录
+        查看歷史記錄
       </div>
-    <div class="menu-item" @click="closeLuna">
-      关闭 Luna
-    </div>
+      <div class="menu-item" @click="closeLuna">
+        關閉 Luna
+      </div>
     </div>
 
-    <!-- ===== 外貌设置面板（浮层） ===== -->
+    <!-- ===== 外貌設置面板 ===== -->
     <div
       v-if="appearancePanel.visible"
       class="appearance-panel"
@@ -152,115 +115,100 @@
       @mouseenter="uiEnter"
       @mouseleave="uiLeave"
     >
-      <div
-  class="panel-header drag-handle"
-  @pointerdown="onAppearanceDragStart"
->
-
-        <span>外貌设置</span>
+      <div class="panel-header drag-handle" @pointerdown="onAppearanceDragStart">
+        <span>外貌設置</span>
         <button class="close" @click="closeAppearancePanel">×</button>
       </div>
-
       <div class="panel-body">
         <div class="appearance-controls">
           <div class="appearance-item" v-for="file in APPEARANCE_FILES" :key="file">
             <label class="checkbox-label">
-              <input type="checkbox" v-model="appearanceEnabled[file]" @change="onAppearanceToggle(file)" />
+              <input type="checkbox" v-model="appearanceEnabled[file]" @change="onAppearanceToggleUI(file)" />
               <span class="file-name">{{ displayAppearanceName(file) }}</span>
             </label>
           </div>
         </div>
       </div>
-
       <div class="panel-footer">
-        <button @click="applyAllEnabled">应用已启用项</button>
-        <button @click="disableAll">全部禁用</button>
+        <button @click="applyAllEnabledUI">應用已啟用項</button>
+        <button @click="disableAllUI">全部禁用</button>
       </div>
-      <!-- 轻反馈提示 -->
-<div class="appearance-hint" v-if="appearanceHint">
-  {{ appearanceHint }}
-</div>
+      <div class="appearance-hint" v-if="appearanceHint">{{ appearanceHint }}</div>
     </div>
 
-
-<!-- ===== 历史记录面板（浮层） ===== -->
-<div
-  v-if="historyPanel.visible"
-  class="history-panel"
-  :style="{ left: historyPanel.x + 'px', top: historyPanel.y + 'px' }"
-  ref="historyPanelRef"
-  @mouseenter="uiEnter"
-  @mouseleave="uiLeave"
-  @click.stop
-  @pointerdown.stop
->
-<div class="header drag-handle" @pointerdown="onHistoryDragStart">
-  <div class="header">
-    <div class="header-left">
-      <button class="nav-btn" @click="changeMonth(-1)" title="上个月">‹</button>
-      <button class="nav-btn" @click="changeMonth(1)" title="下个月">›</button>
-    </div>
-
-    <div class="header-center">
-      <select v-model="historyPanel.selectedYear" @change="onYearChange">
-        <option class="center-son" v-for="y in historyPanel.years" :key="y" :value="y">{{ y }}</option>
-      </select>
-
-      <select v-model="historyPanel.selectedMonth" @change="onMonthChange">
-        <option class="center-son" v-for="m in historyPanel.months" :key="m" :value="m">{{ m }} 月</option>
-      </select>
-    </div>
-
-    <button class="close" @click="closeHistoryPanel">×</button>
-  </div>
-</div>
-  <div class="dates-grid">
+    <!-- ===== 歷史記錄面板 ===== -->
     <div
-      v-for="d in daysInSelectedMonth"
-      :key="d"
-      class="date-cell"
-      :class="{
-        available: historyPanel.availableDatesSet.has(d),
-        selected: historyPanel.selectedDay === d,
-        disabled: !historyPanel.availableDatesSet.has(d)
-      }"
-      @click="onDateClick(d)"
-    >
-      {{ d }}
-    </div>
-  </div>
-</div>
-
-<div 
-  v-if="detailVisible" 
-  class="chat-detail-panel"
-  :style="{ left: detailPos.x + 'px', top: detailPos.y + 'px' }"
-  @mousedown.stop 
+      v-if="historyPanel.visible"
+      class="history-panel"
+      :style="{ left: historyPanel.x + 'px', top: historyPanel.y + 'px' }"
+      ref="historyPanelRef"
       @mouseenter="uiEnter"
       @mouseleave="uiLeave"
->
-  <div class="chat-header drag-handle1" @mousedown="startDrag">
-    <div class="h2">与 Luna 的聊天记录: {{ selectedHistoryDate }}</div>
-    <button class="close-btn" @click.stop="detailVisible = false">×</button>
-  </div>
-  
-  <div class="chat-body" @mousedown.stop>
-    <div v-for="(msg, idx) in chatRecords" :key="idx" class="msg-wrapper">
-      <div v-if="['STARTUP', 'SHUTDOWN', 'CONTEXT_SUMMARY'].includes(msg.role)" class="msg-notice">
-        <span class="notice-content">
-          {{ msg.content }}
-          <span class="notice-time">{{ msg.time }}</span>
-        </span>
+      @click.stop
+      @pointerdown.stop
+    >
+      <div class="header drag-handle" @pointerdown="onHistoryDragStart">
+        <div class="header">
+          <div class="header-left">
+            <button class="nav-btn" @click="changeMonth(-1)" title="上個月">‹</button>
+            <button class="nav-btn" @click="changeMonth(1)" title="下個月">›</button>
+          </div>
+          <div class="header-center">
+            <select v-model="historyPanel.selectedYear" @change="onYearChange">
+              <option v-for="y in historyPanel.years" :key="y" :value="y">{{ y }}</option>
+            </select>
+            <select v-model="historyPanel.selectedMonth" @change="onMonthChange">
+              <option v-for="m in historyPanel.months" :key="m" :value="m">{{ m }} 月</option>
+            </select>
+          </div>
+          <button class="close" @click="closeHistoryPanel">×</button>
+        </div>
       </div>
-
-      <div v-else :class="['message', msg.role === 'USER' ? 'outgoing' : 'incoming']">
-  <p class="msg-text">{{ msg.content }}</p>
-  <span class="msg-time">{{ msg.time }}</span>
-</div>
+      <div class="dates-grid">
+        <div
+          v-for="d in daysInSelectedMonth"
+          :key="d"
+          class="date-cell"
+          :class="{
+            available: historyPanel.availableDatesSet.has(d),
+            selected: historyPanel.selectedDay === d,
+            disabled: !historyPanel.availableDatesSet.has(d)
+          }"
+          @click="onDateClick(d)"
+        >
+          {{ d }}
+        </div>
+      </div>
     </div>
-  </div>
-</div>
 
+    <!-- ===== 聊天記錄詳情面板 ===== -->
+    <div
+      v-if="detailVisible"
+      class="chat-detail-panel"
+      :style="{ left: detailPos.x + 'px', top: detailPos.y + 'px' }"
+      @mousedown.stop
+      @mouseenter="uiEnter"
+      @mouseleave="uiLeave"
+    >
+      <div class="chat-header drag-handle1" @mousedown="startDrag">
+        <div class="h2">與 Luna 的聊天記錄: {{ selectedHistoryDate }}</div>
+        <button class="close-btn" @click.stop="detailVisible = false">×</button>
+      </div>
+      <div class="chat-body" @mousedown.stop>
+        <div v-for="(msg, idx) in chatRecords" :key="idx" class="msg-wrapper">
+          <div v-if="['STARTUP', 'SHUTDOWN', 'CONTEXT_SUMMARY'].includes(msg.role)" class="msg-notice">
+            <span class="notice-content">
+              {{ msg.content }}
+              <span class="notice-time">{{ msg.time }}</span>
+            </span>
+          </div>
+          <div v-else :class="['message', msg.role === 'USER' ? 'outgoing' : 'incoming']">
+            <p class="msg-text">{{ msg.content }}</p>
+            <span class="msg-time">{{ msg.time }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- ===== PIXI Canvas ===== -->
     <div ref="wrapperRef" class="interactive-wrapper no-drag">
@@ -271,123 +219,108 @@
 </template>
 
 <script setup>
-import { ref,computed, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
 import * as PIXI from "pixi.js";
 import { gsap } from "gsap";
-import { chat as chatApi, startup as startupApi, shutdown as shutdownApi, history as historyApi, historyDate as historyDateApi } from "../../api/index.js";
+import {
+  chat as chatApi,
+  startup as startupApi,
+  shutdown as shutdownApi,
+  history as historyApi,
+  historyDate as historyDateApi,
+} from "../../api/index.js";
 import { EMOTION_EXPRESSIONS } from "../../utils/emotion-expressions";
 import { Live2DModel } from "pixi-live2d-display/cubism4";
 
-/* ================= refs / 状态 ================= */
+// 拆分出的 composable
+import { useBubble } from "../../composables/useBubble.js";
+import { useAppearance } from "../../composables/useAppearance.js";
+import { useRhythm } from "../../composables/useRhythm.js";
+
+/* ================= DOM refs ================= */
 const canvasRef = ref(null);
 const wrapperRef = ref(null);
 const uiRef = ref(null);
 const contextMenuRef = ref(null);
 const messageBoxRef = ref(null);
+const historyPanelRef = ref(null);
 
+/* ================= 基礎狀態 ================= */
 const showDebugUI = ref(false);
-const showMessageBox = ref(false); // 默认隐藏输入框
+const showMessageBox = ref(false);
 const trackingEnabled = ref(true);
 const isSettingOrigin = ref(false);
 
-const expressionCache = new Map();
-
-const input = ref("");
-const sending = ref(false);
-const lastReply = ref({ loading: false, text: "" });
-
-function displayAppearanceName(file) {
-  file = file.replace(/\.exp3\.json$/i, "");
-  if(file == "帽子隐藏")file = "帽子";
-  return file;
-}
-
-
-const contextMenu = ref({ visible: false, x: 0, y: 0 });
+// Live2D 核心對象（非響應式）
 let app = null;
 let container = null;
 let model = null;
 
-// breathing & random animation controls
-let breathStart = 0;
-let breathTickerFn = null;
-let randomAnimTimeout = null;
-const activeTweens = [];
+// 表情緩存（避免重複 fetch）
+const expressionCache = new Map();
 
-const chatOpen = ref(false);
+/* ================= 氣泡（composable） ================= */
+const {
+  chatBubbles,
+  bubbleAnchor,
+  registerBubble,
+  sendReplyAsBubbles,
+} = useBubble(messageBoxRef, showMessageBox);
 
-function toggleChat() {
-  chatOpen.value = !chatOpen.value;
+/* ================= 外貌（composable） ================= */
+const {
+  APPEARANCE_FILES,
+  appearanceEnabled,
+  appearanceAppliedMeta,
+  appearanceHint,
+  showAppearanceHint,
+  displayAppearanceName,
+  loadAppearanceState,
+  saveAppearanceState,
+  applyAppearanceFile,
+  removeAppearanceFile,
+  applyAllEnabled,
+  disableAll,
+  onAppearanceToggle,
+} = useAppearance();
+
+/* ================= 音頻律動（composable） ================= */
+const { showSystemAudioListening: rhythmShowListening, toggleSystemAudio, dispose: disposeRhythm } = useRhythm();
+
+/** 獲取當前 coreModel（帶空值保護） */
+function getCoreModel() {
+  return model?.internalModel?.coreModel ?? null;
 }
 
-const chatBubbles = ref([]); // 气泡队列
-let bubbleId = 0;
-
-
-/* ================= API ================= */
-
-/* 处理从模型/服务端返回的内容（emotion + reply） */
-async function handleModelReply(res) {
-  console.log("[Live2D] 模型已返回内容 ✅", res);
-  lastReply.value.loading = false;
-  if (!res){
-    console.log("[Live2D] 模型已返回内容 ❌", res);
-    return;
-  }
-  
-  const em = res.emotion || "";
-  const replyText = res.reply || res.text || "";
-
-  if (!replyText) {
-    loaderVisible.value = false;
-    return;
-  }
-
-  if (em) {
-    try { await applyEmotionExpressions(em); } catch (e) {}
-  }
-  if (replyText) {
-  // 将长句拆成短句并按间隔逐个发气泡
-  await sendReplyAsBubbles(replyText, { interval: 1000, duration: 5000 });
-  lastReply.value.text = replyText;
+/* ================= UI 橋接方法（傳入 core） ================= */
+async function onAppearanceToggleUI(file) {
+  await onAppearanceToggle(file, getCoreModel());
 }
+async function applyAllEnabledUI() {
+  await applyAllEnabled(getCoreModel());
+}
+async function disableAllUI() {
+  await disableAll(getCoreModel());
+}
+async function onToggleSystemAudio() {
+  await toggleSystemAudio(getCoreModel(), trackingEnabled);
 }
 
-/* 网络/请求错误的轻处理（不打扰） */
-function handleNetworkError() {
-  lastReply.value.loading = false;
-  loaderVisible.value = false; // 隐藏 loader，避免一直显示
-  showAppearanceHint("网络请求失败");
-}
+/* ================= 聊天輸入 ================= */
+const input = ref("");
+const sending = ref(false);
+const lastReply = ref({ loading: false, text: "" });
 
-
-function normalizeResponse(res) {
-  const data = res?.data ?? res;
-  if (typeof data === "string") {
-    try {
-      return JSON.parse(data);
-    } catch {
-      return { reply: data };
-    }
-  }
-  return data;
-}
-
-const loaderVisible = ref(false);
-
-const isLoading = computed(() => {
-  return sending.value || lastReply.value.loading;
-});
-
-const idlePlaceholder = "和 Luna 说点什么吧…";
+const isLoading = computed(() => sending.value || lastReply.value.loading);
+const idlePlaceholder = "和 Luna 說點什麼吧…";
 const loadingPlaceholder = ref("…");
 
+// 加載中省略號動畫計時器
 let dotsTimer = null;
 
 watch(isLoading, (loading) => {
   clearInterval(dotsTimer);
   dotsTimer = null;
-
   if (loading) {
     let count = 1;
     loadingPlaceholder.value = "·";
@@ -400,29 +333,61 @@ watch(isLoading, (loading) => {
   }
 });
 
+/* ================= 響應處理 ================= */
 
+/** 統一規範化後端響應格式 */
+function normalizeResponse(res) {
+  const data = res?.data ?? res;
+  if (typeof data === "string") {
+    try { return JSON.parse(data); } catch { return { reply: data }; }
+  }
+  return data;
+}
 
-/* send（由输入框触发）*/
+/**
+ * 處理模型回復（表情 + 氣泡）
+ * @param {object} res - 已規範化的響應 { emotion, reply }
+ */
+async function handleModelReply(res) {
+  console.log("[Luna] 模型已返回內容", res);
+  lastReply.value.loading = false;
+
+  if (!res) return;
+
+  const em = res.emotion || "";
+  const replyText = res.reply || res.text || "";
+
+  if (!replyText) return;
+
+  if (em) {
+    try { await applyEmotionExpressions(em); } catch {}
+  }
+
+  await sendReplyAsBubbles(replyText, { interval: 1000, duration: 5000 });
+  lastReply.value.text = replyText;
+}
+
+/** 網絡錯誤輕處理 */
+function handleNetworkError() {
+  lastReply.value.loading = false;
+  showAppearanceHint("網絡請求失敗");
+}
+
+/* ================= 發送消息 ================= */
 async function onSend() {
   if (sending.value) return;
   const text = input.value.trim();
   if (!text) return;
 
-  // 显示加载动画（Luna 思考中）
-  loaderVisible.value = true;
-
   sending.value = true;
   input.value = "";
   lastReply.value.loading = true;
+
   try {
     const res = await chatApi({ userInput: text });
-    /*
-      期望格式:
-      { "emotion": "Smile", "reply": "..." }
-    */
     await handleModelReply(normalizeResponse(res));
   } catch (e) {
-    console.error(e);
+    console.error("[Luna] 發送失敗", e);
     handleNetworkError();
   } finally {
     sending.value = false;
@@ -430,111 +395,52 @@ async function onSend() {
   }
 }
 
-
-/* startup（在组件启动后调用一次）*/
+/* ================= 啟動 / 關閉 ================= */
 async function callStartup() {
   lastReply.value.loading = true;
   try {
     const res = await startupApi();
     await handleModelReply(normalizeResponse(res));
   } catch (e) {
-    console.error("启动失败", e);
+    console.error("[Luna] 啟動失敗", e);
     handleNetworkError();
   }
 }
 
-const historyPanelRef = ref(null);
+async function callShutdown() {
+  lastReply.value.loading = true;
+  try {
+    // 修復：統一使用 normalizeResponse 處理響應
+    const res = await shutdownApi();
+    await handleModelReply(normalizeResponse(res));
+  } catch (e) {
+    console.error("[Luna] 關閉失敗", e);
+  } finally {
+    lastReply.value.loading = false;
+  }
+}
+
+/* ================= 歷史記錄面板 ================= */
 const historyPanel = ref({
   visible: false,
   x: 100,
   y: 100,
-  years: [],         // 填充 init 时设置
-  months: [],        // 1..12
+  years: [],
+  months: [],
   selectedYear: null,
   selectedMonth: null,
-  availableDates: [],       // 数字数组：可用的日
+  selectedDay: null, // 修復：直接在初始化對象內聲明
+  availableDates: [],
   availableDatesSet: new Set(),
   loading: false,
 });
-historyPanel.value.selectedDay = historyPanel.value.selectedDay || null;
 
-/* 切换月份（支持跨年）*/
-async function changeMonth(delta) {
-  if (!historyPanel.value.selectedYear) {
-    const now = new Date();
-    historyPanel.value.selectedYear = now.getFullYear();
-  }
-  if (!historyPanel.value.selectedMonth) historyPanel.value.selectedMonth = 1;
-
-  let y = historyPanel.value.selectedYear;
-  let m = historyPanel.value.selectedMonth + delta;
-
-  if (m < 1) {
-    m = 12;
-    y = y - 1;
-  } else if (m > 12) {
-    m = 1;
-    y = y + 1;
-  }
-
-  historyPanel.value.selectedYear = y;
-  historyPanel.value.selectedMonth = m;
-
-  // 如果新年份不在 years 列表中，扩展年份范围（保持降序）
-  if (!historyPanel.value.years.includes(y)) {
-    historyPanel.value.years.push(y);
-    historyPanel.value.years.sort((a,b) => b - a);
-  }
-
-  await fetchHistoryForMonth(y, m);
-}
-
-/* 当下拉改变年份/月份 —— 重新拉取 */
-function onYearChange() {
-  if (historyPanel.value.selectedYear && historyPanel.value.selectedMonth) {
-    fetchHistoryForMonth(historyPanel.value.selectedYear, historyPanel.value.selectedMonth);
-  }
-}
-function onMonthChange() {
-  if (historyPanel.value.selectedYear && historyPanel.value.selectedMonth) {
-    fetchHistoryForMonth(historyPanel.value.selectedYear, historyPanel.value.selectedMonth);
-  }
-}
-
-/* 拉取指定年月可用日期（后端接收格式：YYYY:MM） */
-async function fetchHistoryForMonth(year, month) {
-  if (!year || !month) return;
-
-  historyPanel.value.loading = true;
-  historyPanel.value.selectedDay = null;
-  
-  try {
-    const yearMonth = year + ':' + String(month).padStart(2, '0');
-    console.log('[History] fetching available dates for', yearMonth);
-    const arr = await historyDateApi(yearMonth);
-    console.log('[History] available dates:', arr);
-    const days = (arr || []).map(d => Number(d)).filter(d => !isNaN(d));
-
-    // 强制触发响应式更新
-    historyPanel.value.availableDates = [...days];
-    historyPanel.value.availableDatesSet = new Set(days);
-
-  } catch (e) {
-    console.error('fetchHistoryForMonth failed', e);
-  } finally {
-    historyPanel.value.loading = false;
-  }
-}
-
-
-
-const selectedHistoryDate = ref(""); // "YYYY-MM-DD"
-
-;(function initHistoryDefaults(){
+// 初始化年份和月份選項
+;(function initHistoryDefaults() {
   const now = new Date();
   const cy = now.getFullYear();
   const years = [];
-  for (let y = cy; y >= cy - 6; y--) years.push(y); // 可按需扩展范围
+  for (let y = cy; y >= cy - 6; y--) years.push(y);
   historyPanel.value.years = years;
   historyPanel.value.months = Array.from({ length: 12 }, (_, i) => i + 1);
 })();
@@ -543,12 +449,72 @@ const daysInSelectedMonth = computed(() => {
   const y = historyPanel.value.selectedYear;
   const m = historyPanel.value.selectedMonth;
   if (!y || !m) return [];
-  const days = new Date(y, m, 0).getDate();
-  return Array.from({ length: days }, (_, i) => i + 1);
+  return Array.from({ length: new Date(y, m, 0).getDate() }, (_, i) => i + 1);
 });
 
-/* ============== 面板控制 ============== */
+/** 拉取指定年月的可用日期列表 */
+async function fetchHistoryForMonth(year, month) {
+  if (!year || !month) return;
+  historyPanel.value.loading = true;
+  historyPanel.value.selectedDay = null;
+  try {
+    const yearMonth = `${year}:${String(month).padStart(2, "0")}`;
+    const arr = await historyDateApi(yearMonth);
+    const days = (arr || []).map(Number).filter((d) => !isNaN(d));
+    historyPanel.value.availableDates = [...days];
+    historyPanel.value.availableDatesSet = new Set(days);
+  } catch (e) {
+    console.error("[History] fetchHistoryForMonth 失敗", e);
+  } finally {
+    historyPanel.value.loading = false;
+  }
+}
 
+/** 切換月份（支持跨年） */
+async function changeMonth(delta) {
+  const now = new Date();
+  if (!historyPanel.value.selectedYear) historyPanel.value.selectedYear = now.getFullYear();
+  if (!historyPanel.value.selectedMonth) historyPanel.value.selectedMonth = 1;
+
+  let y = historyPanel.value.selectedYear;
+  let m = historyPanel.value.selectedMonth + delta;
+
+  if (m < 1) { m = 12; y--; }
+  else if (m > 12) { m = 1; y++; }
+
+  historyPanel.value.selectedYear = y;
+  historyPanel.value.selectedMonth = m;
+
+  if (!historyPanel.value.years.includes(y)) {
+    historyPanel.value.years.push(y);
+    historyPanel.value.years.sort((a, b) => b - a);
+  }
+
+  await fetchHistoryForMonth(y, m);
+}
+
+function onYearChange() {
+  fetchHistoryForMonth(historyPanel.value.selectedYear, historyPanel.value.selectedMonth);
+}
+function onMonthChange() {
+  fetchHistoryForMonth(historyPanel.value.selectedYear, historyPanel.value.selectedMonth);
+}
+
+function openHistoryPanelAt(x, y) {
+  historyPanel.value.visible = true;
+  historyPanel.value.x = x;
+  historyPanel.value.y = y;
+  const now = new Date();
+  historyPanel.value.selectedYear = historyPanel.value.selectedYear || now.getFullYear();
+  historyPanel.value.selectedMonth = historyPanel.value.selectedMonth || now.getMonth() + 1;
+  fetchHistoryForMonth(historyPanel.value.selectedYear, historyPanel.value.selectedMonth);
+}
+
+function closeHistoryPanel() {
+  historyPanel.value.visible = false;
+}
+
+/* 歷史面板拖拽 */
 let draggingHistoryPanel = false;
 let historyDragStart = { x: 0, y: 0 };
 let historyPanelStart = { x: 0, y: 0 };
@@ -556,11 +522,9 @@ let historyPanelStart = { x: 0, y: 0 };
 function onHistoryDragStart(e) {
   if (e.button !== 0) return;
   draggingHistoryPanel = true;
-  historyDragStart.x = e.clientX;
-  historyDragStart.y = e.clientY;
-  historyPanelStart.x = historyPanel.value.x;
-  historyPanelStart.y = historyPanel.value.y;
-
+  historyDragStart = { x: e.clientX, y: e.clientY };
+  historyPanelStart = { x: historyPanel.value.x, y: historyPanel.value.y };
+  ```
   document.addEventListener("pointermove", onHistoryDragMove);
   document.addEventListener("pointerup", onHistoryDragEnd);
 }
@@ -569,12 +533,8 @@ function onHistoryDragMove(e) {
   if (!draggingHistoryPanel) return;
   const dx = e.clientX - historyDragStart.x;
   const dy = e.clientY - historyDragStart.y;
-
-  const panelWidth = 320;
-  const panelHeight = 300;
-  const maxX = window.innerWidth - panelWidth;
-  const maxY = window.innerHeight - panelHeight;
-
+  const maxX = window.innerWidth - 320;
+  const maxY = window.innerHeight - 300;
   historyPanel.value.x = Math.min(maxX, Math.max(0, historyPanelStart.x + dx));
   historyPanel.value.y = Math.min(maxY, Math.max(0, historyPanelStart.y + dy));
 }
@@ -585,94 +545,22 @@ function onHistoryDragEnd() {
   document.removeEventListener("pointerup", onHistoryDragEnd);
 }
 
-
-function openHistoryPanelAt(x, y){
-  historyPanel.value.visible = true;
-  historyPanel.value.x = x;
-  historyPanel.value.y = y;
-  const now = new Date();
-  historyPanel.value.selectedYear = historyPanel.value.selectedYear || now.getFullYear();
-  historyPanel.value.selectedMonth = historyPanel.value.selectedMonth || now.getMonth() + 1;
-  fetchHistoryForMonth(historyPanel.value.selectedYear, historyPanel.value.selectedMonth);
-}
-
-function closeHistoryPanel(){
-  historyPanel.value.visible = false;
-}
-
-
-
-/* 用户点击某一天 */
-async function onDateClick(d) {
-  if (!historyPanel.value.availableDatesSet.has(d)) return;
-
-  const y = historyPanel.value.selectedYear;
-  const m = historyPanel.value.selectedMonth;
-  const dateStr = `${y}:${String(m).padStart(2, '0')}:${String(d).padStart(2, '0')}`;
-  
-  selectedHistoryDate.value = dateStr;
-
-  try {
-    // 调用接口获取数据
-    const res = await historyApi(dateStr);
-    const rawList = res?.data ?? res; 
-
-    // 解析原始字符串数组: "ROLE:CONTENT:TIME"
-    chatRecords.value = rawList.map(item => {
-    const parts = item.split(':');
-    // 时间固定占最后3位 (HH:mm:ss)
-    const time = parts.slice(-3).join(':');
-    // 角色占第1位
-    const role = parts[0];
-    // 中间所有部分重新组合为内容 (解决内容中自带冒号的问题)
-    const content = parts.slice(1, -3).join(':');
-    
-    return { role, content, time };
-  });
-
-  detailVisible.value = true;
-
-    // 显示新窗口
-    detailVisible.value = true;
-    
-  } catch (e) {
-    console.error('获取聊天详情失败:', e);
-  }
-}
-
-/* shutdown（在组件卸载前调用一次）*/
-async function callShutdown() {
-  lastReply.value.loading = true;
-  try {
-    const res = await shutdownApi();
-    await handleModelReply(res);
-  } catch (e) {
-    console.error("关闭失败", e);
-    // 这里不再特别打断卸载流程
-  } finally {
-    lastReply.value.loading = false;
-  }
-}
-
-/* ================= 聊天记录面板 ================= */
-
+/* ================= 聊天記錄詳情 ================= */
 const detailVisible = ref(false);
 const chatRecords = ref([]);
+const selectedHistoryDate = ref("");
+const detailPos = ref({ x: window.innerWidth / 2 - 175, y: 100 });
 
-// --- 拖拽相关逻辑 ---
-const detailPos = ref({ x: window.innerWidth / 2 - 175, y: 100 }); // 初始位置居中
 let isDragging = false;
 let startX = 0;
 let startY = 0;
 
 function startDrag(e) {
-  // 只有点击 header 才能拖拽
   isDragging = true;
   startX = e.clientX - detailPos.value.x;
   startY = e.clientY - detailPos.value.y;
-  
-  window.addEventListener('mousemove', onDragging);
-  window.addEventListener('mouseup', stopDrag);
+  window.addEventListener("mousemove", onDragging);
+  window.addEventListener("mouseup", stopDrag);
 }
 
 function onDragging(e) {
@@ -683,308 +571,122 @@ function onDragging(e) {
 
 function stopDrag() {
   isDragging = false;
-  window.removeEventListener('mousemove', onDragging);
-  window.removeEventListener('mouseup', stopDrag);
+  window.removeEventListener("mousemove", onDragging);
+  window.removeEventListener("mouseup", stopDrag);
 }
 
-/* ================= 右键菜单处理 ================= */
+/** 點擊日期格，拉取當天聊天記錄 */
+async function onDateClick(d) {
+  if (!historyPanel.value.availableDatesSet.has(d)) return;
+
+  const y = historyPanel.value.selectedYear;
+  const m = historyPanel.value.selectedMonth;
+  historyPanel.value.selectedDay = d;
+  const dateStr = `${y}:${String(m).padStart(2, "0")}:${String(d).padStart(2, "0")}`;
+  selectedHistoryDate.value = dateStr;
+
+  try {
+    const res = await historyApi(dateStr);
+    const rawList = res?.data ?? res;
+
+    // 修復：加入類型校驗，防止 item 不是字符串時報錯
+    chatRecords.value = (Array.isArray(rawList) ? rawList : [])
+      .filter((item) => typeof item === "string")
+      .map((item) => {
+        const parts = item.split(":");
+        const time = parts.slice(-3).join(":");
+        const role = parts[0];
+        const content = parts.slice(1, -3).join(":");
+        return { role, content, time };
+      });
+
+    // 修復：移除重複賦值，只賦值一次
+    detailVisible.value = true;
+  } catch (e) {
+    console.error("[History] 獲取聊天詳情失敗:", e);
+  }
+}
+
+/* ================= 右鍵菜單 ================= */
 function onRightClick(e) {
-  // 防止在调试UI上右键也显示菜单
-  if (uiRef.value && uiRef.value.contains(e.target)) {
-    return;
-  }
-
-  // 防止在输入框上右键也显示菜单
-  if (messageBoxRef.value && messageBoxRef.value.contains(e.target)) {
-    return;
-  }
-
+  if (uiRef.value?.contains(e.target)) return;
+  if (messageBoxRef.value?.contains(e.target)) return;
   showContextMenu(e.clientX, e.clientY);
 }
 
 function onCanvasRightClick(e) {
-  // Canvas上的右键事件
   showContextMenu(e.clientX, e.clientY);
   e.preventDefault();
 }
 
 function showContextMenu(x, y) {
-  contextMenu.value = {
-    visible: true,
-    x: x,
-    y: y,
-  };
-
-  // 如果菜单超出窗口，调整位置
+  contextMenu.value = { visible: true, x, y };
   nextTick(() => {
     if (!contextMenuRef.value) return;
-
-    const menuRect = contextMenuRef.value.getBoundingClientRect();
-    const windowWidth = window.innerWidth;
-    const windowHeight = window.innerHeight;
-
-    if (x + menuRect.width > windowWidth) {
-      contextMenu.value.x = windowWidth - menuRect.width - 10;
-    }
-    if (y + menuRect.height > windowHeight) {
-      contextMenu.value.y = windowHeight - menuRect.height - 10;
-    }
+    const { width, height } = contextMenuRef.value.getBoundingClientRect();
+    if (x + width > window.innerWidth) contextMenu.value.x = window.innerWidth - width - 10;
+    if (y + height > window.innerHeight) contextMenu.value.y = window.innerHeight - height - 10;
   });
 }
 
-// 点击其他地方关闭菜单
+const contextMenu = ref({ visible: false, x: 0, y: 0 });
+
 function handleClickOutside(e) {
-  // 关闭 context menu（已有逻辑）
-  if (
-    contextMenu.value.visible &&
-    contextMenuRef.value &&
-    !contextMenuRef.value.contains(e.target)
-  ) {
+  if (contextMenu.value.visible && contextMenuRef.value && !contextMenuRef.value.contains(e.target)) {
     contextMenu.value.visible = false;
   }
-
-  // 如果历史面板打开且点击不在面板内，则关闭（防止被穿透后点击到画布）
-  if (
-    historyPanel.value.visible &&
-    historyPanelRef &&
-    historyPanelRef.value &&
-    !historyPanelRef.value.contains(e.target)
-  ) {
+  if (historyPanel.value.visible && historyPanelRef.value && !historyPanelRef.value.contains(e.target)) {
     historyPanel.value.visible = false;
   }
 }
 
+/* ================= 外貌面板 ================= */
+const appearancePanel = ref({ visible: false, x: 100, y: 100 });
 
-/* ================= 外貌面板拖动 ================= */
 let draggingAppearance = false;
 let dragStart = { x: 0, y: 0 };
 let panelStart = { x: 0, y: 0 };
 
 function onAppearanceDragStart(e) {
-  if (e.button !== 0) return; // 只响应左键
-
+  if (e.button !== 0) return;
   draggingAppearance = true;
-  dragStart.x = e.clientX;
-  dragStart.y = e.clientY;
-  panelStart.x = appearancePanel.value.x;
-  panelStart.y = appearancePanel.value.y;
-
-  window.pet?.enter(); // 防止穿透
-
+  dragStart = { x: e.clientX, y: e.clientY };
+  panelStart = { x: appearancePanel.value.x, y: appearancePanel.value.y };
   document.addEventListener("pointermove", onAppearanceDragMove);
   document.addEventListener("pointerup", onAppearanceDragEnd);
 }
 
 function onAppearanceDragMove(e) {
   if (!draggingAppearance) return;
-
-  const dx = e.clientX - dragStart.x;
-  const dy = e.clientY - dragStart.y;
-
-  const panelWidth = 420;
-  const panelHeight = 360;
-  const maxX = window.innerWidth - panelWidth;
-  const maxY = window.innerHeight - panelHeight;
-
-  appearancePanel.value.x = Math.min(
-    maxX,
-    Math.max(0, panelStart.x + dx)
-  );
-  appearancePanel.value.y = Math.min(
-    maxY,
-    Math.max(0, panelStart.y + dy)
-  );
+  const maxX = window.innerWidth - 420;
+  const maxY = window.innerHeight - 360;
+  appearancePanel.value.x = Math.min(maxX, Math.max(0, panelStart.x + e.clientX - dragStart.x));
+  appearancePanel.value.y = Math.min(maxY, Math.max(0, panelStart.y + e.clientY - dragStart.y));
 }
 
 function onAppearanceDragEnd() {
   draggingAppearance = false;
-
   document.removeEventListener("pointermove", onAppearanceDragMove);
   document.removeEventListener("pointerup", onAppearanceDragEnd);
-
   updatePetState();
 }
 
-
-/* ================= 显示聊天气泡  ================= */
-function getBubbleAnchor() {
-  // 输入框存在时，锚在输入框上方
-  if (showMessageBox.value && messageBoxRef.value) {
-    const rect = messageBoxRef.value.getBoundingClientRect();
-    return {
-      x: rect.left + rect.width / 2,
-      y: rect.top - 12,
-    };
-  }
-
-  // fallback：屏幕底部中间
-  return {
-    x: window.innerWidth / 2,
-    y: window.innerHeight - 140,
-  };
-}
-const bubbleEls = new Map(); // id -> el
-
-function recordBubblePositions() {
-  const map = new Map();
-  for (const [id, el] of bubbleEls.entries()) {
-    try {
-      map.set(id, el.getBoundingClientRect().top);
-    } catch (e) {}
-  }
-  return map;
+function openAppearancePanelAt(x, y) {
+  const panelWidth = 420;
+  const panelHeight = 360;
+  appearancePanel.value.x = x + panelWidth > window.innerWidth ? window.innerWidth - panelWidth - 10 : x;
+  appearancePanel.value.y = y + panelHeight > window.innerHeight ? window.innerHeight - panelHeight - 10 : y;
+  appearancePanel.value.visible = true;
+  overUI = true;
+  window.pet?.enter();
+  contextMenu.value.visible = false;
 }
 
-function splitReplyIntoChunks(text) {
-  if (!text) return [];
-
-  // 规范化空白
-  text = String(text).replace(/\s+/g, " ").trim();
-  if (!text) return [];
-
-  // 先按“句尾”标点拆（包括中文/英文问叹号、句号、～ ~ … 等）
-  const sentenceRe = /[^。！？!?~～…]+[。！？!?~～…]?/g;
-  const sentences = text.match(sentenceRe) || [text];
-
-  const parts = [];
-  const commaRe = /[^，,、；;]+[，,、；;]?/g;
-
-  for (let s of sentences) {
-    s = s.trim();
-    if (!s) continue;
-
-    // 进一步按逗号类拆分（保留语感）
-    const subs = s.match(commaRe) || [s];
-    for (let sub of subs) {
-      sub = sub.trim();
-      if (!sub) continue;
-      // 去掉末尾的逗号/分号 （句尾标点保留）
-      sub = sub.replace(/[，,、；;]$/u, "").trim();
-      if (sub) parts.push(sub);
-    }
-  }
-
-  return parts;
+function closeAppearancePanel() {
+  appearancePanel.value.visible = false;
+  overUI = false;
+  updatePetState();
 }
-
-async function sendReplyAsBubbles(reply, opts = {}) {
-  const interval = typeof opts.interval === "number" ? opts.interval : 450;
-  const duration = typeof opts.duration === "number" ? opts.duration : 3500;
-
-  const chunks = splitReplyIntoChunks(reply);
-  if (!chunks.length) return;
-
-  // 依次发送，每个片段等待 interval（同步序列，确保 FLIP 动画连续）
-  for (let i = 0; i < chunks.length; i++) {
-    const chunk = chunks[i];
-    // showChatBubble 已实现 FLIP（它会 record positions -> insert -> nextTick -> animate）
-    // 我们 await showChatBubble 来确保下一步在 DOM 更新后再等待间隔
-    await showChatBubble(chunk, duration);
-    // 如果不是最后一个，等待间隔
-    if (i < chunks.length - 1) {
-      await new Promise((r) => setTimeout(r, interval));
-    }
-  }
-}
-
-
-function registerBubble(el, id) {
-  if (!el) {
-    bubbleEls.delete(id);
-    return;
-  }
-  bubbleEls.set(id, el);
-}
-
-
-const bubbleAnchor = ref({ x: 0, y: 0 });
-
-async function showChatBubble(text, duration = 3000) {
-  bubbleAnchor.value = getBubbleAnchor();
-  // ① 记录旧位置
-  const prevPositions = recordBubblePositions();
-
-  const id = bubbleId++;
-chatBubbles.value.push({
-  id,
-  text,
-  leaving: false,
-});
-
-
-  // ② 等 DOM 更新
-  await nextTick();
-
-  if (loaderVisible.value) loaderVisible.value = false;
-
-  // ③ 对旧气泡做 FLIP 动画
-  for (const [bid, el] of bubbleEls.entries()) {
-    if (!prevPositions.has(bid)) continue;
-
-    const prevTop = prevPositions.get(bid);
-    const newTop = el.getBoundingClientRect().top;
-    const dy = prevTop - newTop;
-
-    if (Math.abs(dy) > 0.5) {
-      gsap.fromTo(
-        el,
-        { y: dy },
-        { y: 0, duration: 0.22, ease: "power2.out" }
-      );
-    }
-  }
-
-  // ④ 自动消失（你已有的逻辑）
-  setTimeout(() => {
-    const bubble = chatBubbles.value.find(b => b.id === id);
-    if (!bubble) return;
-
-    bubble.leaving = true;
-
-    setTimeout(() => {
-      bubbleEls.delete(id);
-      chatBubbles.value = chatBubbles.value.filter(b => b.id !== id);
-    }, 180);
-  }, duration);
-}
-
-
-
-
-/* ================= 参数配置表 ================= */
-const PARAM_CONFIG = {
-  HEAD_X: { param: "ParamAngleX", range: [-30, 30] },
-  HEAD_Y: { param: "ParamAngleY", range: [-30, 30] },
-  HEAD_Z: { param: "ParamAngleZ", range: [-30, 30] },
-
-  BODY_X: { param: "ParamBodyAngleX", range: [-10, 10] },
-  BODY_Y: { param: "ParamBodyAngleY", range: [-10, 10] },
-  BODY_Z: { param: "ParamBodyAngleZ", range: [-10, 10] },
-
-  EYE_X: { param: "ParamEyeBallX", range: [-1, 1] },
-  EYE_Y: { param: "ParamEyeBallY", range: [-1, 1] },
-
-  EYE_RIGHT: { param: "ParamEyeROpen", range: [0, 1.9] },
-  EYE_LEFT: { param: "ParamEyeLOpen", range: [0, 1.9] },
-
-  BROW_RIGHT_Y: { param: "ParamBrowRY", range: [-1, 1] },
-  BROW_LEFT_Y: { param: "ParamBrowLY", range: [-1, 1] },
-  BROW_RIGHT_FORM: { param: "ParamBrowRForm", range: [-1, 1] },
-  BROW_LEFT_FORM: { param: "ParamBrowLForm", range: [-1, 1] },
-
-  MOUTH_FORM: { param: "ParamMouthForm", range: [-1, 1] },
-  MOUTH_OPEN_Y: { param: "ParamMouthOpenY", range: [0, 1] },
-  MOUTH_X: { param: "ParamMouthX", range: [-1, 1] },
-  MOUTH_PUCKER_WIDEN: { param: "ParamMouthPuckerWiden", range: [-1, 1] },
-
-  TONGUE: { param: "ParamTongue", range: [0, 1] },
-  CHEEK_PUFF: { param: "ParamCheekPuff", range: [0, 1] },
-  MOUTH_PRESS_LIP_OPEN: { param: "ParamMouthPressLipOpen", range: [0, 1] },
-  MOUTH_FUNNEL: { param: "ParamMouthFunnel", range: [0, 1] },
-  MOUTH_SHRUG: { param: "ParamMouthShrug", range: [0, 1] },
-  JAW_OPEN: { param: "ParamJawOpen", range: [0, 1] },
-  BREATH: { param: "ParamBreath", range: [0, 1] },
-};
 
 /* ================= 穿透管理 ================= */
 let overModel = false;
@@ -995,37 +697,21 @@ function updatePetState() {
   else window.pet?.leave();
 }
 
-function uiEnter() {
-  overUI = true;
-  updatePetState();
-}
+function uiEnter() { overUI = true; updatePetState(); }
+function uiLeave() { overUI = false; updatePetState(); }
 
-function uiLeave() {
-  overUI = false;
-  updatePetState();
-}
+watch(showMessageBox, (v) => { if (v) window.pet?.enter(); else updatePetState(); });
+watch(showDebugUI, (v) => { if (v) window.pet?.enter(); else updatePetState(); });
 
-/* ================= UI 状态联动 ================= */
-watch(showMessageBox, (v) => {
-  if (v) window.pet?.enter();
-  else updatePetState();
-});
-
-watch(showDebugUI, (v) => {
-  if (v) window.pet?.enter();
-  else updatePetState();
-});
-
-/* ================= 拖拽 ================= */
+/* ================= 拖拽模型 ================= */
 let dragging = false;
 let lastPos = { x: 0, y: 0 };
+
 function onPointerDown(e) {
   const oe = e.data?.originalEvent;
   if (!oe || oe.button !== 0) return;
-
   const gp = e.data.global;
   if (!isPointInsideModel(gp)) return;
-
   dragging = true;
   lastPos = { x: gp.x, y: gp.y };
 }
@@ -1038,30 +724,40 @@ function onPointerMove(e) {
   container.x += dx;
   container.y += dy;
 }
-function onPointerUp() {
-  dragging = false;
+
+function onPointerUp() { dragging = false; }
+
+function isPointInsideModel(globalPoint) {
+  if (!model) return false;
+  return model.getBounds().contains(globalPoint.x, globalPoint.y);
 }
 
-/* ================= 视线追踪 ================= */
+/* ================= 視線追蹤 ================= */
+const PARAM_CONFIG = {
+  HEAD_X: { param: "ParamAngleX", range: [-30, 30] },
+  HEAD_Y: { param: "ParamAngleY", range: [-30, 30] },
+  EYE_X:  { param: "ParamEyeBallX", range: [-1, 1] },
+  EYE_Y:  { param: "ParamEyeBallY", range: [-1, 1] },
+  BREATH: { param: "ParamBreath", range: [0, 1] },
+};
+
+const LOOK_ORIGIN_KEY = "live2d:look-origin";
 let lookOriginLocal = null;
+
 function applyLookAt(dx, dy) {
-  if (!model?.internalModel?.coreModel) return;
-
-  const core = model.internalModel.coreModel;
-
+  const core = getCoreModel();
+  if (!core) return;
   const nx = Math.max(-1, Math.min(1, dx / (app.renderer.width / 2)));
-  const rawNy = Math.max(-1, Math.min(1, dy / (app.renderer.height / 2)));
-  const ny = -rawNy;
-
+  const ny = -Math.max(-1, Math.min(1, dy / (app.renderer.height / 2)));
   const mapRange = (v, [min, max]) => min + ((v + 1) / 2) * (max - min);
-
   try {
     core.setParameterValueById(PARAM_CONFIG.EYE_X.param, mapRange(nx, PARAM_CONFIG.EYE_X.range));
     core.setParameterValueById(PARAM_CONFIG.EYE_Y.param, mapRange(ny, PARAM_CONFIG.EYE_Y.range));
     core.setParameterValueById(PARAM_CONFIG.HEAD_X.param, mapRange(nx, PARAM_CONFIG.HEAD_X.range));
     core.setParameterValueById(PARAM_CONFIG.HEAD_Y.param, mapRange(ny, PARAM_CONFIG.HEAD_Y.range));
-  } catch (e) {}
+  } catch {}
 }
+
 function onGlobalPointerMove(ev) {
   if (!trackingEnabled.value || !lookOriginLocal || !model) return;
   const rect = canvasRef.value.getBoundingClientRect();
@@ -1070,34 +766,6 @@ function onGlobalPointerMove(ev) {
   applyLookAt(local.x - lookOriginLocal.x, local.y - lookOriginLocal.y);
 }
 
-/* ================= 滚轮缩放 ================= */
-function onWheel(ev) {
-  const rect = canvasRef.value.getBoundingClientRect();
-  const mx = ev.clientX - rect.left;
-  const my = ev.clientY - rect.top;
-
-  const globalPoint = new PIXI.Point(mx, my);
-
-  // 不在模型上，直接忽略
-  if (!isPointInsideModel(globalPoint)) return;
-
-  ev.preventDefault();
-
-  const oldScale = container.scale.x || 1;
-  const factor = ev.deltaY > 0 ? 0.95 : 1.05;
-  const newScale = Math.min(10, Math.max(0.05, oldScale * factor));
-
-  const localPoint = container.toLocal(globalPoint, app.stage);
-
-  container.scale.set(newScale);
-
-  const newGlobal = container.toGlobal(localPoint);
-  container.position.x += globalPoint.x - newGlobal.x;
-  container.position.y += globalPoint.y - newGlobal.y;
-}
-
-/* ================= 起点设置 & 记忆 ================= */
-const LOOK_ORIGIN_KEY = "live2d:look-origin";
 function onCanvasClick(ev) {
   if (!isSettingOrigin.value) return;
   const rect = canvasRef.value.getBoundingClientRect();
@@ -1106,90 +774,80 @@ function onCanvasClick(ev) {
   saveOrigin();
   isSettingOrigin.value = false;
 }
+
 function saveOrigin() {
   if (!lookOriginLocal) return;
   localStorage.setItem(LOOK_ORIGIN_KEY, JSON.stringify({ x: lookOriginLocal.x, y: lookOriginLocal.y }));
 }
+
 function loadOrigin() {
   const raw = localStorage.getItem(LOOK_ORIGIN_KEY);
-  if (!raw) return;
-  lookOriginLocal = JSON.parse(raw);
+  if (raw) lookOriginLocal = JSON.parse(raw);
 }
+
 function clearOrigin() {
   lookOriginLocal = null;
   localStorage.removeItem(LOOK_ORIGIN_KEY);
 }
 
-/* ================= UI 操作 ================= */
+/* ================= 滾輪縮放 ================= */
+function onWheel(ev) {
+  const rect = canvasRef.value.getBoundingClientRect();
+  const globalPoint = new PIXI.Point(ev.clientX - rect.left, ev.clientY - rect.top);
+  if (!isPointInsideModel(globalPoint)) return;
+  ev.preventDefault();
+  const factor = ev.deltaY > 0 ? 0.95 : 1.05;
+  const newScale = Math.min(10, Math.max(0.05, (container.scale.x || 1) * factor));
+  const localPoint = container.toLocal(globalPoint, app.stage);
+  container.scale.set(newScale);
+  const newGlobal = container.toGlobal(localPoint);
+  container.position.x += globalPoint.x - newGlobal.x;
+  container.position.y += globalPoint.y - newGlobal.y;
+}
+
+/* ================= 調試 UI ================= */
 function toggleTracking() {
   trackingEnabled.value = !trackingEnabled.value;
-  if (!trackingEnabled.value && model?.internalModel?.coreModel) {
-    const core = model.internalModel.coreModel;
-    [
-      PARAM_CONFIG.EYE_X.param,
-      PARAM_CONFIG.EYE_Y.param,
-      PARAM_CONFIG.HEAD_X.param,
-      PARAM_CONFIG.HEAD_Y.param,
-    ].forEach((p) => core.setParameterValueById(p, 0));
+  if (!trackingEnabled.value) {
+    const core = getCoreModel();
+    if (core) {
+      [PARAM_CONFIG.EYE_X.param, PARAM_CONFIG.EYE_Y.param,
+       PARAM_CONFIG.HEAD_X.param, PARAM_CONFIG.HEAD_Y.param]
+        .forEach((p) => { try { core.setParameterValueById(p, 0); } catch {} });
+    }
   }
-  if (showDebugUI.value) window.pet?.enter();
-  else updatePetState();
 }
+
 function startSetOrigin() {
   isSettingOrigin.value = true;
   window.pet?.enter();
 }
+
 function toggleDebugUI() {
   showDebugUI.value = !showDebugUI.value;
   contextMenu.value.visible = false;
-
-  if (!showDebugUI.value) {
-    overUI = false;
-    updatePetState();
-  } else {
-    window.pet?.enter();
-  }
+  if (!showDebugUI.value) { overUI = false; updatePetState(); }
+  else window.pet?.enter();
 }
 
 function toggleMessageBox() {
   showMessageBox.value = !showMessageBox.value;
   contextMenu.value.visible = false;
-
-  if (!showMessageBox.value) {
-    overUI = false;
-    updatePetState();
-  }
+  if (!showMessageBox.value) { overUI = false; updatePetState(); }
 }
 
-function isPointInsideModel(globalPoint) {
-  if (!model) return false;
-  const bounds = model.getBounds();
-  return bounds.contains(globalPoint.x, globalPoint.y);
-}
+/* ================= 呼吸動畫 ================= */
+let breathTickerFn = null;
 
-/* ================= 呼吸 & 随机动作: 实现细节 ================= */
 function startBreath() {
-  const breath = {
-    base: 0.5,
-    amp: 0.15,
-    speed: 0.9,
-  };
-
-  breathStart = performance.now() / 1000;
-
+  const breathStart = performance.now() / 1000;
   breathTickerFn = () => {
-    if (!model || !model.internalModel?.coreModel) return;
-    const core = model.internalModel.coreModel;
+    const core = getCoreModel();
+    if (!core) return;
     const t = performance.now() / 1000 - breathStart;
-    const val =
-      breath.base +
-      Math.sin(t * breath.speed * Math.PI * 2) * breath.amp;
-
-    try {
-      core.setParameterValueById(PARAM_CONFIG.BREATH.param, val);
-    } catch {}
+    const val = 0.5 + Math.sin(t * 0.9 * Math.PI * 2) * 0.15;
+    try { core.setParameterValueById(PARAM_CONFIG.BREATH.param, val); } catch {}
   };
-
   app.ticker.add(breathTickerFn);
 }
 
@@ -1200,471 +858,56 @@ function stopBreath() {
   }
 }
 
-/* ================= 音乐跟随 ================= */
-
-// === 状态 ===
-const rhythmState = {
-  showSystemAudioListening: ref(false),
-  isListening: false,
-  currentStream: null,
-  audioContext: null,
-  analyser: null,
-  dataArray: null,
-  source: null,
-  
-  // 更简单的状态
-  bassLevel: 0,
-  midLevel: 0,
-  beatDetected: false,
-  beatIntensity: 0,
-  
-  // 动画状态
-  bodySway: 0,
-  headNod: 0,
-  breath: 0.5,
-  
-  rafId: null,
-};
-
-// === 自然律动配置 ===
-const RHYTHM_CFG = {
-  // 频段设置（基于256点FFT，更轻量）
-  fftSize: 256,
-  smoothing: 0.7,
-  
-  // 频段范围（索引，256点FFT约20-12000Hz，每个索引约47Hz）
-  bands: {
-    bass: { start: 0, end: 3 },    // 0-188Hz（超低频）
-    lowMid: { start: 4, end: 12 },  // 188-564Hz（低频）
-    mid: { start: 13, end: 40 },    // 564-1880Hz（中频）
-  },
-  
-  // 包络响应速度
-  envelope: {
-    bassAttack: 0.15,
-    bassRelease: 0.05,
-    midAttack: 0.1,
-    midRelease: 0.08,
-  },
-  
-  // 节奏检测
-  beatDetection: {
-    threshold: 0.15,
-    decay: 0.85,
-    cooldown: 8, // 帧数
-  },
-  
-  // 身体动作（更柔和自然）
-  body: {
-    baseFrequency: 0.8,     // 基础摇摆频率
-    bassMultiplier: 2.5,    // 低频增强倍数
-    maxSway: 6.0,           // 最大摇摆幅度
-    smoothness: 0.15,       // 平滑系数
-    leanFactor: 0.3,        // 身体前倾系数
-  },
-  
-  // 头部动作（更自然的点头）
-  head: {
-    nodIntensity: 25,      // 点头强度
-    nodSmoothness: 0.3,    // 点头平滑
-    returnSpeed: 0.05,      // 回弹速度
-    microNods: 2,         // 微点头强度
-  },
-  
-  // 呼吸（更自然）
-  breath: {
-    baseRate: 0.4,
-    amplitude: 0.15,
-    speed: 0.3,
-  },
-  
-  // 嘴部动作（可选）
-  mouth: {
-    enabled: true,
-    sensitivity: 0.4,
-    minOpen: 0.05,
-    maxOpen: 100,
-  }
-};
-
-// === 音频捕获 ===
-async function toggleSystemAudio() {
-  if (rhythmState.showSystemAudioListening.value) {
-    stopSystemAudioListening();
-    return;
-  }
-  if(trackingEnabled.value == true){
-    trackingEnabled.value = false;
-  }
-
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { mandatory: { chromeMediaSource: "desktop" } },
-      video: { mandatory: { chromeMediaSource: "desktop" } },
-    });
-
-    rhythmState.currentStream = stream;
-
-    if (!rhythmState.audioContext) {
-      rhythmState.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    }
-
-    const analyser = rhythmState.audioContext.createAnalyser();
-    analyser.fftSize = RHYTHM_CFG.fftSize;
-    analyser.smoothingTimeConstant = RHYTHM_CFG.smoothing;
-    rhythmState.analyser = analyser;
-    rhythmState.dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-    rhythmState.source = rhythmState.audioContext.createMediaStreamSource(stream);
-    rhythmState.source.connect(analyser);
-
-    rhythmState.isListening = true;
-    rhythmState.showSystemAudioListening.value = true;
-
-    startNaturalRhythm();
-
-    console.log("Luna: 已连接到系统音频");
-  } catch (err) {
-    console.error("音频初始化失败:", err);
-  }
-}
-
-function stopSystemAudioListening() {
-  if(trackingEnabled.value == false){
-    trackingEnabled.value = true;
-  }
-  rhythmState.isListening = false;
-  rhythmState.showSystemAudioListening.value = false;
-
-  stopRhythmLoop();
-  smoothReset();
-
-  if (rhythmState.currentStream) {
-    rhythmState.currentStream.getTracks().forEach(t => t.stop());
-    rhythmState.currentStream = null;
-  }
-  if (rhythmState.source) {
-    try { rhythmState.source.disconnect(); } catch(e){ }
-    rhythmState.source = null;
-  }
-
-  console.log("Luna: 已断开音频连接");
-}
-
-// === 节奏检测（更简单直接）===
-function detectBeat(bassLevel, prevBass) {
-  const threshold = RHYTHM_CFG.beatDetection.threshold;
-  
-  // 检测明显的能量上升
-  const rise = bassLevel - prevBass;
-  const isBeat = rise > threshold && bassLevel > 0.1;
-  
-  return {
-    isBeat: isBeat,
-    intensity: Math.min(1.0, rise * 2)
-  };
-}
-
-// === 自然律动主循环 ===
-function startNaturalRhythm() {
-  const core = model.internalModel.coreModel;
-  if (!rhythmState.analyser) return;
-
-  const analyser = rhythmState.analyser;
-  const binCount = analyser.frequencyBinCount;
-  const dataArray = rhythmState.dataArray;
-  
-  // 历史值
-  let prevBass = 0;
-  let prevMid = 0;
-  let beatCooldown = 0;
-  let lastBeatTime = 0;
-  
-  // 正弦波状态（用于自然摆动）
-  let bodyPhase = Math.random() * Math.PI * 2;
-  let headPhase = Math.random() * Math.PI * 2;
-  let breathPhase = Math.random() * Math.PI * 2;
-  
-  function frame() {
-    if (!rhythmState.isListening) {
-      rhythmState.rafId = null;
-      return;
-    }
-
-    const now = performance.now();
-    const time = now / 1000;
-    
-    // 读取频谱
-    analyser.getByteFrequencyData(dataArray);
-    
-    // === 计算频段能量（0-1范围）===
-    let bassSum = 0, midSum = 0;
-    const { bass, lowMid, mid } = RHYTHM_CFG.bands;
-    
-    // 低频（鼓点）
-    for (let i = bass.start; i <= bass.end && i < binCount; i++) {
-      bassSum += dataArray[i];
-    }
-    const bassEnergy = bassSum / ((bass.end - bass.start + 1) * 255);
-    
-    // 中频（旋律/人声）
-    for (let i = lowMid.start; i <= mid.end && i < binCount; i++) {
-      midSum += dataArray[i];
-    }
-    const midEnergy = midSum / ((mid.end - lowMid.start + 1) * 255);
-    
-    // === 包络跟踪（带不同attack/release）===
-    // 低频：快速attack，慢速release（捕捉鼓点）
-    if (bassEnergy > rhythmState.bassLevel) {
-      rhythmState.bassLevel += (bassEnergy - rhythmState.bassLevel) * RHYTHM_CFG.envelope.bassAttack;
-    } else {
-      rhythmState.bassLevel += (bassEnergy - rhythmState.bassLevel) * RHYTHM_CFG.envelope.bassRelease;
-    }
-    
-    // 中频：中等速度
-    if (midEnergy > rhythmState.midLevel) {
-      rhythmState.midLevel += (midEnergy - rhythmState.midLevel) * RHYTHM_CFG.envelope.midAttack;
-    } else {
-      rhythmState.midLevel += (midEnergy - rhythmState.midLevel) * RHYTHM_CFG.envelope.midRelease;
-    }
-    
-    // === 节奏检测 ===
-    if (beatCooldown > 0) {
-      beatCooldown--;
-    } else {
-      const beat = detectBeat(rhythmState.bassLevel, prevBass);
-      if (beat.isBeat) {
-        rhythmState.beatDetected = true;
-        rhythmState.beatIntensity = beat.intensity;
-        beatCooldown = RHYTHM_CFG.beatDetection.cooldown;
-        lastBeatTime = time;
-        
-        // 轻微随机变化，增加自然感
-        bodyPhase += (Math.random() - 0.5) * 0.5;
-        headPhase += (Math.random() - 0.5) * 0.3;
-      }
-    }
-    
-    // 衰减beat状态
-    rhythmState.beatIntensity *= RHYTHM_CFG.beatDetection.decay;
-    if (rhythmState.beatIntensity < 0.05) {
-      rhythmState.beatDetected = false;
-    }
-    
-    // === 计算动作目标值（关键改进）===
-    
-    // 1. 身体摇摆（基于正弦波，用低频能量调节幅度和频率）
-    const bodyFreq = RHYTHM_CFG.body.baseFrequency + 
-                     rhythmState.bassLevel * RHYTHM_CFG.body.bassMultiplier;
-    
-    // 基础摆动（更流畅的正弦波）
-    const baseSway = Math.sin(bodyPhase) * 
-                    rhythmState.bassLevel * 
-                    RHYTHM_CFG.body.maxSway;
-    
-    // 添加节拍冲击
-    const beatSway = rhythmState.beatIntensity * 
-                    RHYTHM_CFG.body.maxSway * 
-                    Math.sin(bodyPhase * 3) * 0.5;
-    
-    const targetBodyX = baseSway + beatSway;
-    
-    // 身体前倾（跟随中频能量）
-    const targetBodyZ = rhythmState.midLevel * RHYTHM_CFG.body.leanFactor;
-    
-    // 2. 头部点头（自然流畅）
-    let targetHeadZ = 0;
-    
-    if (rhythmState.beatDetected) {
-      // 节拍点头（有力度）
-      targetHeadZ = -rhythmState.beatIntensity * RHYTHM_CFG.head.nodIntensity * 600;
-    } else {
-      // 微点头（自然晃动）
-      const microNod = Math.sin(headPhase * 2) * 
-                      rhythmState.midLevel * 
-                      RHYTHM_CFG.head.microNods;
-      targetHeadZ = microNod;
-    }
-    
-    // 3. 呼吸（独立循环）
-    const targetBreath = RHYTHM_CFG.breath.baseRate + 
-                        Math.sin(breathPhase) * 
-                        RHYTHM_CFG.breath.amplitude;
-    
-    // === 平滑过渡（使用lerp而不是弹簧）===
-    rhythmState.bodySway += (targetBodyX - rhythmState.bodySway) * RHYTHM_CFG.body.smoothness;
-    
-    // 头部点头有不同的平滑：快速点头，慢速恢复
-    const headSmooth = rhythmState.beatDetected ? 
-                      RHYTHM_CFG.head.nodSmoothness : 
-                      RHYTHM_CFG.head.returnSpeed;
-    rhythmState.headNod += (targetHeadZ - rhythmState.headNod) * headSmooth;
-    
-    rhythmState.breath += (targetBreath - rhythmState.breath) * 0.1;
-    
-    // === 更新相位（确保连续性）===
-    bodyPhase += 0.05 * (1 + rhythmState.bassLevel);
-    headPhase += 0.03 * (1 + rhythmState.midLevel * 0.5);
-    breathPhase += RHYTHM_CFG.breath.speed * 0.05;
-    
-    // 保持相位在合理范围
-    bodyPhase %= Math.PI * 2;
-    headPhase %= Math.PI * 2;
-    breathPhase %= Math.PI * 2;
-    
-    // === 写入模型 ===
-    try {
-      // 身体动作
-      core.setParameterValueById('ParamBodyAngleX', rhythmState.bodySway);
-      core.setParameterValueById('ParamBodyAngleZ', targetBodyZ);
-      
-      // 头部动作
-      core.setParameterValueById('ParamAngleZ', rhythmState.headNod);
-      
-      // 呼吸
-      core.setParameterValueById('ParamBreath', rhythmState.breath);
-      
-      // 可选：嘴部微动（更自然）
-      if (RHYTHM_CFG.mouth.enabled) {
-        const mouthOpen = RHYTHM_CFG.mouth.minOpen + 
-                         rhythmState.midLevel * RHYTHM_CFG.mouth.sensitivity;
-        core.setParameterValueById('ParamMouthOpenY', 
-          Math.min(RHYTHM_CFG.mouth.maxOpen, mouthOpen)
-        );
-      }
-      
-      // 可选：头部轻微旋转（跟随节奏）
-      const headRotY = Math.sin(bodyPhase * 0.7) * rhythmState.bassLevel * 3;
-      core.setParameterValueById('ParamAngleY', headRotY);
-      
-    } catch (e) {
-      // 忽略错误
-    }
-    
-    // 调试输出（每2秒一次）
-    if (Math.floor(time) % 2 === 0 && Math.floor(time) !== Math.floor(lastBeatTime)) {
-      console.log('[律动]', {
-        bass: rhythmState.bassLevel.toFixed(3),
-        beat: rhythmState.beatDetected ? '✓' : '✗',
-        body: rhythmState.bodySway.toFixed(2),
-        head: rhythmState.headNod.toFixed(2)
-      });
-    }
-    
-    // 更新历史值
-    prevBass = rhythmState.bassLevel;
-    prevMid = rhythmState.midLevel;
-    
-    rhythmState.rafId = requestAnimationFrame(frame);
-  }
-  
-  // 启动
-  rhythmState.rafId = requestAnimationFrame(frame);
-  console.log('[律动] 自然律动循环启动');
-}
-
-function stopRhythmLoop() {
-  if (rhythmState.rafId) {
-    cancelAnimationFrame(rhythmState.rafId);
-    rhythmState.rafId = null;
-  }
-  console.log('[律动] 循环已停止');
-}
-
-// === 平滑重置 ===
-function smoothReset() {
-  const core = model.internalModel.coreModel;
-  
-  // 获取当前值
-  const curBodyX = core.getParameterValueById('ParamBodyAngleX') || 0;
-  const curBodyZ = core.getParameterValueById('ParamBodyAngleZ') || 0;
-  const curHeadZ = core.getParameterValueById('ParamAngleZ') || 0;
-  const curBreath = core.getParameterValueById('ParamBreath') || 0.5;
-  
-  const resetState = {
-    bodyX: curBodyX,
-    bodyZ: curBodyZ,
-    headZ: curHeadZ,
-    breath: curBreath
-  };
-  
-  // 使用GSAP平滑过渡到0
-  gsap.to(resetState, {
-    duration: 0.8,
-    bodyX: 0,
-    bodyZ: 0,
-    headZ: 0,
-    breath: 0.5,
-    ease: "power2.out",
-    onUpdate: function() {
-      try {
-        core.setParameterValueById('ParamBodyAngleX', resetState.bodyX);
-        core.setParameterValueById('ParamBodyAngleZ', resetState.bodyZ);
-        core.setParameterValueById('ParamAngleZ', resetState.headZ);
-        core.setParameterValueById('ParamBreath', resetState.breath);
-      } catch (e) {}
-    },
-    onComplete: function() {
-      console.log('[律动] 模型已重置');
-    }
-  });
-}
-
-// === 快速测试函数 ===
-function testNaturalRhythm() {
-  console.log('[测试] 启动自然律动测试...');
-  
-  const core = model.internalModel.coreModel;
-  const testState = {
-    bass: 0,
-    beat: false,
-    intensity: 0
-  };
-  
-  // 模拟节奏
-  const simAnim = gsap.to(testState, {
-    duration: 10,
-    repeat: -1,
-    bass: 0.5,
-    ease: "sine.inOut",
-    yoyo: true,
-    onRepeat: function() {
-      // 模拟节拍
-      testState.beat = true;
-      testState.intensity = 0.6 + Math.random() * 0.4;
-      
-      // 设置模拟值
-      rhythmState.bassLevel = testState.bass;
-      rhythmState.beatDetected = testState.beat;
-      rhythmState.beatIntensity = testState.intensity;
-      
-      console.log(`[测试] 模拟节拍: ${testState.intensity.toFixed(2)}`);
-      
-      // 1秒后重置节拍
-      setTimeout(() => {
-        testState.beat = false;
-        rhythmState.beatDetected = false;
-      }, 200);
-    }
-  });
-  
-  // 10秒后停止
-  setTimeout(() => {
-    simAnim.kill();
-    smoothReset();
-    console.log('[测试] 自然律动测试完成');
-  }, 10000);
-}
 /* ================= 表情合成 ================= */
-const emotion = "Solemn";
+
+/** 預設初始表情，可按需替換為動態配置 */
+const INITIAL_EMOTION = "Solemn";
+
+// 記錄當前表情修改的參數原始值，用於重置
+let currentEmotionMeta = {};
+
+async function resetToSolemn() {
+  const core = getCoreModel();
+  if (!core) return;
+  const keys = Object.keys(currentEmotionMeta);
+  if (!keys.length) return;
+  for (const id of keys) {
+    try {
+      core.setParameterValueById(id, typeof currentEmotionMeta[id] === "number" ? currentEmotionMeta[id] : 0);
+    } catch (e) {
+      console.warn("[Luna] resetToSolemn 恢復失敗:", id, e);
+    }
+  }
+  currentEmotionMeta = {};
+  await new Promise((r) => requestAnimationFrame(r));
+}
+
+function tweenParameters(core, targetValues, duration = 200) {
+  return new Promise((resolve) => {
+    const startTime = performance.now();
+    const fromValues = {};
+    for (const id in targetValues) {
+      fromValues[id] = core.getParameterValueById(id) ?? 0;
+    }
+    function step(now) {
+      const t = Math.min((now - startTime) / duration, 1);
+      const k = t * t * (3 - 2 * t); // smoothstep
+      for (const id in targetValues) {
+        core.setParameterValueById(id, fromValues[id] + (targetValues[id] - fromValues[id]) * k);
+      }
+      if (t < 1) requestAnimationFrame(step);
+      else resolve();
+    }
+    requestAnimationFrame(step);
+  });
+}
 
 async function applyEmotionExpressions(emotion) {
-  if (!model?.internalModel?.coreModel) return;
-  const core = model.internalModel.coreModel;
+  const core = getCoreModel();
+  if (!core) return;
 
-  // ① 回到中性
   await resetToSolemn();
-  await new Promise(r => requestAnimationFrame(r));
+  await new Promise((r) => requestAnimationFrame(r));
 
   const names = EMOTION_EXPRESSIONS?.[emotion] || [];
   if (!names.length) return;
@@ -1675,420 +918,93 @@ async function applyEmotionExpressions(emotion) {
   for (const cnName of names) {
     const expJson = expressionCache.get(cnName);
     if (!expJson) continue;
-
     (expJson.Parameters || []).forEach(({ Id, Value, Blend }) => {
-      const base =
-        targetValues[Id] ??
-        core.getParameterValueById(Id) ??
-        0;
-
-      // 记录原始值（只记录一次，用于 reset）
-      if (!(Id in thisApplyPrev)) {
-        thisApplyPrev[Id] = base;
-      }
-
-      if (Blend === "Add") {
-        targetValues[Id] = base + Value;
-      } else if (Blend === "Multiply") {
-        targetValues[Id] = base * Value;
-      } else {
-        targetValues[Id] = Value;
-      }
+      const base = targetValues[Id] ?? core.getParameterValueById(Id) ?? 0;
+      if (!(Id in thisApplyPrev)) thisApplyPrev[Id] = base;
+      if (Blend === "Add") targetValues[Id] = base + Value;
+      else if (Blend === "Multiply") targetValues[Id] = base * Value;
+      else targetValues[Id] = Value;
     });
   }
 
-  // ② 平滑过渡（关键）
-  await tweenParameters(core, targetValues, 180); // 150~300 都很好
-
-  // ③ 记录以便 reset
+  await tweenParameters(core, targetValues, 180);
   currentEmotionMeta = thisApplyPrev;
 
-  // ④ 重应用外貌
-  await applyAllEnabled();
+  // 重新應用外貌，防止表情覆蓋外貌參數
+  await applyAllEnabled(getCoreModel());
 }
 
-
-let currentEmotionMeta = {}; // 用普通对象即可
-
-async function resetToSolemn() {
-  const core = model?.internalModel?.coreModel;
-  if (!core) return;
-
-  // 如果没有记录，Solemn 本身为空，则什么也不用做
-  const keys = Object.keys(currentEmotionMeta);
-  if (!keys.length) return;
-
-  // 恢复每个被改动的参数到原始值
-  for (const id of keys) {
-    try {
-      const prev = currentEmotionMeta[id];
-      // 若 prev 为 undefined 则设置为 0 防御性处理
-      core.setParameterValueById(id, (typeof prev === 'number' ? prev : 0));
-    } catch (e) {
-      // 忽略单个参数恢复错误
-      console.warn('[Luna] resetToSolemn restore fail for', id, e);
-    }
-  }
-
-  // 清空记录
-  currentEmotionMeta = {};
-
-  // 等一帧，确保 core 的内部状态被刷新到下一帧渲染
-  await new Promise(r => requestAnimationFrame(r));
-}
-
-function tweenParameters(core, targetValues, duration = 200) {
-  return new Promise(resolve => {
-    const startTime = performance.now();
-    const fromValues = {};
-
-    // 记录起始值
-    for (const id in targetValues) {
-      fromValues[id] = core.getParameterValueById(id) ?? 0;
-    }
-
-    function step(now) {
-      const t = Math.min((now - startTime) / duration, 1);
-      // smoothstep：前后慢，中间快，比线性自然
-      const k = t * t * (3 - 2 * t);
-
-      for (const id in targetValues) {
-        const from = fromValues[id];
-        const to = targetValues[id];
-        const v = from + (to - from) * k;
-        core.setParameterValueById(id, v);
+/* ================= 預加載表情文件 ================= */
+async function preloadExpressions() {
+  const allFiles = [
+    "眼-生氣", "臉紅2隱藏", "臉黑", "眼-哭哭", "眼-淚眼汪汪",
+    "眼-眩暈流汗", "臉紅", "眼-平靜死魚眼", "嘴-平靜v形（不可張開",
+    "眼-星星眼", "臉紅-痴漢嘴（兼容吐舌", "眼-愛心眼",
+  ];
+  console.log(`[Live2D] 開始預加載表情，共 ${allFiles.length} 個`);
+  await Promise.all(
+    allFiles.map(async (name) => {
+      try {
+        const res = await fetch(`/models/luna/${encodeURIComponent(name)}.exp3.json`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        expressionCache.set(name, await res.json());
+        console.log(`[Live2D] 加載成功: ${name}`);
+      } catch (e) {
+        console.error(`[Live2D] 加載失敗: ${name}`, e);
       }
-
-      if (t < 1) {
-        requestAnimationFrame(step);
-      } else {
-        resolve();
-      }
-    }
-
-    requestAnimationFrame(step);
-  });
+    })
+  );
+  console.log("[Live2D] 表情預加載完成");
 }
 
-
-/* ================= 外貌（非表情）管理 ================= */
-
-const APPEARANCE_FILES = [
-  "后发-右小啾啾隐藏.exp3.json",
-  "后发-长发隐藏.exp3.json",
-  "后发-左小啾啾隐藏.exp3.json",
-  "肩发-缩小~隐藏.exp3.json",
-  "肩发-位置收拢.exp3.json",
-  "脸-绷带-血隐藏.exp3.json",
-  "脸-绷带和血一起隐藏.exp3.json",
-  "帽子隐藏.exp3.json",
-  "前发-去掉半透.exp3.json",
-  "身-毛衣.exp3.json",
-  "身-腿绑带血隐藏.exp3.json",
-  "身-腿绑带隐藏.exp3.json",
-  "身-围巾.exp3.json",
-  "手-抱猫.exp3.json",
-  "手-手提包隐藏.exp3.json",
-  "兽耳-隐藏.exp3.json",
-  "兽尾-隐藏1.exp3.json",
-  "兽尾-隐藏2.exp3.json",
-  "眼-眼镜.exp3.json",
-  "眼-右眼粉瞳色.exp3.json",
-  "眼-左眼粉瞳色.exp3.json",
-  "眼影隐藏.exp3.json",
-];
-
-/**
- * localStorage key 保存启用状态
- */
-const APPEARANCE_STATE_KEY = "live2d:appearance-enabled";
-
-const appearanceHint = ref("");
-let appearanceHintTimer = null;
-
-function showAppearanceHint(text, duration = 1500) {
-  appearanceHint.value = text;
-  clearTimeout(appearanceHintTimer);
-  appearanceHintTimer = setTimeout(() => {
-    appearanceHint.value = "";
-  }, duration);
-}
-
-
-// 重置模型表情
+/* ================= 重置模型狀態 ================= */
 async function resetModelState() {
-  if (!model || !model.internalModel?.coreModel) return;
-
-  const core = model.internalModel.coreModel;
-
-  // ① 清空表情叠加状态
+  const core = getCoreModel();
+  if (!core) return;
   for (const f in appearanceAppliedMeta) {
-    await removeAppearanceFile(f);
+    removeAppearanceFile(f, core);
   }
-
-  // ② 恢复默认表情
   await resetToSolemn();
-
-  // ③ 重新应用启用的外貌
-  await applyAllEnabled();
-
+  await applyAllEnabled(core);
   showAppearanceHint("模型表情已重置");
 }
 
-// 关闭 Luna
+/* ================= 關閉 Luna ================= */
 function closeLuna() {
   try {
-    // 停止呼吸动画
     stopBreath();
-
-    // 销毁 Live2D App 实例
     app?.destroy(true);
-
-    // 通知桌宠逻辑结束
     window.pet?.leave?.();
   } catch (e) {
-    console.warn("关闭 Luna 出错", e);
+    console.warn("[Luna] 關閉出錯", e);
   }
-
-  // 可选：清空 DOM
-  if (wrapperRef.value) {
-    wrapperRef.value.innerHTML = "";
-  }
-
-  // 隐藏输入框和右键菜单
+  if (wrapperRef.value) wrapperRef.value.innerHTML = "";
   showMessageBox.value = false;
   contextMenu.value.visible = false;
 }
 
-
-
-
-const appearanceEnabled = ref({});
-const appearanceAppliedMeta = {}; // 非响应式对象，记录已应用的元数据
-
-// 初始化 appearanceEnabled（读 localStorage）
-function loadAppearanceState() {
-  const raw = localStorage.getItem(APPEARANCE_STATE_KEY);
-  let saved = {};
-  try {
-    saved = raw ? JSON.parse(raw) : {};
-  } catch {}
-  APPEARANCE_FILES.forEach((f) => {
-    appearanceEnabled.value[f] = !!saved[f];
-  });
-}
-
-function saveAppearanceState() {
-  const obj = {};
-  for (const f of APPEARANCE_FILES) {
-    obj[f] = !!appearanceEnabled.value[f];
-  }
-  localStorage.setItem(APPEARANCE_STATE_KEY, JSON.stringify(obj));
-}
-
-/**
- * applyAppearanceFile: 启用某个外貌文件（fetch 并应用参数）
- * 会在 appearanceAppliedMeta[file] 中保存用于回退的元数据
- */
-async function applyAppearanceFile(file) {
-  if (!model || !model.internalModel?.coreModel) {
-    // 如果 model 还没准备好，等到 model 准备后再调用
-    await waitForModelReady();
-  }
-  if (!model || !model.internalModel?.coreModel) return;
-
-  const core = model.internalModel.coreModel;
-
-  try {
-    const res = await fetch(`/models/luna/${file}`);
-    if (!res.ok) throw new Error("fetch fail");
-    const expJson = await res.json();
-
-    const meta = [];
-    // 遍历参数并应用
-    (expJson.Parameters || []).forEach(({ Id, Value, Blend }) => {
-      try {
-        const old = core.getParameterValueById(Id) || 0;
-        if (Blend === "Add") {
-          // 记录增量 value，以便禁用时减回去
-          core.setParameterValueById(Id, old + Value);
-          meta.push({ Id, Blend, value: Value });
-        } else {
-          // Replace 类型，记录 previous 值以便禁用时恢复
-          core.setParameterValueById(Id, Value);
-          meta.push({ Id, Blend, previous: old, value: Value });
-        }
-      } catch (e) {
-        // 忽略单个参数错误
-      }
-    });
-
-    appearanceAppliedMeta[file] = meta;
-  } catch (e) {
-    console.warn("applyAppearanceFile error:", file, e);
-  }
-}
-
-/**
- * removeAppearanceFile: 禁用某个外貌文件（根据 appearanceAppliedMeta 回退）
- */
-async function removeAppearanceFile(file) {
-  if (!model || !model.internalModel?.coreModel) {
-    await waitForModelReady();
-  }
-  if (!model || !model.internalModel?.coreModel) return;
-
-  const core = model.internalModel.coreModel;
-  const meta = appearanceAppliedMeta[file];
-  if (!meta) return;
-
-  meta.forEach((m) => {
-    try {
-      if (m.Blend === "Add") {
-        // 减去当初加上的 value
-        const cur = core.getParameterValueById(m.Id) || 0;
-        core.setParameterValueById(m.Id, cur - (m.value || 0));
-      } else {
-        // Replace：恢复 previous 值
-        core.setParameterValueById(m.Id, m.previous || 0);
-      }
-    } catch (e) {}
-  });
-
-  delete appearanceAppliedMeta[file];
-}
-
-/**
- * 当用户切换 checkbox 时触发
- */
-async function onAppearanceToggle(file) {
-  saveAppearanceState();
-
-  const name = displayAppearanceName(file);
-
-  if (appearanceEnabled.value[file]) {
-    await applyAppearanceFile(file);
-    showAppearanceHint(`✓ 已启用 ${name}`);
-  } else {
-    await removeAppearanceFile(file);
-    showAppearanceHint(`✕ 已关闭 ${name}`);
-  }
-}
-
-
-/**
- * 全部应用已启用项（适用于启动后批量应用）
- */
-async function applyAllEnabled() {
-  for (const f of APPEARANCE_FILES) {
-    if (appearanceEnabled.value[f]) {
-      await applyAppearanceFile(f);
-    }
-  }
-  showAppearanceHint("已应用当前外貌设置");
-}
-
-async function disableAll() {
-  for (const f of APPEARANCE_FILES.slice()) {
-    if (appearanceAppliedMeta[f]) {
-      await removeAppearanceFile(f);
-    }
-    appearanceEnabled.value[f] = false;
-  }
-  saveAppearanceState();
-  showAppearanceHint("已恢复默认外貌");
-}
-
-
-/**
- * 工具：等待 model 准备好（简易 poll）
- */
+/* ================= 等待模型就緒 ================= */
 function waitForModelReady(timeout = 5000) {
   return new Promise((resolve) => {
     const start = performance.now();
     (function poll() {
-      if (model && model.internalModel?.coreModel) return resolve(true);
+      if (model?.internalModel?.coreModel) return resolve(true);
       if (performance.now() - start > timeout) return resolve(false);
       setTimeout(poll, 120);
     })();
   });
 }
 
-/* ================= 外貌面板 UI 管理 ================= */
-const appearancePanel = ref({
-  visible: false,
-  x: 100,
-  y: 100,
-});
-
-function openAppearancePanelAt(x, y) {
-  appearancePanel.value.visible = true;
-
-  overUI = true;
-  window.pet?.enter();
-
-  const panelWidth = 420;
-  const panelHeight = 360;
-  const windowWidth = window.innerWidth;
-  const windowHeight = window.innerHeight;
-
-  appearancePanel.value.x =
-    x + panelWidth > windowWidth ? windowWidth - panelWidth - 10 : x;
-  appearancePanel.value.y =
-    y + panelHeight > windowHeight ? windowHeight - panelHeight - 10 : y;
-
-  contextMenu.value.visible = false;
-}
-
-
-function closeAppearancePanel() {
-  appearancePanel.value.visible = false;
-
-  overUI = false;
-  updatePetState();
-}
-
-async function preloadExpressions() {
-  const allFiles = [
-    "眼-生气",
-    "脸红2隐藏",
-    "脸黑",
-    "眼-哭哭",
-    "眼-泪眼汪汪",
-    "眼-眩晕流汗",
-    "脸红",
-    "眼-平静死鱼眼",
-    "嘴-平静v形（不可张开",
-    "眼-星星眼",
-    "脸红-痴汉嘴（兼容吐舌",
-    "眼-爱心眼"
-  ];
-
-  console.log(`[Live2D] 开始全量预加载，共 ${allFiles.length} 个文件`);
-  const promises = allFiles.map(async (name) => {
-    try {
-      const res = await fetch(`/models/luna/${encodeURIComponent(name)}.exp3.json`);
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-      const json = await res.json();
-      expressionCache.set(name, json);
-      console.log(`[Live2D] 加载成功: ${name}`);
-    } catch (e) {
-      console.error(`[Live2D] 加载失败: ${name}`, e);
-    }
-  });
-
-  await Promise.all(promises);
-  console.log("[Live2D] 所有表情预加载尝试完成");
-}
-
 /* ================= 生命周期 ================= */
 onMounted(async () => {
   window.PIXI = PIXI;
+
   app = new PIXI.Application({
     view: canvasRef.value,
     backgroundAlpha: 0,
     resizeTo: wrapperRef.value,
   });
+
   container = new PIXI.Container();
   app.stage.addChild(container);
 
@@ -2101,7 +1017,6 @@ onMounted(async () => {
   model.anchor.set(0.5, 1);
   model.x = app.renderer.width / 2;
   model.y = app.renderer.height;
-
   model.interactive = true;
   model.cursor = "pointer";
 
@@ -2111,66 +1026,49 @@ onMounted(async () => {
     .on("pointerup", onPointerUp)
     .on("pointerupoutside", onPointerUp);
 
-  model.on("pointerover", () => {
-    overModel = true;
-    updatePetState();
-  });
-  model.on("pointerout", () => {
-    overModel = false;
-    updatePetState();
-  });
-
-  // 为模型添加右键事件监听
-  model.on("rightclick", (e) => {
+  model.on("pointerover", () => { overModel = true; updatePetState(); });
+  model.on("pointerout",  () => { overModel = false; updatePetState(); });
+  model.on("rightclick",  (e) => {
     const rect = canvasRef.value.getBoundingClientRect();
     showContextMenu(rect.left + e.data.global.x, rect.top + e.data.global.y);
   });
 
   container.addChild(model);
-
   loadOrigin();
 
   wrapperRef.value.addEventListener("pointermove", onGlobalPointerMove);
   wrapperRef.value.addEventListener("pointerdown", onCanvasClick);
   wrapperRef.value.addEventListener("wheel", onWheel, { passive: false });
-
-  // 添加全局点击监听来关闭菜单
   document.addEventListener("click", handleClickOutside);
-  // 添加全局右键监听
   document.addEventListener("contextmenu", onRightClick);
 
   await preloadExpressions();
-
-  // start breath + random micro animations after model is ready
   startBreath();
 
-  // 初始化 appearance 状态并应用已启用的外貌
   loadAppearanceState();
-  // 等待 model ready，然后应用
   await waitForModelReady(5000);
-
   await nextTick();
-  await applyAllEnabled();
+  await applyAllEnabled(getCoreModel());
 
-  applyEmotionExpressions(emotion);
+  applyEmotionExpressions(INITIAL_EMOTION);
   callStartup();
 });
 
 onBeforeUnmount(() => {
+  // 清理省略號計時器（修復：原先未在卸載時清理）
+  clearInterval(dotsTimer);
+  dotsTimer = null;
+
   stopBreath();
+
+  // 釋放音頻律動資源
+  disposeRhythm(getCoreModel(), trackingEnabled);
+
   app?.destroy(true);
   callShutdown();
-  // 移除事件监听
+
   document.removeEventListener("click", handleClickOutside);
   document.removeEventListener("contextmenu", onRightClick);
-});
-
-/* ================= 其他工具函数 ================= */
-// 点击外部时关闭 appearancePanel（由 document click 监听触发）
-watch(appearancePanel, (v) => {
-  if (v.visible) {
-    // nothing
-  }
 });
 </script>
 
@@ -2178,45 +1076,48 @@ watch(appearancePanel, (v) => {
 .css-chat-bubble {
   max-width: 280px;
   padding: 10px 14px;
-  width: fit-content;       /* ⭐ 根据内容决定宽度 */
+  width: fit-content;
   border: 1px solid rgba(0, 0, 0, 0.15);
-background: linear-gradient(
-  to bottom,
-  rgba(255,255,255,0.95),
-  rgba(245,245,245,0.9)
-);
-
+  background: linear-gradient(to bottom, rgba(255,255,255,0.95), rgba(245,245,245,0.9));
   border-radius: 14px;
-
   color: #333;
   font-size: 14px;
   line-height: 1.5;
   display: flex;
-  align-items: center;   /* 垂直居中 */
-  justify-content: center; /* 水平居中 */
-  text-align: center;          /* ✅ 文字水平居中 */
+  align-items: center;
+  justify-content: center;
+  text-align: center;
   word-break: break-word;
-
-  box-shadow: 
-    0 6px 16px rgba(0, 0, 0, 0.12);
-
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
   animation: bubbleIn 0.22s ease-out both;
 }
 
-
 @keyframes bubbleIn {
-  from {
-    opacity: 0;
-    transform: scale(0.85);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+  from { opacity: 0; transform: scale(0.85); }
+  to   { opacity: 1; transform: scale(1); }
 }
 
+@keyframes bubbleOut {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.9); }
+}
 
-/* ================= 输入框样式 ================= */
+.css-chat-bubble.leaving {
+  animation: bubbleOut 0.18s ease-in forwards;
+}
+
+.bubble-stack {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+  z-index: 1002;
+}
+
+/* ================= 輸入框 ================= */
 .messageBox {
   position: absolute;
   top: 800px;
@@ -2230,14 +1131,11 @@ background: linear-gradient(
   padding: 0 15px;
   border-radius: 10px;
   border: 1px solid rgb(63, 63, 63);
-  z-index: 1001; /* 提高层级，放在最上层 */
-  pointer-events: auto; /* 确保可以交互 */
-}
-
-/* 确保输入框容器内的所有元素都可以交互 */
-.messageBox * {
+  z-index: 1001;
   pointer-events: auto;
 }
+
+.messageBox * { pointer-events: auto; }
 
 .messageBox:focus-within {
   border: 1px solid rgb(110, 110, 110);
@@ -2245,18 +1143,14 @@ background: linear-gradient(
 
 .fileUploadWrapper {
   position: relative;
-  margin-left: 0px;
   width: fit-content;
   height: 110%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: Arial, Helvetica, sans-serif;
 }
 
-#file {
-  display: none;
-}
+#file { display: none; }
 
 .fileUploadWrapper label {
   cursor: pointer;
@@ -2268,31 +1162,12 @@ background: linear-gradient(
   position: relative;
 }
 
-.fileUploadWrapper label svg {
-  height: 18px;
-}
-
-.fileUploadWrapper label svg path {
-  transition: all 0.3s;
-}
-
-.fileUploadWrapper label svg circle {
-  transition: all 0.3s;
-}
-
-.fileUploadWrapper label:hover svg path {
-  stroke: #fff;
-}
-
-.fileUploadWrapper label:hover svg circle {
-  stroke: #fff;
-  fill: #3c3c3c;
-}
-
-.fileUploadWrapper label:hover .tooltip {
-  display: block;
-  opacity: 1;
-}
+.fileUploadWrapper label svg { height: 18px; }
+.fileUploadWrapper label svg path,
+.fileUploadWrapper label svg circle { transition: all 0.3s; }
+.fileUploadWrapper label:hover svg path { stroke: #fff; }
+.fileUploadWrapper label:hover svg circle { stroke: #fff; fill: #3c3c3c; }
+.fileUploadWrapper label:hover .tooltip { display: block; opacity: 1; }
 
 .tooltip {
   position: absolute;
@@ -2306,8 +1181,7 @@ background: linear-gradient(
   padding: 6px 10px;
   border-radius: 5px;
   border: 1px solid #3c3c3c;
-  border-radius: 5px;
-  box-shadow: 0px 5px 10px rgba(0, 0, 0, 0.596);
+  box-shadow: 0px 5px 10px rgba(0,0,0,0.596);
   transition: all 0.3s;
 }
 
@@ -2340,22 +1214,21 @@ background: linear-gradient(
   transition: all 0.3s;
 }
 
-#sendButton svg {
-  height: 18px;
-  transition: all 0.3s;
+#sendButton svg { height: 18px; transition: all 0.3s; }
+#sendButton svg path { transition: all 0.3s; }
+#sendButton:hover svg path { fill: #3c3c3c; stroke: white; }
+
+#messageInput.loading::placeholder {
+  animation: placeholderBlink 1.2s infinite;
 }
 
-#sendButton svg path {
-  transition: all 0.3s;
+@keyframes placeholderBlink {
+  0%   { opacity: 0.3; }
+  50%  { opacity: 1; }
+  100% { opacity: 0.3; }
 }
 
-#sendButton:hover svg path {
-  fill: #3c3c3c;
-  stroke: white;
-}
-
-/* ================= 其他样式 ================= */
-
+/* ================= 通用佈局 ================= */
 .app-root {
   width: 100vw;
   height: 100vh;
@@ -2364,44 +1237,28 @@ background: linear-gradient(
   font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
 }
 
-.appearance-hint {
-  margin-top: 6px;
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.55);
-  text-align: right;
-  padding-right: 4px;
-  user-select: none;
-  pointer-events: none;
-
-  /* 淡入淡出 */
-  animation: appearanceHintFade 0.15s ease-out;
+.interactive-wrapper {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  z-index: 1;
 }
 
-@keyframes appearanceHintFade {
-  from {
-    opacity: 0;
-    transform: translateY(-2px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
+.no-drag { -webkit-app-region: no-drag; }
 
-
+/* ================= 調試 UI ================= */
 .debug-ui {
   position: absolute;
   top: 16px;
   left: 16px;
-  z-index: 1002; /* 比输入框更高 */
+  z-index: 1002;
   display: flex;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255,255,255,0.92);
   padding: 10px;
   border-radius: 10px;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.12);
   pointer-events: auto;
-  transition: transform 0.15s ease, opacity 0.15s ease;
 }
 
 .debug-ui button {
@@ -2415,24 +1272,21 @@ background: linear-gradient(
   transition: background 0.2s ease;
 }
 
-.debug-ui button:hover {
-  background: #444;
-}
+.debug-ui button:hover { background: #444; }
 
+/* ================= 右鍵菜單 ================= */
 .context-menu {
   position: fixed;
-  z-index: 1003; /* 最高层级 */
+  z-index: 1003;
   background: #1f1f1f;
   border-radius: 8px;
   padding: 6px 0;
   color: #ececec;
   min-width: 160px;
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 8px 18px rgba(0,0,0,0.25);
   font-size: 14px;
-  transition: opacity 0.2s ease, transform 0.2s ease;
-  transform-origin: top left;
-  opacity: 0.98;
-  pointer-events: auto; /* 确保菜单可以点击 */
+  pointer-events: auto;
+  user-select: none;
 }
 
 .context-menu .menu-item {
@@ -2449,58 +1303,10 @@ background: linear-gradient(
 }
 
 .context-menu .menu-item:not(:last-child) {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  border-bottom: 1px solid rgba(255,255,255,0.12);
 }
 
-.interactive-wrapper {
-  width: 100%;
-  height: 100%;
-  position: relative;
-  z-index: 1; /* Canvas 在底层 */
-}
-
-.no-drag {
-  -webkit-app-region: no-drag;
-}
-
-.context-menu,
-.context-menu .menu-item {
-  user-select: none;
-}
-
-.input-wrapper {
-  position: absolute;
-  display: flex;
-  align-items: center;
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 14px;
-  padding: 4px 10px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
-}
-
-.chat-input {
-  border: none;
-  outline: none;
-  padding: 6px 8px;
-  font-size: 14px;
-  width: 180px;
-  border-radius: 10px;
-}
-
-.close-btn {
-  font-size: 18px;
-  cursor: pointer;
-  margin-left: 8px;
-  user-select: none;
-  color: #888;
-  transition: color 0.15s;
-}
-
-.close-btn:hover {
-  color: #333;
-}
-
-/* ============== 外貌面板样式 ============== */
+/* ================= 外貌面板 ================= */
 .appearance-panel {
   position: fixed;
   z-index: 1004;
@@ -2523,6 +1329,8 @@ background: linear-gradient(
   padding: 6px 8px;
   border-bottom: 1px solid rgba(255,255,255,0.05);
   font-weight: 600;
+  cursor: move;
+  user-select: none;
 }
 
 .appearance-panel .panel-header .close {
@@ -2533,28 +1341,14 @@ background: linear-gradient(
   cursor: pointer;
 }
 
-.appearance-panel .panel-header {
-  cursor: move;
-  user-select: none;
-}
-
-
 .appearance-panel .panel-body {
   padding: 8px;
   overflow: auto;
   flex: 1;
 }
 
-.appearance-controls {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.appearance-item {
-  display: flex;
-  align-items: center;
-}
+.appearance-controls { display: flex; flex-direction: column; gap: 6px; }
+.appearance-item { display: flex; align-items: center; }
 
 .checkbox-label {
   display: flex;
@@ -2595,347 +1389,37 @@ background: linear-gradient(
   cursor: pointer;
 }
 
-.appearance-panel .panel-footer button:hover {
-  opacity: 0.9;
-}
+.appearance-panel .panel-footer button:hover { opacity: 0.9; }
 
-@keyframes bubbleOut {
-  from {
-    opacity: 1;
-    transform: scale(1);
-  }
-  to {
-    opacity: 0;
-    transform: scale(0.9);
-  }
-}
-
-
-.css-chat-bubble.leaving {
-  animation: bubbleOut 0.18s ease-in forwards;
-}
-
-
-.bubble-stack {
-  align-items: center;
-  position: fixed;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;              /* ← 间距永远一致 */
-  transform: translate(-50%, -100%);
-  pointer-events: none;
-  z-index: 1002;
-}
-
-
-/* ===== Luna 思考中 loader ===== */
-.loader {
-  left: 0px;
-  top: 765px;
-  --main-size: 4em;
-  --text-color: #ffffff;
-  --shine-color: #ffffff40;
-  --shadow-color: #aaaaaa;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  overflow: hidden;
+.appearance-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: rgba(255,255,255,0.55);
+  text-align: right;
+  padding-right: 4px;
   user-select: none;
-  position: relative;
-  font-size: calc(var(--main-size) / 4.5);
-  font-weight: 900;
-  text-transform: none;
-  color: var(--text-color);
-  scale: 3;
-  filter: drop-shadow(0 0 0.05em var(--shine-color));
-  margin-bottom: 6px;
   pointer-events: none;
+  animation: appearanceHintFade 0.15s ease-out;
 }
 
-.loader .text {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+@keyframes appearanceHintFade {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
-.loader .text:nth-child(1) {
-  clip-path: polygon(0% 0%, 11.11% 0%, 11.11% 100%, 0% 100%);
-  font-size: calc(var(--main-size) / 20);
-  margin-left: -2.1em;
-  opacity: 0.6;
-}
-
-.loader .text:nth-child(2) {
-  clip-path: polygon(11.11% 0%, 22.22% 0%, 22.22% 100%, 11.11% 100%);
-  font-size: calc(var(--main-size) / 16);
-  margin-left: -0.98em;
-  opacity: 0.7;
-}
-
-.loader .text:nth-child(3) {
-  clip-path: polygon(22.22% 0%, 33.33% 0%, 33.33% 100%, 22.22% 100%);
-  font-size: calc(var(--main-size) / 13);
-  margin-left: -0.33em;
-  opacity: 0.8;
-}
-
-.loader .text:nth-child(4) {
-  clip-path: polygon(33.33% 0%, 44.44% 0%, 44.44% 100%, 33.33% 100%);
-  font-size: calc(var(--main-size) / 11);
-  margin-left: -0.05em;
-  opacity: 0.9;
-}
-
-.loader .text:nth-child(5) {
-  clip-path: polygon(44.44% 0%, 55.55% 0%, 55.55% 100%, 44.44% 100%);
-  font-size: calc(var(--main-size) / 10);
-  margin-left: 0em;
-  opacity: 1;
-}
-
-.loader .text:nth-child(6) {
-  clip-path: polygon(55.55% 0%, 66.66% 0%, 66.66% 100%, 55.55% 100%);
-  font-size: calc(var(--main-size) / 11);
-  margin-left: 0.05em;
-  opacity: 0.9;
-}
-
-.loader .text:nth-child(7) {
-  clip-path: polygon(66.66% 0%, 77.77% 0%, 77.77% 100%, 66.66% 100%);
-  font-size: calc(var(--main-size) / 13);
-  margin-left: 0.33em;
-  opacity: 0.8;
-}
-
-.loader .text:nth-child(8) {
-  clip-path: polygon(77.77% 0%, 88.88% 0%, 88.88% 100%, 77.77% 100%);
-  font-size: calc(var(--main-size) / 16);
-  margin-left: 0.98em;
-  opacity: 0.7;
-}
-
-.loader .text:nth-child(9) {
-  clip-path: polygon(88.88% 0%, 100% 0%, 100% 100%, 88.88% 100%);
-  font-size: calc(var(--main-size) / 20);
-  margin-left: 2.1em;
-  opacity: 0.6;
-}
-
-.loader .text span {
-  animation:
-    scrolling 2s cubic-bezier(0.1, 0.6, 0.9, 0.4) infinite,
-    shadow 2s cubic-bezier(0.1, 0.6, 0.9, 0.4) infinite;
-}
-
-.loader .text:nth-child(1) span {
-  background: linear-gradient(
-    to right,
-    var(--text-color) 4%,
-    var(--shadow-color) 7%
-  );
-  background-size: 200% auto;
-  background-clip: text;
-  color: transparent;
-}
-
-.loader .text:nth-child(2) span {
-  background: linear-gradient(
-    to right,
-    var(--text-color) 9%,
-    var(--shadow-color) 13%
-  );
-  background-size: 200% auto;
-  background-clip: text;
-  color: transparent;
-}
-
-.loader .text:nth-child(3) span {
-  background: linear-gradient(
-    to right,
-    var(--text-color) 15%,
-    var(--shadow-color) 18%
-  );
-  background-size: 200% auto;
-  background-clip: text;
-  color: transparent;
-}
-
-.loader .text:nth-child(4) span {
-  background: linear-gradient(
-    to right,
-    var(--text-color) 20%,
-    var(--shadow-color) 23%
-  );
-  background-size: 200% auto;
-  background-clip: text;
-  color: transparent;
-}
-
-.loader .text:nth-child(6) span {
-  background: linear-gradient(
-    to right,
-    var(--shadow-color) 29%,
-    var(--text-color) 32%
-  );
-  background-size: 200% auto;
-  background-clip: text;
-  color: transparent;
-}
-
-.loader .text:nth-child(7) span {
-  background: linear-gradient(
-    to right,
-    var(--shadow-color) 34%,
-    var(--text-color) 37%
-  );
-  background-size: 200% auto;
-  background-clip: text;
-  color: transparent;
-}
-
-.loader .text:nth-child(8) span {
-  background: linear-gradient(
-    to right,
-    var(--shadow-color) 39%,
-    var(--text-color) 42%
-  );
-  background-size: 200% auto;
-  background-clip: text;
-  color: transparent;
-}
-
-.loader .text:nth-child(9) span {
-  background: linear-gradient(
-    to right,
-    var(--shadow-color) 45%,
-    var(--text-color) 48%
-  );
-  background-size: 200% auto;
-  background-clip: text;
-  color: transparent;
-}
-
-.loader .line {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  height: 0.05em;
-  width: calc(var(--main-size) / 2);
-  margin-top: 0.9em;
-  border-radius: 0.05em;
-}
-
-.loader .line::before {
-  content: "";
-  position: absolute;
-  height: 100%;
-  width: 100%;
-  background-color: var(--text-color);
-  opacity: 0.3;
-}
-
-.loader .line::after {
-  content: "";
-  position: absolute;
-  height: 100%;
-  width: 100%;
-  background-color: var(--text-color);
-  border-radius: 0.05em;
-  transform: translateX(-90%);
-  animation: wobble 2s cubic-bezier(0.5, 0.8, 0.5, 0.2) infinite;
-}
-
-@keyframes wobble {
-  0% { transform: translateX(-90%); }
-  50% { transform: translateX(90%); }
-  100% { transform: translateX(-90%); }
-}
-
-@keyframes scrolling { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
-@keyframes shadow { 0% { background-position: -98% 0; } 100% { background-position: 102% 0; } }
-
-
-#messageInput.loading::placeholder {
-  animation: placeholderBlink 1.2s infinite;
-}
-
-@keyframes placeholderBlink {
-  0%   { opacity: 0.3; }
-  50%  { opacity: 1; }
-  100% { opacity: 0.3; }
-}
-
-/* ===== History 面板样式 ===== */
+/* ================= 歷史面板 ================= */
 .history-panel {
   position: absolute;
-  top: 100px;
-  left: 50%;
-  transform: translateX(-50%);
   width: 320px;
   background: #2d2d2d;
   border: 1px solid #444;
   border-radius: 10px;
   padding: 12px;
-  z-index: 2000;
+  z-index: 3000;
   color: #fff;
+  pointer-events: auto;
 }
 
-.history-panel .header {
-  display: flex;
-  justify-content: space-between;
-  font-weight: bold;
-  margin-bottom: 8px;
-}
-
-.dates-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 6px;
-}
-
-.date-cell {
-  width: 36px;
-  height: 36px;
-  line-height: 36px;
-  text-align: center;
-  border-radius: 6px;
-  cursor: pointer;
-  user-select: none;
-  background: #3a3a3a;
-  transition: all 0.2s;
-}
-
-.date-cell.available:hover {
-  background: #4a90e2;
-}
-
-.date-cell.selected {
-  background: #4a90e2;
-  font-weight: bold;
-  color: #fff;
-}
-
-.date-cell.disabled {
-  background: #1f1f1f;
-  color: #666;
-  cursor: not-allowed;
-}
-
-.history-panel {
-  pointer-events: auto; /* 确保能接收事件 */
-  z-index: 3000; /* 确保高于 canvas / 右键菜单 */
-}
-
-/* header 布局 */
 .history-panel .header {
   display: flex;
   align-items: center;
@@ -2943,22 +1427,13 @@ background: linear-gradient(
   gap: 8px;
   margin-bottom: 8px;
 }
-.history-panel .header-left { display:flex; gap:6px; align-items:center; }
-.history-panel .header-center {
-   display:flex;
-    gap:8px;
-     align-items:center;
-}
 
-.history-panel select option {
-  background-color: #3a3a3a;
-  color: #fff;
-}
+.header-left { display: flex; gap: 6px; align-items: center; }
+.header-center { display: flex; gap: 8px; align-items: center; margin-left: 10px; }
 
-/* small nav buttons */
 .nav-btn {
   background: transparent;
-  border: 1px solid rgba(255,255,255,0.06);
+  border: 1px solid 1px rgba(255,255,255,0.06);
   color: #fff;
   border-radius: 6px;
   width: 28px;
@@ -2966,7 +1441,6 @@ background: linear-gradient(
   cursor: pointer;
 }
 
-/* select 样式 */
 .history-panel select {
   background: rgba(0,0,0,0.12);
   color: #fff;
@@ -2975,9 +1449,10 @@ background: linear-gradient(
   border-radius: 6px;
 }
 
-/* 日期格（保持你现有样式，但确保 pointer-events）*/
-.dates-grid { pointer-events: auto; }
-.date-cell { pointer-events: auto; }
+.history-panel select option {
+  background-color: #3a3a3a;
+  color: #fff;
+}
 
 .drag-handle {
   cursor: move;
@@ -2988,30 +1463,12 @@ background: linear-gradient(
   align-items: center;
 }
 
-/* 左侧：上下月按钮 */
-.header-left {
-  display: flex;
-  gap: 8px; /* 按钮间距增加 */
-  align-items: center;
-}
-
-/* 中间：年份+月份下拉 */
-.header-center {
-  display: flex;
-  margin-left: 10px; 
-  align-items: center;
-}
-
-/* 关闭按钮 */
-.header button.close {
-  margin-left: 45px; /* 与中间保持距离 */
-}
-
 .dates-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 6px;
   padding: 6px;
+  pointer-events: auto;
 }
 
 .date-cell {
@@ -3023,12 +1480,22 @@ background: linear-gradient(
   background-color: #3a3a3a;
   cursor: pointer;
   transition: all 0.2s;
+  pointer-events: auto;
 }
 
 .date-cell.available {
-  background: linear-gradient(180deg, rgba(78, 162, 255, 0.12), rgba(78, 162, 255, 0.06));
+  background: linear-gradient(180deg, rgba(78,162,255,0.12), rgba(78,162,255,0.06));
   color: #dff3ff;
   font-weight: 600;
+}
+
+.date-cell.available:hover { background: #4a90e2; }
+
+.date-cell.selected {
+  background: #4a90e2;
+  font-weight: bold;
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(78,162,255,0.18);
 }
 
 .date-cell.disabled {
@@ -3037,35 +1504,29 @@ background: linear-gradient(
   cursor: not-allowed;
 }
 
-.date-cell.selected {
-  box-shadow: 0 6px 18px rgba(78, 162, 255, 0.18);
-}
-
-/* 详情窗口样式 */
+/* ================= 聊天記錄詳情面板 ================= */
 .chat-detail-panel {
-  position: fixed; /* 必须是 fixed 或 absolute */
+  position: fixed;
   width: 360px;
   height: 500px;
   background: #ffffff;
   border-radius: 12px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.4);
   display: flex;
   flex-direction: column;
   z-index: 9999;
   overflow: hidden;
-  user-select: none; /* 防止拖拽时选中文字 */
+  user-select: none;
   border: 1px solid rgba(0,0,0,0.1);
-  /* 取消之前的 transform 居中，因为我们会用坐标控制 */
 }
 
 .drag-handle1 {
-  cursor: move; /* 鼠标移上去显示移动图标 */
+  cursor: move;
   background: #f8f9fa;
   border-bottom: 1px solid #eee;
   padding: 10px 15px;
 }
 
-/* 头部样式 */
 .chat-header {
   padding: 12px;
   background-color: #f8f9fa;
@@ -3074,10 +1535,17 @@ background: linear-gradient(
   justify-content: space-between;
   align-items: center;
 }
-.chat-header .h2 { font-size: 14px; color: #333; font-weight: bold; }
-.close-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: #999; }
 
-/* 滚动区域 */
+.chat-header .h2 { font-size: 14px; color: #333; font-weight: bold; }
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: #999;
+}
+
 .chat-body {
   flex: 1;
   padding: 15px;
@@ -3089,16 +1557,15 @@ background: linear-gradient(
   pointer-events: auto;
 }
 
-/* 通用消息容器 */
 .msg-wrapper { display: flex; flex-direction: column; }
 
-/* 规则1：居中提示样式 */
 .msg-notice {
   align-self: center;
   margin: 8px 0;
   text-align: center;
   max-width: 90%;
 }
+
 .notice-content {
   font-size: 11px;
   color: #888;
@@ -3106,9 +1573,9 @@ background: linear-gradient(
   padding: 3px 10px;
   border-radius: 10px;
 }
+
 .notice-time { margin-left: 5px; opacity: 0.7; font-size: 10px; }
 
-/* 规则2：聊天气泡样式 */
 .message {
   padding: 0px 14px;
   border-radius: 12px;
@@ -3116,18 +1583,17 @@ background: linear-gradient(
   font-size: 14px;
   line-height: 1.5;
   display: flex;
-  flex-direction: column; /* 让内容和时间纵向排列 */
+  flex-direction: column;
   word-wrap: break-word;
   margin-bottom: 4px;
 }
 
-/* --- 左侧气泡 (LUNA) --- */
 .incoming {
   align-self: flex-start;
   background-color: #f0f0f0;
   color: #333;
   border-bottom-left-radius: 2px;
-  align-items: flex-start; /* 核心：让内部元素靠左对齐 */
+  align-items: flex-start;
 }
 
 .incoming .msg-time {
@@ -3137,29 +1603,25 @@ background: linear-gradient(
   opacity: 0.5;
 }
 
-/* --- 右侧气泡 (User) --- */
 .outgoing {
   align-self: flex-end;
   background-color: #4285f4;
   color: #fff;
   border-bottom-right-radius: 2px;
-  align-items: flex-end; /* 核心：让内部元素靠右对齐 */
+  align-items: flex-end;
 }
 
-.outgoing .msg-text{
-  margin-left: 5px;
-}
+.outgoing .msg-text { margin-left: 5px; }
 
 .outgoing .msg-time {
   text-align: right;
   margin-top: -10px;
   font-size: 10px;
-  opacity: 0.8; /* 蓝色背景下稍微亮一点 */
+  opacity: 0.8;
 }
 
-/* 动画定义 */
 @keyframes chatAnimation {
-  0% { opacity: 0; transform: translateY(5px); }
+  0%   { opacity: 0; transform: translateY(5px); }
   100% { opacity: 1; transform: translateY(0); }
 }
 </style>
