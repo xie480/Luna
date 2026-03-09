@@ -524,7 +524,6 @@ function onHistoryDragStart(e) {
   draggingHistoryPanel = true;
   historyDragStart = { x: e.clientX, y: e.clientY };
   historyPanelStart = { x: historyPanel.value.x, y: historyPanel.value.y };
-  ```
   document.addEventListener("pointermove", onHistoryDragMove);
   document.addEventListener("pointerup", onHistoryDragEnd);
 }
@@ -936,10 +935,19 @@ async function applyEmotionExpressions(emotion) {
 
 /* ================= 預加載表情文件 ================= */
 async function preloadExpressions() {
-  const allFiles = [
-    "眼-生氣", "臉紅2隱藏", "臉黑", "眼-哭哭", "眼-淚眼汪汪",
-    "眼-眩暈流汗", "臉紅", "眼-平靜死魚眼", "嘴-平靜v形（不可張開",
-    "眼-星星眼", "臉紅-痴漢嘴（兼容吐舌", "眼-愛心眼",
+    const allFiles = [
+    "眼-生气",           // 修復：繁體"生氣" -> 簡體"生气"
+    "脸红2隐藏",         // 修復：繁體"臉紅2隱藏" -> 簡體"脸红2隐藏"
+    "脸黑",              // 修復：繁體"臉黑" -> 簡體"脸黑"
+    "眼-哭哭",           // 正確，無需修改
+    "眼-泪眼汪汪",       // 修復：繁體"淚眼汪汪" -> 簡體"泪眼汪汪"
+    "眼-眩晕流汗",       // 修復：繁體"眩暈流汗" -> 簡體"眩晕流汗"
+    "脸红",              // 修復：繁體"臉紅" -> 簡體"脸红"
+    "眼-平静死鱼眼",     // 修復：繁體"平靜死魚眼" -> 簡體"平静死鱼眼"
+    "嘴-平静v形（不可张开", // 修復：繁體"張開" -> 簡體"张开"
+    "眼-星星眼",         // 正確，無需修改
+    "脸红-痴汉嘴（兼容吐舌", // 修復：繁體"臉紅-痴漢嘴" -> 簡體"脸红-痴汉嘴"
+    "眼-爱心眼",         // 修復：繁體"愛心眼" -> 簡體"爱心眼"
   ];
   console.log(`[Live2D] 開始預加載表情，共 ${allFiles.length} 個`);
   await Promise.all(
