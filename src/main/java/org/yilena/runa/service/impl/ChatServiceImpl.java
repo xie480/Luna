@@ -12,7 +12,6 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
-import org.yilena.runa.client.OllamaClient;
 import org.yilena.runa.constants.ModelHintConstant;
 import org.yilena.runa.constants.RedisKeyConstant;
 import org.yilena.runa.constants.SymbolConstant;
@@ -30,6 +29,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
@@ -40,19 +40,21 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class ChatServiceImpl implements ChatService {
-    private final OllamaClient ollamaClient;
     private final PromptAssembler promptAssembler;
     private final SessionService sessionService;
     private final StringRedisTemplate stringRedisTemplate;
 
-    // 替换原有的 QwenProperty，改用 GeminiProperty 读取中转站配置（url、api、模型名称等）
+    // 使用 GeminiProperty 读取中转站配置（url、api、模型名称等）
     private final GeminiProperty geminiProperty;
 
     // ObjectMapper 用于序列化请求体与解析响应
     private final ObjectMapper mapper = new ObjectMapper();
 
-    // 使用 JDK 内置 HttpClient 发送 HTTP 请求到中转站，声明为静态避免被 Lombok 注入
-    private static final HttpClient httpClient = HttpClient.newHttpClient();
+    // 使用 JDK 内置 HttpClient 发送 HTTP 请求到中转站
+    // 设置连接超时 10s，避免中转站无响应时主线程无限阻塞
+    private static final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .build();
 
     private static final DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy:MM:dd");
 
@@ -73,10 +75,7 @@ public class ChatServiceImpl implements ChatService {
             return ResponseEntity.badRequest().body("用户输入为空");
         }
 
-        // 将当前输入加入用户会话上下文当中
-        sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.USER, input, LocalTime.now()));
-
-        // 获取上下文最近N条信息
+        // 获取上下文最近N条信息（在写入用户消息前先获取，用于压缩判断）
         List<ChatMessage> recent = sessionService.getRecentMessages(keyPrefix, false);
         if (recent == null) {
             recent = Collections.emptyList();
@@ -87,14 +86,16 @@ public class ChatServiceImpl implements ChatService {
                 .map(m -> m.getRole().name() + ": " + m.getContent() + ": " + m.getTime())
                 .collect(Collectors.toList());
 
-        // 判断是否需要压缩
+        // 判断是否需要压缩（在写入用户消息前触发，避免新消息被压缩覆盖）
         if (ServiceCommunicateUtil.getSymbol(SymbolConstant.CONTEXT_SUMMARY_FLAG) == 1) {
             log.info("触发上下文压缩（异步），sessionKey={}。", keyPrefix);
             // 先移除标识，避免重复触发
             ServiceCommunicateUtil.removeSymbol(SymbolConstant.CONTEXT_SUMMARY_FLAG);
+            // 将当前 memorySnippets 快照传入异步线程，避免数据竞争
+            final List<String> snippetsSnapshot = List.copyOf(memorySnippets);
             Thread.ofVirtual().start(() -> {
                 try {
-                    String summaryPrompt = promptAssembler.buildSummaryPrompt(memorySnippets);
+                    String summaryPrompt = promptAssembler.buildSummaryPrompt(snippetsSnapshot);
                     if (summaryPrompt.isBlank()) {
                         log.info("上下文压缩：没有足够的 memory 片段可供压缩，sessionKey={}", keyPrefix);
                         return;
@@ -111,7 +112,20 @@ public class ChatServiceImpl implements ChatService {
                     log.error("上下文压缩线程发生异常，sessionKey={}, 错误信息={}", keyPrefix, ex.getMessage(), ex);
                 }
             });
+
+            // 压缩触发后，重新从 Redis 获取最新上下文，确保 prompt 不含过期数据
+            List<ChatMessage> refreshed = sessionService.getRecentMessages(keyPrefix, false);
+            if (refreshed == null) {
+                refreshed = Collections.emptyList();
+            }
+            memorySnippets = refreshed.stream()
+                    .map(m -> m.getRole().name() + ": " + m.getContent() + ": " + m.getTime())
+                    .collect(Collectors.toList());
+            log.info("压缩触发后重新加载上下文，共 {} 条，sessionKey={}", memorySnippets.size(), keyPrefix);
         }
+
+        // 将当前输入加入用户会话上下文当中（在压缩判断之后写入，避免被覆盖）
+        sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.USER, input, LocalTime.now()));
 
         // 组装提示词
         String prompt = promptAssembler.assemble(memorySnippets, input);
@@ -211,19 +225,25 @@ public class ChatServiceImpl implements ChatService {
      */
     private String callRelay(String modelName, String prompt) {
         try {
-            // 构造符合 OpenAI 兼容规范的请求体（messages 数组 + model 字段）
-            String requestBody = mapper.writeValueAsString(Map.of(
-                    "model", modelName,
-                    "messages", List.of(
-                            Map.of("role", "user", "content", prompt)
-                    )
-            ));
+            // 使用 LinkedHashMap 保证 JSON 序列化字段顺序（model -> messages）
+            Map<String, Object> messageMap = new LinkedHashMap<>();
+            messageMap.put("role", "user");
+            messageMap.put("content", prompt);
+
+            Map<String, Object> bodyMap = new LinkedHashMap<>();
+            bodyMap.put("model", modelName);
+            bodyMap.put("messages", List.of(messageMap));
+
+            // 序列化请求体
+            String requestBody = mapper.writeValueAsString(bodyMap);
 
             // 构造 HTTP POST 请求，携带中转站 URL 及 Bearer Token 形式的 API 密钥
+            // 设置请求超时 30s，避免模型响应过慢时长时间阻塞
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(geminiProperty.getUrl()))
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + geminiProperty.getApi())
+                    .timeout(Duration.ofSeconds(30))
                     .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
                     .build();
 
@@ -252,11 +272,13 @@ public class ChatServiceImpl implements ChatService {
 
     /**
      * 调用摘要模型（使用 GeminiProperty 中配置的 summaryModelName）
+     * 对摘要结果进行基本校验：不能为空、不能过短（少于10字视为无效）
      */
     private SendToLuna getSendToSummaryModel(String prompt) {
         String text = callRelay(geminiProperty.getSummaryModelName(), prompt);
-        if (text == null) {
-            log.warn("调用Summary模型返回空结果");
+        // 校验摘要结果：为空或过短均视为无效
+        if (text == null || text.isBlank() || text.length() < 10) {
+            log.warn("调用Summary模型返回无效结果，text={}", text);
             return new SendToLuna("{\"emotion\":\"Solemn\",\"reply\":\"<error>生成摘要失败</error>\"}", "<error>生成摘要失败</error>");
         }
         return new SendToLuna(text, text);
