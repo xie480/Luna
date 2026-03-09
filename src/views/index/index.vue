@@ -1590,7 +1590,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
   outline: none;
 }
-.history-panel select option { ```
+.history-panel select option {
   background: #2a2a2a;
   color: #fff;
 }
