@@ -36,6 +36,12 @@ qwen:
   luna-id: ae8cc4b7551f4ddc8233e9666359a2ba
   summary-id: a427e617960545ab878de348075015f9
 
+gemini:
+  url: https://sunlea.de/v1
+  api: sk-RmtnZlEJoyvcruF36uhXZfIQA0y1b2xtY8dFxY2yVcYeVcMl
+  summary-model-name: gemini-3-flash-preview
+  chat-model-name: gemini-3-pro-preview
+
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
