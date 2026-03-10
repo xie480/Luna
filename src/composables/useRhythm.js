@@ -21,14 +21,14 @@ export function useRhythm() {
     rafId:         null,
 
     // 科技感擴展狀態
-    glitchJitter:    0,      // 當前抖動偏移量
-    glitchTimer:     0,      // 距下次 glitch 的幀計數
-    scanPulseTimer:  0,      // 掃描脈衝計時
-    scanPulseActive: false,  // 是否正在執行掃描脈衝
-    scanPulseValue:  0,      // 脈衝當前值
-    beatEcho:        0,      // 節拍回響殘留值
-    bootDone:        false,  // 開機序列是否完成
-    quantumNoise:    0,      // 量子呼吸噪聲
+    glitchJitter:    0,
+    glitchTimer:     0,
+    scanPulseTimer:  0,
+    scanPulseActive: false,
+    scanPulseValue:  0,
+    beatEcho:        0,
+    bootDone:        false,
+    quantumNoise:    0,
   };
 
   const RHYTHM_CFG = {
@@ -67,47 +67,42 @@ export function useRhythm() {
       amplitude: 0.18,
       speed:     0.25,
     },
-    // 科技感配置
     glitch: {
-      minInterval:  90,    // 最短間隔幀數（约 1.5s @ 60fps）
-      maxInterval:  240,   // 最長間隔幀數（约 4s @ 60fps）
-      maxBodyShift: 2.2,   // 身體最大抖動角度
-      maxHeadShift: 3.5,   // 頭部最大抖動角度
-      decaySpeed:   0.55,  // 抖動衰減速度
-      burstCount:   3,     // 每次 glitch 連發次數
+      minInterval:  90,
+      maxInterval:  240,
+      maxBodyShift: 2.2,
+      maxHeadShift: 3.5,
+      decaySpeed:   0.55,
+      burstCount:   3,
     },
     scan: {
-      interval:    320,    // 掃描週期（幀）
-      duration:    18,     // 掃描持續幀數
-      peakAngle:   5.5,    // 掃描峰值角度
-      riseSpeed:   0.38,   // 上升速度
-      fallSpeed:   0.10,   // 下降速度（慢落像雷達歸位）
+      interval:    320,
+      duration:    18,
+      peakAngle:   5.5,
+      riseSpeed:   0.38,
+      fallSpeed:   0.10,
     },
     beatEcho: {
-      decay:       0.82,   // 回響衰減率（越高拖尾越長）
-      threshold:   0.015,  // 低於此值清零
+      decay:       0.82,
+      threshold:   0.015,
     },
     quantum: {
-      noiseSpeed:  0.18,   // 量子噪聲更新速度
-      amplitude:   0.028,  // 最大噪聲幅度
+      noiseSpeed:  0.18,
+      amplitude:   0.028,
     },
   };
 
   // ── 工具函數 ──────────────────────────────────────────────────
 
-  /** 線性插值 */
   function lerp(a, b, t) {
     return a + (b - a) * t;
   }
 
-  /** 帶符號隨機值 [-1, 1] */
   function randSigned() {
     return (Math.random() - 0.5) * 2;
   }
 
-  /** 偽隨機量子噪聲（基於相位的平滑噪聲） */
   function quantumNoiseSample(phase) {
-    // 多個正弦疊加模擬非規則高頻微顫
     return (
       Math.sin(phase * 7.3)  * 0.4 +
       Math.sin(phase * 13.7) * 0.3 +
@@ -124,12 +119,6 @@ export function useRhythm() {
 
   // ── 開機序列 ──────────────────────────────────────────────────
 
-  /**
-   * 模型啟動時執行開機序列：
-   * 1. 快速小幅抖動（通電感）
-   * 2. 身體從輕微偏移平滑歸位
-   * 3. 頭部做一次緩慢掃視後回正
-   */
   function runBootSequence(core) {
     if (!core) {
       state.bootDone = true;
@@ -151,7 +140,7 @@ export function useRhythm() {
       },
     });
 
-    // 通電抖動：快速連續小幅震顫
+    // 通電抖動
     tl.to(bootState, {
       duration: 0.06,
       glitch:    1,
@@ -169,7 +158,7 @@ export function useRhythm() {
       },
     });
 
-    // 身體從偏移位置平滑滑入
+    // 身體從偏移平滑滑入
     tl.to(bootState, {
       duration: 1.1,
       bodyX:    0,
@@ -239,14 +228,12 @@ export function useRhythm() {
     let quantumPhase  = Math.random() * Math.PI * 2;
     let prevBass      = 0;
     let beatCooldown  = 0;
-    let glitchBurst   = 0;  // 剩余連發次數
+    let glitchBurst   = 0;
 
-    // 隨機初始化下次 glitch 計時
     state.glitchTimer    = RHYTHM_CFG.glitch.minInterval +
       Math.floor(Math.random() * (RHYTHM_CFG.glitch.maxInterval - RHYTHM_CFG.glitch.minInterval));
     state.scanPulseTimer = Math.floor(Math.random() * RHYTHM_CFG.scan.interval);
 
-    // 啟動開機序列，序列期間讓 bootDone 為 false
     state.bootDone = false;
     runBootSequence(core);
 
@@ -258,7 +245,6 @@ export function useRhythm() {
 
       analyser.getByteFrequencyData(dataArray);
 
-      // —— 頻段能量 ——
       const { bass, mid } = RHYTHM_CFG.bands;
       let bassSum = 0, midSum = 0;
 
@@ -268,12 +254,10 @@ export function useRhythm() {
       for (let i = mid.start; i <= mid.end && i < binCount; i++) midSum += dataArray[i];
       const midEnergy = midSum / ((mid.end - mid.start + 1) * 255);
 
-      // —— 包絡跟蹤 ——
       const { bassAttack, bassRelease, midAttack, midRelease } = RHYTHM_CFG.envelope;
       state.bassLevel += (bassEnergy - state.bassLevel) * (bassEnergy > state.bassLevel ? bassAttack  : bassRelease);
       state.midLevel  += (midEnergy  - state.midLevel)  * (midEnergy  > state.midLevel  ? midAttack   : midRelease);
 
-      // —— 節拍檢測 ——
       if (beatCooldown > 0) {
         beatCooldown--;
       } else {
@@ -282,7 +266,6 @@ export function useRhythm() {
           state.beatDetected  = true;
           state.beatIntensity = beat.intensity;
           beatCooldown        = RHYTHM_CFG.beatDetection.cooldown;
-          // 節拍觸發時疊加回響初始值
           state.beatEcho = Math.max(state.beatEcho, beat.intensity * 0.9);
         }
       }
@@ -290,26 +273,17 @@ export function useRhythm() {
       state.beatIntensity *= RHYTHM_CFG.beatDetection.decay;
       if (state.beatIntensity < 0.02) state.beatDetected = false;
 
-      // —— 節拍回響衰減 ——
       state.beatEcho *= RHYTHM_CFG.beatEcho.decay;
       if (state.beatEcho < RHYTHM_CFG.beatEcho.threshold) state.beatEcho = 0;
 
-      // ════════════════════════════════════════
-      //   科技感特效計算（開機序列期間跳過）
-      // ════════════════════════════════════════
-
-      // —— Glitch 抖動 ——
       if (state.bootDone) {
         if (glitchBurst > 0) {
-          // 連發中：每幀施加新的隨機抖動
           state.glitchJitter = randSigned() * RHYTHM_CFG.glitch.maxBodyShift;
           glitchBurst--;
         } else {
-          // 正常狀態：衰減抖動
           state.glitchJitter *= RHYTHM_CFG.glitch.decaySpeed;
           if (Math.abs(state.glitchJitter) < 0.01) state.glitchJitter = 0;
 
-          // 計時觸發新一輪 glitch
           state.glitchTimer--;
           if (state.glitchTimer <= 0) {
             glitchBurst = RHYTHM_CFG.glitch.burstCount;
@@ -318,7 +292,6 @@ export function useRhythm() {
           }
         }
 
-        // —— 掃描脈衝 ——
         state.scanPulseTimer--;
         if (state.scanPulseTimer <= 0 && !state.scanPulseActive) {
           state.scanPulseActive = true;
@@ -329,9 +302,6 @@ export function useRhythm() {
         if (state.scanPulseActive) {
           if (state.scanPulseValue < RHYTHM_CFG.scan.peakAngle) {
             state.scanPulseValue = lerp(state.scanPulseValue, RHYTHM_CFG.scan.peakAngle, RHYTHM_CFG.scan.riseSpeed);
-            if (RHYTHM_CFG.scan.peakAngle - state.scanPulseValue < 0.1) {
-              // 到達峰值，開始下降
-            }
           } else {
             state.scanPulseValue = lerp(state.scanPulseValue, 0, RHYTHM_CFG.scan.fallSpeed);
             if (state.scanPulseValue < 0.05) {
@@ -342,61 +312,50 @@ export function useRhythm() {
         }
       }
 
-      // —— 量子呼吸噪聲 ——
       const qNoise = quantumNoiseSample(quantumPhase) * RHYTHM_CFG.quantum.amplitude;
-
       const cfg = RHYTHM_CFG;
 
-      // —— 身體極輕微左右晃動（X軸） + glitch 疊加 ——
       const targetBodyX =
         Math.sin(bodyPhase) * (1 + state.bassLevel * cfg.body.bassMultiplier) * cfg.body.maxSway * 0.5
         + (state.bootDone ? state.glitchJitter * 0.8 : 0);
 
-      // —— 頭部點頭（Z軸）：節拍 + 回響 + 掃描脈衝 + glitch ——
       let targetHeadZ;
       if (state.beatDetected) {
         targetHeadZ = state.beatIntensity * cfg.head.nodMaxAngle;
       } else {
         targetHeadZ =
           Math.sin(headSwayPhase * 0.7) * state.midLevel * cfg.head.nodMaxAngle * 0.35
-          + state.beatEcho * cfg.head.nodMaxAngle * 0.45   // 回響尾音
+          + state.beatEcho * cfg.head.nodMaxAngle * 0.45
           + (state.bootDone ? state.glitchJitter * 0.5 : 0);
       }
 
-      // 掃描脈衝疊加到頭部 Z（模擬快速點頭掃描）
       if (state.bootDone && state.scanPulseActive) {
         targetHeadZ += state.scanPulseValue * 0.6;
       }
 
-      // —— 頭部左右（Y軸）：聯動 + 掃描脈衝橫向版 ——
       let targetHeadY =
         Math.sin(headSwayPhase) * state.bassLevel * cfg.head.swayMaxAngle * 0.4;
 
       if (state.bootDone && state.scanPulseActive) {
-        // 掃描時 Y 軸做一個輕微偏移，模擬雷達橫掃
         targetHeadY += Math.sin(state.scanPulseValue * 0.8) * 1.8;
       }
 
-      // —— 量子呼吸：基礎正弦 + 高頻噪聲疊加 ——
       const targetBreath =
         cfg.breath.baseRate
         + Math.sin(breathPhase) * cfg.breath.amplitude * (1 + state.midLevel * 0.5)
         + qNoise;
 
-      // —— 平滑過渡（lerp） ——
       const headSmooth = state.beatDetected ? cfg.head.nodSmoothness : cfg.head.returnSpeed;
 
       state.bodySway += (targetBodyX  - state.bodySway) * cfg.body.smoothness;
       state.headNod  += (targetHeadZ  - state.headNod)  * headSmooth;
       state.breath   += (targetBreath - state.breath)   * 0.07;
 
-      // —— 推進相位 ——
       bodyPhase     = (bodyPhase     + cfg.body.sinSpeed  * (1 + state.bassLevel * 0.6)) % (Math.PI * 2);
       headSwayPhase = (headSwayPhase + cfg.head.microSway * (1 + state.midLevel  * 0.4)) % (Math.PI * 2);
       breathPhase   = (breathPhase   + cfg.breath.speed   * 0.04)                         % (Math.PI * 2);
       quantumPhase  = (quantumPhase  + RHYTHM_CFG.quantum.noiseSpeed * 0.05)               % (Math.PI * 2);
 
-      // —— 寫入模型參數（開機序列期間由 GSAP 接管，跳過直寫）——
       if (state.bootDone) {
         try {
           core.setParameterValueById("ParamBodyAngleX", state.bodySway);
@@ -423,56 +382,74 @@ export function useRhythm() {
     }
   }
 
-  // ── 平滑重置（科技感斷電版） ────────────────────────────────────
+  // ── 平滑重置（科技感斷電版，無黑閃） ─────────────────────────────
+  //
+  // 背景透明時不可出現參數硬跳或幅度歸零瞬間切斷。
+  // 改動要點：
+  //   第一段：抖動疊加在當前讀取值之上，強度固定不補間到 0，
+  //           讓抖動本身有幅度但不會因 noise→0 造成硬跳。
+  //   第二段：以當前值為基準做極小過沖（±0.5 以內），
+  //           不硬編碼絕對角度。
+  //   第三段：緩緩 ease 歸零，透明背景下自然消失。
 
-  /**
-   * 重置分三段：
-   * 1. 斷電抖動：快速小幅震顫，模擬系統關閉瞬間
-   * 2. 信號衰減：參數快速滑向中間值，帶輕微過沖
-   * 3. 最終歸位：緩慢、優雅地收斂到靜止狀態
-   */
   function smoothReset(core) {
     if (!core) return;
 
+    // 記錄重置開始時的當前參數值
+    const startBodyX  = core.getParameterValueById("ParamBodyAngleX") || 0;
+    const startHeadZ  = core.getParameterValueById("ParamAngleZ")     || 0;
+    const startHeadY  = core.getParameterValueById("ParamAngleY")     || 0;
+    const startBreath = core.getParameterValueById("ParamBreath")     || 0.5;
+
     const s = {
-      bodyX:  core.getParameterValueById("ParamBodyAngleX") || 0,
-      headZ:  core.getParameterValueById("ParamAngleZ")     || 0,
-      headY:  core.getParameterValueById("ParamAngleY")     || 0,
-      breath: core.getParameterValueById("ParamBreath")     || 0.5,
-      noise:  1,
+      bodyX:  startBodyX,
+      headZ:  startHeadZ,
+      headY:  startHeadY,
+      breath: startBreath,
+      // glitchAmp 控制抖動疊加幅度，從 1 衰減到 0
+      // 但我們用它乘以一個固定小值，不會造成大幅跳變
+      glitchAmp: 1.0,
     };
 
     const tl = gsap.timeline({
       onComplete() {
-        console.log("[律動] 模型已平滑重置（科技感斷電）");
+        console.log("[律動] 模型已平滑重置（透明背景安全斷電）");
       },
     });
 
-    // 第一段：斷電抖動（極快，模擬信號錯誤）
+    // 第一段：微抖動（幅度小且固定，疊加在當前值上，不歸零）
+    // glitchAmp 1→0.3，幅度受控，不出現硬跳
     tl.to(s, {
-      duration: 0.05,
-      noise:    0,
-      yoyo:     true,
-      repeat:   4,
-      ease:     "none",
+      duration:  0.08,
+      glitchAmp: 0.3,
+      yoyo:      true,
+      repeat:    5,
+      ease:      "none",
       onUpdate() {
         try {
-          const j = randSigned() * 3.2 * s.noise;
-          core.setParameterValueById("ParamBodyAngleX", s.bodyX + j);
-          core.setParameterValueById("ParamAngleZ",     s.headZ + randSigned() * 4.0 * s.noise);
-          core.setParameterValueById("ParamAngleY",     s.headY + randSigned() * 2.5 * s.noise);
-          core.setParameterValueById("ParamBreath",     s.breath);
+          // 疊加偏移在起始值上，不替換整個值
+          core.setParameterValueById("ParamBodyAngleX", startBodyX + randSigned() * 1.4 * s.glitchAmp);
+          core.setParameterValueById("ParamAngleZ",     startHeadZ + randSigned() * 2.0 * s.glitchAmp);
+          core.setParameterValueById("ParamAngleY",     startHeadY + randSigned() * 1.2 * s.glitchAmp);
+          core.setParameterValueById("ParamBreath",     startBreath);
         } catch {}
       },
     });
 
-    // 第二段：信號衰減（快速滑向初始值，略帶過沖）
+    // 第二段：以當前值為基準做輕微過沖（相對偏移，非絕對角度）
+    const overshootBodyX  = startBodyX  * 0.15;   // 往反方向 15% 的過沖
+    const overshootHeadZ  = startHeadZ  * 0.15;
+    const overshootHeadY  = startHeadY  * (-0.2); // 頭部輕微反彈
+    const overshootBreath = startBreath > 0.5
+      ? startBreath - 0.04
+      : startBreath + 0.04;
+
     tl.to(s, {
-      duration: 0.45,
-      bodyX:    0.8,   // 略過沖
-      headZ:    1.2,
-      headY:   -0.6,
-      breath:   0.55,
+      duration: 0.35,
+      bodyX:    overshootBodyX,
+      headZ:    overshootHeadZ,
+      headY:    overshootHeadY,
+      breath:   overshootBreath,
       ease:     "power2.out",
       onUpdate() {
         try {
@@ -484,9 +461,9 @@ export function useRhythm() {
       },
     });
 
-    // 第三段：最終優雅歸位
+    // 第三段：最終優雅歸位至靜止，透明背景下自然收斂
     tl.to(s, {
-      duration: 1.0,
+      duration: 1.1,
       bodyX:    0,
       headZ:    0,
       headY:    0,
