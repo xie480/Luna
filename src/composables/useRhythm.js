@@ -33,62 +33,66 @@ export function useRhythm() {
 
   const RHYTHM_CFG = {
     fftSize:   512,
-    smoothing: 0.80,
+    smoothing: 0.86, // 更平滑的能量曲線，減少抖動感
     bands: {
       bass: { start: 0,  end: 4  },
       mid:  { start: 5,  end: 30 },
     },
     envelope: {
-      bassAttack:  0.18,
-      bassRelease: 0.04,
-      midAttack:   0.12,
-      midRelease:  0.06,
+      // 更柔和的包絡，避免瞬時大幅度抖動
+      bassAttack:  0.12,
+      bassRelease: 0.05,
+      midAttack:   0.10,
+      midRelease:  0.07,
     },
     beatDetection: {
-      threshold: 0.10,
-      decay:     0.75,
-      cooldown:  8,
+      // 提高觸發門檻 & 降低頻率，只在較明顯的鼓點時點頭
+      threshold: 0.14,
+      decay:     0.80,
+      cooldown:  10,
     },
     body: {
-      maxSway:        3.5,
-      smoothness:     0.06,
-      sinSpeed:       0.03,
-      bassMultiplier: 1.2,
+      maxSway:        2.0,  // 身體左右最大擺幅（原 3.5）
+      smoothness:     0.08, // 更平滑的插值
+      sinSpeed:       0.025,
+      bassMultiplier: 1.0,  // 對低頻反應略微收斂
     },
     head: {
-      nodMaxAngle:   8.0,
-      swayMaxAngle:  3.0,
-      nodSmoothness: 0.14,
-      returnSpeed:   0.05,
-      microSway:     0.04,
+      nodMaxAngle:   5.5,   // 點頭最大角度（原 8.0）
+      swayMaxAngle:  2.0,   // 左右搖頭幅度（原 3.0）
+      nodSmoothness: 0.16,
+      returnSpeed:   0.07,
+      microSway:     0.03,
     },
     breath: {
-      baseRate:  0.45,
-      amplitude: 0.18,
-      speed:     0.25,
+      baseRate:  0.48,
+      amplitude: 0.14, // 稍微減小呼吸起伏
+      speed:     0.22,
     },
     glitch: {
-      minInterval:  90,
-      maxInterval:  240,
-      maxBodyShift: 2.2,
-      maxHeadShift: 3.5,
-      decaySpeed:   0.55,
-      burstCount:   3,
+      // 將 glitch 降為偶爾的細微抖動，避免搶戲
+      minInterval:  260,
+      maxInterval:  520,
+      maxBodyShift: 1.0,
+      maxHeadShift: 1.8,
+      decaySpeed:   0.40,
+      burstCount:   2,
     },
     scan: {
-      interval:    320,
+      // 掃描脈衝變得更少、更輕
+      interval:    420,
       duration:    18,
-      peakAngle:   5.5,
-      riseSpeed:   0.38,
-      fallSpeed:   0.10,
+      peakAngle:   3.0,
+      riseSpeed:   0.30,
+      fallSpeed:   0.12,
     },
     beatEcho: {
-      decay:       0.82,
-      threshold:   0.015,
+      decay:       0.86,
+      threshold:   0.012,
     },
     quantum: {
-      noiseSpeed:  0.18,
-      amplitude:   0.028,
+      noiseSpeed:  0.16,
+      amplitude:   0.020,
     },
   };
 

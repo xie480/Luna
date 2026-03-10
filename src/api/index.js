@@ -17,3 +17,11 @@ export const historyDate = async (payload) => {
 export const history = async (payload) => {
   return window.desktopApi.history(payload);
 };
+
+export const login = async (payload) => {
+  return window.desktopApi.login(payload);
+};
+
+export const logout = async (token) => {
+  return window.desktopApi.logout(token);
+};

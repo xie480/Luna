@@ -9,9 +9,19 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /* ===== HTTP 客户端 ===== */
+let authToken = null;
+
 const http = axios.create({
   baseURL: "http://localhost:8001",
-  timeout: 1000000
+  timeout: 1000000,
+});
+
+http.interceptors.request.use((config) => {
+  if (authToken) {
+    config.headers = config.headers || {};
+    config.headers.Authorization = authToken;
+  }
+  return config;
 });
 
 /* ===== IPC handlers for your chat API (unchanged) ===== */
@@ -49,6 +59,25 @@ ipcMain.handle("luna.api.chat.history", async (_event, yearMonthDay) => {
   return http.get('/luna/api/chat/history', { params: { ymd: yearMonthDay } }).then(res => res.data);
 });
 
+
+/* ===== Auth: login / logout ===== */
+ipcMain.handle("auth.login", async (_event, payload) => {
+  const data = await http.post("/auth/login", payload).then(res => res.data);
+  if (data && data.token) {
+    authToken = data.token;
+  }
+  return data;
+});
+
+ipcMain.handle("auth.logout", async (_event, token) => {
+  const t = token || authToken;
+  if (!t) return;
+  const res = await http.post("/auth/logout", null, {
+    headers: { Authorization: t },
+  }).then(res => res.data);
+  authToken = null;
+  return res;
+});
 
 ipcMain.handle("luna.app.quit", () => {
   app.quit();

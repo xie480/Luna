@@ -8,43 +8,43 @@ const APPEARANCE_STATE_KEY = "live2d:appearance-enabled";
  * 負責外貌文件的加載、應用、移除、狀態持久化
  */
 export function useAppearance() {
-  // 所有可用外貌文件列表
+  // 所有可用外貌文件列表（与 public/models/luna 下文件名保持完全一致）
   const APPEARANCE_FILES = [
-    "後發-右小啾啾隱藏.exp3.json",
-    "後發-長發隱藏.exp3.json",
-    "後發-左小啾啾隱藏.exp3.json",
-    "肩發-縮小~隱藏.exp3.json",
-    "肩發-位置收攏.exp3.json",
-    "臉-繃帶-血隱藏.exp3.json",
-    "臉-繃帶和血一起隱藏.exp3.json",
-    "帽子隱藏.exp3.json",
-    "前發-去掉半透.exp3.json",
+    "后发-右小啾啾隐藏.exp3.json",
+    "后发-长发隐藏.exp3.json",
+    "后发-左小啾啾隐藏.exp3.json",
+    "肩发-缩小~隐藏.exp3.json",
+    "肩发-位置收拢.exp3.json",
+    "脸-绷带-血隐藏.exp3.json",
+    "脸-绷带和血一起隐藏.exp3.json",
+    "帽子隐藏.exp3.json",
+    "前发-去掉半透.exp3.json",
     "身-毛衣.exp3.json",
-    "身-腿綁帶血隱藏.exp3.json",
-    "身-腿綁帶隱藏.exp3.json",
-    "身-圍巾.exp3.json",
-    "手-抱貓.exp3.json",
-    "手-手提包隱藏.exp3.json",
-    "獸耳-隱藏.exp3.json",
-    "獸尾-隱藏1.exp3.json",
-    "獸尾-隱藏2.exp3.json",
-    "眼-眼鏡.exp3.json",
+    "身-腿绷带血隐藏.exp3.json",
+    "身-腿绷带隐藏.exp3.json",
+    "身-围巾.exp3.json",
+    "手-抱猫.exp3.json",
+    "手-手提包隐藏.exp3.json",
+    "兽耳-隐藏.exp3.json",
+    "兽尾-隐藏1.exp3.json",
+    "兽尾-隐藏2.exp3.json",
+    "眼-眼镜.exp3.json",
     "眼-右眼粉瞳色.exp3.json",
     "眼-左眼粉瞳色.exp3.json",
-    "眼影隱藏.exp3.json",
+    "眼影隐藏.exp3.json",
   ];
 
-  // 各文件啟用狀態（響應式）
+  // 各文件启用状态（响应式）
   const appearanceEnabled = ref({});
 
-  // 已應用文件的元數據，用於回退（非響應式，純數據）
+  // 已应用文件的元数据，用于回退（非响应式，纯数据）
   const appearanceAppliedMeta = {};
 
-  // 輕提示文本
+  // 轻提示文本
   const appearanceHint = ref("");
   let appearanceHintTimer = null;
 
-  /** 顯示操作輕提示 */
+  /** 显示操作轻提示 */
   function showAppearanceHint(text, duration = 1500) {
     appearanceHint.value = text;
     clearTimeout(appearanceHintTimer);
@@ -53,14 +53,12 @@ export function useAppearance() {
     }, duration);
   }
 
-  /** 將文件名轉換為顯示名稱 */
+  /** 将文件名转换为显示名称（界面使用简体） */
   function displayAppearanceName(file) {
-    file = file.replace(/\.exp3\.json$/i, "");
-    if (file === "帽子隱藏") file = "帽子";
-    return file;
+    return file.replace(/\.exp3\.json$/i, "");
   }
 
-  /** 從 localStorage 讀取已保存的啟用狀態 */
+  /** 从 localStorage 读取已保存的启用状态 */
   function loadAppearanceState() {
     const raw = localStorage.getItem(APPEARANCE_STATE_KEY);
     let saved = {};
@@ -72,7 +70,7 @@ export function useAppearance() {
     });
   }
 
-  /** 將當前啟用狀態持久化到 localStorage */
+  /** 将当前启用状态持久化到 localStorage */
   function saveAppearanceState() {
     const obj = {};
     for (const f of APPEARANCE_FILES) {
@@ -82,8 +80,8 @@ export function useAppearance() {
   }
 
   /**
-   * 應用單個外貌文件
-   * 會記錄原始參數值，以便後續移除時回退
+   * 应用单个外貌文件
+   * 会记录原始参数值，以便后续移除时回退
    */
   async function applyAppearanceFile(file, core) {
     if (!core) return;
@@ -113,7 +111,7 @@ export function useAppearance() {
   }
 
   /**
-   * 移除單個外貌文件，根據 meta 回退參數
+   * 移除单个外貌文件，根据 meta 回退参数
    */
   function removeAppearanceFile(file, core) {
     if (!core) return;
@@ -135,18 +133,18 @@ export function useAppearance() {
   }
 
   /**
-   * 並行應用所有已啟用的外貌文件
-   * 使用 Promise.all 提升加載速度
+   * 并行应用所有已启用的外貌文件
+   * 使用 Promise.all 提升加载速度
    */
   async function applyAllEnabled(core) {
     const tasks = APPEARANCE_FILES
       .filter((f) => appearanceEnabled.value[f])
       .map((f) => applyAppearanceFile(f, core));
     await Promise.all(tasks);
-    showAppearanceHint("已應用當前外貌設置");
+    showAppearanceHint("已应用当前外貌设置");
   }
 
-  /** 禁用所有外貌並清除狀態 */
+  /** 禁用所有外貌并清除状态 */
   async function disableAll(core) {
     for (const f of APPEARANCE_FILES.slice()) {
       if (appearanceAppliedMeta[f]) {
@@ -155,19 +153,19 @@ export function useAppearance() {
       appearanceEnabled.value[f] = false;
     }
     saveAppearanceState();
-    showAppearanceHint("已恢復默認外貌");
+    showAppearanceHint("已恢复默认外貌");
   }
 
-  /** 切換單個外貌文件（由 checkbox 觸發） */
+  /** 切换单个外貌文件（由 checkbox 触发） */
   async function onAppearanceToggle(file, core) {
     saveAppearanceState();
     const name = displayAppearanceName(file);
     if (appearanceEnabled.value[file]) {
       await applyAppearanceFile(file, core);
-      showAppearanceHint(`✓ 已啟用 ${name}`);
+      showAppearanceHint(`✓ 已启用 ${name}`);
     } else {
       removeAppearanceFile(file, core);
-      showAppearanceHint(`✕ 已關閉 ${name}`);
+      showAppearanceHint(`✕ 已关闭 ${name}`);
     }
   }
 

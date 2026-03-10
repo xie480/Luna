@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld("desktopApi", {
   shutdown:    () => ipcRenderer.invoke("luna.api.chat.shutdown"),
   historyDate: (date) => ipcRenderer.invoke("luna.api.chat.history.date", date),
   history:     (date) => ipcRenderer.invoke("luna.api.chat.history", date),
+  login:       (payload) => ipcRenderer.invoke("auth.login", payload),
+  logout:      (token)   => ipcRenderer.invoke("auth.logout", token),
   quit:        () => ipcRenderer.invoke("luna.app.quit"),
 });
 
