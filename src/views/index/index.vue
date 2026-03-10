@@ -640,7 +640,6 @@ function runCodeParticleIntro(onDone) {
       return set[Math.floor(Math.random() * set.length)];
     }
 
-    // 粒子动画进一步加速
     const TOTAL  = Math.min(silhouette.length, 700);
     const chosen = silhouette.sort(() => Math.random() - 0.5).slice(0, TOTAL);
 
@@ -663,7 +662,7 @@ function runCodeParticleIntro(onDone) {
         tx: target.x, ty: target.y,
         char: randChar(),
         size: 8 + Math.random() * 7,
-        speed: 0.18 + Math.random() * 0.14,   // 进一步加速
+        speed: 0.18 + Math.random() * 0.14,
         alpha: 0,
         col,
         phase: Math.random() * Math.PI * 2,
@@ -684,7 +683,6 @@ function runCodeParticleIntro(onDone) {
       gap:   16 + Math.random() * 8,
     }));
 
-    // 帧数进一步压缩
     const GATHER  = 22;
     const HOLD    = 15;
     const FADEOUT = 18;
@@ -1194,7 +1192,6 @@ async function onDateClick(d) {
         return { role, content, time };
       });
     detailVisible.value = true;
-    // 自动滚动到底部
     await nextTick();
     if (chatBodyRef.value) {
       chatBodyRef.value.scrollTop = chatBodyRef.value.scrollHeight;
@@ -1232,246 +1229,3 @@ function handleClickOutside(e) {
     historyPanel.value.visible = false;
 }
 
-/* ================= 外貌面板 ================= */
-const appearancePanel = ref({ visible: false, x: 100, y: 100 });
-let draggingAppearance = false;
-let dragStart  = { x: 0, y: 0 };
-let panelStart = { x: 0, y: 0 };
-
-function onAppearanceDragStart(e) {
-  if (e.button !== 0) return;
-  draggingAppearance = true;
-  dragStart  = { x: e.clientX, y: e.clientY };
-  panelStart = { x: appearancePanel.value.x, y: appearancePanel.value.y };
-  document.addEventListener("pointermove", onAppearanceDragMove);
-  document.addEventListener("pointerup",   onAppearanceDragEnd);
-}
-function onAppearanceDragMove(e) {
-  if (!draggingAppearance) return;
-  appearancePanel.value.x = Math.min(window.innerWidth  - 420, Math.max(0, panelStart.x + e.clientX - dragStart.x));
-  appearancePanel.value.y = Math.min(window.innerHeight - 360, Math.max(0, panelStart.y + e.clientY - dragStart.y));
-}
-function onAppearanceDragEnd() {
-  draggingAppearance = false;
-  document.removeEventListener("pointermove", onAppearanceDragMove);
-  document.removeEventListener("pointerup",   onAppearanceDragEnd);
-  updatePetState();
-}
-
-function openAppearancePanelAt(x, y) {
-  const pw = 420, ph = 360;
-  appearancePanel.value.x = x + pw > window.innerWidth  ? window.innerWidth  - pw - 10 : x;
-  appearancePanel.value.y = y + ph > window.innerHeight ? window.innerHeight - ph - 10 : y;
-  appearancePanel.value.visible = true;
-  overUI = true;
-  contextMenu.value.visible = false;
-}
-function closeAppearancePanel() {
-  appearancePanel.value.visible = false;
-  overUI = false;
-  updatePetState();
-}
-
-/* ================= 拖拽模型 ================= */
-let dragging = false;
-let lastPos  = { x: 0, y: 0 };
-
-function isPointInsideModel(globalPoint) {
-  if (!model) return false;
-  return model.getBounds().contains(globalPoint.x, globalPoint.y);
-}
-
-function onPointerDown(e) {
-  const oe = e.data?.originalEvent;
-  if (!oe || oe.button !== 0) return;
-  const gp = e.data.global;
-  if (!isPointInsideModel(gp)) return;
-  dragging = true;
-  lastPos  = { x: gp.x, y: gp.y };
-}
-function onPointerMove(e) {
-  if (!dragging) return;
-  const dx = e.data.global.x - lastPos.x;
-  const dy = e.data.global.y - lastPos.y;
-  lastPos = { ...e.data.global };
-  container.x += dx;
-  container.y += dy;
-}
-function onPointerUp() { dragging = false; }
-
-/* ================= 滚轮缩放 ================= */
-function onWheel(ev) {
-  const rect        = canvasRef.value.getBoundingClientRect();
-  const globalPoint = new PIXI.Point(ev.clientX - rect.left, ev.clientY - rect.top);
-  if (!isPointInsideModel(globalPoint)) return;
-  ev.preventDefault();
-  const factor     = ev.deltaY > 0 ? 0.95 : 1.05;
-  const newScale   = Math.min(10, Math.max(0.05, (container.scale.x || 1) * factor));
-  const localPoint = container.toLocal(globalPoint, app.stage);
-  container.scale.set(newScale);
-  const newGlobal  = container.toGlobal(localPoint);
-  container.position.x += globalPoint.x - newGlobal.x;
-  container.position.y += globalPoint.y - newGlobal.y;
-}
-
-/* ================= 视线追踪 ================= */
-const PARAM_CONFIG = {
-  HEAD_X: { param: "ParamAngleX",   range: [-30, 30] },
-  HEAD_Y: { param: "ParamAngleY",   range: [-30, 30] },
-  EYE_X:  { param: "ParamEyeBallX", range: [-1, 1]   },
-  EYE_Y:  { param: "ParamEyeBallY", range: [-1, 1]   },
-  BREATH: { param: "ParamBreath",   range: [0, 1]    },
-};
-
-const LOOK_ORIGIN_KEY = "live2d:look-origin";
-let lookOriginLocal = null;
-
-function applyLookAt(dx, dy) {
-  const core = getCoreModel();
-  if (!core) return;
-  const nx = Math.max(-1, Math.min(1, dx / (app.renderer.width  / 2)));
-  const ny = -Math.max(-1, Math.min(1, dy / (app.renderer.height / 2)));
-  const mapRange = (v, [min, max]) => min + ((v + 1) / 2) * (max - min);
-  try {
-    core.setParameterValueById(PARAM_CONFIG.EYE_X.param,  mapRange(nx, PARAM_CONFIG.EYE_X.range));
-    core.setParameterValueById(PARAM_CONFIG.EYE_Y.param,  mapRange(ny, PARAM_CONFIG.EYE_Y.range));
-    core.setParameterValueById(PARAM_CONFIG.HEAD_X.param, mapRange(nx, PARAM_CONFIG.HEAD_X.range));
-    core.setParameterValueById(PARAM_CONFIG.HEAD_Y.param, mapRange(ny, PARAM_CONFIG.HEAD_Y.range));
-  } catch (e) { console.warn("[Luna] applyLookAt 失败", e); }
-}
-
-function onGlobalPointerMove(ev) {
-  if (!trackingEnabled.value || !lookOriginLocal || !model) return;
-  const rect  = canvasRef.value.getBoundingClientRect();
-  const world = new PIXI.Point(ev.clientX - rect.left, ev.clientY - rect.top);
-  const local = container.toLocal(world, app.stage);
-  applyLookAt(local.x - lookOriginLocal.x, local.y - lookOriginLocal.y);
-}
-
-function onCanvasClick(ev) {
-  if (!isSettingOrigin.value) return;
-  const rect  = canvasRef.value.getBoundingClientRect();
-  const world = new PIXI.Point(ev.clientX - rect.left, ev.clientY - rect.top);
-  lookOriginLocal = container.toLocal(world, app.stage);
-  saveOrigin();
-  isSettingOrigin.value = false;
-}
-
-function saveOrigin() {
-  if (!lookOriginLocal) return;
-  localStorage.setItem(LOOK_ORIGIN_KEY, JSON.stringify({ x: lookOriginLocal.x, y: lookOriginLocal.y }));
-}
-function loadOrigin() {
-  const raw = localStorage.getItem(LOOK_ORIGIN_KEY);
-  if (raw) lookOriginLocal = JSON.parse(raw);
-}
-function clearOrigin() {
-  lookOriginLocal = null;
-  localStorage.removeItem(LOOK_ORIGIN_KEY);
-}
-
-/* ================= 调试 UI ================= */
-function toggleTracking() {
-  trackingEnabled.value = !trackingEnabled.value;
-  if (!trackingEnabled.value) {
-    const core = getCoreModel();
-    if (core) {
-      [PARAM_CONFIG.EYE_X.param, PARAM_CONFIG.EYE_Y.param,
-       PARAM_CONFIG.HEAD_X.param, PARAM_CONFIG.HEAD_Y.param]
-        .forEach((p) => { try { core.setParameterValueById(p, 0); } catch (e) { console.warn("[Luna] 重置参数失败", e); } });
-    }
-  }
-}
-function startSetOrigin() {
-  isSettingOrigin.value = true;
-  window.pet?.enter();
-}
-function toggleDebugUI() {
-  showDebugUI.value = !showDebugUI.value;
-  contextMenu.value.visible = false;
-  if (!showDebugUI.value) { overUI = false; updatePetState(); }
-  else { overUI = true; window.pet?.enter(); }
-}
-function toggleMessageBox() {
-  showMessageBox.value = !showMessageBox.value;
-  contextMenu.value.visible = false;
-  if (!showMessageBox.value) { overUI = false; updatePetState(); }
-}
-
-/* ================= 呼吸动画 ================= */
-let breathTickerFn = null;
-function startBreath() {
-  const breathStart = performance.now() / 1000;
-  breathTickerFn = () => {
-    const core = getCoreModel();
-    if (!core) return;
-    const t   = performance.now() / 1000 - breathStart;
-    const val = 0.5 + Math.sin(t * 0.9 * Math.PI * 2) * 0.15;
-    try { core.setParameterValueById(PARAM_CONFIG.BREATH.param, val); } catch (e) { console.warn("[Luna] 呼吸参数失败", e); }
-  };
-  app.ticker.add(breathTickerFn);
-}
-function stopBreath() {
-  if (breathTickerFn && app?.ticker) {
-    app.ticker.remove(breathTickerFn);
-    breathTickerFn = null;
-  }
-}
-
-/* ================= 表情合成 ================= */
-const INITIAL_EMOTION = "Solemn";
-let currentEmotionMeta = {};
-
-async function resetToSolemn() {
-  const core = getCoreModel();
-  if (!core) return;
-  const keys = Object.keys(currentEmotionMeta);
-  if (!keys.length) return;
-  for (const id of keys) {
-    try {
-      core.setParameterValueById(id, typeof currentEmotionMeta[id] === "number" ? currentEmotionMeta[id] : 0);
-    } catch (e) {
-      console.warn("[Luna] resetToSolemn 恢复失败:", id, e);
-    }
-  }
-  currentEmotionMeta = {};
-  await new Promise((r) => requestAnimationFrame(r));
-}
-
-function tweenParameters(core, targetValues, duration = 200) {
-  return new Promise((resolve) => {
-    const startTime  = performance.now();
-    const fromValues = {};
-    for (const id in targetValues) {
-      fromValues[id] = core.getParameterValueById(id) ?? 0;
-    }
-    function step(now) {
-      const t = Math.min((now - startTime) / duration, 1);
-      const k = t * t * (3 - 2 * t);
-      for (const id in targetValues) {
-        core.setParameterValueById(id, fromValues[id] + (targetValues[id] - fromValues[id]) * k);
-      }
-      if (t < 1) requestAnimationFrame(step);
-      else resolve();
-    }
-    requestAnimationFrame(step);
-  });
-}
-
-async function applyEmotionExpressions(emotion) {
-  const core = getCoreModel();
-  if (!core) return;
-  await resetToSolemn();
-  await new Promise((r) => requestAnimationFrame(r));
-  const names = EMOTION_EXPRESSIONS?.[emotion] || [];
-  if (!names.length) return;
-  const targetValues  = {};
-  const thisApplyPrev = {};
-  for (const cnName of names) {
-    const expJson = expressionCache.get(cnName);
-    if (!expJson) continue;
-    (expJson.Parameters || []).forEach(({ Id, Value, Blend }) => {
-      const base = targetValues[Id] ?? core.getParameterValueById(Id) ?? 0;
-      if (接续断点 `if ` 后的内容)
-
-src\views\index\index.vue
