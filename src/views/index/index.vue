@@ -701,14 +701,19 @@ function runCodeParticleIntro(onDone) {
         p.char      = randChar();
         p.charTimer = 0;
       }
-    } else {
-      // FADEOUT：粒子向外爆散，同时 alpha 随时间衰减至 0
+      } else {
+      // FADEOUT：数字化解体——粒子原地颤抖、缩小、溶解为光点
       const t    = (frame - GATHER - HOLD) / FADEOUT;
-      const ease = t * t;
-      p.alpha    = Math.max(0, 1 - t * 1.2);   // 线性衰减，80帧内归零
-      const dx   = p.tx - CX, dy = p.ty - CY;
-      p.x        = p.tx + dx * ease * 1.0 + (Math.random() - 0.5) * ease * 100;
-      p.y        = p.ty + dy * ease * 1.0 + (Math.random() - 0.5) * ease * 100;
+      const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; // easeInOutQuad
+      // 前60%：粒子在原位微颤，后40%：快速淡出
+      const jitter = (1 - t) * 2.5 * SCALE;
+      p.x = p.tx + (Math.random() - 0.5) * jitter;
+      p.y = p.ty + (Math.random() - 0.5) * jitter;
+      // alpha：前20帧保持，之后平滑衰减
+      p.alpha = t < 0.25 ? 1 : Math.max(0, 1 - (t - 0.25) / 0.75);
+      p.alpha = Math.pow(p.alpha, 1.8); // 加速尾部衰减
+      // 字符随机闪烁加速（数字化崩溃感）
+      if (Math.random() < t * 0.4) p.char = randChar();
     }
 
     if (p.alpha <= 0.01) return;
@@ -765,34 +770,45 @@ function runCodeParticleIntro(onDone) {
     ctx.fillRect(CX - 200 * SCALE, scanY - 16, 400 * SCALE, 32);
   }
 
-  // ── FADEOUT 阶段：叠加向外扩散光环 + 整体黑色蒙版压暗 ──
+    // ── FADEOUT 阶段：数字化溶解光效（无黑色蒙版，纯透明消散） ──
   if (frame >= GATHER + HOLD) {
-    const t     = (frame - GATHER - HOLD) / FADEOUT;
-    const eased = t * t;
+    const t = (frame - GATHER - HOLD) / FADEOUT;
 
-    // 整体压暗蒙版，随时间加深至全黑
-    ctx.fillStyle = `rgba(0,0,0,${eased * 0.92})`;
-    ctx.fillRect(0, 0, W, H);
-
-    // 光环向外扩散（前半段可见，后半段随蒙版消失）
-    if (t < 0.6) {
-      const ringT  = t / 0.6;
-      const r1     = 60 * SCALE + ringT * Math.max(W, H) * 0.7;
-      const ring1A = (1 - ringT) * 0.45;
-      const grd1   = ctx.createRadialGradient(CX, CY, r1 * 0.7, CX, CY, r1);
-      grd1.addColorStop(0,   `rgba(255,160,220,0)`);
-      grd1.addColorStop(0.5, `rgba(255,160,220,${ring1A})`);
-      grd1.addColorStop(1,   `rgba(200,120,255,0)`);
+    // 阶段一（t < 0.35）：中心向外扩散一道能量脉冲环
+    if (t < 0.35) {
+      const ringT  = t / 0.35;
+      const eR     = ringT * ringT;
+      const r1     = 20 * SCALE + eR * Math.max(W, H) * 0.55;
+      const ring1A = (1 - ringT) * 0.55;
+      const grd1   = ctx.createRadialGradient(CX, CY, r1 * 0.82, CX, CY, r1);
+      grd1.addColorStop(0,    `rgba(255,160,220,0)`);
+      grd1.addColorStop(0.45, `rgba(255,180,230,${ring1A})`);
+      grd1.addColorStop(0.75, `rgba(180,120,255,${ring1A * 0.6})`);
+      grd1.addColorStop(1,    `rgba(0,0,0,0)`);
       ctx.fillStyle = grd1;
       ctx.fillRect(0, 0, W, H);
+    }
 
-      const r2     = 30 * SCALE + ringT * Math.max(W, H) * 0.45;
-      const ring2A = (1 - ringT) * 0.28;
-      const grd2   = ctx.createRadialGradient(CX, CY, r2 * 0.6, CX, CY, r2);
-      grd2.addColorStop(0,   `rgba(0,220,255,0)`);
-      grd2.addColorStop(0.5, `rgba(0,220,255,${ring2A})`);
-      grd2.addColorStop(1,   `rgba(0,220,255,0)`);
-      ctx.fillStyle = grd2;
+    // 阶段二（t > 0.15）：中心渐渐亮起一个白色核心光点，再淡出
+    if (t > 0.15 && t < 0.75) {
+      const lt    = (t - 0.15) / 0.60;
+      const lEase = lt < 0.5 ? 2 * lt * lt : 1 - Math.pow(-2 * lt + 2, 2) / 2;
+      const coreA = lEase < 0.5 ? lEase * 2 : (1 - lEase) * 2;
+      const coreR = 18 * SCALE * (0.5 + lEase * 0.8);
+      const cGrd  = ctx.createRadialGradient(CX, CY, 0, CX, CY, coreR);
+      cGrd.addColorStop(0,   `rgba(255,255,255,${coreA * 0.85})`);
+      cGrd.addColorStop(0.3, `rgba(220,180,255,${coreA * 0.45})`);
+      cGrd.addColorStop(1,   `rgba(0,0,0,0)`);
+      ctx.fillStyle = cGrd;
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    // 整体透明度衰减：用 globalAlpha 对整个 canvas 做最终淡出
+    // 在最后 30% 时间内，整体 canvas 渐变透明（不用黑色蒙版）
+    if (t > 0.70) {
+      const fadeT = (t - 0.70) / 0.30;
+      const fadeA = fadeT * fadeT * 0.96;
+      ctx.fillStyle = `rgba(2,6,17,${fadeA})`; // 与背景色一致的深蓝黑，非纯黑
       ctx.fillRect(0, 0, W, H);
     }
   }
