@@ -6,6 +6,9 @@
       <span v-for="i in 18" :key="i" class="particle" :style="particleStyle(i)"></span>
     </div>
 
+    <!-- ===== 全局 CRT 扫描纹理 ===== -->
+    <div class="crt-overlay" aria-hidden="true"></div>
+
     <!-- ===== 调试 UI ===== -->
     <div
       v-if="showDebugUI"
@@ -14,14 +17,26 @@
       @mouseenter="uiEnter"
       @mouseleave="uiLeave"
     >
-      <button class="cute-btn" @click="toggleTracking">
-        <span class="btn-dot" :class="trackingEnabled ? 'green' : 'red'"></span>
-        {{ trackingEnabled ? "视线追踪 ON" : "视线追踪 OFF" }}
-      </button>
-      <button class="cute-btn" @click="startSetOrigin">
-        {{ isSettingOrigin ? "点击画布设置..." : "设置原点" }}
-      </button>
-      <button class="cute-btn" @click="clearOrigin">清除原点</button>
+      <div class="debug-topbar">
+        <span class="debug-topbar-dot"></span>
+        <span class="debug-topbar-label">SYS_CTRL</span>
+        <span class="debug-topbar-line"></span>
+      </div>
+      <div class="debug-btns">
+        <button class="cute-btn" @click="toggleTracking">
+          <span class="btn-dot" :class="trackingEnabled ? 'green' : 'red'"></span>
+          <span class="btn-code-prefix">&gt;_</span>
+          {{ trackingEnabled ? "视线追踪 ON" : "视线追踪 OFF" }}
+        </button>
+        <button class="cute-btn" @click="startSetOrigin">
+          <span class="btn-code-prefix">&gt;_</span>
+          {{ isSettingOrigin ? "点击画布设置..." : "设置原点" }}
+        </button>
+        <button class="cute-btn" @click="clearOrigin">
+          <span class="btn-code-prefix">&gt;_</span>
+          清除原点
+        </button>
+      </div>
     </div>
 
     <!-- ===== 输入框 ===== -->
@@ -36,11 +51,17 @@
         @contextmenu.stop
         @click.stop
       >
-        <!-- 情绪图标（月相风格，悬停才显示 tooltip） -->
-<div class="breath-light" :class="`bl-${currentEmotion}`">
-  <div class="bl-core"></div>
-  <span class="bl-tooltip">{{ emotionLabel }}</span>
-</div>
+        <div class="msgbox-glow-border" aria-hidden="true"></div>
+        <div class="msgbox-scanline" aria-hidden="true"></div>
+        <span class="msgbox-corner tl" aria-hidden="true"></span>
+        <span class="msgbox-corner tr" aria-hidden="true"></span>
+        <span class="msgbox-corner bl" aria-hidden="true"></span>
+        <span class="msgbox-corner br" aria-hidden="true"></span>
+
+        <div class="breath-light" :class="`bl-${currentEmotion}`">
+          <div class="bl-core"></div>
+          <span class="bl-tooltip">{{ emotionLabel }}</span>
+        </div>
 
         <div class="fileUploadWrapper">
           <label for="file">
@@ -64,7 +85,6 @@
           @keydown.enter.prevent="onSend"
         />
 
-        <!-- 高级可爱加载动画 -->
         <div v-if="isLoading" class="luna-loader">
           <svg viewBox="0 0 36 36" class="luna-loader-svg">
             <circle class="loader-track" cx="18" cy="18" r="14" />
@@ -110,33 +130,56 @@
         @mouseleave="uiLeave"
         @click.stop
       >
+        <div class="cm-scanbar" aria-hidden="true"></div>
+        <span class="cm-corner tl" aria-hidden="true"></span>
+        <span class="cm-corner tr" aria-hidden="true"></span>
+        <span class="cm-corner bl" aria-hidden="true"></span>
+        <span class="cm-corner br" aria-hidden="true"></span>
+
         <div class="menu-header">
-          <span class="menu-logo">🌙 Luna</span>
+          <span class="menu-logo-bracket">[</span>
+          <span class="menu-logo">LUNA</span>
+          <span class="menu-logo-bracket">]</span>
+          <span class="menu-logo-ver">v2.0.1</span>
+          <span class="menu-header-status" aria-hidden="true"></span>
         </div>
-        <div class="menu-item" @click="toggleDebugUI">
+        <div class="menu-divider-solid"></div>
+
+        <div class="menu-item" @click="toggleDebugUI" style="--i:0">
           <span class="mi-icon">{{ showDebugUI ? '🔴' : '🟢' }}</span>
-          {{ showDebugUI ? "隐藏调试UI" : "显示调试UI" }}
+          <span class="mi-text">{{ showDebugUI ? "隐藏调试UI" : "显示调试UI" }}</span>
+          <span class="mi-arrow">›</span>
         </div>
-        <div class="menu-item" @click="toggleMessageBox">
+        <div class="menu-item" @click="toggleMessageBox" style="--i:1">
           <span class="mi-icon">💬</span>
-          {{ showMessageBox ? "隐藏输入框" : "显示输入框" }}
+          <span class="mi-text">{{ showMessageBox ? "隐藏输入框" : "显示输入框" }}</span>
+          <span class="mi-arrow">›</span>
         </div>
-        <div class="menu-item" @click="openAppearancePanelAt(contextMenu.x, contextMenu.y)">
-          <span class="mi-icon">✨</span>外貌设置
+        <div class="menu-item" @click="openAppearancePanelAt(contextMenu.x, contextMenu.y)" style="--i:2">
+          <span class="mi-icon">✨</span>
+          <span class="mi-text">外貌设置</span>
+          <span class="mi-arrow">›</span>
         </div>
-        <div class="menu-item" @click="resetModelState">
-          <span class="mi-icon">🔄</span>重置模型表情
+        <div class="menu-item" @click="resetModelState" style="--i:3">
+          <span class="mi-icon">🔄</span>
+          <span class="mi-text">重置模型表情</span>
+          <span class="mi-arrow">›</span>
         </div>
-        <div class="menu-item" @click="onToggleSystemAudio">
+        <div class="menu-item" @click="onToggleSystemAudio" style="--i:4">
           <span class="mi-icon">{{ rhythmShowListening ? '🔇' : '🎵' }}</span>
-          {{ rhythmShowListening ? "关闭音频律动" : "开启音频律动" }}
+          <span class="mi-text">{{ rhythmShowListening ? "关闭音频律动" : "开启音频律动" }}</span>
+          <span class="mi-arrow">›</span>
         </div>
-        <div class="menu-item" @click="openHistoryPanelAt(contextMenu.x, contextMenu.y)">
-          <span class="mi-icon">📖</span>历史记录
+        <div class="menu-item" @click="openHistoryPanelAt(contextMenu.x, contextMenu.y)" style="--i:5">
+          <span class="mi-icon">📖</span>
+          <span class="mi-text">历史记录</span>
+          <span class="mi-arrow">›</span>
         </div>
         <div class="menu-divider"></div>
-        <div class="menu-item danger" @click="closeLuna">
-          <span class="mi-icon">💔</span>关闭 Luna
+        <div class="menu-item danger" @click="closeLuna" style="--i:6">
+          <span class="mi-icon">💔</span>
+          <span class="mi-text">关闭 Luna</span>
+          <span class="mi-arrow">›</span>
         </div>
       </div>
     </transition>
@@ -149,8 +192,11 @@
       @mouseenter="uiEnter"
       @mouseleave="uiLeave"
     >
+      <div class="panel-topbar" aria-hidden="true"></div>
       <div class="panel-header drag-handle" @pointerdown="onAppearanceDragStart">
-        <span>✨ 外貌设置</span>
+        <span class="panel-header-icon">✨</span>
+        <span class="panel-header-title">外貌设置</span>
+        <span class="panel-header-id">MOD_APPEARANCE</span>
         <button class="close-x" @click="closeAppearancePanel">×</button>
       </div>
       <div class="panel-body">
@@ -158,14 +204,19 @@
           <div class="appearance-item" v-for="file in APPEARANCE_FILES" :key="file">
             <label class="checkbox-label">
               <input type="checkbox" v-model="appearanceEnabled[file]" @change="onAppearanceToggleUI(file)" />
+              <span class="checkbox-custom"></span>
               <span class="file-name">{{ displayAppearanceName(file) }}</span>
             </label>
           </div>
         </div>
       </div>
       <div class="panel-footer">
-        <button class="cute-btn small" @click="applyAllEnabledUI">应用已启用</button>
-        <button class="cute-btn small danger" @click="disableAllUI">全部禁用</button>
+        <button class="cute-btn small" @click="applyAllEnabledUI">
+          <span class="btn-code-prefix">&gt;_</span>应用已启用
+        </button>
+        <button class="cute-btn small danger" @click="disableAllUI">
+          <span class="btn-code-prefix">&gt;_</span>全部禁用
+        </button>
       </div>
       <div class="appearance-hint" v-if="appearanceHint">{{ appearanceHint }}</div>
     </div>
@@ -181,6 +232,7 @@
       @click.stop
       @pointerdown.stop
     >
+      <div class="panel-topbar" aria-hidden="true"></div>
       <div class="panel-header drag-handle" @pointerdown="onHistoryDragStart">
         <div class="header-left">
           <button class="nav-btn" @click="changeMonth(-1)">‹</button>
@@ -192,6 +244,7 @@
             <option v-for="m in historyPanel.months" :key="m" :value="m">{{ m }} 月</option>
           </select>
         </div>
+        <span class="panel-header-id">HIST_LOG</span>
         <button class="close-x" @click="closeHistoryPanel">×</button>
       </div>
       <div class="dates-grid">
@@ -218,8 +271,11 @@
       @mouseenter="uiEnter"
       @mouseleave="uiLeave"
     >
+      <div class="panel-topbar" aria-hidden="true"></div>
       <div class="panel-header drag-handle1" @mousedown="startDrag">
-        <span class="h2">📖 {{ selectedHistoryDate }}</span>
+        <span class="panel-header-icon">📖</span>
+        <span class="h2">{{ selectedHistoryDate }}</span>
+        <span class="panel-header-id">CHAT_RECORD</span>
         <button class="close-x" @click.stop="detailVisible = false">×</button>
       </div>
       <div class="chat-body" @mousedown.stop>
@@ -244,53 +300,46 @@
     </div>
 
     <!-- ===== Luna 入场遮罩 ===== -->
-<transition name="luna-intro">
-  <div v-if="lunaIntroVisible" class="luna-intro-mask">
-    <div class="luna-boot-screen">
-      <!-- 顶部扫描线 -->
-      <div class="scan-line"></div>
-
-      <!-- 主标题 -->
-      <div class="boot-title">
-        <span class="boot-bracket">[</span>
-        <span class="boot-name">LUNA</span>
-        <span class="boot-bracket">]</span>
-        <span class="boot-version">v2.0.1</span>
-      </div>
-
-      <!-- 副标题 -->
-      <div class="boot-subtitle">AI ASSISTANT CORE — INITIALIZING</div>
-
-      <!-- 进度条 -->
-      <div class="boot-bar-wrap">
-        <div class="boot-bar-track">
-          <div class="boot-bar-fill"></div>
+    <transition name="luna-intro">
+      <div v-if="lunaIntroVisible" class="luna-intro-mask">
+        <div class="luna-boot-screen">
+          <div class="scan-line"></div>
+          <span class="boot-corner btl" aria-hidden="true"></span>
+          <span class="boot-corner btr" aria-hidden="true"></span>
+          <span class="boot-corner bbl" aria-hidden="true"></span>
+          <span class="boot-corner bbr" aria-hidden="true"></span>
+          <div class="boot-title">
+            <span class="boot-bracket">[</span>
+            <span class="boot-name">LUNA</span>
+            <span class="boot-bracket">]</span>
+            <span class="boot-version">v2.0.1</span>
+          </div>
+          <div class="boot-subtitle">AI ASSISTANT CORE — INITIALIZING</div>
+          <div class="boot-bar-wrap">
+            <div class="boot-bar-track">
+              <div class="boot-bar-fill"></div>
+            </div>
+            <span class="boot-bar-pct">LOADING...</span>
+          </div>
+          <div class="boot-log">
+            <div class="log-line" v-for="(line, i) in bootLines" :key="i"
+              :style="{ animationDelay: i * 0.18 + 's' }">
+              <span class="log-tag">&gt;</span> {{ line }}
+            </div>
+          </div>
+          <div class="boot-footer">
+            <span class="boot-hex" v-for="h in 6" :key="h">{{ hexChars[h-1] }}</span>
+          </div>
         </div>
-        <span class="boot-bar-pct">LOADING...</span>
       </div>
+    </transition>
 
-      <!-- 滚动日志 -->
-      <div class="boot-log">
-        <div class="log-line" v-for="(line, i) in bootLines" :key="i"
-          :style="{ animationDelay: i * 0.18 + 's' }">
-          <span class="log-tag">&gt;</span> {{ line }}
-        </div>
-      </div>
-
-      <!-- 底部装饰 -->
-      <div class="boot-footer">
-        <span class="boot-hex" v-for="h in 6" :key="h">{{ hexChars[h-1] }}</span>
-      </div>
-    </div>
-  </div>
-</transition>
-
-<!-- ===== 代码粒子入场动画 ===== -->
-<canvas
-  v-if="codeParticleVisible"
-  ref="particleCanvasRef"
-  class="particle-canvas-overlay"
-></canvas>
+    <!-- ===== 代码粒子入场动画 ===== -->
+    <canvas
+      v-if="codeParticleVisible"
+      ref="particleCanvasRef"
+      class="particle-canvas-overlay"
+    ></canvas>
 
   </div>
 </template>
@@ -322,12 +371,12 @@ const messageBoxRef   = ref(null);
 const historyPanelRef = ref(null);
 
 /* ================= 基础状态 ================= */
-const bgParticlesVisible = ref(true);
-const showDebugUI      = ref(false);
-const showMessageBox   = ref(false);
-const trackingEnabled  = ref(true);
-const isSettingOrigin  = ref(false);
-const lunaIntroVisible = ref(true);
+const bgParticlesVisible  = ref(true);
+const showDebugUI         = ref(false);
+const showMessageBox      = ref(false);
+const trackingEnabled     = ref(true);
+const isSettingOrigin     = ref(false);
+const lunaIntroVisible    = ref(true);
 const codeParticleVisible = ref(false);
 const particleCanvasRef   = ref(null);
 
@@ -342,7 +391,6 @@ function runCodeParticleIntro(onDone) {
     const H = canvas.height = window.innerHeight;
     const ctx = canvas.getContext("2d");
 
-    // 代码感更强的暗色背景，只在粒子动画期间铺满
     const baseGrad = ctx.createLinearGradient(0, 0, 0, H);
     baseGrad.addColorStop(0,   "#020611");
     baseGrad.addColorStop(0.5, "#050b18");
@@ -351,13 +399,9 @@ function runCodeParticleIntro(onDone) {
     ctx.fillRect(0, 0, W, H);
 
     const CX    = W / 2;
-    // 下移：从 H/2 - 20 改为 H/2 + 60，确保图案不被遮挡
     const CY    = H / 2 + 60;
     const SCALE = Math.min(W, H) / 560;
 
-    // ============================================================
-    // 1. 猫脸 + JK少女元素轮廓采样
-    // ============================================================
     function buildSilhouette() {
       const pts = [];
 
@@ -393,27 +437,23 @@ function runCodeParticleIntro(onDone) {
 
       const s = SCALE;
 
-      // ── 猫脸主轮廓 ──
       circle(CX, CY, 130 * s, 115 * s, 0.05);
       circle(CX, CY, 115 * s, 100 * s, 0.07);
       circle(CX, CY,  95 * s,  82 * s, 0.10);
       fill(CX - 100 * s, CY - 80 * s, CX + 100 * s, CY + 80 * s, 14, 12);
 
-      // ── 猫耳（左）──
       line(CX - 130 * s, CY - 80  * s, CX - 80 * s, CY - 185 * s, 14);
       line(CX - 80  * s, CY - 185 * s, CX - 38 * s, CY -  95 * s, 14);
       line(CX - 118 * s, CY -  90 * s, CX - 82 * s, CY - 165 * s, 10);
       line(CX - 82  * s, CY - 165 * s, CX - 50 * s, CY - 102 * s, 10);
       fill(CX - 112 * s, CY - 158 * s, CX - 52 * s, CY - 102 * s, 5, 5);
 
-      // ── 猫耳（右）──
       line(CX + 130 * s, CY -  80 * s, CX + 80 * s, CY - 185 * s, 14);
       line(CX + 80  * s, CY - 185 * s, CX + 38 * s, CY -  95 * s, 14);
       line(CX + 118 * s, CY -  90 * s, CX + 82 * s, CY - 165 * s, 10);
       line(CX + 82  * s, CY - 165 * s, CX + 50 * s, CY - 102 * s, 10);
       fill(CX + 52  * s, CY - 158 * s, CX + 112 * s, CY - 102 * s, 5, 5);
 
-      // ── 猫眼（左）──
       circle(CX - 50 * s, CY - 15 * s, 30 * s, 22 * s, 0.10);
       circle(CX - 50 * s, CY - 15 * s, 20 * s, 14 * s, 0.14);
       circle(CX - 50 * s, CY - 15 * s,  9 * s, 15 * s, 0.18);
@@ -426,7 +466,6 @@ function runCodeParticleIntro(onDone) {
         line(bx, by, bx + Math.cos(a) * 12 * s, by + Math.sin(a) * 12 * s, 4);
       }
 
-      // ── 猫眼（右）──
       circle(CX + 50 * s, CY - 15 * s, 30 * s, 22 * s, 0.10);
       circle(CX + 50 * s, CY - 15 * s, 20 * s, 14 * s, 0.14);
       circle(CX + 50 * s, CY - 15 * s,  9 * s, 15 * s, 0.18);
@@ -439,16 +478,13 @@ function runCodeParticleIntro(onDone) {
         line(bx, by, bx - Math.cos(a) * 12 * s, by + Math.sin(a) * 12 * s, 4);
       }
 
-      // ── 猫鼻 ──
       line(CX - 12 * s, CY + 25 * s, CX + 12 * s, CY + 25 * s, 5);
       line(CX - 12 * s, CY + 25 * s, CX,           CY + 40 * s, 5);
       line(CX + 12 * s, CY + 25 * s, CX,           CY + 40 * s, 5);
 
-      // ── 猫口 ──
       arc(CX - 24 * s, CY + 55 * s, 20 * s, 11 * s, Math.PI * 1.5, Math.PI * 2.0, 0.10);
       arc(CX + 24 * s, CY + 55 * s, 20 * s, 11 * s, Math.PI,       Math.PI * 1.5, 0.10);
 
-      // ── 猫须（左右各4根）──
       line(CX - 38 * s, CY + 28 * s, CX - 125 * s, CY + 18 * s, 10);
       line(CX - 38 * s, CY + 35 * s, CX - 128 * s, CY + 34 * s, 10);
       line(CX - 38 * s, CY + 42 * s, CX - 125 * s, CY + 50 * s, 10);
@@ -458,11 +494,9 @@ function runCodeParticleIntro(onDone) {
       line(CX + 38 * s, CY + 42 * s, CX + 125 * s, CY + 50 * s, 10);
       line(CX + 38 * s, CY + 22 * s, CX + 118 * s, CY +  5 * s, 10);
 
-      // ── 腮红 ──
       scatter(CX - 85 * s, CY + 22 * s, 26 * s, 14 * s, 24);
       scatter(CX + 85 * s, CY + 22 * s, 26 * s, 14 * s, 24);
 
-      // ── 蝴蝶结（头顶）──
       for (let a = 0; a < Math.PI * 2; a += 0.12)
         pts.push({
           x: CX - 65 * s + Math.cos(a) * 48 * s * (1 + 0.3 * Math.cos(2 * a)),
@@ -477,20 +511,17 @@ function runCodeParticleIntro(onDone) {
       line(CX - 10 * s, CY - 226 * s, CX - 22 * s, CY - 200 * s, 6);
       line(CX + 10 * s, CY - 226 * s, CX + 22 * s, CY - 200 * s, 6);
 
-      // ── 衬衣领口 ──
       line(CX, CY + 118 * s, CX - 62 * s, CY + 152 * s, 12);
       line(CX, CY + 118 * s, CX + 62 * s, CY + 152 * s, 12);
       line(CX - 16 * s, CY + 118 * s, CX, CY + 130 * s, 6);
       line(CX + 16 * s, CY + 118 * s, CX, CY + 130 * s, 6);
       circle(CX, CY + 130 * s, 6 * s, 6 * s, 0.30);
 
-      // ── 制服肩部 ──
       arc(CX - 140 * s, CY + 105 * s, 34 * s, 22 * s, Math.PI * 1.4, Math.PI * 2.0, 0.10);
       arc(CX + 140 * s, CY + 105 * s, 34 * s, 22 * s, Math.PI,       Math.PI * 1.6, 0.10);
       line(CX - 140 * s, CY + 105 * s, CX - 90 * s, CY + 82 * s, 10);
       line(CX + 140 * s, CY + 105 * s, CX + 90 * s, CY + 82 * s, 10);
 
-      // ── 樱花瓣（8片）──
       const petalPos = [
         [CX - 230 * s, CY - 180 * s],
         [CX + 220 * s, CY - 150 * s],
@@ -509,7 +540,6 @@ function runCodeParticleIntro(onDone) {
           });
       });
 
-      // ── 音符（4个）──
       const notePositions = [
         [CX + 250 * s, CY -  70 * s],
         [CX - 262 * s, CY +   0 * s],
@@ -522,7 +552,6 @@ function runCodeParticleIntro(onDone) {
         line(nx + 9 * s, ny - 28 * s, nx + 20 * s, ny - 20 * s, 3);
       });
 
-      // ── 星星（6颗）──
       const starPos = [
         [CX - 200 * s, CY - 110 * s],
         [CX + 195 * s, CY - 120 * s],
@@ -548,7 +577,6 @@ function runCodeParticleIntro(onDone) {
         }
       });
 
-      // ── 爱心（2个）──
       [[CX - 160 * s, CY - 200 * s], [CX + 158 * s, CY - 195 * s]].forEach(([hx, hy]) => {
         for (let a = 0; a < Math.PI * 2; a += 0.18) {
           pts.push({
@@ -563,25 +591,20 @@ function runCodeParticleIntro(onDone) {
 
     const silhouette = buildSilhouette();
 
-    // ============================================================
-    // 2. 字符集
-    // ============================================================
     const CHAR_SETS = [
-  "01",
-  "ABCDEF0123456789",
-  "アイウエオカキクケコサシスセソタチツ",
-  "{}[]()<>|/\\=+-*&^%$#@!~",
-  "λΣΩΔΨΦπμσ♡♪★☆◇◆",
-  "░▒▓█▄▀■□",
-];
+      "01",
+      "ABCDEF0123456789",
+      "アイウエオカキクケコサシスセソタチツ",
+      "{}[]()<>|/\\=+-*&^%$#@!~",
+      "λΣΩΔΨΦπμσ♡♪★☆◇◆",
+      "░▒▓█▄▀■□",
+    ];
+    ```
     function randChar() {
       const set = CHAR_SETS[Math.floor(Math.random() * CHAR_SETS.length)];
       return set[Math.floor(Math.random() * set.length)];
     }
 
-    // ============================================================
-    // 3. 粒子构造
-    // ============================================================
     const TOTAL = Math.min(silhouette.length, 700);
     const chosen = silhouette.sort(() => Math.random() - 0.5).slice(0, TOTAL);
 
@@ -604,7 +627,6 @@ function runCodeParticleIntro(onDone) {
       else if (edge === 1) { sx = W + 30;             sy = Math.random() * H; }
       else if (edge === 2) { sx = Math.random() * W; sy = H + 30; }
       else                 { sx = -30;                sy = Math.random() * H; }
-
       return {
         x: sx, y: sy,
         tx: target.x, ty: target.y,
@@ -621,9 +643,6 @@ function runCodeParticleIntro(onDone) {
       };
     });
 
-    // ============================================================
-    // 4. 代码雨背景
-    // ============================================================
     const RAIN_COLS = 34;
     const rainDrops = Array.from({ length: RAIN_COLS }, (_, i) => ({
       x:     (i / RAIN_COLS) * W + Math.random() * (W / RAIN_COLS),
@@ -634,215 +653,176 @@ function runCodeParticleIntro(onDone) {
       gap:   16 + Math.random() * 8,
     }));
 
-    // ============================================================
-    // 5. 帧参数（关键：四个阶段严格分离）
-    // ============================================================
     let frame = 0;
-    const GATHER   = 90;
-    const HOLD     = 70;
-    const FADEOUT  = 80;
-    const TOTAL_F  = GATHER + HOLD + FADEOUT;
+    const GATHER  = 90;
+    const HOLD    = 70;
+    const FADEOUT = 80;
+    const TOTAL_F = GATHER + HOLD + FADEOUT;
     let rafId;
 
-    // ============================================================
-    // 6. 渲染循环（重构：严格阶段判断，保证 DISSOLVE 一定执行）
-    // ============================================================
     function tick() {
-  ctx.clearRect(0, 0, W, H);
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = "rgba(0,0,0,0.28)";
+      ctx.fillRect(0, 0, W, H);
 
-  // 残影拖尾（黑色半透明覆盖）
-  ctx.fillStyle = "rgba(0,0,0,0.28)";
-  ctx.fillRect(0, 0, W, H);
+      const prog_gather = Math.min(1, frame / GATHER);
+      const rainAlpha = frame < GATHER
+        ? prog_gather * 0.65
+        : frame < GATHER + HOLD
+          ? 0.65
+          : Math.max(0, 0.65 - ((frame - GATHER - HOLD) / FADEOUT) * 1.5);
 
-  const prog_gather = Math.min(1, frame / GATHER);
+      rainDrops.forEach((drop) => {
+        drop.y += drop.speed;
+        if (drop.y > H + drop.chars.length * drop.gap) drop.y = -drop.chars.length * drop.gap;
+        if (Math.random() < 0.04) drop.chars[Math.floor(Math.random() * drop.chars.length)] = randChar();
+        drop.chars.forEach((ch, i) => {
+          const fy = drop.y + i * drop.gap;
+          if (fy < 0 || fy > H) return;
+          const fade = 1 - i / drop.chars.length;
+          ctx.save();
+          ctx.globalAlpha = drop.alpha * fade * rainAlpha;
+          ctx.font        = `${11 + i * 0.3}px "Courier New", monospace`;
+          ctx.fillStyle   = i === 0 ? "#ffffff" : "rgba(255,180,220,1)";
+          ctx.shadowColor = "rgba(255,160,210,0.6)";
+          ctx.shadowBlur  = i === 0 ? 10 : 4;
+          ctx.fillText(ch, drop.x, fy);
+          ctx.restore();
+        });
+      });
 
-  // ── 代码雨背景 ──
-  const rainAlpha = frame < GATHER
-    ? prog_gather * 0.65
-    : frame < GATHER + HOLD
-      ? 0.65
-      : Math.max(0, 0.65 - ((frame - GATHER - HOLD) / FADEOUT) * 1.5);
+      particles.forEach((p) => {
+        if (frame < GATHER) {
+          p.x    += (p.tx - p.x) * p.speed;
+          p.y    += (p.ty - p.y) * p.speed;
+          const t = frame / GATHER;
+          p.alpha = Math.min(1, t * t * 2.5);
+        } else if (frame < GATHER + HOLD) {
+          p.x     = p.tx + Math.sin(frame * 0.07 + p.phase) * 1.4 * SCALE;
+          p.y     = p.ty + Math.cos(frame * 0.05 + p.phase) * 1.4 * SCALE;
+          p.alpha = 1;
+          p.charTimer++;
+          if (p.charTimer >= p.charInterval) { p.char = randChar(); p.charTimer = 0; }
+        } else {
+          const t      = (frame - GATHER - HOLD) / FADEOUT;
+          const jitter = (1 - t) * 2.5 * SCALE;
+          p.x     = p.tx + (Math.random() - 0.5) * jitter;
+          p.y     = p.ty + (Math.random() - 0.5) * jitter;
+          p.alpha = t < 0.25 ? 1 : Math.max(0, 1 - (t - 0.25) / 0.75);
+          p.alpha = Math.pow(p.alpha, 1.8);
+          if (Math.random() < t * 0.4) p.char = randChar();
+        }
 
-  rainDrops.forEach((drop) => {
-    drop.y += drop.speed;
-    if (drop.y > H + drop.chars.length * drop.gap)
-      drop.y = -drop.chars.length * drop.gap;
-    if (Math.random() < 0.04)
-      drop.chars[Math.floor(Math.random() * drop.chars.length)] = randChar();
+        if (p.alpha <= 0.01) return;
 
-    drop.chars.forEach((ch, i) => {
-      const fy = drop.y + i * drop.gap;
-      if (fy < 0 || fy > H) return;
-      const fade = 1 - i / drop.chars.length;
-      ctx.save();
-      ctx.globalAlpha = drop.alpha * fade * rainAlpha;
-      ctx.font        = `${11 + i * 0.3}px "Courier New", monospace`;
-      ctx.fillStyle   = i === 0 ? "#ffffff" : "rgba(255,180,220,1)";
-      ctx.shadowColor = "rgba(255,160,210,0.6)";
-      ctx.shadowBlur  = i === 0 ? 10 : 4;
-      ctx.fillText(ch, drop.x, fy);
-      ctx.restore();
-    });
-  });
+        p.trail.push({ x: p.x, y: p.y });
+        if (p.trail.length > p.trailMax) p.trail.shift();
+        p.trail.forEach((tp, i) => {
+          const ta = (i / p.trail.length) * p.alpha * 0.32;
+          if (ta < 0.02) return;
+          ctx.save();
+          ctx.globalAlpha = ta;
+          ctx.font        = `${p.size * 0.7}px "Courier New", monospace`;
+          ctx.fillStyle   = `rgba(${p.col[0]},${p.col[1]},${p.col[2]},1)`;
+          ctx.fillText(p.char, tp.x, tp.y);
+          ctx.restore();
+        });
 
-  // ── 主粒子 ──
-  particles.forEach((p) => {
-    if (frame < GATHER) {
-      p.x    += (p.tx - p.x) * p.speed;
-      p.y    += (p.ty - p.y) * p.speed;
-      const t = frame / GATHER;
-      p.alpha = Math.min(1, t * t * 2.5);
-    } else if (frame < GATHER + HOLD) {
-      p.x     = p.tx + Math.sin(frame * 0.07 + p.phase) * 1.4 * SCALE;
-      p.y     = p.ty + Math.cos(frame * 0.05 + p.phase) * 1.4 * SCALE;
-      p.alpha = 1;
-      p.charTimer++;
-      if (p.charTimer >= p.charInterval) {
-        p.char      = randChar();
-        p.charTimer = 0;
+        ctx.save();
+        ctx.globalAlpha = p.alpha;
+        ctx.font        = `bold ${p.size}px "Courier New", monospace`;
+        ctx.fillStyle   = `rgba(${p.col[0]},${p.col[1]},${p.col[2]},1)`;
+        ctx.shadowColor = `rgba(${p.col[0]},${p.col[1]},${p.col[2]},0.9)`;
+        ctx.shadowBlur  = 14;
+        ctx.fillText(p.char, p.x, p.y);
+        ctx.restore();
+      });
+
+      if (frame >= GATHER * 0.5 && frame < GATHER + HOLD) {
+        const prog    = Math.min(1, (frame - GATHER * 0.5) / (GATHER * 0.5));
+        const fadeOut = frame >= GATHER + HOLD * 0.6 ? 1 - (frame - GATHER - HOLD * 0.6) / (HOLD * 0.4) : 1;
+        const radius  = 280 * SCALE * prog;
+        const grd     = ctx.createRadialGradient(CX, CY, 0, CX, CY, radius);
+        grd.addColorStop(0,   `rgba(255,160,220,${0.09 * prog * fadeOut})`);
+        grd.addColorStop(0.4, `rgba(180,120,255,${0.05 * prog * fadeOut})`);
+        grd.addColorStop(1,   "rgba(0,0,0,0)");
+        ctx.fillStyle = grd;
+        ctx.fillRect(0, 0, W, H);
       }
+
+      if (frame >= GATHER && frame < GATHER + HOLD) {
+        const t     = (frame - GATHER) / HOLD;
+        const scanY = (CY - 280 * SCALE) + t * 460 * SCALE;
+        const sGrd  = ctx.createLinearGradient(0, scanY - 16, 0, scanY + 16);
+        sGrd.addColorStop(0,   "rgba(255,180,220,0)");
+        sGrd.addColorStop(0.5, `rgba(255,180,220,${0.22 * Math.sin(t * Math.PI)})`);
+        sGrd.addColorStop(1,   "rgba(255,180,220,0)");
+        ctx.fillStyle = sGrd;
+        ctx.fillRect(CX - 200 * SCALE, scanY - 16, 400 * SCALE, 32);
+      }
+
+      if (frame >= GATHER + HOLD) {
+        const t = (frame - GATHER - HOLD) / FADEOUT;
+        if (t < 0.35) {
+          const ringT  = t / 0.35;
+          const eR     = ringT * ringT;
+          const r1     = 20 * SCALE + eR * Math.max(W, H) * 0.55;
+          const ring1A = (1 - ringT) * 0.55;
+          const grd1   = ctx.createRadialGradient(CX, CY, r1 * 0.82, CX, CY, r1);
+          grd1.addColorStop(0,    `rgba(255,160,220,0)`);
+          grd1.addColorStop(0.45, `rgba(255,180,230,${ring1A})`);
+          grd1.addColorStop(0.75, `rgba(180,120,255,${ring1A * 0.6})`);
+          grd1.addColorStop(1,    `rgba(0,0,0,0)`);
+          ctx.fillStyle = grd1;
+          ctx.fillRect(0, 0, W, H);
+        }
+        if (t > 0.15 && t < 0.75) {
+          const lt    = (t - 0.15) / 0.60;
+          const lEase = lt < 0.5 ? 2 * lt * lt : 1 - Math.pow(-2 * lt + 2, 2) / 2;
+          const coreA = lEase < 0.5 ? lEase * 2 : (1 - lEase) * 2;
+          const coreR = 18 * SCALE * (0.5 + lEase * 0.8);
+          const cGrd  = ctx.createRadialGradient(CX, CY, 0, CX, CY, coreR);
+          cGrd.addColorStop(0,   `rgba(255,255,255,${coreA * 0.85})`);
+          cGrd.addColorStop(0.3, `rgba(220,180,255,${coreA * 0.45})`);
+          cGrd.addColorStop(1,   `rgba(0,0,0,0)`);
+          ctx.fillStyle = cGrd;
+          ctx.fillRect(0, 0, W, H);
+        }
+        if (t > 0.70) {
+          const fadeT = (t - 0.70) / 0.30;
+          ctx.fillStyle = `rgba(2,6,17,${fadeT * fadeT * 0.96})`;
+          ctx.fillRect(0, 0, W, H);
+        }
+      }
+
+      if (frame < GATHER + HOLD + FADEOUT * 0.3) {
+        const hudAlpha = frame < GATHER + HOLD
+          ? Math.min(1, frame / 20)
+          : Math.max(0, 1 - (frame - GATHER - HOLD) / (FADEOUT * 0.3));
+        ctx.save();
+        ctx.globalAlpha = hudAlpha * 0.32;
+        ctx.font        = '10px "Courier New", monospace';
+        ctx.fillStyle   = "rgba(255,180,220,1)";
+        ctx.fillText(`FRAME  : ${String(frame).padStart(4, "0")}`, 24, H - 60);
+        ctx.fillText(`POINTS : ${TOTAL}`,                          24, H - 46);
+        ctx.fillText(`STATUS : ${frame < GATHER ? "ASSEMBLING" : frame < GATHER + HOLD ? "LOCKED" : "DISSOLVING"}`, 24, H - 32);
+        ctx.fillText(`SYS    : LUNA-CORE v2.0.1`,                 24, H - 18);
+        ctx.textAlign = "right";
+        ctx.fillText(`RES ${W}x${H}`,         W - 24, H - 46);
+        ctx.fillText(`ENTITY : NEKO-JK MODE`, W - 24, H - 32);
+        ctx.fillText(`AI ASSISTANT ONLINE`,   W - 24, H - 18);
+        ctx.restore();
+      }
+
+      frame++;
+      if (frame < TOTAL_F) {
+        rafId = requestAnimationFrame(tick);
       } else {
-      // FADEOUT：数字化解体——粒子原地颤抖、缩小、溶解为光点
-      const t    = (frame - GATHER - HOLD) / FADEOUT;
-      const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; // easeInOutQuad
-      // 前60%：粒子在原位微颤，后40%：快速淡出
-      const jitter = (1 - t) * 2.5 * SCALE;
-      p.x = p.tx + (Math.random() - 0.5) * jitter;
-      p.y = p.ty + (Math.random() - 0.5) * jitter;
-      // alpha：前20帧保持，之后平滑衰减
-      p.alpha = t < 0.25 ? 1 : Math.max(0, 1 - (t - 0.25) / 0.75);
-      p.alpha = Math.pow(p.alpha, 1.8); // 加速尾部衰减
-      // 字符随机闪烁加速（数字化崩溃感）
-      if (Math.random() < t * 0.4) p.char = randChar();
+        ctx.clearRect(0, 0, W, H);
+        codeParticleVisible.value = false;
+        onDone?.();
+      }
     }
-
-    if (p.alpha <= 0.01) return;
-
-    // 拖尾
-    p.trail.push({ x: p.x, y: p.y });
-    if (p.trail.length > p.trailMax) p.trail.shift();
-    p.trail.forEach((tp, i) => {
-      const ta = (i / p.trail.length) * p.alpha * 0.32;
-      if (ta < 0.02) return;
-      ctx.save();
-      ctx.globalAlpha = ta;
-      ctx.font        = `${p.size * 0.7}px "Courier New", monospace`;
-      ctx.fillStyle   = `rgba(${p.col[0]},${p.col[1]},${p.col[2]},1)`;
-      ctx.fillText(p.char, tp.x, tp.y);
-      ctx.restore();
-    });
-
-    // 主字符
-    ctx.save();
-    ctx.globalAlpha = p.alpha;
-    ctx.font        = `bold ${p.size}px "Courier New", monospace`;
-    ctx.fillStyle   = `rgba(${p.col[0]},${p.col[1]},${p.col[2]},1)`;
-    ctx.shadowColor = `rgba(${p.col[0]},${p.col[1]},${p.col[2]},0.9)`;
-    ctx.shadowBlur  = 14;
-    ctx.fillText(p.char, p.x, p.y);
-    ctx.restore();
-  });
-
-  // ── 汇聚中心光晕 ──
-  if (frame >= GATHER * 0.5 && frame < GATHER + HOLD) {
-    const prog    = Math.min(1, (frame - GATHER * 0.5) / (GATHER * 0.5));
-    const fadeOut = frame >= GATHER + HOLD * 0.6
-      ? 1 - (frame - GATHER - HOLD * 0.6) / (HOLD * 0.4)
-      : 1;
-    const radius = 280 * SCALE * prog;
-    const grd    = ctx.createRadialGradient(CX, CY, 0, CX, CY, radius);
-    grd.addColorStop(0,   `rgba(255,160,220,${0.09 * prog * fadeOut})`);
-    grd.addColorStop(0.4, `rgba(180,120,255,${0.05 * prog * fadeOut})`);
-    grd.addColorStop(1,   "rgba(0,0,0,0)");
-    ctx.fillStyle = grd;
-    ctx.fillRect(0, 0, W, H);
-  }
-
-  // ── 保持阶段扫描线 ──
-  if (frame >= GATHER && frame < GATHER + HOLD) {
-    const t     = (frame - GATHER) / HOLD;
-    const scanY = (CY - 280 * SCALE) + t * 460 * SCALE;
-    const sGrd  = ctx.createLinearGradient(0, scanY - 16, 0, scanY + 16);
-    sGrd.addColorStop(0,   "rgba(255,180,220,0)");
-    sGrd.addColorStop(0.5, `rgba(255,180,220,${0.22 * Math.sin(t * Math.PI)})`);
-    sGrd.addColorStop(1,   "rgba(255,180,220,0)");
-    ctx.fillStyle = sGrd;
-    ctx.fillRect(CX - 200 * SCALE, scanY - 16, 400 * SCALE, 32);
-  }
-
-    // ── FADEOUT 阶段：数字化溶解光效（无黑色蒙版，纯透明消散） ──
-  if (frame >= GATHER + HOLD) {
-    const t = (frame - GATHER - HOLD) / FADEOUT;
-
-    // 阶段一（t < 0.35）：中心向外扩散一道能量脉冲环
-    if (t < 0.35) {
-      const ringT  = t / 0.35;
-      const eR     = ringT * ringT;
-      const r1     = 20 * SCALE + eR * Math.max(W, H) * 0.55;
-      const ring1A = (1 - ringT) * 0.55;
-      const grd1   = ctx.createRadialGradient(CX, CY, r1 * 0.82, CX, CY, r1);
-      grd1.addColorStop(0,    `rgba(255,160,220,0)`);
-      grd1.addColorStop(0.45, `rgba(255,180,230,${ring1A})`);
-      grd1.addColorStop(0.75, `rgba(180,120,255,${ring1A * 0.6})`);
-      grd1.addColorStop(1,    `rgba(0,0,0,0)`);
-      ctx.fillStyle = grd1;
-      ctx.fillRect(0, 0, W, H);
-    }
-
-    // 阶段二（t > 0.15）：中心渐渐亮起一个白色核心光点，再淡出
-    if (t > 0.15 && t < 0.75) {
-      const lt    = (t - 0.15) / 0.60;
-      const lEase = lt < 0.5 ? 2 * lt * lt : 1 - Math.pow(-2 * lt + 2, 2) / 2;
-      const coreA = lEase < 0.5 ? lEase * 2 : (1 - lEase) * 2;
-      const coreR = 18 * SCALE * (0.5 + lEase * 0.8);
-      const cGrd  = ctx.createRadialGradient(CX, CY, 0, CX, CY, coreR);
-      cGrd.addColorStop(0,   `rgba(255,255,255,${coreA * 0.85})`);
-      cGrd.addColorStop(0.3, `rgba(220,180,255,${coreA * 0.45})`);
-      cGrd.addColorStop(1,   `rgba(0,0,0,0)`);
-      ctx.fillStyle = cGrd;
-      ctx.fillRect(0, 0, W, H);
-    }
-
-    // 整体透明度衰减：用 globalAlpha 对整个 canvas 做最终淡出
-    // 在最后 30% 时间内，整体 canvas 渐变透明（不用黑色蒙版）
-    if (t > 0.70) {
-      const fadeT = (t - 0.70) / 0.30;
-      const fadeA = fadeT * fadeT * 0.96;
-      ctx.fillStyle = `rgba(2,6,17,${fadeA})`; // 与背景色一致的深蓝黑，非纯黑
-      ctx.fillRect(0, 0, W, H);
-    }
-  }
-
-  // ── HUD 装饰文字（仅在前两阶段显示，FADEOUT 时淡出）──
-  if (frame < GATHER + HOLD + FADEOUT * 0.3) {
-    const hudAlpha = frame < GATHER + HOLD
-      ? Math.min(1, frame / 20)
-      : Math.max(0, 1 - (frame - GATHER - HOLD) / (FADEOUT * 0.3));
-    ctx.save();
-    ctx.globalAlpha = hudAlpha * 0.32;
-    ctx.font        = '10px "Courier New", monospace';
-    ctx.fillStyle   = "rgba(255,180,220,1)";
-    ctx.fillText(`FRAME  : ${String(frame).padStart(4, "0")}`, 24, H - 60);
-    ctx.fillText(`POINTS : ${TOTAL}`,                          24, H - 46);
-    ctx.fillText(`STATUS : ${frame < GATHER ? "ASSEMBLING" : frame < GATHER + HOLD ? "LOCKED" : "DISSOLVING"}`, 24, H - 32);
-    ctx.fillText(`SYS    : LUNA-CORE v2.0.1`,                 24, H - 18);
-    ctx.textAlign = "right";
-    ctx.fillText(`RES ${W}x${H}`,         W - 24, H - 46);
-    ctx.fillText(`ENTITY : NEKO-JK MODE`, W - 24, H - 32);
-    ctx.fillText(`AI ASSISTANT ONLINE`,   W - 24, H - 18);
-    ctx.restore();
-  }
-
-  frame++;
-
-  if (frame < TOTAL_F) {
-    rafId = requestAnimationFrame(tick);
-  } else {
-    ctx.clearRect(0, 0, W, H);
-    codeParticleVisible.value = false;
-    onDone?.();
-  }
-}
 
     tick();
   });
@@ -871,69 +851,16 @@ onBeforeUnmount(() => { clearInterval(hexTimer); });
 
 const currentEmotion = ref("neutral");
 const EMOTION_LABEL_MAP = {
-  // 愤怒类
-  Angry:        "愤怒",
-  Annoyed:      "烦躁",
-  Irritated:    "不耐烦",
-  Frustrated:   "沮丧",
-  Determined:   "坚定",
-  // 悲伤类
-  Sad:          "难过",
-  Lonely:       "孤独",
-  Despair:      "绝望",
-  Broken:       "心碎",
-  Uneasy:       "不安",
-  Resigned:     "无奈",
-  Disappointed: "失望",
-  // 恐惧/焦虑类
-  Anxious:      "焦虑",
-  Fearful:      "恐惧",
-  Shocked:      "震惊",
-  // 疲惫/无聊类
-  Tired:        "疲惫",
-  Bored:        "无聊",
-  // 困惑类
-  Confused:     "困惑",
-  // 尴尬/慌乱类
-  Embarrassed:  "尴尬",
-  Flustered:    "慌乱",
-  // 温柔/爱意类
-  Affectionate: "温柔",
-  Clingy:       "黏人",
-  Shy:          "害羞",
-  Soft:         "柔软",
-  Tsundere:     "傲娇",
-  Grateful:     "感激",
-  Relieved:     "释然",
-  // 戏谑类
-  Teasing:      "戏弄",
-  Yandere:      "病娇",
-  // 开心/希望类
-  Smile:        "微笑",
-  Hopeful:      "期待",
-  Proud:        "骄傲",
-  // 庄重/平静类：冷白灰，极慢 ========== */
-  // neutral（兼容小写）
-  neutral:      "平静",
-  // 兼容小写
-  happy:        "开心",
-  sad:          "难过",
-  angry:        "生气",
-  surprised:    "惊讶",
-  shy:          "害羞",
+  Angry: "愤怒", Annoyed: "烦躁", Irritated: "不耐烦", Frustrated: "沮丧", Determined: "坚定",
+  Sad: "难过", Lonely: "孤独", Despair: "绝望", Broken: "心碎", Uneasy: "不安",
+  Resigned: "无奈", Disappointed: "失望", Anxious: "焦虑", Fearful: "恐惧", Shocked: "震惊",
+  Tired: "疲惫", Bored: "无聊", Confused: "困惑", Embarrassed: "尴尬", Flustered: "慌乱",
+  Affectionate: "温柔", Clingy: "黏人", Shy: "害羞", Soft: "柔软", Tsundere: "傲娇",
+  Grateful: "感激", Relieved: "释然", Teasing: "戏弄", Yandere: "病娇",
+  Smile: "微笑", Hopeful: "期待", Proud: "骄傲", Solemn: "庄重", neutral: "平静",
+  happy: "开心", sad: "难过", angry: "生气", surprised: "惊讶", shy: "害羞",
 };
 const emotionLabel = computed(() => EMOTION_LABEL_MAP[currentEmotion.value] || currentEmotion.value);
-
-const EMOTION_GLYPH_MAP = {
-  neutral:   "M8 12 Q12 10 16 12",
-  happy:     "M8 13 Q12 17 16 13",
-  sad:       "M8 14 Q12 10 16 14",
-  angry:     "M8 11 L10 13 L14 11 L16 13",
-  surprised: "M12 8 Q14 12 12 16 Q10 12 12 8",
-  shy:       "M9 13 Q11 15 13 13 M13 13 Q14 11 15 13",
-  Solemn:    "M9 12 L15 12 M11 10 L13 14",
-};
-const emotionGlyphPath = computed(() => EMOTION_GLYPH_MAP[currentEmotion.value] || EMOTION_GLYPH_MAP.neutral);
 
 function particleStyle(i) {
   const size  = 4 + (i % 5) * 3;
@@ -942,12 +869,9 @@ function particleStyle(i) {
   const delay = (i * 0.4) % 3;
   const dur   = 3 + (i % 4);
   return {
-    width:             `${size}px`,
-    height:            `${size}px`,
-    left:              `${left}%`,
-    top:               `${top}%`,
-    animationDelay:    `${delay}s`,
-    animationDuration: `${dur}s`,
+    width: `${size}px`, height: `${size}px`,
+    left: `${left}%`, top: `${top}%`,
+    animationDelay: `${delay}s`, animationDuration: `${dur}s`,
   };
 }
 
@@ -956,10 +880,8 @@ let container = null;
 let model     = null;
 const expressionCache = new Map();
 
-/* ================= 气泡 ================= */
 const { chatBubbles, bubbleAnchor, registerBubble, sendReplyAsBubbles } = useBubble(messageBoxRef, showMessageBox);
 
-/* ================= 外貌 ================= */
 const {
   APPEARANCE_FILES, appearanceEnabled, appearanceAppliedMeta,
   appearanceHint, showAppearanceHint, displayAppearanceName,
@@ -967,7 +889,6 @@ const {
   removeAppearanceFile, applyAllEnabled, disableAll, onAppearanceToggle,
 } = useAppearance();
 
-/* ================= 律动 ================= */
 const { showSystemAudioListening: rhythmShowListening, toggleSystemAudio, dispose: disposeRhythm } = useRhythm();
 
 function getCoreModel() { return model?.internalModel?.coreModel ?? null; }
@@ -977,18 +898,14 @@ async function applyAllEnabledUI()        { await applyAllEnabled(getCoreModel()
 async function disableAllUI()             { await disableAll(getCoreModel()); }
 async function onToggleSystemAudio()      { await toggleSystemAudio(getCoreModel(), trackingEnabled); }
 
-/* ================= 聊天输入 ================= */
 const input     = ref("");
 const sending   = ref(false);
 const lastReply = ref({ loading: false, text: "" });
-
 const isLoading       = computed(() => sending.value || lastReply.value.loading);
 const idlePlaceholder = "和 Luna 说点什么吧…";
-
 let dotsTimer = null;
 watch(isLoading, () => { clearInterval(dotsTimer); dotsTimer = null; });
 
-/* ================= 响应处理 ================= */
 function normalizeResponse(res) {
   const data = res?.data ?? res;
   if (typeof data === "string") {
@@ -998,7 +915,6 @@ function normalizeResponse(res) {
 }
 
 async function handleModelReply(res) {
-  console.log("[Luna] 模型已返回内容", res);
   lastReply.value.loading = false;
   if (!res) return;
   const em = res.emotion || "";
@@ -1017,7 +933,6 @@ function handleNetworkError() {
   showAppearanceHint("网络请求失败");
 }
 
-/* ================= 发送消息 ================= */
 async function onSend() {
   if (sending.value) return;
   const text = input.value.trim();
@@ -1037,7 +952,6 @@ async function onSend() {
   }
 }
 
-/* ================= 启动 / 关闭 ================= */
 async function callStartup() {
   lastReply.value.loading = true;
   try {
@@ -1061,7 +975,6 @@ async function callShutdown() {
   }
 }
 
-/* ================= 历史记录面板 ================= */
 const historyPanel = ref({
   visible: false, x: 100, y: 100,
   years: [], months: [],
@@ -1157,7 +1070,6 @@ function onHistoryDragEnd() {
   document.removeEventListener("pointerup",   onHistoryDragEnd);
 }
 
-/* ================= 聊天记录详情 ================= */
 const detailVisible       = ref(false);
 const chatRecords         = ref([]);
 const selectedHistoryDate = ref("");
@@ -1208,7 +1120,6 @@ async function onDateClick(d) {
   }
 }
 
-/* ================= 右键菜单 ================= */
 function onRightClick(e) {
   if (uiRef.value?.contains(e.target))         return;
   if (messageBoxRef.value?.contains(e.target)) return;
@@ -1236,7 +1147,6 @@ function handleClickOutside(e) {
     historyPanel.value.visible = false;
 }
 
-/* ================= 外貌面板 ================= */
 const appearancePanel = ref({ visible: false, x: 100, y: 100 });
 let draggingAppearance = false;
 let dragStart  = { x: 0, y: 0 };
@@ -1277,7 +1187,6 @@ function closeAppearancePanel() {
   updatePetState();
 }
 
-/* ================= 穿透管理 ================= */
 let overModel = false;
 let overUI    = false;
 
@@ -1291,7 +1200,6 @@ function uiLeave() { overUI = false; updatePetState(); }
 watch(showMessageBox, (v) => { if (v) window.pet?.enter(); else updatePetState(); });
 watch(showDebugUI,   (v) => { if (v) window.pet?.enter(); else updatePetState(); });
 
-/* ================= 拖拽模型 ================= */
 let dragging = false;
 let lastPos  = { x: 0, y: 0 };
 
@@ -1318,7 +1226,6 @@ function onPointerMove(e) {
 }
 function onPointerUp() { dragging = false; }
 
-/* ================= 滚轮缩放 ================= */
 function onWheel(ev) {
   const rect        = canvasRef.value.getBoundingClientRect();
   const globalPoint = new PIXI.Point(ev.clientX - rect.left, ev.clientY - rect.top);
@@ -1333,7 +1240,6 @@ function onWheel(ev) {
   container.position.y += globalPoint.y - newGlobal.y;
 }
 
-/* ================= 视线追踪 ================= */
 const PARAM_CONFIG = {
   HEAD_X: { param: "ParamAngleX",   range: [-30, 30] },
   HEAD_Y: { param: "ParamAngleY",   range: [-30, 30] },
@@ -1389,7 +1295,6 @@ function clearOrigin() {
   localStorage.removeItem(LOOK_ORIGIN_KEY);
 }
 
-/* ================= 调试 UI ================= */
 function toggleTracking() {
   trackingEnabled.value = !trackingEnabled.value;
   if (!trackingEnabled.value) {
@@ -1417,7 +1322,6 @@ function toggleMessageBox() {
   if (!showMessageBox.value) { overUI = false; updatePetState(); }
 }
 
-/* ================= 呼吸动画 ================= */
 let breathTickerFn = null;
 function startBreath() {
   const breathStart = performance.now() / 1000;
@@ -1437,7 +1341,6 @@ function stopBreath() {
   }
 }
 
-/* ================= 表情合成 ================= */
 const INITIAL_EMOTION = "Solemn";
 let currentEmotionMeta = {};
 
@@ -1449,9 +1352,7 @@ async function resetToSolemn() {
   for (const id of keys) {
     try {
       core.setParameterValueById(id, typeof currentEmotionMeta[id] === "number" ? currentEmotionMeta[id] : 0);
-    } catch (e) {
-      console.warn("[Luna] resetToSolemn 恢复失败:", id, e);
-    }
+    } catch (e) { console.warn("[Luna] resetToSolemn 恢复失败:", id, e); }
   }
   currentEmotionMeta = {};
   await new Promise((r) => requestAnimationFrame(r));
@@ -1461,9 +1362,7 @@ function tweenParameters(core, targetValues, duration = 200) {
   return new Promise((resolve) => {
     const startTime  = performance.now();
     const fromValues = {};
-    for (const id in targetValues) {
-      fromValues[id] = core.getParameterValueById(id) ?? 0;
-    }
+    for (const id in targetValues) { fromValues[id] = core.getParameterValueById(id) ?? 0; }
     function step(now) {
       const t = Math.min((now - startTime) / duration, 1);
       const k = t * t * (3 - 2 * t);
@@ -1502,7 +1401,6 @@ async function applyEmotionExpressions(emotion) {
   await applyAllEnabled(getCoreModel());
 }
 
-/* ================= 预加载表情文件 ================= */
 async function preloadExpressions() {
   const allFiles = [
     "眼-生气", "脸红2隐藏", "脸黑", "眼-哭哭", "眼-泪眼汪汪",
@@ -1515,45 +1413,33 @@ async function preloadExpressions() {
         const res = await fetch(`/models/luna/${encodeURIComponent(name)}.exp3.json`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         expressionCache.set(name, await res.json());
-      } catch (e) {
-        console.error(`[Live2D] 加载失败: ${name}`, e);
-      }
+      } catch (e) { console.error(`[Live2D] 加载失败: ${name}`, e); }
     })
   );
 }
 
-/* ================= 重置模型状态 ================= */
 async function resetModelState() {
   const core = getCoreModel();
   if (!core) return;
-  for (const f in appearanceAppliedMeta) {
-    removeAppearanceFile(f, core);
-  }
+  for (const f in appearanceAppliedMeta) { removeAppearanceFile(f, core); }
   await resetToSolemn();
   await applyAllEnabled(core);
   showAppearanceHint("模型表情已重置");
 }
 
-/* ================= 关闭 Luna ================= */
 async function closeLuna() {
   contextMenu.value.visible = false;
-  try {
-    await callShutdown();
-  } catch (e) { console.warn("[Luna] shutdown 失败", e); }
+  try { await callShutdown(); } catch (e) { console.warn("[Luna] shutdown 失败", e); }
   try {
     stopBreath();
     app?.destroy(true);
     window.pet?.leave?.();
-  } catch (e) {
-    console.warn("[Luna] 关闭出错", e);
-  }
+  } catch (e) { console.warn("[Luna] 关闭出错", e); }
   if (wrapperRef.value) wrapperRef.value.innerHTML = "";
   showMessageBox.value = false;
-  // 通知 Electron 主进程终止
   window.desktopApi?.quit?.();
 }
 
-/* ================= 等待模型就绪 ================= */
 function waitForModelReady(timeout = 5000) {
   return new Promise((resolve) => {
     const start = performance.now();
@@ -1565,7 +1451,6 @@ function waitForModelReady(timeout = 5000) {
   });
 }
 
-/* ================= 生命周期 ================= */
 onMounted(async () => {
   window.PIXI = PIXI;
 
@@ -1589,9 +1474,8 @@ onMounted(async () => {
   model.y           = app.renderer.height;
   model.interactive = true;
   model.cursor      = "pointer";
-
-  model.alpha = 0;
-  model.y     = app.renderer.height + 60;
+  model.alpha       = 0;
+  model.y           = app.renderer.height + 60;
 
   model
     .on("pointerdown",      onPointerDown)
@@ -1623,29 +1507,19 @@ onMounted(async () => {
   await nextTick();
   await applyAllEnabled(getCoreModel());
 
-  // Boot 动画结束后，先播代码粒子动画，再显示模型
   gsap.to(model, { alpha: 0, duration: 0 });
 
   gsap.delayedCall(3.2, () => {
     lunaIntroVisible.value = false;
-
-    // 模型提前移到正确位置并开始在后台渲染，保持透明
     model.alpha = 0;
     model.y     = app.renderer.height;
 
-    // 粒子动画启动
     runCodeParticleIntro(() => {
-      // 粒子结束后模型直接淡入，无空白期
-      gsap.to(model, {
-        alpha:    1,
-        duration: 1.0,
-        ease:     "power3.out",
-      });
-
-      // 启动画面结束后，彻底关闭背景粒子，只保留模型
+      gsap.to(model, { alpha: 1, duration: 1.0, ease: "power3.out" });
       bgParticlesVisible.value = false;
     });
   });
+
   applyEmotionExpressions(INITIAL_EMOTION);
   callStartup();
 });
@@ -1663,16 +1537,45 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* =====================================================
+   全局根节点
+   ===================================================== */
 .app-root {
   width: 100vw;
   height: 100vh;
   position: relative;
   overflow: hidden;
-  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  /* 结束动画后重新让桌面透出，只保留模型 */
+  font-family: "Courier New", "Consolas", "Segoe UI", monospace;
   background: transparent;
 }
 
+/* =====================================================
+   CRT 扫描纹理覆盖层
+   ===================================================== */
+.crt-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0,0,0,0.03) 0px,
+    rgba(0,0,0,0.03) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  animation: crtFlicker 8s step-end infinite;
+}
+@keyframes crtFlicker {
+  0%, 95%, 100% { opacity: 1; }
+  96%            { opacity: 0.92; }
+  97%            { opacity: 1; }
+  98%            { opacity: 0.95; }
+}
+
+/* =====================================================
+   背景粒子
+   ===================================================== */
 .bg-particles {
   position: fixed;
   inset: 0;
@@ -1693,6 +1596,9 @@ onBeforeUnmount(() => {
   100% { transform: translateY(0px)   scale(1);   opacity: 0.5; }
 }
 
+/* =====================================================
+   PIXI Canvas 容器
+   ===================================================== */
 .interactive-wrapper {
   width: 100%;
   height: 100%;
@@ -1700,58 +1606,138 @@ onBeforeUnmount(() => {
   z-index: 1;
   pointer-events: none;
 }
-.interactive-wrapper canvas {
-  pointer-events: auto;
-}
+.interactive-wrapper canvas { pointer-events: auto; }
 
-.bubble-stack {
+.particle-canvas-overlay {
   position: fixed;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  transform: translate(-50%, -100%);
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 8999;
   pointer-events: none;
-  z-index: 1002;
-}
-.css-chat-bubble {
-  max-width: 280px;
-  padding: 10px 16px;
-  width: fit-content;
-  background: linear-gradient(135deg, rgba(255,255,255,0.96), rgba(240,240,240,0.92));
-  border: 1px solid rgba(0,0,0,0.08);
-  border-radius: 20px 20px 20px 4px;
-  color: #222;
-  font-size: 13.5px;
-  line-height: 1.6;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  word-break: break-word;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.13), 0 1.5px 4px rgba(0,0,0,0.07);
-  animation: bubbleIn 0.28s cubic-bezier(0.34,1.56,0.64,1) both;
-}
-.bubble-avatar {
-  font-size: 16px;
-  flex-shrink: 0;
-  animation: bubbleAvatarBounce 1.8s ease-in-out infinite;
-}
-@keyframes bubbleAvatarBounce {
-  0%, 100% { transform: translateY(0);    }
-  50%       { transform: translateY(-3px); }
-}
-@keyframes bubbleIn {
-  from { opacity: 0; transform: scale(0.8) translateY(10px); }
-  to   { opacity: 1; transform: scale(1)   translateY(0);    }
-}
-@keyframes bubbleOut {
-  from { opacity: 1; transform: scale(1); }
-  to   { opacity: 0; transform: scale(0.88) translateY(6px); }
-}
-.css-chat-bubble.leaving {
-  animation: bubbleOut 0.2s ease-in forwards;
 }
 
+/* =====================================================
+   调试 UI — 终端风格
+   ===================================================== */
+.debug-ui {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 1002;
+  background: rgba(8,12,20,0.92);
+  padding: 0 12px 10px;
+  border-radius: 6px;
+  box-shadow:
+    0 0 0 1px rgba(0,255,180,0.18),
+    0 0 24px rgba(0,255,180,0.07),
+    0 8px 32px rgba(0,0,0,0.5);
+  pointer-events: auto;
+  backdrop-filter: blur(10px);
+  animation: panelIn 0.22s cubic-bezier(0.34,1.56,0.64,1) both;
+}
+@keyframes panelIn {
+  from { opacity: 0; transform: translateY(-8px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+.debug-topbar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 0 6px;
+  border-bottom: 1px solid rgba(0,255,180,0.10);
+  margin-bottom: 8px;
+}
+.debug-topbar-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(0,255,180,0.85);
+  box-shadow: 0 0 6px rgba(0,255,180,0.7);
+  animation: dotPulse 2s ease-in-out infinite;
+}
+@keyframes dotPulse {
+  0%, 100% { opacity: 0.7; transform: scale(1);   }
+  50%       { opacity: 1;   transform: scale(1.3); }
+}
+.debug-topbar-label {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: rgba(0,255,180,0.55);
+}
+.debug-topbar-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(0,255,180,0.15), transparent);
+}
+.debug-btns { display: flex; gap: 8px; }
+
+/* =====================================================
+   通用按钮
+   ===================================================== */
+.cute-btn {
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.80);
+  border: 1px solid rgba(255,255,255,0.10);
+  padding: 5px 13px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: "Courier New", monospace;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s, color 0.18s, transform 0.12s, box-shadow 0.18s;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  letter-spacing: 0.03em;
+  position: relative;
+  overflow: hidden;
+}
+.cute-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 0%, rgba(255,255,255,0.06) 50%, transparent 100%);
+  transform: translateX(-100%);
+  transition: transform 0.4s ease;
+}
+.cute-btn:hover::after { transform: translateX(100%); }
+.cute-btn:hover {
+  background: rgba(0,255,180,0.08);
+  border-color: rgba(0,255,180,0.30);
+  color: rgba(0,255,180,0.90);
+  transform: translateY(-1px);
+  box-shadow: 0 0 12px rgba(0,255,180,0.12);
+}
+.cute-btn:active { transform: scale(0.96); }
+.cute-btn.small  { padding: 4px 10px; font-size: 11px; }
+.cute-btn.danger {
+  border-color: rgba(255,80,80,0.22);
+  color: rgba(255,130,130,0.85);
+}
+.cute-btn.danger:hover {
+  background: rgba(255,80,80,0.10);
+  border-color: rgba(255,80,80,0.45);
+  color: #ff9090;
+  box-shadow: 0 0 12px rgba(255,80,80,0.15);
+}
+.btn-code-prefix {
+  font-size: 10px;
+  color: rgba(0,255,180,0.50);
+  flex-shrink: 0;
+}
+.btn-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.btn-dot.green { background: #4dffb0; box-shadow: 0 0 6px rgba(77,255,176,0.7); }
+.btn-dot.red   { background: #ff5555; box-shadow: 0 0 6px rgba(255,85,85,0.7);  }
+
+/* =====================================================
+   输入框
+   ===================================================== */
 .messageBox {
   position: absolute;
   top: 800px;
@@ -1761,480 +1747,102 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #1a1a1a 0%, #242424 100%);
+  background: rgba(8,10,18,0.88);
   padding: 0 14px;
-  border-radius: 28px;
-  border: 1.5px solid rgba(255,255,255,0.10);
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.08);
   z-index: 1001;
   pointer-events: auto;
   box-shadow: 0 8px 32px rgba(0,0,0,0.35), 0 1.5px 4px rgba(0,0,0,0.18);
   transition: border-color 0.4s ease, box-shadow 0.4s ease;
   gap: 8px;
+  overflow: hidden;
 }
-.messageBox.emotion-happy     { border-color: rgba(255,220,80,0.45);  box-shadow: 0 8px 32px rgba(255,220,80,0.12),  0 1.5px 4px rgba(0,0,0,0.18); }
-.messageBox.emotion-sad       { border-color: rgba(100,160,255,0.45); box-shadow: 0 8px 32px rgba(100,160,255,0.12), 0 1.5px 4px rgba(0,0,0,0.18); }
-.messageBox.emotion-angry     { border-color: rgba(255,90,90,0.45);   box-shadow: 0 8px 32px rgba(255,90,90,0.12),   0 1.5px 4px rgba(0,0,0,0.18); }
-.messageBox.emotion-shy       { border-color: rgba(255,150,200,0.45); box-shadow: 0 8px 32px rgba(255,150,200,0.12), 0 1.5px 4px rgba(0,0,0,0.18); }
-.messageBox.emotion-surprised { border-color: rgba(180,120,255,0.45); box-shadow: 0 8px 32px rgba(180,120,255,0.12), 0 1.5px 4px rgba(0,0,0,0.18); }
-.messageBox.emotion-Solemn    { border-color: rgba(255,255,255,0.12); }
-.messageBox.emotion-neutral   { border-color: rgba(255,255,255,0.10); }
+
+/* 流光边框 */
+.msgbox-glow-border {
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  pointer-events: none;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(0,220,255,0.18) 25%,
+    rgba(180,100,255,0.18) 50%,
+    rgba(255,160,210,0.18) 75%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: msgboxFlow 4s linear infinite;
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+.messageBox:focus-within .msgbox-glow-border { opacity: 1; }
+@keyframes msgboxFlow {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* 顶部扫描线 */
+.msgbox-scanline {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 1.5px;
+  background: linear-gradient(90deg, transparent, rgba(0,220,255,0.6), transparent);
+  animation: msgboxScan 3s ease-in-out infinite;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
+.messageBox:focus-within .msgbox-scanline { opacity: 1; }
+@keyframes msgboxScan {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%);  }
+}
+
+/* 四角装饰 */
+.msgbox-corner, .cm-corner {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  pointer-events: none;
+}
+.msgbox-corner.tl { top: 3px;  left: 3px;  border-top: 1.5px solid rgba(0,220,255,0.5); border-left: 1.5px solid rgba(0,220,255,0.5); }
+.msgbox-corner.tr { top: 3px;  right: 3px; border-top: 1.5px solid rgba(0,220,255,0.5); border-right: 1.5px solid rgba(0,220,255,0.5); }
+.msgbox-corner.bl { bottom: 3px; left: 3px;  border-bottom: 1.5px solid rgba(0,220,255,0.5); border-left: 1.5px solid rgba(0,220,255,0.5); }
+.msgbox-corner.br { bottom: 3px; right: 3px; border-bottom: 1.5px solid rgba(0,220,255,0.5); border-right: 1.5px solid rgba(0,220,255,0.5); }
+
+.messageBox.emotion-happy     { border-color: rgba(255,220,80,0.35);  box-shadow: 0 8px 32px rgba(255,220,80,0.10),  0 0 0 1px rgba(255,220,80,0.15); }
+.messageBox.emotion-sad       { border-color: rgba(100,160,255,0.35); box-shadow: 0 8px 32px rgba(100,160,255,0.10), 0 0 0 1px rgba(100,160,255,0.15); }
+.messageBox.emotion-angry     { border-color: rgba(255,90,90,0.35);   box-shadow: 0 8px 32px rgba(255,90,90,0.10),   0 0 0 1px rgba(255,90,90,0.15); }
+.messageBox.emotion-shy       { border-color: rgba(255,150,200,0.35); box-shadow: 0 8px 32px rgba(255,150,200,0.10), 0 0 0 1px rgba(255,150,200,0.15); }
+.messageBox.emotion-surprised { border-color: rgba(180,120,255,0.35); box-shadow: 0 8px 32px rgba(180,120,255,0.10), 0 0 0 1px rgba(180,120,255,0.15); }
+.messageBox.emotion-Solemn    { border-color: rgba(255,255,255,0.08); }
+.messageBox.emotion-neutral   { border-color: rgba(255,255,255,0.07); }
 .messageBox:focus-within {
-  border-color: rgba(255,255,255,0.28);
-  box-shadow: 0 8px 36px rgba(0,0,0,0.4), 0 0 0 3px rgba(255,255,255,0.04);
+  border-color: rgba(0,220,255,0.30);
+  box-shadow: 0 8px 36px rgba(0,0,0,0.4), 0 0 0 1px rgba(0,220,255,0.15), 0 0 20px rgba(0,220,255,0.06);
 }
 
-/* ================= 呼吸灯 ================= */
-.breath-light {
-  position: relative;
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: default;
+#messageInput {
+  flex: 1;
+  height: 100%;
+  background: transparent;
+  outline: none;
+  border: none;
+  color: rgba(255,255,255,0.88);
+  font-size: 13.5px;
+  font-family: "Courier New", monospace;
+  letter-spacing: 0.02em;
+  caret-color: rgba(0,220,255,0.9);
 }
+#messageInput::placeholder { color: rgba(255,255,255,0.22); }
 
-/* 核心光点 */
-.bl-core {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: rgba(255,255,255,0.6);
-  box-shadow: 0 0 6px 2px rgba(255,255,255,0.25);
-  animation: blBreathe var(--bl-duration, 3s) ease-in-out infinite;
-  transition: background 0.5s ease, box-shadow 0.5s ease;
-}
-
-/* 外圈光晕（伪元素） */
-.bl-core::after {
-  content: "";
-  position: absolute;
-  inset: -6px;
-  border-radius: 50%;
-  background: radial-gradient(circle, var(--bl-color, rgba(255,255,255,0.15)) 0%, transparent 70%);
-  animation: blGlow var(--bl-duration, 3s) ease-in-out infinite;
-  opacity: 0;
-}
-
-/* tooltip */
-.bl-tooltip {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%) translateY(4px);
-  background: rgba(20,20,20,0.92);
-  color: rgba(255,255,255,0.75);
-  font-size: 10px;
-  padding: 3px 8px;
-  border-radius: 8px;
-  border: 1px solid rgba(255,255,255,0.08);
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.2s ease, transform 0.2s ease;
-  letter-spacing: 0.04em;
-}
-.breath-light:hover .bl-tooltip {
-  opacity: 1;
-  transform: translateX(-50%) translateY(-2px);
-}
-
-/* 呼吸动画 */
-@keyframes blBreathe {
-  0%, 100% { transform: scale(1);    opacity: 0.55; }
-  50%       { transform: scale(var(--bl-scale, 1.6)); opacity: 1; }
-}
-@keyframes blGlow {
-  0%, 100% { opacity: 0;   transform: scale(1); }
-  50%       { opacity: 0.6; transform: scale(var(--bl-scale, 1.6)); }
-}
-
-/* ===== 各情绪变量 ===== */
-
-/* ================= 呼吸灯完整样式 ================= */
-.breath-light {
-  position: relative;
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: default;
-}
-
-.bl-core {
-  position: relative;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: rgba(255,255,255,0.6);
-  box-shadow: 0 0 6px 2px rgba(255,255,255,0.25);
-  animation: blBreathe 3s ease-in-out infinite;
-  transition: background 0.5s ease, box-shadow 0.5s ease, animation-duration 0.5s ease;
-}
-
-.bl-core::after {
-  content: "";
-  position: absolute;
-  inset: -6px;
-  border-radius: 50%;
-  animation: blGlow 3s ease-in-out infinite;
-  opacity: 0;
-}
-
-.bl-tooltip {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%) translateY(4px);
-  background: rgba(20,20,20,0.92);
-  color: rgba(255,255,255,0.75);
-  font-size: 10px;
-  padding: 3px 8px;
-  border-radius: 8px;
-  border: 1px solid rgba(255,255,255,0.08);
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.2s ease, transform 0.2s ease;
-  letter-spacing: 0.04em;
-  z-index: 10;
-}
-.breath-light:hover .bl-tooltip {
-  opacity: 1;
-  transform: translateX(-50%) translateY(-2px);
-}
-
-@keyframes blBreathe {
-  0%, 100% { transform: scale(1);    opacity: 0.55; }
-  50%       { transform: scale(1.7); opacity: 1;    }
-}
-@keyframes blGlow {
-  0%, 100% { opacity: 0;   transform: scale(1);   }
-  50%       { opacity: 0.5; transform: scale(1.7); }
-}
-
-/* ========== 愤怒类：红色系，快速，大幅 ========== */
-/* Angry */
-.bl-Angry .bl-core {
-  background: rgba(255,60,60,0.90);
-  box-shadow: 0 0 10px 4px rgba(255,60,60,0.40);
-  animation-duration: 1.1s;
-}
-/* Annoyed */
-.bl-Annoyed .bl-core {
-  background: rgba(255,100,60,0.88);
-  box-shadow: 0 0 9px 3px rgba(255,100,60,0.35);
-  animation-duration: 1.3s;
-}
-/* Irritated */
-.bl-Irritated .bl-core {
-  background: rgba(255,130,60,0.85);
-  box-shadow: 0 0 8px 3px rgba(255,130,60,0.30);
-  animation-duration: 1.5s;
-}
-/* Frustrated */
-.bl-Frustrated .bl-core {
-  background: rgba(220,80,80,0.88);
-  box-shadow: 0 0 9px 3px rgba(220,80,80,0.32);
-  animation-duration: 1.2s;
-}
-/* Determined */
-.bl-Determined .bl-core {
-  background: rgba(200,80,60,0.85);
-  box-shadow: 0 0 8px 3px rgba(200,80,60,0.30);
-  animation-duration: 1.4s;
-}
-
-/* ========== 悲伤类：蓝色系，慢速，小幅 ========== */
-/* Sad */
-.bl-Sad .bl-core {
-  background: rgba(90,150,255,0.80);
-  box-shadow: 0 0 7px 2px rgba(90,150,255,0.25);
-  animation-duration: 4.5s;
-}
-/* Lonely */
-.bl-Lonely .bl-core {
-  background: rgba(110,140,220,0.75);
-  box-shadow: 0 0 6px 2px rgba(110,140,220,0.22);
-  animation-duration: 5.0s;
-}
-/* Despair */
-.bl-Despair .bl-core {
-  background: rgba(70,90,180,0.80);
-  box-shadow: 0 0 7px 2px rgba(70,90,180,0.25);
-  animation-duration: 5.5s;
-}
-/* Broken */
-.bl-Broken .bl-core {
-  background: rgba(60,70,140,0.75);
-  box-shadow: 0 0 6px 2px rgba(60,70,140,0.20);
-  animation-duration: 6.0s;
-}
-/* Uneasy */
-.bl-Uneasy .bl-core {
-  background: rgba(130,160,230,0.78);
-  box-shadow: 0 0 6px 2px rgba(130,160,230,0.22);
-  animation-duration: 4.0s;
-}
-/* Resigned */
-.bl-Resigned .bl-core {
-  background: rgba(120,130,180,0.72);
-  box-shadow: 0 0 5px 2px rgba(120,130,180,0.18);
-  animation-duration: 5.5s;
-}
-/* Disappointed */
-.bl-Disappointed .bl-core {
-  background: rgba(100,120,200,0.75);
-  box-shadow: 0 0 6px 2px rgba(100,120,200,0.20);
-  animation-duration: 4.8s;
-}
-
-/* ========== 恐惧/焦虑类：青紫色系，快速不规则 ========== */
-/* Anxious */
-.bl-Anxious .bl-core {
-  background: rgba(160,100,255,0.82);
-  box-shadow: 0 0 8px 3px rgba(160,100,255,0.28);
-  animation-duration: 1.6s;
-}
-/* Fearful */
-.bl-Fearful .bl-core {
-  background: rgba(130,80,220,0.80);
-  box-shadow: 0 0 8px 3px rgba(130,80,220,0.26);
-  animation-duration: 1.4s;
-}
-/* Shocked */
-.bl-Shocked .bl-core {
-  background: rgba(180,120,255,0.88);
-  box-shadow: 0 0 10px 4px rgba(180,120,255,0.35);
-  animation-duration: 1.0s;
-}
-
-/* ========== 疲惫/无聊类：灰色系，极慢，微幅 ========== */
-/* Tired */
-.bl-Tired .bl-core {
-  background: rgba(160,160,170,0.65);
-  box-shadow: 0 0 5px 1px rgba(160,160,170,0.18);
-  animation-duration: 6.0s;
-}
-/* Bored */
-.bl-Bored .bl-core {
-  background: rgba(150,150,155,0.60);
-  box-shadow: 0 0 4px 1px rgba(150,150,155,0.15);
-  animation-duration: 7.0s;
-}
-
-/* ========== 困惑类：橙黄色系，中速 ========== */
-/* Confused */
-.bl-Confused .bl-core {
-  background: rgba(255,190,60,0.82);
-  box-shadow: 0 0 8px 3px rgba(255,190,60,0.28);
-  animation-duration: 2.0s;
-}
-
-/* ========== 尴尬/慌乱类：橙粉色系 ========== */
-/* Embarrassed */
-.bl-Embarrassed .bl-core {
-  background: rgba(255,140,120,0.82);
-  box-shadow: 0 0 8px 3px rgba(255,140,120,0.28);
-  animation-duration: 2.0s;
-}
-/* Flustered */
-.bl-Flustered .bl-core {
-  background: rgba(255,120,100,0.85);
-  box-shadow: 0 0 9px 3px rgba(255,120,100,0.30);
-  animation-duration: 1.6s;
-}
-
-/* ========== 温柔/爱意类：粉色系，中慢速 ========== */
-/* Affectionate */
-.bl-Affectionate .bl-core {
-  background: rgba(255,160,200,0.82);
-  box-shadow: 0 0 9px 3px rgba(255,160,200,0.30);
-  animation-duration: 2.5s;
-}
-/* Clingy */
-.bl-Clingy .bl-core {
-  background: rgba(255,140,180,0.80);
-  box-shadow: 0 0 8px 3px rgba(255,140,180,0.28);
-  animation-duration: 2.2s;
-}
-/* Shy */
-.bl-Shy .bl-core {
-  background: rgba(255,150,200,0.80);
-  box-shadow: 0 0 8px 3px rgba(255,150,200,0.28);
-  animation-duration: 2.8s;
-}
-/* Soft */
-.bl-Soft .bl-core {
-  background: rgba(255,180,210,0.78);
-  box-shadow: 0 0 7px 2px rgba(255,180,210,0.24);
-  animation-duration: 3.2s;
-}
-/* Tsundere */
-.bl-Tsundere .bl-core {
-  background: rgba(255,120,160,0.82);
-  box-shadow: 0 0 8px 3px rgba(255,120,160,0.28);
-  animation-duration: 2.0s;
-}
-/* Grateful */
-.bl-Grateful .bl-core {
-  background: rgba(255,170,180,0.80);
-  box-shadow: 0 0 8px 3px rgba(255,170,180,0.26);
-  animation-duration: 2.8s;
-}
-/* Relieved/* Relieved */
-.bl-Relieved .bl-core {
-  background: rgba(200,230,255,0.80);
-  box-shadow: 0 0 7px 2px rgba(200,230,255,0.24);
-  animation-duration: 3.5s;
-}
-
-/* ========== 戏谑/特殊类 ========== */
-/* Teasing */
-.bl-Teasing .bl-core {
-  background: rgba(255,200,80,0.85);
-  box-shadow: 0 0 9px 3px rgba(255,200,80,0.30);
-  animation-duration: 1.8s;
-}
-/* Yandere：深红紫，快且大 */
-.bl-Yandere .bl-core {
-  background: rgba(200,50,120,0.90);
-  box-shadow: 0 0 12px 5px rgba(200,50,120,0.40);
-  animation-duration: 1.0s;
-}
-
-/* ========== 开心/希望类：黄绿色系，中速 ========== */
-/* Smile */
-.bl-Smile .bl-core {
-  background: rgba(255,220,80,0.85);
-  box-shadow: 0 0 8px 3px rgba(255,220,80,0.30);
-  animation-duration: 2.2s;
-}
-/* Hopeful */
-.bl-Hopeful .bl-core {
-  background: rgba(180,230,120,0.82);
-  box-shadow: 0 0 8px 3px rgba(180,230,120,0.28);
-  animation-duration: 2.5s;
-}
-/* Proud */
-.bl-Proud .bl-core {
-  background: rgba(255,210,60,0.88);
-  box-shadow: 0 0 10px 4px rgba(255,210,60,0.32);
-  animation-duration: 2.0s;
-}
-
-/* ========== 庄重/平静类：冷白灰，极慢 ========== */
-/* Solemn */
-.bl-Solemn .bl-core {
-  background: rgba(200,200,210,0.60);
-  box-shadow: 0 0 5px 2px rgba(200,200,210,0.15);
-  animation-duration: 5.0s;
-}
-/* neutral（兼容小写） */
-.bl-neutral .bl-core {
-  background: rgba(220,220,220,0.65);
-  box-shadow: 0 0 6px 2px rgba(220,220,220,0.18);
-  animation-duration: 3.5s;
-}
-
-/* ========== 通用回退 ========== */
-.bl-happy .bl-core {
-  background: rgba(255,220,80,0.85);
-  box-shadow: 0 0 8px 3px rgba(255,220,80,0.30);
-  animation-duration: 2.2s;
-}
-.bl-sad .bl-core {
-  background: rgba(100,160,255,0.80);
-  box-shadow: 0 0 7px 2px rgba(100,160,255,0.25);
-  animation-duration: 4.2s;
-}
-.bl-angry .bl-core {
-  background: rgba(255,80,80,0.90);
-  box-shadow: 0 0 10px 4px rgba(255,80,80,0.35);
-  animation-duration: 1.2s;
-}
-.bl-surprised .bl-core {
-  background: rgba(180,120,255,0.85);
-  box-shadow: 0 0 9px 3px rgba(180,120,255,0.30);
-  animation-duration: 1.5s;
-}
-.bl-shy .bl-core {
-  background: rgba(255,150,200,0.80);
-  box-shadow: 0 0 8px 3px rgba(255,150,200,0.28);
-  animation-duration: 2.8s;
-}
-
-.emotion-glyph {
-  position: relative;
-  width: 28px;
-  height: 28px;
-  flex-shrink: 0;
-  cursor: default;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.emotion-glyph svg {
-  width: 28px;
-  height: 28px;
-  overflow: visible;
-  animation: glyphPulse 3s ease-in-out infinite;
-}
-.eg-ring {
-  fill: none;
-  stroke: rgba(255,255,255,0.15);
-  stroke-width: 1.2;
-  transition: stroke 0.4s ease;
-}
-.eg-inner {
-  fill: none;
-  stroke: rgba(255,255,255,0.55);
-  stroke-width: 1.6;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  transition: stroke 0.4s ease;
-}
-.eg-happy     .eg-ring  { stroke: rgba(255,220,80,0.35); }
-.eg-happy     .eg-inner { stroke: rgba(255,220,80,0.90); }
-.eg-sad       .eg-ring  { stroke: rgba(100,160,255,0.35); }
-.eg-sad       .eg-inner { stroke: rgba(100,160,255,0.90); }
-.eg-angry     .eg-ring  { stroke: rgba(255,90,90,0.35); }
-.eg-angry     .eg-inner { stroke: rgba(255,90,90,0.90); }
-.eg-shy       .eg-ring  { stroke: rgba(255,150,200,0.35); }
-.eg-shy       .eg-inner { stroke: rgba(255,150,200,0.90); }
-.eg-surprised .eg-ring  { stroke: rgba(180,120,255,0.35); }
-.eg-surprised .eg-inner { stroke: rgba(180,120,255,0.90); }
-.eg-Solemn    .eg-ring  { stroke: rgba(255,255,255,0.18); }
-.eg-Solemn    .eg-inner { stroke: rgba(255,255,255,0.50); }
-.eg-neutral   .eg-ring  { stroke: rgba(255,255,255,0.12); }
-.eg-neutral   .eg-inner { stroke: rgba(255,255,255,0.40); }
-.emotion-glyph:hover .eg-inner   { filter: drop-shadow(0 0 3px currentColor); }
-.emotion-glyph:hover .eg-tooltip { opacity: 1; transform: translateX(-50%) translateY(-2px); }
-.eg-tooltip {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%) translateY(4px);
-  background: rgba(20,20,20,0.92);
-  color: rgba(255,255,255,0.75);
-  font-size: 10px;
-  padding: 3px 8px;
-  border-radius: 8px;
-  border: 1px solid rgba(255,255,255,0.08);
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.2s ease, transform 0.2s ease;
-  letter-spacing: 0.04em;
-}
-@keyframes glyphPulse {
-  0%, 100% { opacity: 0.75; transform: scale(1);    }
-  50%       { opacity: 1;    transform: scale(1.08); }
-}
-
+/* =====================================================
+   文件上传
+   ===================================================== */
 .fileUploadWrapper {
   position: relative;
   display: flex;
@@ -2250,16 +1858,14 @@ onBeforeUnmount(() => {
   justify-content: center;
   position: relative;
   padding: 4px;
-  border-radius: 8px;
+  border-radius: 4px;
   transition: background 0.2s;
 }
-.fileUploadWrapper label:hover { background: rgba(255,255,255,0.08); }
+.fileUploadWrapper label:hover { background: rgba(0,220,255,0.08); }
 .fileUploadWrapper label svg   { height: 18px; }
-.fileUploadWrapper label svg path,
-.fileUploadWrapper label svg circle { transition: all 0.25s; }
-.fileUploadWrapper label:hover svg path   { stroke: #fff; }
-.fileUploadWrapper label:hover svg circle { stroke: #fff; }
-.fileUploadWrapper label:hover .tooltip   { display: block; opacity: 1; }
+.fileUploadWrapper label:hover svg path,
+.fileUploadWrapper label:hover svg circle { stroke: rgba(0,220,255,0.8); }
+.fileUploadWrapper label:hover .tooltip { display: block; opacity: 1; }
 .tooltip {
   position: absolute;
   top: -38px;
@@ -2267,30 +1873,22 @@ onBeforeUnmount(() => {
   transform: translateX(-50%);
   display: none;
   opacity: 0;
-  color: #fff;
+  color: rgba(255,255,255,0.85);
   font-size: 10px;
   white-space: nowrap;
-  background: rgba(0,0,0,0.85);
-  padding: 5px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(8,12,20,0.95);
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid rgba(0,220,255,0.15);
   box-shadow: 0 4px 12px rgba(0,0,0,0.4);
   pointer-events: none;
+  font-family: "Courier New", monospace;
+  letter-spacing: 0.05em;
 }
 
-#messageInput {
-  flex: 1;
-  height: 100%;
-  background: transparent;
-  outline: none;
-  border: none;
-  color: #f0f0f0;
-  font-size: 14px;
-  letter-spacing: 0.01em;
-  caret-color: #fff;
-}
-#messageInput::placeholder { color: rgba(255,255,255,0.28); }
-
+/* =====================================================
+   加载动画
+   ===================================================== */
 .luna-loader {
   position: relative;
   width: 28px;
@@ -2309,12 +1907,12 @@ onBeforeUnmount(() => {
 }
 .loader-track {
   fill: none;
-  stroke: rgba(255,255,255,0.08);
+  stroke: rgba(0,220,255,0.08);
   stroke-width: 2.5;
 }
 .loader-arc {
   fill: none;
-  stroke: rgba(255,255,255,0.75);
+  stroke: rgba(0,220,255,0.80);
   stroke-width: 2.5;
   stroke-linecap: round;
   stroke-dasharray: 28 60;
@@ -2324,14 +1922,11 @@ onBeforeUnmount(() => {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: rgba(255,255,255,0.85);
+  background: rgba(0,220,255,0.9);
   animation: loaderCorePulse 1.8s ease-in-out infinite;
-  box-shadow: 0 0 6px rgba(255,255,255,0.5);
+  box-shadow: 0 0 8px rgba(0,220,255,0.6);
 }
-@keyframes loaderRotate {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
-}
+@keyframes loaderRotate  { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @keyframes loaderArcPulse {
   0%, 100% { stroke-dasharray: 20 68; opacity: 0.6; }
   50%       { stroke-dasharray: 40 48; opacity: 1;   }
@@ -2341,567 +1936,68 @@ onBeforeUnmount(() => {
   50%       { transform: scale(1.3); opacity: 1;   }
 }
 
+/* =====================================================
+   发送按钮
+   ===================================================== */
 .send-btn-cute {
-  width: 36px;
-  height: 36px;
-  background: rgba(255,255,255,0.10);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  background: rgba(0,220,255,0.08);
+  border: 1px solid rgba(0,220,255,0.20);
+  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+  transition: background 0.2s, transform 0.12s, box-shadow 0.2s, border-color 0.2s;
   flex-shrink: 0;
 }
 .send-btn-cute:hover:not(:disabled) {
-  background: rgba(255,255,255,0.20);
-  transform: scale(1.12);
-  box-shadow: 0 4px 14px rgba(255,255,255,0.10);
+  background: rgba(0,220,255,0.18);
+  border-color: rgba(0,220,255,0.50);
+  transform: scale(1.10);
+  box-shadow: 0 0 14px rgba(0,220,255,0.22);
 }
-.send-btn-cute:active:not(:disabled) { transform: scale(0.95); }
-.send-btn-cute:disabled { opacity: 0.35; cursor: not-allowed; }
-.send-btn-cute svg { height: 16px; }
+.send-btn-cute:active:not(:disabled) { transform: scale(0.94); }
+.send-btn-cute:disabled { opacity: 0.30; cursor: not-allowed; }
+.send-btn-cute svg { height: 15px; }
 
-.msgbox-fade-enter-active { transition: opacity 0.35s ease, transform 0.35s cubic-bezier(0.34,1.56,0.64,1); }
-.msgbox-fade-leave-active { transition: opacity 0.2s ease,  transform 0.2s ease; }
-.msgbox-fade-enter-from   { opacity: 0; transform: translateY(16px) scale(0.95); }
-.msgbox-fade-leave-to     { opacity: 0; transform: translateY(8px)  scale(0.97); }
+/* =====================================================
+   输入框出入场
+   ===================================================== */
+.msgbox-fade-enter-active { transition: opacity 0.32s ease, transform 0.32s cubic-bezier(0.34,1.56,0.64,1); }
+.msgbox-fade-leave-active { transition: opacity 0.18s ease, transform 0.18s ease; }
+.msgbox-fade-enter-from   { opacity: 0; transform: translateY(14px) scale(0.96); }
+.msgbox-fade-leave-to     { opacity: 0; transform: translateY(6px)  scale(0.98); }
 
-.debug-ui {
-  position: absolute;
-  top: 16px;
-  left: 16px;
-  z-index: 1002;
-  display: flex;
-  gap: 8px;
-  background: rgba(20,20,20,0.88);
-  padding: 10px 12px;
-  border-radius: 16px;
-  box-shadow: 0 4px 18px rgba(0,0,0,0.3);
-  border: 1px solid rgba(255,255,255,0.07);
-  pointer-events: auto;
-  backdrop-filter: blur(8px);
-}
-.cute-btn {
-  background: rgba(255,255,255,0.07);
-  color: #e8e8e8;
-  border: 1px solid rgba(255,255,255,0.10);
-  padding: 6px 14px;
-  border-radius: 20px;
-  font-size: 13px;
-  cursor: pointer;
-  transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
-.cute-btn:hover {
-  background: rgba(255,255,255,0.14);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-}
-.cute-btn:active  { transform: scale(0.96); }
-.cute-btn.small   { padding: 4px 10px; font-size: 12px; }
-.cute-btn.danger  { border-color: rgba(255,80,80,0.3); color: #ff8888; }
-.cute-btn.danger:hover { background: rgba(255,80,80,0.12); }
-.btn-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.btn-dot.green { background: #6dff8a; box-shadow: 0 0 6px rgba(109,255,138,0.6); }
-.btn-dot.red   { background: #ff6d6d; box-shadow: 0 0 6px rgba(255,109,109,0.6); }
-
-.context-menu {
+/* =====================================================
+   聊天气泡
+   ===================================================== */
+.bubble-stack {
   position: fixed;
-  z-index: 1003;
-  background: linear-gradient(160deg, #1c1c1c 0%, #212121 100%);
-  border-radius: 16px;
-  padding: 6px 0 8px;
-  color: #e8e8e8;
-  min-width: 172px;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.25);
-  border: 1px solid rgba(255,255,255,0.07);
-  font-size: 13.5px;
-  pointer-events: auto;
-  user-select: none;
-  backdrop-filter: blur(12px);
-}
-.menu-header {
-  padding: 8px 16px 6px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  margin-bottom: 2px;
-}
-.menu-logo {
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: rgba(255,255,255,0.55);
-}
-.menu-item {
-  padding: 9px 16px;
-  cursor: pointer;
-  white-space: nowrap;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  transition: background 0.15s ease, padding-left 0.15s ease, color 0.15s ease;
-}
-.menu-item:hover {
-  background: rgba(255,255,255,0.07);
-  padding-left: 20px;
-  color: #fff;
-}
-.menu-item.danger       { color: #ff8888; }
-.menu-item.danger:hover { background: rgba(255,80,80,0.10); color: #ffaaaa; }
-.mi-icon    { font-size: 14px; flex-shrink: 0; }
-.menu-divider {
-  height: 1px;
-  background: rgba(255,255,255,0.06);
-  margin: 4px 0;
-}
-.menu-pop-enter-active { transition: opacity 0.18s ease, transform 0.18s cubic-bezier(0.34,1.56,0.64,1); }
-.menu-pop-leave-active { transition: opacity 0.12s ease, transform 0.12s ease; }
-.menu-pop-enter-from   { opacity: 0; transform: scale(0.88) translateY(-6px); }
-.menu-pop-leave-to     { opacity: 0; transform: scale(0.94) translateY(-3px); }
-
-.cute-panel {
-  background: linear-gradient(160deg, #1a1a1a 0%, #202020 100%);
-  border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 18px;
-  box-shadow: 0 16px 48px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.2);
-  color: #e8e8e8;
-  pointer-events: auto;
-  backdrop-filter: blur(12px);
-}
-.panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 14px 10px;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
-  font-weight: 600;
-  font-size: 13px;
-  cursor: move;
-  user-select: none;
-  letter-spacing: 0.04em;
-  color: rgba(255,255,255,0.75);
-  gap: 8px;
-}
-.close-x {
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.08);
-  color: #bbb;
-  font-size: 16px;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.2s, color 0.2s, transform 0.15s;
-  flex-shrink: 0;
-}
-.close-x:hover {
-  background: rgba(255,80,80,0.18);
-  color: #ff8888;
-  transform: rotate(90deg) scale(1.1);
-}
-
-.appearance-panel {
-  position: fixed;
-  z-index: 1004;
-  width: 420px;
-  height: 360px;
   display: flex;
   flex-direction: column;
-  padding: 0;
-  overflow: hidden;
-}
-.panel-body {
-  padding: 10px 12px;
-  overflow-y: auto;
-  flex: 1;
-}
-.appearance-controls { display: flex; flex-direction: column; gap: 6px; }
-.appearance-item      { display: flex; align-items: center; }
-.checkbox-label {
-  display: flex;
-  gap: 8px;
   align-items: center;
-  cursor: pointer;
-  user-select: none;
-}
-.checkbox-label input[type="checkbox"] {
-  width: 15px;
-  height: 15px;
-  accent-color: #fff;
-}
-.file-name {
-  font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 340px;
-  color: rgba(255,255,255,0.75);
-}
-.panel-footer {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  padding: 8px 12px 12px;
-  border-top: 1px solid rgba(255,255,255,0.04);
-}
-.appearance-hint {
-  margin: 0 12px 10px;
-  font-size: 11px;
-  color: rgba(255,255,255,0.4);
-  text-align: right;
-  user-select: none;
-  pointer-events: none;
-  animation: appearanceHintFade 0.15s ease-out;
-}
-@keyframes appearanceHintFade {
-  from { opacity: 0; transform: translateY(-2px); }
-  to   { opacity: 1; transform: translateY(0);    }
-}
-
-.history-panel {
-  position: absolute;
-  width: 320px;
-  z-index: 3000;
-  padding: 0;
-  overflow: hidden;
-}
-.header-left {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  flex: 1;
-}
-.nav-btn {
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(255,255,255,0.08);
-  color: #fff;
-  border-radius: 8px;
-  width: 26px;
-  height: 26px;
-  cursor: pointer;
-  font-size: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.2s, transform 0.15s;
-  flex-shrink: 0;
-}
-.nav-btn:hover { background: rgba(255,255,255,0.14); transform: scale(1.1); }
-.history-panel select {
-  background: rgba(255,255,255,0.06);
-  color: #e8e8e8;
-  border: 1px solid rgba(255,255,255,0.07);
-  padding: 3px 7px;
-  border-radius: 8px;
-  font-size: 12px;
-  cursor: pointer;
-  outline: none;
-}
-.history-panel select option { background: #2a2a2a; color: #fff; }
-.dates-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 5px;
-  padding: 10px;
-}
-.date-cell {
-  width: 34px;
-  height: 34px;
-  line-height: 34px;
-  text-align: center;
-  border-radius: 10px;
-  background: rgba(255,255,255,0.04);
-  cursor: pointer;
-  font-size: 12px;
-  transition: background 0.18s, transform 0.15s, box-shadow 0.18s;
-  user-select: none;
-}
-.date-cell.available {
-  background: rgba(255,255,255,0.10);
-  color: #fff;
-  font-weight: 600;
-}
-.date-cell.available:hover {
-  background: rgba(255,255,255,0.22);
-  transform: scale(1.1);
-}
-.date-cell.selected {
-  background: #fff;
-  color: #111;
-  font-weight: bold;
-  box-shadow: 0 4px 14px rgba(255,255,255,0.18);
-  transform: scale(1.08);
-}
-.date-cell.disabled {
-  background: rgba(255,255,255,0.02);
-  color: rgba(255,255,255,0.18);
-  cursor: not-allowed;
-}
-
-.chat-detail-panel {
-  position: fixed;
-  width: 360px;
-  height: 500px;
-  border-radius: 18px;
-  display: flex;
-  flex-direction: column;
-  z-index: 9999;
-  overflow: hidden;
-  user-select: none;
-}
-.drag-handle1 { cursor: move; }
-.chat-body {
-  flex: 1;
-  padding: 14px;
-  overflow-y: auto;
-  background: rgba(255,255,255,0.02);
-  display: flex;
-  flex-direction: column;
   gap: 10px;
-  pointer-events: auto;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+  z-index: 1002;
 }
-.chat-body::-webkit-scrollbar       { width: 4px; }
-.chat-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 4px; }
-.h2 { font-size: 13px; color: rgba(255,255,255,0.7); font-weight: 600; }
-.msg-wrapper { display: flex; flex-direction: column; }
-.msg-notice  { align-self: center; margin: 6px 0; text-align: center; max-width: 90%; }
-.notice-content {
-  font-size: 11px;
-  color: rgba(255,255,255,0.35);
-  background: rgba(255,255,255,0.05);
-  padding: 3px 10px;
-  border-radius: 10px;
-}
-.notice-time { margin-left: 5px; opacity: 0.6; font-size: 10px; }
-.message {
-  padding: 8px 13px;
-  border-radius: 14px;
-  max-width: 80%;
+.css-chat-bubble {
+  max-width: 300px;
+  padding: 9px 15px 9px 12px;
+  width: fit-content;
+  background: rgba(8,12,22,0.92);
+  border: 1px solid rgba(0,220,255,0.18);
+  border-left: 3px solid rgba(0,220,255,0.55);
+  border-radius: 4px 12px 12px 4px;
+  color: rgba(220,235,255,0.92);
   font-size: 13px;
-  line-height: 1.55;
-  display: flex;
-  flex-direction: column;
-  word-wrap: break-word;
-  margin-bottom: 2px;
-  animation: chatAnimation 0.22s ease both;
-}
-.incoming {
-  align-self: flex-start;
-  background: rgba(255,255,255,0.08);
-  color: #e8e8e8;
-  border-bottom-left-radius: 4px;
-}
-.outgoing {
-  align-self: flex-end;
-  background: rgba(255,255,255,0.90);
-  color: #111;
-  border-bottom-right-radius: 4px;
-}
-.msg-text { margin: 0 0 2px; }
-.msg-time { font-size: 10px; opacity: 0.45; align-self: flex-end; }
-.incoming .msg-time { align-self: flex-start; }
-@keyframes chatAnimation {
-  from { opacity: 0; transform: translateY(5px); }
-  to   { opacity: 1; transform: translateY(0);   }
-}
-
-/* ===== 科幻启动遮罩 ===== */
-.luna-intro-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 9000;
+  font-family: "Courier New", monospace;
+  line-height: 1.6;
   display: flex;
   align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.92);
-  backdrop-filter: blur(6px);
-  pointer-events: none;
-  font-family: "Courier New", "Consolas", monospace;
-}
-
-.luna-boot-screen {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 18px;
-  width: 460px;
-  position: relative;
-  padding: 40px 32px;
-  border: 1px solid rgba(0, 255, 200, 0.18);
-  border-radius: 4px;
+  gap: 8px;
+  word-break: break-word;
   box-shadow:
-    0 0 40px rgba(0, 255, 200, 0.08),
-    inset 0 0 60px rgba(0, 255, 200, 0.03);
-}
-
-/* 扫描线 */
-.scan-line {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(0, 255, 200, 0.7), transparent);
-  animation: scanMove 2.4s ease-in-out infinite;
-  box-shadow: 0 0 10px rgba(0, 255, 200, 0.5);
-}
-@keyframes scanMove {
-  0%   { top: 0%;   opacity: 0.9; }
-  50%  { top: 100%; opacity: 0.6; }
-  100% { top: 0%;   opacity: 0.9; }
-}
-
-/* 主标题 */
-.boot-title {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  letter-spacing: 0.18em;
-}
-.boot-bracket {
-  font-size: 28px;
-  color: rgba(0, 255, 200, 0.5);
-  font-weight: 300;
-}
-.boot-name {
-  font-size: 36px;
-  font-weight: 700;
-  color: rgba(0, 255, 200, 0.95);
-  text-shadow:
-    0 0 12px rgba(0, 255, 200, 0.7),
-    0 0 30px rgba(0, 255, 200, 0.3);
-  letter-spacing: 0.3em;
-  animation: titlePulse 3s ease-in-out infinite;
-}
-.boot-version {
-  font-size: 11px;
-  color: rgba(0, 255, 200, 0.4);
-  letter-spacing: 0.12em;
-  align-self: flex-end;
-  margin-bottom: 4px;
-}
-@keyframes titlePulse {
-  0%, 100% { text-shadow: 0 0 12px rgba(0,255,200,0.7), 0 0 30px rgba(0,255,200,0.3); }
-  50%       { text-shadow: 0 0 20px rgba(0,255,200,0.95), 0 0 50px rgba(0,255,200,0.5); }
-}
-
-/* 副标题 */
-.boot-subtitle {
-  font-size: 10px;
-  letter-spacing: 0.22em;
-  color: rgba(0, 255, 200, 0.45);
-  animation: subtitleBlink 2s step-end infinite;
-}
-@keyframes subtitleBlink {
-  0%, 90%, 100% { opacity: 1; }
-  95%            { opacity: 0; }
-}
-
-/* 进度条 */
-.boot-bar-wrap {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: flex-start;
-}
-.boot-bar-track {
-  width: 100%;
-  height: 3px;
-  background: rgba(0, 255, 200, 0.08);
-  border-radius: 2px;
-  overflow: hidden;
-  border: 1px solid rgba(0, 255, 200, 0.12);
-}
-.boot-bar-fill {
-  height: 100%;
-  width: 0%;
-  background: linear-gradient(90deg, rgba(0,255,200,0.5), rgba(0,255,200,0.95));
-  box-shadow: 0 0 8px rgba(0, 255, 200, 0.6);
-  animation: barFill 2.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-}
-@keyframes barFill {
-  0%   { width: 0%;   }
-  30%  { width: 28%;  }
-  55%  { width: 61%;  }
-  75%  { width: 79%;  }
-  90%  { width: 93%;  }
-  100% { width: 100%; }
-}
-.boot-bar-pct {
-  font-size: 9px;
-  color: rgba(0, 255, 200, 0.4);
-  letter-spacing: 0.15em;
-  animation: pctCount 2.8s linear forwards;
-}
-@keyframes pctCount {
-  0%   { opacity: 0.4; }
-  100% { opacity: 0.8; }
-}
-
-/* 滚动日志 */
-.boot-log {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.log-line {
-  font-size: 11px;
-  color: rgba(0, 255, 200, 0.55);
-  letter-spacing: 0.05em;
-  opacity: 0;
-  animation: logFadeIn 0.3s ease forwards;
-  display: flex;
-  gap: 6px;
-}
-.log-tag {
-  color: rgba(0, 255, 200, 0.3);
-  flex-shrink: 0;
-}
-@keyframes logFadeIn {
-  from { opacity: 0; transform: translateX(-6px); }
-  to   { opacity: 1; transform: translateX(0); }
-}
-
-/* 底部十六进制装饰 */
-.boot-footer {
-  display: flex;
-  gap: 12px;
-  margin-top: 4px;
-}
-.boot-hex {
-  font-size: 9px;
-  color: rgba(0, 255, 200, 0.20);
-  letter-spacing: 0.08em;
-  transition: color 0.18s ease;
-}
-
-/* 过渡动画 */
-.luna-intro-enter-active { transition: opacity 0.4s ease; }
-.luna-intro-leave-active { transition: opacity 0.8s ease; }
-.luna-intro-enter-from   { opacity: 0; }
-.luna-intro-leave-to     { opacity: 0; }
-
-.particle-canvas-overlay {
-  position: fixed;
-  inset: 0;
-  width: 100vw;
-  height: 100vh;
-  z-index: 8999;
-  pointer-events: none;
-  pointer-events: none;
-}
-</style>
+    0 0 0
