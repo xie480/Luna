@@ -476,7 +476,7 @@ export function useRhythm() {
     });
   }
 
-  // ── 系統音頻開關 ──────────────────────────────────────────────
+  // ── 系统音頻開關 ──────────────────────────────────────────────
 
   async function toggleSystemAudio(core, trackingEnabled) {
     if (showSystemAudioListening.value) {
@@ -487,15 +487,40 @@ export function useRhythm() {
     if (trackingEnabled.value) trackingEnabled.value = false;
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { mandatory: { chromeMediaSource: "desktop" } },
-        video: { mandatory: { chromeMediaSource: "desktop" } },
-      });
+      // 尝试获取系统音频，如果失败则尝试获取麦克风音频
+      let stream;
+      try {
+        // 尝试使用getDisplayMedia获取系统音频（Chrome特有）
+        if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
+          stream = await navigator.mediaDevices.getDisplayMedia({
+            video: false,  // 只获取音频
+            audio: true
+          });
+        } else {
+          // 如果getDisplayMedia不可用，则使用getUserMedia获取麦克风音频
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: false
+          });
+        }
+      } catch (displayErr) {
+        console.warn("[律動] 获取系统音频失败，尝试获取麦克风音频:", displayErr);
+        // 如果系统音频获取失败，尝试获取麦克风音频
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: false
+        });
+      }
 
       state.currentStream = stream;
 
       if (!state.audioContext) {
         state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      }
+
+      // 检查音频上下文状态，如果处于suspended状态则恢复
+      if (state.audioContext.state === 'suspended') {
+        await state.audioContext.resume();
       }
 
       const analyser = state.audioContext.createAnalyser();
@@ -511,9 +536,10 @@ export function useRhythm() {
       showSystemAudioListening.value = true;
 
       startNaturalRhythm(core);
-      console.log("[律動] 已連接到系統音頻");
+      console.log("[律動] 已連接到音頻源");
     } catch (err) {
       console.error("[律動] 音頻初始化失敗:", err);
+      alert("音频访问失败，请检查浏览器权限设置或尝试使用其他浏览器。");
     }
   }
 
