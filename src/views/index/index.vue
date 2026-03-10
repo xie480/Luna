@@ -558,13 +558,13 @@ function runCodeParticleIntro(onDone) {
     // 2. 字符集
     // ============================================================
     const CHAR_SETS = [
-      "01",
-      "ABCDEF0123456789",
-      "アイウエオカキクケコサシスセソタチツ",
-      "{}[]()<>|/\\=+-*&^%$#@!~",
-      `"λΣΩΔΨΦπμσ♡♪★☆◇◆"`,
-      `"░▒▓█▄▀■□"`,
-    ];
+  "01",
+  "ABCDEF0123456789",
+  "アイウエオカキクケコサシスセソタチツ",
+  "{}[]()<>|/\\=+-*&^%$#@!~",
+  "λΣΩΔΨΦπμσ♡♪★☆◇◆",
+  "░▒▓█▄▀■□",
+];
     function randChar() {
       const set = CHAR_SETS[Math.floor(Math.random() * CHAR_SETS.length)];
       return set[Math.floor(Math.random() * set.length)];
@@ -631,211 +631,192 @@ function runCodeParticleIntro(onDone) {
     let frame = 0;
     const GATHER   = 90;
     const HOLD     = 70;
-    const FADEOUT  = 50;
-    const DISSOLVE = 35;
-    const TOTAL_F  = GATHER + HOLD + FADEOUT + DISSOLVE;
+    const FADEOUT  = 80;
+    const TOTAL_F  = GATHER + HOLD + FADEOUT;
     let rafId;
 
     // ============================================================
     // 6. 渲染循环（重构：严格阶段判断，保证 DISSOLVE 一定执行）
     // ============================================================
     function tick() {
+  ctx.clearRect(0, 0, W, H);
 
-      // ── 阶段四：DISSOLVE —— Canvas 整体淡出 + 光环爆散 ──
-      // 必须放在最顶部，优先判断，防止被跳过
-      if (frame >= GATHER + HOLD + FADEOUT) {
-        const t = (frame - GATHER - HOLD - FADEOUT) / DISSOLVE;
-        const eased = Math.min(1, t);
-                                                                                                                                                                                                      
-        // 修改 Canvas CSS 透明度实现整体淡出
-        canvas.style.opacity = String(Math.max(0, 1 - eased * eased));
+  // 残影拖尾（黑色半透明覆盖）
+  ctx.fillStyle = "rgba(0,0,0,0.28)";
+  ctx.fillRect(0, 0, W, H);
 
-        ctx.clearRect(0, 0, W, H);
+  const prog_gather = Math.min(1, frame / GATHER);
 
-        // 第一道光环：粉紫，从中心向外扩散
-        const r1     = 80 * SCALE + eased * Math.max(W, H) * 0.85;
-        const a1     = (1 - eased) * 0.38;
-        const grd1   = ctx.createRadialGradient(CX, CY, r1 * 0.65, CX, CY, r1);
-        grd1.addColorStop(0,   `rgba(255,160,220,0)`);
-        grd1.addColorStop(0.5, `rgba(255,160,220,${a1})`);
-        grd1.addColorStop(1,   `rgba(200,120,255,0)`);
-        ctx.fillStyle = grd1;
-        ctx.fillRect(0, 0, W, H);
+  // ── 代码雨背景 ──
+  const rainAlpha = frame < GATHER
+    ? prog_gather * 0.65
+    : frame < GATHER + HOLD
+      ? 0.65
+      : Math.max(0, 0.65 - ((frame - GATHER - HOLD) / FADEOUT) * 1.5);
 
-        // 第二道光环：科幻青，半径稍小，错开层次
-        const r2   = 40 * SCALE + eased * Math.max(W, H) * 0.55;
-        const a2   = (1 - eased) * 0.22;
-        const grd2 = ctx.createRadialGradient(CX, CY, r2 * 0.55, CX, CY, r2);
-        grd2.addColorStop(0,   `rgba(0,220,255,0)`);
-        grd2.addColorStop(0.5, `rgba(0,220,255,${a2})`);
-        grd2.addColorStop(1,   `rgba(0,220,255,0)`);
-        ctx.fillStyle = grd2;
-        ctx.fillRect(0, 0, W, H);
-                                                                                                                                                                                                      
-        frame++;
+  rainDrops.forEach((drop) => {
+    drop.y += drop.speed;
+    if (drop.y > H + drop.chars.length * drop.gap)
+      drop.y = -drop.chars.length * drop.gap;
+    if (Math.random() < 0.04)
+      drop.chars[Math.floor(Math.random() * drop.chars.length)] = randChar();
 
-        if (frame < TOTAL_F) {
-          rafId = requestAnimationFrame(tick);
-        } else {
-          // 动画彻底结束：还原 opacity，清除 Canvas，触发回调
-          canvas.style.opacity = "1";
-          ctx.clearRect(0, 0, W, H);
-          codeParticleVisible.value = false;
-          onDone?.();
-        }
-        return; // 必须 return，不能继续执行下方逻辑
+    drop.chars.forEach((ch, i) => {
+      const fy = drop.y + i * drop.gap;
+      if (fy < 0 || fy > H) return;
+      const fade = 1 - i / drop.chars.length;
+      ctx.save();
+      ctx.globalAlpha = drop.alpha * fade * rainAlpha;
+      ctx.font        = `${11 + i * 0.3}px "Courier New", monospace`;
+      ctx.fillStyle   = i === 0 ? "#ffffff" : "rgba(255,180,220,1)";
+      ctx.shadowColor = "rgba(255,160,210,0.6)";
+      ctx.shadowBlur  = i === 0 ? 10 : 4;
+      ctx.fillText(ch, drop.x, fy);
+      ctx.restore();
+    });
+  });
+
+  // ── 主粒子 ──
+  particles.forEach((p) => {
+    if (frame < GATHER) {
+      p.x    += (p.tx - p.x) * p.speed;
+      p.y    += (p.ty - p.y) * p.speed;
+      const t = frame / GATHER;
+      p.alpha = Math.min(1, t * t * 2.5);
+    } else if (frame < GATHER + HOLD) {
+      p.x     = p.tx + Math.sin(frame * 0.07 + p.phase) * 1.4 * SCALE;
+      p.y     = p.ty + Math.cos(frame * 0.05 + p.phase) * 1.4 * SCALE;
+      p.alpha = 1;
+      p.charTimer++;
+      if (p.charTimer >= p.charInterval) {
+        p.char      = randChar();
+        p.charTimer = 0;
       }
-
-      // ── 阶段一/二/三：正常绘制 ──
-
-      // 残影拖尾
-      ctx.fillStyle = "rgba(0,0,0,0.28)";
-      ctx.fillRect(0, 0, W, H);
-                                                                                                                                                                                                      
-      const prog_gather = Math.min(1, frame / GATHER);
-                                                                                                                                                                                                      
-      // ── 代码雨背景 ──
-      const rainAlpha = frame < GATHER
-        ? prog_gather * 0.65
-        : frame < GATHER + HOLD
-          ? 0.65
-          : Math.max(0, 0.65 - ((frame - GATHER - HOLD) / FADEOUT));
-
-      rainDrops.forEach((drop) => {
-        drop.y += drop.speed;
-        if (drop.y > H + drop.chars.length * drop.gap)
-          drop.y = -drop.chars.length * drop.gap;
-        if (Math.random() < 0.04)
-          drop.chars[Math.floor(Math.random() * drop.chars.length)] = randChar();
-
-        drop.chars.forEach((ch, i) => {
-          const fy = drop.y + i * drop.gap;
-          if (fy < 0 || fy > H) return;
-          const fade = 1 - i / drop.chars.length;
-          ctx.save();
-          ctx.globalAlpha = drop.alpha * fade * rainAlpha;
-          ctx.font        = `${11 + i * 0.3}px "Courier New", monospace`;
-          ctx.fillStyle   = i === 0 ? "#ffffff" : "rgba(255,180,220,1)";
-          ctx.shadowColor = "rgba(255,160,210,0.6)";
-          ctx.shadowBlur  = i === 0 ? 10 : 4;
-          ctx.fillText(ch, drop.x, fy);
-          ctx.restore();
-        });
-      });
-
-      // ── 主粒子 ──
-      particles.forEach((p) => {
-        if (frame < GATHER) {
-          p.x    += (p.tx - p.x) * p.speed;
-          p.y    += (p.ty - p.y) * p.speed;
-          const t = frame / GATHER;
-          p.alpha = Math.min(1, t * t * 2.5);
-        } else if (frame < GATHER + HOLD) {
-          p.x     = p.tx + Math.sin(frame * 0.07 + p.phase) * 1.4 * SCALE;
-          p.y     = p.ty + Math.cos(frame * 0.05 + p.phase) * 1.4 * SCALE;
-          p.alpha = 1;
-          p.charTimer++;
-          if (p.charTimer >= p.charInterval) {
-            p.char      = randChar();
-            p.charTimer = 0;
-          }
-        } else {
-          // FADEOUT：粒子向外爆散
-          const t    = (frame - GATHER - HOLD) / FADEOUT;
-          const ease = t * t;
-          p.alpha    = Math.max(0, 1 - ease * 1.3);
-          const dx   = p.tx - CX, dy = p.ty - CY;
-          p.x        = p.tx + dx * ease * 1.0 + (Math.random() - 0.5) * ease * 100;
-          p.y        = p.ty + dy * ease * 1.0 + (Math.random() - 0.5) * ease * 100;
-        }
-                                                                                                                                                                                                      
-        if (p.alpha <= 0.01) return;
-
-        // 拖尾
-        p.trail.push({ x: p.x, y: p.y });
-        if (p.trail.length > p.trailMax) p.trail.shift();
-        p.trail.forEach((tp, i) => {
-          const ta = (i / p.trail.length) * p.alpha * 0.32;
-          if (ta < 0.02) return;
-          ctx.save();
-          ctx.globalAlpha = ta;
-          ctx.font        = `${p.size * 0.7}px "Courier New", monospace`;
-          ctx.fillStyle   = `rgba(${p.col[0]},${p.col[1]},${p.col[2]},1)`;
-          ctx.fillText(p.char, tp.x, tp.y);
-          ctx.restore();
-        });
-                                                                                                                                                                                                      
-        // 主字符
-        ctx.save();
-        ctx.globalAlpha = p.alpha;
-        ctx.font        = `bold ${p.size}px "Courier New", monospace`;
-        ctx.fillStyle   = `rgba(${p.col[0]},${p.col[1]},${p.col[2]},1)`;
-        ctx.shadowColor = `rgba(${p.col[0]},${p.col[1]},${p.col[2]},0.9)`;
-        ctx.shadowBlur  = 14;
-        ctx.fillText(p.char, p.x, p.y);
-        ctx.restore();
-      });
-                                                                                                                                                                                                      
-      // ── 汇聚中心光晕 ──
-      if (frame >= GATHER * 0.5 && frame < GATHER + HOLD) {
-        const prog    = Math.min(1, (frame - GATHER * 0.5) / (GATHER * 0.5));
-        const fadeOut = frame >= GATHER + HOLD * 0.6
-          ? 1 - (frame - GATHER - HOLD * 0.6) / (HOLD * 0.4)
-          : 1;
-        const radius = 280 * SCALE * prog;
-        const grd    = ctx.createRadialGradient(CX, CY, 0, CX, CY, radius);
-        grd.addColorStop(0,   `rgba(255,160,220,${0.09 * prog * fadeOut})`);
-        grd.addColorStop(0.4, `rgba(180,120,255,${0.05 * prog * fadeOut})`);
-        grd.addColorStop(1,   "rgba(0,0,0,0)");
-        ctx.fillStyle = grd;
-        ctx.fillRect(0, 0, W, H);
-      }
-                                                                                                                                                                                                      
-      // ── 保持阶段扫描线 ──
-      if (frame >= GATHER && frame < GATHER + HOLD) {
-        const t     = (frame - GATHER) / HOLD;
-        const scanY = (CY - 280 * SCALE) + t * 460 * SCALE;
-        const sGrd  = ctx.createLinearGradient(0, scanY - 16, 0, scanY + 16);
-        sGrd.addColorStop(0,   "rgba(255,180,220,0)");
-        sGrd.addColorStop(0.5, `rgba(255,180,220,${0.22 * Math.sin(t * Math.PI)})`);
-        sGrd.addColorStop(1,   "rgba(255,180,220,0)");
-        ctx.fillStyle = sGrd;
-        ctx.fillRect(CX - 200 * SCALE, scanY - 16, 400 * SCALE, 32);
-      }
-                                                                                                                                                                                                      
-      // ── HUD 装饰文字 ──
-      if (frame < GATHER + HOLD) {
-        const hudAlpha = Math.min(1, frame / 20);
-        ctx.save();
-        ctx.globalAlpha = hudAlpha * 0.32;
-        ctx.font        = '10px "Courier New", monospace';
-        ctx.fillStyle   = "rgba(255,180,220,1)";
-        ctx.fillText(`FRAME  : ${String(frame).padStart(4, "0")}`, 24, H - 60);
-        ctx.fillText(`POINTS : ${TOTAL}`,                          24, H - 46);
-        ctx.fillText(`STATUS : ${frame < GATHER ? "ASSEMBLING" : "LOCKED"}`, 24, H - 32);
-        ctx.fillText(`SYS    : LUNA-CORE v2.0.1`,                 24, H - 18);
-        ctx.textAlign = "right";
-        ctx.fillText(`RES ${W}x${H}`,         W - 24, H - 46);
-        ctx.fillText(`ENTITY : NEKO-JK MODE`, W - 24, H - 32);
-        ctx.fillText(`AI ASSISTANT ONLINE`,   W - 24, H - 18);
-        ctx.restore();
-      }
-                                                                                                                                                                                                      
-      frame++;
-      // 注意：此处不再处理终止逻辑，终止统一由顶部 DISSOLVE 分支处理
-      rafId = requestAnimationFrame(tick);
+    } else {
+      // FADEOUT：粒子向外爆散，同时 alpha 随时间衰减至 0
+      const t    = (frame - GATHER - HOLD) / FADEOUT;
+      const ease = t * t;
+      p.alpha    = Math.max(0, 1 - t * 1.2);   // 线性衰减，80帧内归零
+      const dx   = p.tx - CX, dy = p.ty - CY;
+      p.x        = p.tx + dx * ease * 1.0 + (Math.random() - 0.5) * ease * 100;
+      p.y        = p.ty + dy * ease * 1.0 + (Math.random() - 0.5) * ease * 100;
     }
 
-    rafId = requestAnimationFrame(tick);
+    if (p.alpha <= 0.01) return;
 
-    // 兜底：10秒强制结束
-    setTimeout(() => {
-      cancelAnimationFrame(rafId);
-      canvas.style.opacity      = "1";
-      codeParticleVisible.value = false;
-      onDone?.();
-    }, 10000);
+    // 拖尾
+    p.trail.push({ x: p.x, y: p.y });
+    if (p.trail.length > p.trailMax) p.trail.shift();
+    p.trail.forEach((tp, i) => {
+      const ta = (i / p.trail.length) * p.alpha * 0.32;
+      if (ta < 0.02) return;
+      ctx.save();
+      ctx.globalAlpha = ta;
+      ctx.font        = `${p.size * 0.7}px "Courier New", monospace`;
+      ctx.fillStyle   = `rgba(${p.col[0]},${p.col[1]},${p.col[2]},1)`;
+      ctx.fillText(p.char, tp.x, tp.y);
+      ctx.restore();
+    });
+
+    // 主字符
+    ctx.save();
+    ctx.globalAlpha = p.alpha;
+    ctx.font        = `bold ${p.size}px "Courier New", monospace`;
+    ctx.fillStyle   = `rgba(${p.col[0]},${p.col[1]},${p.col[2]},1)`;
+    ctx.shadowColor = `rgba(${p.col[0]},${p.col[1]},${p.col[2]},0.9)`;
+    ctx.shadowBlur  = 14;
+    ctx.fillText(p.char, p.x, p.y);
+    ctx.restore();
   });
+
+  // ── 汇聚中心光晕 ──
+  if (frame >= GATHER * 0.5 && frame < GATHER + HOLD) {
+    const prog    = Math.min(1, (frame - GATHER * 0.5) / (GATHER * 0.5));
+    const fadeOut = frame >= GATHER + HOLD * 0.6
+      ? 1 - (frame - GATHER - HOLD * 0.6) / (HOLD * 0.4)
+      : 1;
+    const radius = 280 * SCALE * prog;
+    const grd    = ctx.createRadialGradient(CX, CY, 0, CX, CY, radius);
+    grd.addColorStop(0,   `rgba(255,160,220,${0.09 * prog * fadeOut})`);
+    grd.addColorStop(0.4, `rgba(180,120,255,${0.05 * prog * fadeOut})`);
+    grd.addColorStop(1,   "rgba(0,0,0,0)");
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // ── 保持阶段扫描线 ──
+  if (frame >= GATHER && frame < GATHER + HOLD) {
+    const t     = (frame - GATHER) / HOLD;
+    const scanY = (CY - 280 * SCALE) + t * 460 * SCALE;
+    const sGrd  = ctx.createLinearGradient(0, scanY - 16, 0, scanY + 16);
+    sGrd.addColorStop(0,   "rgba(255,180,220,0)");
+    sGrd.addColorStop(0.5, `rgba(255,180,220,${0.22 * Math.sin(t * Math.PI)})`);
+    sGrd.addColorStop(1,   "rgba(255,180,220,0)");
+    ctx.fillStyle = sGrd;
+    ctx.fillRect(CX - 200 * SCALE, scanY - 16, 400 * SCALE, 32);
+  }
+
+  // ── FADEOUT 阶段：叠加向外扩散光环 + 整体黑色蒙版压暗 ──
+  if (frame >= GATHER + HOLD) {
+    const t     = (frame - GATHER - HOLD) / FADEOUT;
+    const eased = t * t;
+
+    // 整体压暗蒙版，随时间加深至全黑
+    ctx.fillStyle = `rgba(0,0,0,${eased * 0.92})`;
+    ctx.fillRect(0, 0, W, H);
+
+    // 光环向外扩散（前半段可见，后半段随蒙版消失）
+    if (t < 0.6) {
+      const ringT  = t / 0.6;
+      const r1     = 60 * SCALE + ringT * Math.max(W, H) * 0.7;
+      const ring1A = (1 - ringT) * 0.45;
+      const grd1   = ctx.createRadialGradient(CX, CY, r1 * 0.7, CX, CY, r1);
+      grd1.addColorStop(0,   `rgba(255,160,220,0)`);
+      grd1.addColorStop(0.5, `rgba(255,160,220,${ring1A})`);
+      grd1.addColorStop(1,   `rgba(200,120,255,0)`);
+      ctx.fillStyle = grd1;
+      ctx.fillRect(0, 0, W, H);
+
+      const r2     = 30 * SCALE + ringT * Math.max(W, H) * 0.45;
+      const ring2A = (1 - ringT) * 0.28;
+      const grd2   = ctx.createRadialGradient(CX, CY, r2 * 0.6, CX, CY, r2);
+      grd2.addColorStop(0,   `rgba(0,220,255,0)`);
+      grd2.addColorStop(0.5, `rgba(0,220,255,${ring2A})`);
+      grd2.addColorStop(1,   `rgba(0,220,255,0)`);
+      ctx.fillStyle = grd2;
+      ctx.fillRect(0, 0, W, H);
+    }
+  }
+
+  // ── HUD 装饰文字（仅在前两阶段显示，FADEOUT 时淡出）──
+  if (frame < GATHER + HOLD + FADEOUT * 0.3) {
+    const hudAlpha = frame < GATHER + HOLD
+      ? Math.min(1, frame / 20)
+      : Math.max(0, 1 - (frame - GATHER - HOLD) / (FADEOUT * 0.3));
+    ctx.save();
+    ctx.globalAlpha = hudAlpha * 0.32;
+    ctx.font        = '10px "Courier New", monospace';
+    ctx.fillStyle   = "rgba(255,180,220,1)";
+    ctx.fillText(`FRAME  : ${String(frame).padStart(4, "0")}`, 24, H - 60);
+    ctx.fillText(`POINTS : ${TOTAL}`,                          24, H - 46);
+    ctx.fillText(`STATUS : ${frame < GATHER ? "ASSEMBLING" : frame < GATHER + HOLD ? "LOCKED" : "DISSOLVING"}`, 24, H - 32);
+    ctx.fillText(`SYS    : LUNA-CORE v2.0.1`,                 24, H - 18);
+    ctx.textAlign = "right";
+    ctx.fillText(`RES ${W}x${H}`,         W - 24, H - 46);
+    ctx.fillText(`ENTITY : NEKO-JK MODE`, W - 24, H - 32);
+    ctx.fillText(`AI ASSISTANT ONLINE`,   W - 24, H - 18);
+    ctx.restore();
+  }
+                                                                                                                                                                                                      
+  frame++;
+
+  if (frame < TOTAL_F) {
+    rafId = requestAnimationFrame(tick);
+  } else {
+    ctx.clearRect(0, 0, W, H);
+    codeParticleVisible.value = false;
+    onDone?.();
+  }
 }  
 
 const bootLines = [
