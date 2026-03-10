@@ -54,7 +54,7 @@
                 <span v-if="!loginLoading">登录并启动 LUNA</span>
                 <span v-else>正在验证凭证…</span>
               </button>
-              <p v-if="loginError" class="login-error">{{ loginError }}</p>
+              <p v-if="loginError" class="login-error-msg">{{ loginError }}</p>
             </form>
           </div>
           <div class="login-footer">
@@ -64,8 +64,6 @@
         </div>
       </div>
     </transition>
-
-    <!-- ===== 以下为原有 Luna UI，登录后在其下方启动 ===== -->
 
     <!-- ===== 背景装饰粒子（仅启动阶段使用） ===== -->
     <div v-if="bgParticlesVisible" class="bg-particles">
@@ -102,7 +100,6 @@
         @contextmenu.stop
         @click.stop
       >
-        <!-- 情绪呼吸灯（不再显示文字 tooltip） -->
         <div class="breath-light" :class="`bl-${currentEmotion}`">
           <div class="bl-core"></div>
         </div>
@@ -129,7 +126,6 @@
           @keydown.enter.prevent="onSend"
         />
 
-        <!-- 高级可爱加载动画 -->
         <div v-if="isLoading" class="luna-loader">
           <svg viewBox="0 0 36 36" class="luna-loader-svg">
             <circle class="loader-track" cx="18" cy="18" r="14" />
@@ -279,26 +275,27 @@
       v-if="detailVisible"
       class="chat-detail-panel cute-panel"
       :style="{ left: detailPos.x + 'px', top: detailPos.y + 'px' }"
-      @mousedown.stop
       @mouseenter="uiEnter"
       @mouseleave="uiLeave"
+      @click.stop
+      @pointerdown.stop
     >
-      <div class="panel-header drag-handle1" @mousedown="startDrag">
+      <div class="panel-header drag-handle1" @pointerdown.stop="startDrag">
         <span class="h2">📖 {{ selectedHistoryDate }}</span>
-        <button class="close-btn" @click="detailVisible = false">×</button>
+        <button class="close-x" @click.stop="detailVisible = false">×</button>
       </div>
-
-      <!-- 聊天记录内容区域，添加滚动功能 -->
-      <div class="chat-history-container" ref="chatHistoryContainerRef">
-        <div
-          v-for="(record, index) in chatRecords"
-          :key="index"
-          class="chat-record-item"
-          :class="{ incoming: record.role === 'assistant', outgoing: record.role === 'user' }"
-        >
-          <div class="msg-role">{{ record.role }}:</div>
-          <pre class="msg-content">{{ record.content }}</pre>
-          <div class="msg-time">{{ record.time }}</div>
+      <div class="chat-body" ref="chatBodyRef">
+        <div v-for="(msg, idx) in chatRecords" :key="idx" class="msg-wrapper">
+          <div v-if="['STARTUP', 'SHUTDOWN', 'CONTEXT_SUMMARY'].includes(msg.role)" class="msg-notice">
+            <span class="notice-content">
+              {{ msg.content }}
+              <span class="notice-time">{{ msg.time }}</span>
+            </span>
+          </div>
+          <div v-else :class="['message', msg.role === 'USER' ? 'outgoing' : 'incoming']">
+            <p class="msg-text">{{ msg.content }}</p>
+            <span class="msg-time">{{ msg.time }}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -309,53 +306,42 @@
     </div>
 
     <!-- ===== Luna 入场遮罩 ===== -->
-<transition name="luna-intro">
-  <div v-if="lunaIntroVisible" class="luna-intro-mask">
-    <div class="luna-boot-screen">
-      <!-- 顶部扫描线 -->
-      <div class="scan-line"></div>
-
-      <!-- 主标题 -->
-      <div class="boot-title">
-        <span class="boot-bracket">[</span>
-        <span class="boot-name">LUNA</span>
-        <span class="boot-bracket">]</span>
-        <span class="boot-version">v2.0.1</span>
-      </div>
-
-      <!-- 副标题 -->
-      <div class="boot-subtitle">AI 助手核心模块 · 启动中</div>
-
-      <!-- 进度条 -->
-      <div class="boot-bar-wrap">
-        <div class="boot-bar-track">
-          <div class="boot-bar-fill"></div>
-        </div>
-        <span class="boot-bar-pct">正在加载系统…</span>
-      </div>
-
-      <!-- 滚动日志 -->
-      <div class="boot-log">
-        <div class="log-line" v-for="(line, i) in bootLines" :key="i"
-          :style="{ animationDelay: i * 0.18 + 's' }">
-          <span class="log-tag">&gt;</span> {{ line }}
+    <transition name="luna-intro">
+      <div v-if="lunaIntroVisible" class="luna-intro-mask">
+        <div class="luna-boot-screen">
+          <div class="scan-line"></div>
+          <div class="boot-title">
+            <span class="boot-bracket">[</span>
+            <span class="boot-name">LUNA</span>
+            <span class="boot-bracket">]</span>
+            <span class="boot-version">v2.0.1</span>
+          </div>
+          <div class="boot-subtitle">AI 助手核心模块 · 启动中</div>
+          <div class="boot-bar-wrap">
+            <div class="boot-bar-track">
+              <div class="boot-bar-fill"></div>
+            </div>
+            <span class="boot-bar-pct">正在加载系统…</span>
+          </div>
+          <div class="boot-log">
+            <div class="log-line" v-for="(line, i) in bootLines" :key="i"
+              :style="{ animationDelay: i * 0.18 + 's' }">
+              <span class="log-tag">&gt;</span> {{ line }}
+            </div>
+          </div>
+          <div class="boot-footer">
+            <span class="boot-hex" v-for="h in 6" :key="h">{{ hexChars[h-1] }}</span>
+          </div>
         </div>
       </div>
+    </transition>
 
-      <!-- 底部装饰 -->
-      <div class="boot-footer">
-        <span class="boot-hex" v-for="h in 6" :key="h">{{ hexChars[h-1] }}</span>
-      </div>
-    </div>
-  </div>
-</transition>
-
-<!-- ===== 代码粒子入场动画 ===== -->
-<canvas
-  v-if="codeParticleVisible"
-  ref="particleCanvasRef"
-  class="particle-canvas-overlay"
-></canvas>
+    <!-- ===== 代码粒子入场动画 ===== -->
+    <canvas
+      v-if="codeParticleVisible"
+      ref="particleCanvasRef"
+      class="particle-canvas-overlay"
+    ></canvas>
 
   </div>
 </template>
@@ -387,14 +373,15 @@ const uiRef           = ref(null);
 const contextMenuRef  = ref(null);
 const messageBoxRef   = ref(null);
 const historyPanelRef = ref(null);
+const chatBodyRef     = ref(null);
 
 /* ================= 基础状态 ================= */
-const bgParticlesVisible = ref(true);
-const showDebugUI      = ref(false);
-const showMessageBox   = ref(false);
-const trackingEnabled  = ref(true);
-const isSettingOrigin  = ref(false);
-const lunaIntroVisible = ref(false);
+const bgParticlesVisible  = ref(true);
+const showDebugUI         = ref(false);
+const showMessageBox      = ref(false);
+const trackingEnabled     = ref(true);
+const isSettingOrigin     = ref(false);
+const lunaIntroVisible    = ref(false);
 const codeParticleVisible = ref(false);
 const particleCanvasRef   = ref(null);
 
@@ -413,10 +400,22 @@ const loginLogLines  = ref([
 const authToken      = ref("");
 const loginCollapsed = ref(false);
 
+/* ================= 穿透管理 ================= */
+let overModel = false;
+let overUI    = false;
+
+function updatePetState() {
+  if (overModel || overUI) window.pet?.enter();
+  else window.pet?.leave();
+}
+function uiEnter() { overUI = true;  updatePetState(); }
+function uiLeave() { overUI = false; updatePetState(); }
+
 function exitApp() {
   window.desktopApi?.quit?.();
 }
 
+/* ================= 粒子入场动画 ================= */
 function runCodeParticleIntro(onDone) {
   codeParticleVisible.value = true;
 
@@ -428,7 +427,6 @@ function runCodeParticleIntro(onDone) {
     const H = canvas.height = window.innerHeight;
     const ctx = canvas.getContext("2d");
 
-    // 代码感更强的暗色背景，只在粒子动画期间铺满
     const baseGrad = ctx.createLinearGradient(0, 0, 0, H);
     baseGrad.addColorStop(0,   "#020611");
     baseGrad.addColorStop(0.5, "#050b18");
@@ -437,13 +435,9 @@ function runCodeParticleIntro(onDone) {
     ctx.fillRect(0, 0, W, H);
 
     const CX    = W / 2;
-    // 下移：从 H/2 - 20 改为 H/2 + 60，确保图案不被遮挡
     const CY    = H / 2 + 60;
     const SCALE = Math.min(W, H) / 560;
 
-    // ============================================================
-    // 1. 猫脸 + JK少女元素轮廓采样
-    // ============================================================
     function buildSilhouette() {
       const pts = [];
 
@@ -479,27 +473,23 @@ function runCodeParticleIntro(onDone) {
 
       const s = SCALE;
 
-      // ── 猫脸主轮廓 ──
       circle(CX, CY, 130 * s, 115 * s, 0.05);
       circle(CX, CY, 115 * s, 100 * s, 0.07);
       circle(CX, CY,  95 * s,  82 * s, 0.10);
       fill(CX - 100 * s, CY - 80 * s, CX + 100 * s, CY + 80 * s, 14, 12);
 
-      // ── 猫耳（左）──
       line(CX - 130 * s, CY - 80  * s, CX - 80 * s, CY - 185 * s, 14);
       line(CX - 80  * s, CY - 185 * s, CX - 38 * s, CY -  95 * s, 14);
       line(CX - 118 * s, CY -  90 * s, CX - 82 * s, CY - 165 * s, 10);
       line(CX - 82  * s, CY - 165 * s, CX - 50 * s, CY - 102 * s, 10);
       fill(CX - 112 * s, CY - 158 * s, CX - 52 * s, CY - 102 * s, 5, 5);
 
-      // ── 猫耳（右）──
       line(CX + 130 * s, CY -  80 * s, CX + 80 * s, CY - 185 * s, 14);
       line(CX + 80  * s, CY - 185 * s, CX + 38 * s, CY -  95 * s, 14);
       line(CX + 118 * s, CY -  90 * s, CX + 82 * s, CY - 165 * s, 10);
       line(CX + 82  * s, CY - 165 * s, CX + 50 * s, CY - 102 * s, 10);
       fill(CX + 52  * s, CY - 158 * s, CX + 112 * s, CY - 102 * s, 5, 5);
 
-      // ── 猫眼（左）──
       circle(CX - 50 * s, CY - 15 * s, 30 * s, 22 * s, 0.10);
       circle(CX - 50 * s, CY - 15 * s, 20 * s, 14 * s, 0.14);
       circle(CX - 50 * s, CY - 15 * s,  9 * s, 15 * s, 0.18);
@@ -512,7 +502,6 @@ function runCodeParticleIntro(onDone) {
         line(bx, by, bx + Math.cos(a) * 12 * s, by + Math.sin(a) * 12 * s, 4);
       }
 
-      // ── 猫眼（右）──
       circle(CX + 50 * s, CY - 15 * s, 30 * s, 22 * s, 0.10);
       circle(CX + 50 * s, CY - 15 * s, 20 * s, 14 * s, 0.14);
       circle(CX + 50 * s, CY - 15 * s,  9 * s, 15 * s, 0.18);
@@ -525,16 +514,13 @@ function runCodeParticleIntro(onDone) {
         line(bx, by, bx - Math.cos(a) * 12 * s, by + Math.sin(a) * 12 * s, 4);
       }
 
-      // ── 猫鼻 ──
       line(CX - 12 * s, CY + 25 * s, CX + 12 * s, CY + 25 * s, 5);
       line(CX - 12 * s, CY + 25 * s, CX,           CY + 40 * s, 5);
       line(CX + 12 * s, CY + 25 * s, CX,           CY + 40 * s, 5);
 
-      // ── 猫口 ──
       arc(CX - 24 * s, CY + 55 * s, 20 * s, 11 * s, Math.PI * 1.5, Math.PI * 2.0, 0.10);
       arc(CX + 24 * s, CY + 55 * s, 20 * s, 11 * s, Math.PI,       Math.PI * 1.5, 0.10);
 
-      // ── 猫须（左右各4根）──
       line(CX - 38 * s, CY + 28 * s, CX - 125 * s, CY + 18 * s, 10);
       line(CX - 38 * s, CY + 35 * s, CX - 128 * s, CY + 34 * s, 10);
       line(CX - 38 * s, CY + 42 * s, CX - 125 * s, CY + 50 * s, 10);
@@ -544,11 +530,9 @@ function runCodeParticleIntro(onDone) {
       line(CX + 38 * s, CY + 42 * s, CX + 125 * s, CY + 50 * s, 10);
       line(CX + 38 * s, CY + 22 * s, CX + 118 * s, CY +  5 * s, 10);
 
-      // ── 腮红 ──
       scatter(CX - 85 * s, CY + 22 * s, 26 * s, 14 * s, 24);
       scatter(CX + 85 * s, CY + 22 * s, 26 * s, 14 * s, 24);
 
-      // ── 蝴蝶结（头顶）──
       for (let a = 0; a < Math.PI * 2; a += 0.12)
         pts.push({
           x: CX - 65 * s + Math.cos(a) * 48 * s * (1 + 0.3 * Math.cos(2 * a)),
@@ -563,20 +547,17 @@ function runCodeParticleIntro(onDone) {
       line(CX - 10 * s, CY - 226 * s, CX - 22 * s, CY - 200 * s, 6);
       line(CX + 10 * s, CY - 226 * s, CX + 22 * s, CY - 200 * s, 6);
 
-      // ── 衬衣领口 ──
       line(CX, CY + 118 * s, CX - 62 * s, CY + 152 * s, 12);
       line(CX, CY + 118 * s, CX + 62 * s, CY + 152 * s, 12);
       line(CX - 16 * s, CY + 118 * s, CX, CY + 130 * s, 6);
       line(CX + 16 * s, CY + 118 * s, CX, CY + 130 * s, 6);
       circle(CX, CY + 130 * s, 6 * s, 6 * s, 0.30);
 
-      // ── 制服肩部 ──
       arc(CX - 140 * s, CY + 105 * s, 34 * s, 22 * s, Math.PI * 1.4, Math.PI * 2.0, 0.10);
       arc(CX + 140 * s, CY + 105 * s, 34 * s, 22 * s, Math.PI,       Math.PI * 1.6, 0.10);
       line(CX - 140 * s, CY + 105 * s, CX - 90 * s, CY + 82 * s, 10);
       line(CX + 140 * s, CY + 105 * s, CX + 90 * s, CY + 82 * s, 10);
 
-      // ── 樱花瓣（8片）──
       const petalPos = [
         [CX - 230 * s, CY - 180 * s],
         [CX + 220 * s, CY - 150 * s],
@@ -595,7 +576,6 @@ function runCodeParticleIntro(onDone) {
           });
       });
 
-      // ── 音符（4个）──
       const notePositions = [
         [CX + 250 * s, CY -  70 * s],
         [CX - 262 * s, CY +   0 * s],
@@ -608,7 +588,6 @@ function runCodeParticleIntro(onDone) {
         line(nx + 9 * s, ny - 28 * s, nx + 20 * s, ny - 20 * s, 3);
       });
 
-      // ── 星星（6颗）──
       const starPos = [
         [CX - 200 * s, CY - 110 * s],
         [CX + 195 * s, CY - 120 * s],
@@ -634,7 +613,6 @@ function runCodeParticleIntro(onDone) {
         }
       });
 
-      // ── 爱心（2个）──
       [[CX - 160 * s, CY - 200 * s], [CX + 158 * s, CY - 195 * s]].forEach(([hx, hy]) => {
         for (let a = 0; a < Math.PI * 2; a += 0.18) {
           pts.push({
@@ -649,37 +627,27 @@ function runCodeParticleIntro(onDone) {
 
     const silhouette = buildSilhouette();
 
-    // ============================================================
-    // 2. 字符集
-    // ============================================================
     const CHAR_SETS = [
-  "01",
-  "ABCDEF0123456789",
-  "アイウエオカキクケコサシスセソタチツ",
-  "{}[]()<>|/\\=+-*&^%$#@!~",
-  "λΣΩΔΨΦπμσ♡♪★☆◇◆",
-  "░▒▓█▄▀■□",
-];
+      "01",
+      "ABCDEF0123456789",
+      "アイウエオカキクケコサシスセソタチツ",
+      "{}[]()<>|/\\=+-*&^%$#@!~",
+      "λΣΩΔΨΦπμσ♡♪★☆◇◆",
+      "░▒▓█▄▀■□",
+    ];
     function randChar() {
       const set = CHAR_SETS[Math.floor(Math.random() * CHAR_SETS.length)];
       return set[Math.floor(Math.random() * set.length)];
     }
 
-    // ============================================================
-    // 3. 粒子构造
-    // ============================================================
-    const TOTAL = Math.min(silhouette.length, 700);
+    // 粒子动画进一步加速
+    const TOTAL  = Math.min(silhouette.length, 700);
     const chosen = silhouette.sort(() => Math.random() - 0.5).slice(0, TOTAL);
 
     const COLORS = [
-      [255, 180, 210],
-      [255, 140, 200],
-      [200, 160, 255],
-      [0,   220, 255],
-      [255, 255, 255],
-      [255, 200, 230],
-      [255, 120, 180],
-      [180, 100, 255],
+      [255, 180, 210], [255, 140, 200], [200, 160, 255],
+      [0,   220, 255], [255, 255, 255], [255, 200, 230],
+      [255, 120, 180], [180, 100, 255],
     ];
 
     const particles = chosen.map((target) => {
@@ -690,250 +658,212 @@ function runCodeParticleIntro(onDone) {
       else if (edge === 1) { sx = W + 30;             sy = Math.random() * H; }
       else if (edge === 2) { sx = Math.random() * W; sy = H + 30; }
       else                 { sx = -30;                sy = Math.random() * H; }
-
       return {
         x: sx, y: sy,
         tx: target.x, ty: target.y,
         char: randChar(),
         size: 8 + Math.random() * 7,
-        speed: 0.050 + Math.random() * 0.050,
+        speed: 0.18 + Math.random() * 0.14,   // 进一步加速
         alpha: 0,
         col,
         phase: Math.random() * Math.PI * 2,
         charTimer: 0,
-        charInterval: 3 + Math.floor(Math.random() * 6),
+        charInterval: 2 + Math.floor(Math.random() * 4),
         trail: [],
-        trailMax: 5 + Math.floor(Math.random() * 6),
+        trailMax: 4 + Math.floor(Math.random() * 4),
       };
     });
 
-    // ============================================================
-    // 4. 代码雨背景
-    // ============================================================
     const RAIN_COLS = 34;
     const rainDrops = Array.from({ length: RAIN_COLS }, (_, i) => ({
       x:     (i / RAIN_COLS) * W + Math.random() * (W / RAIN_COLS),
       y:     Math.random() * H,
-      speed: 1.6 + Math.random() * 2.8,
+      speed: 2.2 + Math.random() * 3.5,
       chars: Array.from({ length: 20 }, () => randChar()),
       alpha: 0.07 + Math.random() * 0.10,
       gap:   16 + Math.random() * 8,
     }));
 
-    // ============================================================
-    // 5. 帧参数（关键：四个阶段严格分离）
-    // ============================================================
-    // 5. 帧参数（加快动画）
-    // ============================================================
+    // 帧数进一步压缩
+    const GATHER  = 22;
+    const HOLD    = 15;
+    const FADEOUT = 18;
+    const TOTAL_F = GATHER + HOLD + FADEOUT;
     let frame = 0;
-    const GATHER   = 30; // 减少聚集时间
-    const HOLD     = 20; // 减少保持时间
-    const FADEOUT  = 25; // 减少消失时间
-    const TOTAL_F  = GATHER + HOLD + FADEOUT;
     let rafId;
 
-    // ============================================================
-    // 6. 渲染循环（重构：严格阶段判断，保证 DISSOLVE 一定执行）
-    // ============================================================
     function tick() {
-  ctx.clearRect(0, 0, W, H);
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = "rgba(0,0,0,0.28)";
+      ctx.fillRect(0, 0, W, H);
 
-  // 残影拖尾（黑色半透明覆盖）
-  ctx.fillStyle = "rgba(0,0,0,0.28)";
-  ctx.fillRect(0, 0, W, H);
+      const prog_gather = Math.min(1, frame / GATHER);
+      const rainAlpha = frame < GATHER
+        ? prog_gather * 0.65
+        : frame < GATHER + HOLD
+          ? 0.65
+          : Math.max(0, 0.65 - ((frame - GATHER - HOLD) / FADEOUT) * 1.5);
 
-  const prog_gather = Math.min(1, frame / GATHER);
+      rainDrops.forEach((drop) => {
+        drop.y += drop.speed;
+        if (drop.y > H + drop.chars.length * drop.gap)
+          drop.y = -drop.chars.length * drop.gap;
+        if (Math.random() < 0.04)
+          drop.chars[Math.floor(Math.random() * drop.chars.length)] = randChar();
+        drop.chars.forEach((ch, i) => {
+          const fy = drop.y + i * drop.gap;
+          if (fy < 0 || fy > H) return;
+          const fade = 1 - i / drop.chars.length;
+          ctx.save();
+          ctx.globalAlpha = drop.alpha * fade * rainAlpha;
+          ctx.font        = `${11 + i * 0.3}px "Courier New", monospace`;
+          ctx.fillStyle   = i === 0 ? "#ffffff" : "rgba(255,180,220,1)";
+          ctx.shadowColor = "rgba(255,160,210,0.6)";
+          ctx.shadowBlur  = i === 0 ? 10 : 4;
+          ctx.fillText(ch, drop.x, fy);
+          ctx.restore();
+        });
+      });
 
-  // ── 代码雨背景 ──
-  const rainAlpha = frame < GATHER
-    ? prog_gather * 0.65
-    : frame < GATHER + HOLD
-      ? 0.65
-      : Math.max(0, 0.65 - ((frame - GATHER - HOLD) / FADEOUT) * 1.5);
+      particles.forEach((p) => {
+        if (frame < GATHER) {
+          p.x    += (p.tx - p.x) * p.speed;
+          p.y    += (p.ty - p.y) * p.speed;
+          const t = frame / GATHER;
+          p.alpha = Math.min(1, t * t * 2.5);
+        } else if (frame < GATHER + HOLD) {
+          p.x     = p.tx + Math.sin(frame * 0.07 + p.phase) * 1.4 * SCALE;
+          p.y     = p.ty + Math.cos(frame * 0.05 + p.phase) * 1.4 * SCALE;
+          p.alpha = 1;
+          p.charTimer++;
+          if (p.charTimer >= p.charInterval) { p.char = randChar(); p.charTimer = 0; }
+        } else {
+          const t      = (frame - GATHER - HOLD) / FADEOUT;
+          const jitter = (1 - t) * 2.5 * SCALE;
+          p.x     = p.tx + (Math.random() - 0.5) * jitter;
+          p.y     = p.ty + (Math.random() - 0.5) * jitter;
+          p.alpha = t < 0.25 ? 1 : Math.max(0, 1 - (t - 0.25) / 0.75);
+          p.alpha = Math.pow(p.alpha, 1.8);
+          if (Math.random() < t * 0.4) p.char = randChar();
+        }
 
-  rainDrops.forEach((drop) => {
-    drop.y += drop.speed;
-    if (drop.y > H + drop.chars.length * drop.gap)
-      drop.y = -drop.chars.length * drop.gap;
-    if (Math.random() < 0.04)
-      drop.chars[Math.floor(Math.random() * drop.chars.length)] = randChar();
+        if (p.alpha <= 0.01) return;
 
-    drop.chars.forEach((ch, i) => {
-      const fy = drop.y + i * drop.gap;
-      if (fy < 0 || fy > H) return;
-      const fade = 1 - i / drop.chars.length;
-      ctx.save();
-      ctx.globalAlpha = drop.alpha * fade * rainAlpha;
-      ctx.font        = `${11 + i * 0.3}px "Courier New", monospace`;
-      ctx.fillStyle   = i === 0 ? "#ffffff" : "rgba(255,180,220,1)";
-      ctx.shadowColor = "rgba(255,160,210,0.6)";
-      ctx.shadowBlur  = i === 0 ? 10 : 4;
-      ctx.fillText(ch, drop.x, fy);
-      ctx.restore();
-    });
-  });
+        p.trail.push({ x: p.x, y: p.y });
+        if (p.trail.length > p.trailMax) p.trail.shift();
+        p.trail.forEach((tp, i) => {
+          const ta = (i / p.trail.length) * p.alpha * 0.32;
+          if (ta < 0.02) return;
+          ctx.save();
+          ctx.globalAlpha = ta;
+          ctx.font        = `${p.size * 0.7}px "Courier New", monospace`;
+          ctx.fillStyle   = `rgba(${p.col[0]},${p.col[1]},${p.col[2]},1)`;
+          ctx.fillText(p.char, tp.x, tp.y);
+          ctx.restore();
+        });
 
-  // ── 主粒子 ──
-  particles.forEach((p) => {
-    if (frame < GATHER) {
-      p.x    += (p.tx - p.x) * p.speed;
-      p.y    += (p.ty - p.y) * p.speed;
-      const t = frame / GATHER;
-      p.alpha = Math.min(1, t * t * 2.5);
-    } else if (frame < GATHER + HOLD) {
-      p.x     = p.tx + Math.sin(frame * 0.07 + p.phase) * 1.4 * SCALE;
-      p.y     = p.ty + Math.cos(frame * 0.05 + p.phase) * 1.4 * SCALE;
-      p.alpha = 1;
-      p.charTimer++;
-      if (p.charTimer >= p.charInterval) {
-        p.char      = randChar();
-        p.charTimer = 0;
+        ctx.save();
+        ctx.globalAlpha = p.alpha;
+        ctx.font        = `bold ${p.size}px "Courier New", monospace`;
+        ctx.fillStyle   = `rgba(${p.col[0]},${p.col[1]},${p.col[2]},1)`;
+        ctx.shadowColor = `rgba(${p.col[0]},${p.col[1]},${p.col[2]},0.9)`;
+        ctx.shadowBlur  = 14;
+        ctx.fillText(p.char, p.x, p.y);
+        ctx.restore();
+      });
+
+      if (frame >= GATHER * 0.5 && frame < GATHER + HOLD) {
+        const prog    = Math.min(1, (frame - GATHER * 0.5) / (GATHER * 0.5));
+        const fadeOut = frame >= GATHER + HOLD * 0.6
+          ? 1 - (frame - GATHER - HOLD * 0.6) / (HOLD * 0.4) : 1;
+        const radius = 280 * SCALE * prog;
+        const grd    = ctx.createRadialGradient(CX, CY, 0, CX, CY, radius);
+        grd.addColorStop(0,   `rgba(255,160,220,${0.09 * prog * fadeOut})`);
+        grd.addColorStop(0.4, `rgba(180,120,255,${0.05 * prog * fadeOut})`);
+        grd.addColorStop(1,   "rgba(0,0,0,0)");
+        ctx.fillStyle = grd;
+        ctx.fillRect(0, 0, W, H);
       }
-    } else {
-      // FADEOUT：数字化解体——粒子原地颤抖、缩小、溶解为光点
-      const t    = (frame - GATHER - HOLD) / FADEOUT;
-      const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; // easeInOutQuad
-      // 前60%：粒子在原位微颤，后40%：快速淡出
-      const jitter = (1 - t) * 2.5 * SCALE;
-      p.x = p.tx + (Math.random() - 0.5) * jitter;
-      p.y = p.ty + (Math.random() - 0.5) * jitter;
-      // alpha：前20帧保持，之后平滑衰减
-      p.alpha = t < 0.25 ? 1 : Math.max(0, 1 - (t - 0.25) / 0.75);
-      p.alpha = Math.pow(p.alpha, 1.8); // 加速尾部衰减
+
+      if (frame >= GATHER && frame < GATHER + HOLD) {
+        const t     = (frame - GATHER) / HOLD;
+        const scanY = (CY - 280 * SCALE) + t * 460 * SCALE;
+        const sGrd  = ctx.createLinearGradient(0, scanY - 16, 0, scanY + 16);
+        sGrd.addColorStop(0,   "rgba(255,180,220,0)");
+        sGrd.addColorStop(0.5, `rgba(255,180,220,${0.22 * Math.sin(t * Math.PI)})`);
+        sGrd.addColorStop(1,   "rgba(255,180,220,0)");
+        ctx.fillStyle = sGrd;
+        ctx.fillRect(CX - 200 * SCALE, scanY - 16, 400 * SCALE, 32);
+      }
+
+      if (frame >= GATHER + HOLD) {
+        const t = (frame - GATHER - HOLD) / FADEOUT;
+        if (t < 0.35) {
+          const ringT  = t / 0.35;
+          const eR     = ringT * ringT;
+          const r1     = 20 * SCALE + eR * Math.max(W, H) * 0.55;
+          const ring1A = (1 - ringT) * 0.55;
+          const grd1   = ctx.createRadialGradient(CX, CY, r1 * 0.82, CX, CY, r1);
+          grd1.addColorStop(0,    `rgba(255,160,220,0)`);
+          grd1.addColorStop(0.45, `rgba(255,180,230,${ring1A})`);
+          grd1.addColorStop(0.75, `rgba(180,120,255,${ring1A * 0.6})`);
+          grd1.addColorStop(1,    `rgba(0,0,0,0)`);
+          ctx.fillStyle = grd1;
+          ctx.fillRect(0, 0, W, H);
+        }
+        if (t > 0.15 && t < 0.75) {
+          const lt    = (t - 0.15) / 0.60;
+          const lEase = lt < 0.5 ? 2 * lt * lt : 1 - Math.pow(-2 * lt + 2, 2) / 2;
+          const coreA = lEase < 0.5 ? lEase * 2 : (1 - lEase) * 2;
+          const coreR = 18 * SCALE * (0.5 + lEase * 0.8);
+          const cGrd  = ctx.createRadialGradient(CX, CY, 0, CX, CY, coreR);
+          cGrd.addColorStop(0,   `rgba(255,255,255,${coreA * 0.85})`);
+          cGrd.addColorStop(0.3, `rgba(220,180,255,${coreA * 0.45})`);
+          cGrd.addColorStop(1,   `rgba(0,0,0,0)`);
+          ctx.fillStyle = cGrd;
+          ctx.fillRect(0, 0, W, H);
+        }
+        if (t > 0.70) {
+          const fadeT = (t - 0.70) / 0.30;
+          ctx.fillStyle = `rgba(2,6,17,${fadeT * fadeT * 0.96})`;
+          ctx.fillRect(0, 0, W, H);
+        }
+      }
+
+      if (frame < GATHER + HOLD + FADEOUT * 0.3) {
+        const hudAlpha = frame < GATHER + HOLD
+          ? Math.min(1, frame / 20)
+          : Math.max(0, 1 - (frame - GATHER - HOLD) / (FADEOUT * 0.3));
+        ctx.save();
+        ctx.globalAlpha = hudAlpha * 0.32;
+        ctx.font        = '10px "Courier New", monospace';
+        ctx.fillStyle   = "rgba(255,180,220,1)";
+        ctx.fillText(`FRAME  : ${String(frame).padStart(4, "0")}`, 24, H - 60);
+        ctx.fillText(`POINTS : ${TOTAL}`,                          24, H - 46);
+        ctx.fillText(`STATUS : ${frame < GATHER ? "ASSEMBLING" : frame < GATHER + HOLD ? "LOCKED" : "DISSOLVING"}`, 24, H - 32);
+        ctx.fillText(`SYS    : LUNA-CORE v2.0.1`,                  24, H - 18);
+        ctx.textAlign = "right";
+        ctx.fillText(`RES ${W}x${H}`,         W - 24, H - 46);
+        ctx.fillText(`ENTITY : NEKO-JK MODE`, W - 24, H - 32);
+        ctx.fillText(`AI ASSISTANT ONLINE`,   W - 24, H - 18);
+        ctx.restore();
+      }
+
+      frame++;
+      if (frame < TOTAL_F) {
+        rafId = requestAnimationFrame(tick);
+      } else {
+        ctx.clearRect(0, 0, W, H);
+        codeParticleVisible.value = false;
+        onDone?.();
+      }
     }
 
-    // 绘制粒子
-    ctx.save();
-    ctx.globalAlpha = p.alpha;
-    ctx.font = `${p.size}px "Courier New", monospace`;
-    ctx.fillStyle = `rgb(${p.col[0]}, ${p.col[1]}, ${p.col[2]})`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(p.char, p.x, p.y);
-    ctx.restore();
-
-    // 添加发光效果
-    ctx.save();
-    ctx.globalAlpha = p.alpha * 0.4;
-    ctx.font = `${p.size}px "Courier New", monospace`;
-    ctx.shadowColor = `rgb(${p.col[0]}, ${p.col[1]}, ${p.col[2]})`;
-    ctx.shadowBlur = 8;
-    ctx.fillStyle = `rgb(${p.col[0]}, ${p.col[1]}, ${p.col[2]})`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(p.char, p.x, p.y);
-    ctx.restore();
-  });
-
-  // ── 汇聚中心光晕 ──
-  if (frame >= GATHER * 0.5 && frame < GATHER + HOLD) {
-    const prog    = Math.min(1, (frame - GATHER * 0.5) / (GATHER * 0.5));
-    const fadeOut = frame >= GATHER + HOLD * 0.6
-      ? 1 - (frame - GATHER - HOLD * 0.6) / (HOLD * 0.4)
-      : 1;
-    const radius = 280 * SCALE * prog;
-    const grd    = ctx.createRadialGradient(CX, CY, 0, CX, CY, radius);
-    grd.addColorStop(0,   `rgba(255,160,220,${0.09 * prog * fadeOut})`);
-    grd.addColorStop(0.4, `rgba(180,120,255,${0.05 * prog * fadeOut})`);
-    grd.addColorStop(1,   "rgba(0,0,0,0)");
-    ctx.fillStyle = grd;
-    ctx.fillRect(0, 0, W, H);
-  }
-
-  // ── 保持阶段扫描线 ──
-  if (frame >= GATHER && frame < GATHER + HOLD) {
-    const t     = (frame - GATHER) / HOLD;
-    const scanY = (CY - 280 * SCALE) + t * 460 * SCALE;
-    const sGrd  = ctx.createLinearGradient(0, scanY - 16, 0, scanY + 16);
-    sGrd.addColorStop(0,   "rgba(255,180,220,0)");
-    sGrd.addColorStop(0.5, `rgba(255,180,220,${0.22 * Math.sin(t * Math.PI)})`);
-    sGrd.addColorStop(1,   "rgba(255,180,220,0)");
-    ctx.fillStyle = sGrd;
-    ctx.fillRect(CX - 200 * SCALE, scanY - 16, 400 * SCALE, 32);
-  }
-
-    // ── FADEOUT 阶段：数字化溶解光效（无黑色蒙版，纯透明消散） ──
-  if (frame >= GATHER + HOLD) {
-    const t = (frame - GATHER - HOLD) / FADEOUT;
-
-    // 阶段一（t < 0.35）：中心向外扩散一道能量脉冲环
-    if (t < 0.35) {
-      const ringT  = t / 0.35;
-      const eR     = ringT * ringT;
-      const r1     = 20 * SCALE + eR * Math.max(W, H) * 0.55;
-      const ring1A = (1 - ringT) * 0.55;
-      const grd1   = ctx.createRadialGradient(CX, CY, r1 * 0.82, CX, CY, r1);
-      grd1.addColorStop(0,    `rgba(255,160,220,0)`);
-      grd1.addColorStop(0.45, `rgba(255,180,230,${ring1A})`);
-      grd1.addColorStop(0.75, `rgba(180,120,255,${ring1A * 0.6})`);
-      grd1.addColorStop(1,    `rgba(0,0,0,0)`);
-      ctx.fillStyle = grd1;
-      ctx.fillRect(0, 0, W, H);
-    }
-
-    // 阶段二（t > 0.15）：中心渐渐亮起一个白色核心光点，再淡出
-    if (t > 0.15 && t < 0.75) {
-      const lt    = (t - 0.15) / 0.60;
-      const lEase = lt < 0.5 ? 2 * lt * lt : 1 - Math.pow(-2 * lt + 2, 2) / 2;
-      const coreA = lEase < 0.5 ? lEase * 2 : (1 - lEase) * 2;
-      const coreR = 18 * SCALE * (0.5 + lEase * 0.8);
-      const cGrd  = ctx.createRadialGradient(CX, CY, 0, CX, CY, coreR);
-      cGrd.addColorStop(0,   `rgba(255,255,255,${coreA * 0.85})`);
-      cGrd.addColorStop(0.3, `rgba(220,180,255,${coreA * 0.45})`);
-      cGrd.addColorStop(1,   `rgba(0,0,0,0)`);
-      ctx.fillStyle = cGrd;
-      ctx.fillRect(0, 0, W, H);
-    }
-
-    // 整体透明度衰减：用 globalAlpha 对整个 canvas 做最终淡出
-    // 在最后 30% 时间内，整体 canvas 渐变透明（不用黑色蒙版）
-    if (t > 0.70) {
-      const fadeT = (t - 0.70) / 0.30;
-      const fadeA = fadeT * fadeT * 0.96;
-      ctx.fillStyle = `rgba(2,6,17,${fadeA})`; // 与背景色一致的深蓝黑，非纯黑
-      ctx.fillRect(0, 0, W, H);
-    }
-  }
-
-  // ── HUD 装饰文字（仅在前两阶段显示，FADEOUT 时淡出）──
-  if (frame < GATHER + HOLD + FADEOUT * 0.3) {
-    const hudAlpha = frame < GATHER + HOLD
-      ? Math.min(1, frame / 20)
-      : Math.max(0, 1 - (frame - GATHER - HOLD) / (FADEOUT * 0.3));
-    ctx.save();
-    ctx.globalAlpha = hudAlpha * 0.32;
-    ctx.font        = '10px "Courier New", monospace';
-    ctx.fillStyle   = "rgba(255,180,220,1)";
-    ctx.fillText(`FRAME  : ${String(frame).padStart(4, "0")}`, 24, H - 60);
-    ctx.fillText(`POINTS : ${TOTAL}`,                          24, H - 46);
-    ctx.fillText(`STATUS : ${frame < GATHER ? "ASSEMBLING" : frame < GATHER + HOLD ? "LOCKED" : "DISSOLVING"}`, 24, H - 32);
-    ctx.fillText(`SYS    : LUNA-CORE v2.0.1`,                 24, H - 18);
-    ctx.textAlign = "right";
-    ctx.fillText(`RES ${W}x${H}`,         W - 24, H - 46);
-    ctx.fillText(`ENTITY : NEKO-JK MODE`, W - 24, H - 32);
-    ctx.fillText(`AI ASSISTANT ONLINE`,   W - 24, H - 18);
-    ctx.restore();
-  }
-
-  frame++;
-
-  if (frame < TOTAL_F) {
-    rafId = requestAnimationFrame(tick);
-  } else {
-    // 动画完成后的清理
-    setTimeout(() => {
-      codeParticleVisible.value = false;
-      canvas.width = 1; // 释放内存
-      canvas.height = 1;
-      onDone?.();
-    }, 300);
-  }
-}
-
-    rafId = requestAnimationFrame(tick);
+    tick();
   });
 }
 
+/* ================= Boot lines & hex ================= */
 const bootLines = [
   "正在初始化神经接口…",
   "正在加载 Live2D 核心模块…",
@@ -956,70 +886,6 @@ onMounted(() => { hexTimer = setInterval(genHex, 180); });
 onBeforeUnmount(() => { clearInterval(hexTimer); });
 
 const currentEmotion = ref("neutral");
-const EMOTION_LABEL_MAP = {
-  // 愤怒类
-  Angry:        "愤怒",
-  Annoyed:      "烦躁",
-  Irritated:    "不耐烦",
-  Frustrated:   "沮丧",
-  Determined:   "坚定",
-  // 悲伤类
-  Sad:          "难过",
-  Lonely:       "孤独",
-  Despair:      "绝望",
-  Broken:       "心碎",
-  Uneasy:       "不安",
-  Resigned:     "无奈",
-  Disappointed: "失望",
-  // 恐惧/焦虑类
-  Anxious:      "焦虑",
-  Fearful:      "恐惧",
-  Shocked:      "震惊",
-  // 疲惫/无聊类
-  Tired:        "疲惫",
-  Bored:        "无聊",
-  // 困惑类
-  Confused:     "困惑",
-  // 尴尬/慌乱类
-  Embarrassed:  "尴尬",
-  Flustered:    "慌乱",
-  // 温柔/爱意类
-  Affectionate: "温柔",
-  Clingy:       "黏人",
-  Shy:          "害羞",
-  Soft:         "柔软",
-  Tsundere:     "傲娇",
-  Grateful:     "感激",
-  Relieved:     "释然",
-  // 戏谑类
-  Teasing:      "戏弄",
-  Yandere:      "病娇",
-  // 开心/希望类
-  Smile:        "微笑",
-  Hopeful:      "期待",
-  Proud:        "骄傲",
-  // 庄重/平静类：冷白灰，极慢 ========== */
-  // neutral（兼容小写）
-  neutral:      "平静",
-  // 兼容小写
-  happy:        "开心",
-  sad:          "难过",
-  angry:        "生气",
-  surprised:    "惊讶",
-  shy:          "害羞",
-};
-const emotionLabel = computed(() => EMOTION_LABEL_MAP[currentEmotion.value] || currentEmotion.value);
-
-const EMOTION_GLYPH_MAP = {
-  neutral:   "M8 12 Q12 10 16 12",
-  happy:     "M8 13 Q12 17 16 13",
-  sad:       "M8 14 Q12 10 16 14",
-  angry:     "M8 11 L10 13 L14 11 L16 13",
-  surprised: "M12 8 Q14 12 12 16 Q10 12 12 8",
-  shy:       "M9 13 Q11 15 13 13 M13 13 Q14 11 15 13",
-  Solemn:    "M9 12 L15 12 M11 10 L13 14",
-};
-const emotionGlyphPath = computed(() => EMOTION_GLYPH_MAP[currentEmotion.value] || EMOTION_GLYPH_MAP.neutral);
 
 /* ================= 登录逻辑 ================= */
 async function performLogin() {
@@ -1028,11 +894,11 @@ async function performLogin() {
     return;
   }
   loginLoading.value = true;
-  loginError.value = "";
+  loginError.value   = "";
   loginSuccess.value = false;
   loginLogLines.value.push("正在向鉴权服务发送凭证…");
   try {
-    const data = await loginApi({
+    const data  = await loginApi({
       username: loginForm.value.username,
       password: loginForm.value.password,
     });
@@ -1042,14 +908,11 @@ async function performLogin() {
       loginLogLines.value.push("鉴权失败：Token 缺失。");
       return;
     }
-    authToken.value = token;
+    authToken.value    = token;
     loginSuccess.value = true;
     loginLogLines.value.push("鉴权通过，正在启动 LUNA 核心…");
-    // 先淡出登录幕布，再启动加载/粒子动画
     loginVisible.value = false;
-    setTimeout(() => {
-      startBootSequence();
-    }, 450);
+    setTimeout(() => { startBootSequence(); }, 450);
   } catch (e) {
     console.error("[Auth] 登录请求失败", e);
     loginError.value = "无法连接鉴权服务，请检查网络或服务状态";
@@ -1126,10 +989,9 @@ function normalizeResponse(res) {
 }
 
 async function handleModelReply(res) {
-  console.log("[Luna] 模型已返回内容", res);
   lastReply.value.loading = false;
   if (!res) return;
-  const em = res.emotion || "";
+  const em        = res.emotion || "";
   const replyText = res.reply || res.text || "";
   if (!replyText) return;
   if (em) {
@@ -1151,7 +1013,7 @@ async function onSend() {
   const text = input.value.trim();
   if (!text) return;
   sending.value = true;
-  input.value = "";
+  input.value   = "";
   lastReply.value.loading = true;
   try {
     const res = await chatApi({ userInput: text });
@@ -1263,8 +1125,8 @@ function openHistoryPanelAt(x, y) {
 function closeHistoryPanel() { historyPanel.value.visible = false; }
 
 let draggingHistoryPanel = false;
-let historyDragStart  = { x: 0, y: 0 };
-let historyPanelStart = { x: 0, y: 0 };
+let historyDragStart     = { x: 0, y: 0 };
+let historyPanelStart    = { x: 0, y: 0 };
 
 function onHistoryDragStart(e) {
   if (e.button !== 0) return;
@@ -1289,38 +1151,27 @@ function onHistoryDragEnd() {
 const detailVisible       = ref(false);
 const chatRecords         = ref([]);
 const selectedHistoryDate = ref("");
-const detailPos           = ref({ x: window.innerWidth / 2 - 175, y: 100 });
-const chatHistoryContainerRef = ref(null); // 添加引用用于滚动到底部
+const detailPos           = ref({ x: Math.max(0, window.innerWidth / 2 - 180), y: 100 });
 
-let isDragging = false, startX = 0, startY = 0;
+let isDragging = false, dragOffX = 0, dragOffY = 0;
 
 function startDrag(e) {
+  if (e.button !== undefined && e.button !== 0) return;
   isDragging = true;
-  startX = e.clientX - detailPos.value.x;
-  startY = e.clientY - detailPos.value.y;
+  dragOffX   = e.clientX - detailPos.value.x;
+  dragOffY   = e.clientY - detailPos.value.y;
   document.addEventListener("pointermove", onDragMove);
   document.addEventListener("pointerup",   onDragEnd);
 }
-
 function onDragMove(e) {
   if (!isDragging) return;
-  detailPos.value.x = Math.min(window.innerWidth  - 350, Math.max(0, e.clientX - startX));
-  detailPos.value.y = Math.min(window.innerHeight - 200, Math.max(0, e.clientY - startY));
+  detailPos.value.x = Math.min(window.innerWidth  - 360, Math.max(0, e.clientX - dragOffX));
+  detailPos.value.y = Math.min(window.innerHeight - 200, Math.max(0, e.clientY - dragOffY));
 }
-
 function onDragEnd() {
   isDragging = false;
   document.removeEventListener("pointermove", onDragMove);
   document.removeEventListener("pointerup",   onDragEnd);
-}
-
-// 滚动到聊天记录底部
-function scrollToBottom() {
-  nextTick(() => {
-    if(chatHistoryContainerRef.value) {
-      chatHistoryContainerRef.value.scrollTop = chatHistoryContainerRef.value.scrollHeight;
-    }
-  });
 }
 
 async function onDateClick(d) {
@@ -1343,9 +1194,11 @@ async function onDateClick(d) {
         return { role, content, time };
       });
     detailVisible.value = true;
-    
-    // 确保元素渲染完成后滚动到底部
-    setTimeout(() => scrollToBottom(), 100);
+    // 自动滚动到底部
+    await nextTick();
+    if (chatBodyRef.value) {
+      chatBodyRef.value.scrollTop = chatBodyRef.value.scrollHeight;
+    }
   } catch (e) {
     console.error("[History] 获取聊天详情失败:", e);
   }
@@ -1357,12 +1210,10 @@ function onRightClick(e) {
   if (messageBoxRef.value?.contains(e.target)) return;
   showContextMenu(e.clientX, e.clientY);
 }
-
 function onCanvasRightClick(e) {
   showContextMenu(e.clientX, e.clientY);
   e.preventDefault();
 }
-
 function showContextMenu(x, y) {
   contextMenu.value = { visible: true, x, y };
   nextTick(() => {
@@ -1421,26 +1272,6 @@ function closeAppearancePanel() {
   updatePetState();
 }
 
-/* ================= 穿透管理 ================= */
-let overModel = false;
-// 移除overUI变量，改为始终允许背景动画
-// let overUI    = false;
-
-function updatePetState() {
-  if (overModel) window.pet?.enter();
-  else window.pet?.leave();
-}
-// 移除对UI进入/离开事件的监听，保持背景动画持续运行
-// function uiEnter() { overUI = true;  updatePetState(); }
-// function uiLeave() { overUI = false; updatePetState(); }
-
-// 保持模型的进入/离开状态管理
-function modelEnter() { overModel = true;  updatePetState(); }
-function modelLeave() { overModel = false; updatePetState(); }
-
-watch(showMessageBox, () => { updatePetState(); });
-watch(showDebugUI,   () => { updatePetState(); });
-
 /* ================= 拖拽模型 ================= */
 let dragging = false;
 let lastPos  = { x: 0, y: 0 };
@@ -1457,8 +1288,6 @@ function onPointerDown(e) {
   if (!isPointInsideModel(gp)) return;
   dragging = true;
   lastPos  = { x: gp.x, y: gp.y };
-  // 当在模型上拖动时，更新模型状态
-  modelEnter();
 }
 function onPointerMove(e) {
   if (!dragging) return;
@@ -1468,11 +1297,7 @@ function onPointerMove(e) {
   container.x += dx;
   container.y += dy;
 }
-function onPointerUp() { 
-  dragging = false; 
-  // 释放鼠标时，检查是否仍在模型上
-  modelLeave();
-}
+function onPointerUp() { dragging = false; }
 
 /* ================= 滚轮缩放 ================= */
 function onWheel(ev) {
@@ -1565,7 +1390,7 @@ function toggleDebugUI() {
   showDebugUI.value = !showDebugUI.value;
   contextMenu.value.visible = false;
   if (!showDebugUI.value) { overUI = false; updatePetState(); }
-  else window.pet?.enter();
+  else { overUI = true; window.pet?.enter(); }
 }
 function toggleMessageBox() {
   showMessageBox.value = !showMessageBox.value;
@@ -1647,1951 +1472,6 @@ async function applyEmotionExpressions(emotion) {
     if (!expJson) continue;
     (expJson.Parameters || []).forEach(({ Id, Value, Blend }) => {
       const base = targetValues[Id] ?? core.getParameterValueById(Id) ?? 0;
-      if (!(Id in thisApplyPrev)) thisApplyPrev[Id] = base;
-      if (Blend === "Add")           targetValues[Id] = base + Value;
-      else if (Blend === "Multiply") targetValues[Id] = base * Value;
-      else                           targetValues[Id] = Value;
-    });
-  }
-  await tweenParameters(core, targetValues, 180);
-  currentEmotionMeta = thisApplyPrev;
-  await applyAllEnabled(getCoreModel());
-}
+      if (接续断点 `if ` 后的内容)
 
-/* ================= 预加载表情文件 ================= */
-async function preloadExpressions() {
-  const allFiles = [
-    "眼-生气", "脸红2隐藏", "脸黑", "眼-哭哭", "眼-泪眼汪汪",
-    "眼-眩晕流汗", "脸红", "眼-平静死鱼眼", "嘴-平静v形（不可张开",
-    "眼-星星眼", "脸红-痴汉嘴（兼容吐舌", "眼-爱心眼",
-  ];
-  await Promise.all(
-    allFiles.map(async (name) => {
-      try {
-        const res = await fetch(`/models/luna/${encodeURIComponent(name)}.exp3.json`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        expressionCache.set(name, await res.json());
-      } catch (e) {
-        console.error(`[Live2D] 加载失败: ${name}`, e);
-      }
-    })
-  );
-}
-
-/* ================= 重置模型状态 ================= */
-async function resetModelState() {
-  const core = getCoreModel();
-  if (!core) return;
-  for (const f in appearanceAppliedMeta) {
-    removeAppearanceFile(f, core);
-  }
-  await resetToSolemn();
-  await applyAllEnabled(core);
-  showAppearanceHint("模型表情已重置");
-}
-
-/* ================= 关闭 Luna ================= */
-async function closeLuna() {
-  contextMenu.value.visible = false;
-  try {
-    // 调用后端登出接口，清除当前 Token 会话
-    if (authToken.value) {
-      try {
-        await logoutApi(authToken.value);
-      } catch (e) {
-        console.warn("[Auth] 登出失败", e);
-      }
-    }
-    await callShutdown();
-  } catch (e) { console.warn("[Luna] shutdown 失败", e); }
-  try {
-    stopBreath();
-    app?.destroy(true);
-    window.pet?.leave?.();
-  } catch (e) {
-    console.warn("[Luna] 关闭出错", e);
-  }
-  if (wrapperRef.value) wrapperRef.value.innerHTML = "";
-  showMessageBox.value = false;
-  // 通知 Electron 主进程终止
-  window.desktopApi?.quit?.();
-}
-
-/* ================= 等待模型就绪 ================= */
-function waitForModelReady(timeout = 5000) {
-  return new Promise((resolve) => {
-    const start = performance.now();
-    (function poll() {
-      if (model?.internalModel?.coreModel) return resolve(true);
-      if (performance.now() - start > timeout) return resolve(false);
-      setTimeout(poll, 120);
-    })();
-  });
-}
-
-/* ================= 启动序列：登录通过后再触发 ================= */
-async function startBootSequence() {
-  // 启动科幻启动遮罩
-  lunaIntroVisible.value = true;
-
-  // Boot 动画结束后，先播代码粒子动画，再显示模型
-  gsap.delayedCall(3.2, () => {
-    lunaIntroVisible.value = false;
-
-    if (!model || !app) {
-      return;
-    }
-
-    // 模型提前移到正确位置并开始在后台渲染，保持透明
-    model.alpha = 0;
-    model.y     = app.renderer.height;
-
-    // 粒子动画启动
-    runCodeParticleIntro(() => {
-      if (!model || !app) return;
-
-      // 粒子结束后模型采用柔和的渐显 + 轻微上移过渡
-      gsap.fromTo(
-        model,
-        {
-          alpha: 0,
-          y: app.renderer.height + 40,
-        },
-        {
-          alpha: 1,
-          y: app.renderer.height,
-          duration: 1.2,
-          ease: "power3.out",
-        }
-      );
-
-      // 启动画面结束后，彻底关闭背景粒子，只保留模型
-      bgParticlesVisible.value = false;
-    });
-  });
-
-  // 启动表情与后端会话
-  await applyEmotionExpressions(INITIAL_EMOTION);
-  await callStartup();
-}
-
-/* ================= 生命周期 ================= */
-onMounted(async () => {
-  window.PIXI = PIXI;
-
-  app = new PIXI.Application({
-    view:            canvasRef.value,
-    backgroundAlpha: 0,
-    resizeTo:        wrapperRef.value,
-  });
-
-  container = new PIXI.Container();
-  app.stage.addChild(container);
-
-  model = await Live2DModel.from("/models/luna/jk盐.model3.json", {
-    autoInteract: false,
-    ticker:       PIXI.Ticker.shared,
-  });
-
-  model.scale.set(0.1);
-  model.anchor.set(0.5, 1);
-  model.x           = app.renderer.width / 2;
-  model.y           = app.renderer.height;
-  model.interactive = true;
-  model.cursor      = "pointer";
-
-  model.alpha = 0;
-  model.y     = app.renderer.height + 60;
-
-  model
-    .on("pointerdown",      onPointerDown)
-    .on("pointermove",      onPointerMove)
-    .on("pointerup",        onPointerUp)
-    .on("pointerupoutside", onPointerUp);
-
-  model.on("pointerover", () => { overModel = true;  updatePetState(); });
-  model.on("pointerout",  () => { overModel = false; updatePetState(); });
-  model.on("rightclick",  (e) => {
-    const rect = canvasRef.value.getBoundingClientRect();
-    showContextMenu(rect.left + e.data.global.x, rect.top + e.data.global.y);
-  });
-
-  container.addChild(model);
-  loadOrigin();
-
-  wrapperRef.value.addEventListener("pointermove", onGlobalPointerMove);
-  wrapperRef.value.addEventListener("pointerdown", onCanvasClick);
-  wrapperRef.value.addEventListener("wheel",       onWheel, { passive: false });
-  document.addEventListener("click",       handleClickOutside);
-  document.addEventListener("contextmenu", onRightClick);
-
-  await preloadExpressions();
-  startBreath();
-
-  loadAppearanceState();
-  await waitForModelReady(5000);
-  await nextTick();
-  await applyAllEnabled(getCoreModel());
-});
-
-onBeforeUnmount(() => {
-  clearInterval(dotsTimer);
-  dotsTimer = null;
-  stopBreath();
-  disposeRhythm(getCoreModel(), trackingEnabled);
-  app?.destroy(true);
-  callShutdown();
-  document.removeEventListener("click",       handleClickOutside);
-  document.removeEventListener("contextmenu", onRightClick);
-});
-</script>
-
-<style scoped>
-.app-root {
-  width: 100vw;
-  height: 100vh;
-  position: relative;
-  overflow: hidden;
-  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  /* 结束动画后重新让桌面透出，只保留模型 */
-  background: transparent;
-}
-
-/* ===== 登录幕布 ===== */
-.login-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 9100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  font-family: "Courier New", "Consolas", monospace;
-}
-.login-terminal {
-  width: 520px;
-  max-width: 90vw;
-  border-radius: 6px;
-  background: radial-gradient(circle at 0 0, rgba(0,255,200,0.12), transparent 55%),
-    radial-gradient(circle at 100% 100%, rgba(120,120,255,0.1), transparent 55%),
-    linear-gradient(165deg, #04070d, #050a13 45%, #050913);
-  box-shadow:
-    0 0 0 1px rgba(0,255,200,0.25),
-    0 18px 40px rgba(0,0,0,0.9),
-    0 0 60px rgba(0,255,200,0.15);
-  border: 1px solid rgba(0,255,200,0.3);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.login-terminal.collapsed {
-  width: 280px;
-  transform: translateY(140px);
-}
-.login-terminal.collapsed .login-body {
-  display: none;
-}
-.login-terminal.collapsed .login-footer {
-  display: none;
-}
-.login-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 14px;
-  border-bottom: 1px solid rgba(0,255,200,0.28);
-  background: linear-gradient(90deg, rgba(0,0,0,0.9), rgba(0,40,40,0.9));
-}
-.login-header-left {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.login-title {
-  font-size: 12px;
-  letter-spacing: 0.16em;
-  color: rgba(0,255,200,0.9);
-}
-.login-status {
-  font-size: 11px;
-  color: rgba(255,180,180,0.9);
-}
-.login-status.ok {
-  color: rgba(0,255,200,0.9);
-}
-.login-header-actions {
-  display: flex;
-  gap: 4px;
-  margin-left: 8px;
-}
-.login-header-btn {
-  width: 18px;
-  height: 18px;
-  border-radius: 3px;
-  border: 1px solid rgba(0,255,200,0.3);
-  background: radial-gradient(circle at 30% 0, rgba(0,255,200,0.25), transparent 60%),
-    rgba(0,10,10,0.85);
-  color: rgba(0,255,200,0.9);
-  font-size: 10px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  transition: background 0.15s ease, color 0.15s ease, transform 0.12s ease, border-color 0.15s ease;
-}
-.login-header-btn:hover {
-  background: radial-gradient(circle at 30% 0, rgba(0,255,200,0.4), transparent 60%),
-    rgba(0,25,25,0.95);
-  transform: translateY(-1px);
-}
-.login-header-btn.close {
-  border-color: rgba(0,255,200,0.6);
-}
-.login-header-btn.close:hover {
-  box-shadow: 0 0 10px rgba(0,255,200,0.5);
-}
-.login-body {
-  display: flex;
-  padding: 10px 14px 8px;
-  gap: 12px;
-}
-.login-log {
-  flex: 1.2;
-  max-height: 150px;
-  padding-right: 6px;
-  overflow-y: auto;
-  font-size: 11px;
-  color: rgba(0,255,200,0.72);
-}
-.login-log-line {
-  display: flex;
-  gap: 6px;
-  margin: 0 0 4px;
-}
-.login-log-line .log-tag {
-  color: rgba(0,255,200,0.5);
-}
-.login-log-line .log-text {
-  letter-spacing: 0.04em;
-}
-.login-form {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.form-row {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.form-row label {
-  font-size: 11px;
-  color: rgba(0,255,200,0.7);
-  letter-spacing: 0.16em;
-}
-.form-row input {
-  background: rgba(0,0,0,0.8);
-  border-radius: 3px;
-  border: 1px solid rgba(0,255,200,0.28);
-  padding: 5px 7px;
-  color: #e8fff8;
-  font-size: 12px;
-  outline: none;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.2s;
-}
-.form-row input:focus {
-  border-color: rgba(0,255,200,0.7);
-  box-shadow: 0 0 0 1px rgba(0,255,200,0.36);
-  background: rgba(0,10,10,0.9);
-}
-.login-btn {
-  margin-top: 4px;
-  padding: 6px 10px;
-  border-radius: 3px;
-  border: 1px solid rgba(0,255,200,0.6);
-  background: linear-gradient(90deg, rgba(0,255,200,0.3), rgba(0,150,255,0.3));
-  color: #eaffff;
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  cursor: pointer;
-  text-transform: uppercase;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s ease, transform 0.13s ease, box-shadow 0.2s ease, opacity 0.15s;
-}
-.login-btn:hover:not(:disabled) {
-  background: linear-gradient(90deg, rgba(0,255,200,0.5), rgba(0,170,255,0.5));
-  transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(0,0,0,0.7);
-}
-.login-btn:active:not(:disabled) {
-  transform: translateY(0) scale(0.98);
-  box-shadow: none;
-}
-.login-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-.login-error {
-  margin: 2px 0 0;
-  font-size: 11px;
-  color: #ff7b7b;
-}
-.login-footer {
-  display: flex;
-  justify-content: space-between;
-  padding: 6px 14px 8px;
-  border-top: 1px solid rgba(0,255,200,0.18);
-  background: rgba(0,0,0,0.9);
-}
-.login-meta {
-  font-size: 10px;
-  color: rgba(0,255,200,0.65);
-  letter-spacing: 0.08em;
-}
-
-.login-fade-enter-active,
-.login-fade-leave-active {
-  transition: opacity 0.35s ease;
-}
-.login-fade-enter-from,
-.login-fade-leave-to {
-  opacity: 0;
-}
-
-.bg-particles {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  overflow: hidden;
-}
-.particle {
-  position: absolute;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(255,255,255,0.18) 0%, rgba(200,200,200,0.06) 100%);
-  animation: particleFloat linear infinite;
-  pointer-events: none;
-}
-@keyframes particleFloat {
-  0%   { transform: translateY(0px)   scale(1);   opacity: 0.5; }
-  50%  { transform: translateY(-18px) scale(1.1); opacity: 0.9; }
-  100% { transform: translateY(0px)   scale(1);   opacity: 0.5; }
-}
-
-.interactive-wrapper {
-  width: 100%;
-  height: 100%;
-  position: relative;
-  z-index: 1;
-  pointer-events: none;
-}
-.interactive-wrapper canvas {
-  pointer-events: auto;
-}
-
-.bubble-stack {
-  position: fixed;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  transform: translate(-50%, -100%);
-  pointer-events: none;
-  z-index: 1002;
-}
-.css-chat-bubble {
-  max-width: 280px;
-  padding: 10px 16px;
-  width: fit-content;
-  background: linear-gradient(135deg, rgba(255,255,255,0.96), rgba(240,240,240,0.92));
-  border: 1px solid rgba(0,0,0,0.08);
-  border-radius: 20px 20px 20px 4px;
-  color: #222;
-  font-size: 13.5px;
-  line-height: 1.6;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  word-break: break-word;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.13), 0 1.5px 4px rgba(0,0,0,0.07);
-  animation: bubbleIn 0.28s cubic-bezier(0.34,1.56,0.64,1) both;
-}
-.bubble-avatar {
-  font-size: 16px;
-  flex-shrink: 0;
-  animation: bubbleAvatarBounce 1.8s ease-in-out infinite;
-}
-@keyframes bubbleAvatarBounce {
-  0%, 100% { transform: translateY(0);    }
-  50%       { transform: translateY(-3px); }
-}
-@keyframes bubbleIn {
-  from { opacity: 0; transform: scale(0.8) translateY(10px); }
-  to   { opacity: 1; transform: scale(1)   translateY(0);    }
-}
-@keyframes bubbleOut {
-  from { opacity: 1; transform: scale(1); }
-  to   { opacity: 0; transform: scale(0.88) translateY(6px); }
-}
-.css-chat-bubble.leaving {
-  animation: bubbleOut 0.2s ease-in forwards;
-}
-
-.messageBox {
-  position: absolute;
-  top: 800px;
-  left: 490px;
-  width: 700px;
-  height: 56px;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: radial-gradient(circle at 0% 0%, rgba(72, 221, 255, 0.12), transparent 45%),
-    radial-gradient(circle at 100% 100%, rgba(255, 116, 207, 0.12), transparent 45%),
-    linear-gradient(135deg, #111111 0%, #1e1e1e 45%, #242424 100%);
-  padding: 0 14px;
-  border-radius: 28px;
-  border: 1.5px solid rgba(255,255,255,0.10);
-  z-index: 1001;
-  pointer-events: auto;
-  box-shadow:
-    0 0 0 1px rgba(0,0,0,0.75),
-    0 16px 40px rgba(0,0,0,0.55),
-    0 0 22px rgba(90, 230, 255, 0.18);
-  backdrop-filter: blur(14px);
-  transition:
-    border-color 0.4s ease,
-    box-shadow 0.4s ease,
-    transform 0.25s cubic-bezier(0.34,1.56,0.64,1),
-    background-position 0.45s ease-out;
-  gap: 8px;
-}
-.messageBox::before {
-  content: "";
-  position: absolute;
-  inset: 1px;
-  border-radius: inherit;
-  border: 1px solid rgba(255,255,255,0.05);
-  background:
-    linear-gradient(120deg, rgba(88, 220, 255, 0.18), transparent 45%, rgba(255, 140, 220, 0.16) 70%, transparent 100%);
-  mix-blend-mode: screen;
-  opacity: 0;
-  transform: translateX(-20%);
-  pointer-events: none;
-  transition: opacity 0.35s ease, transform 0.45s ease;
-}
-.messageBox::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image: linear-gradient(
-    120deg,
-    rgba(255,255,255,0.12) 0,
-    transparent 8%,
-    transparent 92%,
-    rgba(255,255,255,0.1) 100%
-  );
-  opacity: 0;
-  mix-blend-mode: soft-light;
-  animation: msgBoxScan 3.2s linear infinite;
-  pointer-events: none;
-}
-.messageBox:hover {
-  transform: translateY(-2px) scale(1.01);
-  box-shadow:
-    0 0 0 1px rgba(0,0,0,0.75),
-    0 18px 50px rgba(0,0,0,0.65),
-    0 0 28px rgba(120, 240, 255, 0.24);
-}
-.messageBox:hover::before {
-  opacity: 1;
-  transform: translateX(0);
-}
-.messageBox.emotion-happy::before,
-.messageBox.emotion-Smile::before {
-  background: linear-gradient(120deg, rgba(255, 220, 120, 0.4), transparent 45%, rgba(255, 180, 90, 0.3) 70%, transparent 100%);
-}
-.messageBox.emotion-angry::before,
-.messageBox.emotion-Angry::before {
-  background: linear-gradient(120deg, rgba(255, 120, 120, 0.45), transparent 45%, rgba(255, 70, 110, 0.35) 70%, transparent 100%);
-}
-.messageBox.emotion-sad::before,
-.messageBox.emotion-Sad::before {
-  background: linear-gradient(120deg, rgba(90, 150, 255, 0.4), transparent 45%, rgba(40, 110, 255, 0.35) 70%, transparent 100%);
-}
-.messageBox.emotion-shy::before,
-.messageBox.emotion-Shy::before {
-  background: linear-gradient(120deg, rgba(255, 150, 210, 0.4), transparent 45%, rgba(255, 120, 190, 0.3) 70%, transparent 100%);
-}
-.messageBox.emotion-Solemn::before,
-.messageBox.emotion-neutral::before {
-  background: linear-gradient(120deg, rgba(220, 220, 235, 0.26), transparent 45%, rgba(180, 190, 210, 0.22) 70%, transparent 100%);
-}
-@keyframes msgBoxScan {
-  0% {
-    opacity: 0;
-    transform: translateX(-20%);
-  }
-  8% {
-    opacity: 0.35;
-  }
-  40% {
-    opacity: 0.15;
-    transform: translateX(6%);
-  }
-  80% {
-    opacity: 0;
-    transform: translateX(20%);
-  }
-  100% {
-    opacity: 0;
-    transform: translateX(20%);
-  }
-}
-.messageBox.emotion-happy     { border-color: rgba(255,220,80,0.45);  box-shadow: 0 8px 32px rgba(255,220,80,0.12),  0 1.5px 4px rgba(0,0,0,0.18); }
-.messageBox.emotion-sad       { border-color: rgba(100,160,255,0.45); box-shadow: 0 8px 32px rgba(100,160,255,0.12), 0 1.5px 4px rgba(0,0,0,0.18); }
-.messageBox.emotion-angry     { border-color: rgba(255,90,90,0.45);   box-shadow: 0 8px 32px rgba(255,90,90,0.12),   0 1.5px 4px rgba(0,0,0,0.18); }
-.messageBox.emotion-shy       { border-color: rgba(255,150,200,0.45); box-shadow: 0 8px 32px rgba(255,150,200,0.12), 0 1.5px 4px rgba(0,0,0,0.18); }
-.messageBox.emotion-surprised { border-color: rgba(180,120,255,0.45); box-shadow: 0 8px 32px rgba(180,120,255,0.12), 0 1.5px 4px rgba(0,0,0,0.18); }
-.messageBox.emotion-Solemn    { border-color: rgba(255,255,255,0.12); }
-.messageBox.emotion-neutral   { border-color: rgba(255,255,255,0.10); }
-.messageBox:focus-within {
-  border-color: rgba(255,255,255,0.28);
-  box-shadow: 0 8px 36px rgba(0,0,0,0.4), 0 0 0 3px rgba(255,255,255,0.04);
-}
-
-/* ================= 呼吸灯 ================= */
-.breath-light {
-  position: relative;
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: default;
-}
-
-/* 核心光点 */
-.bl-core {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: rgba(255,255,255,0.6);
-  box-shadow: 0 0 6px 2px rgba(255,255,255,0.25);
-  animation: blBreathe var(--bl-duration, 3s) ease-in-out infinite;
-  transition: background 0.5s ease, box-shadow 0.5s ease;
-}
-
-/* 外圈光晕（伪元素） */
-.bl-core::after {
-  content: "";
-  position: absolute;
-  inset: -6px;
-  border-radius: 50%;
-  background: radial-gradient(circle, var(--bl-color, rgba(255,255,255,0.15)) 0%, transparent 70%);
-  animation: blGlow var(--bl-duration, 3s) ease-in-out infinite;
-  opacity: 0;
-}
-
-/* 原 tooltip 样式已废弃（不再显示文字） */
-
-/* 呼吸动画 */
-@keyframes blBreathe {
-  0%, 100% { transform: scale(1);    opacity: 0.55; }
-  50%       { transform: scale(var(--bl-scale, 1.6)); opacity: 1; }
-}
-@keyframes blGlow {
-  0%, 100% { opacity: 0;   transform: scale(1); }
-  50%       { opacity: 0.6; transform: scale(var(--bl-scale, 1.6)); }
-}
-
-/* ===== 各情绪变量 ===== */
-
-/* ================= 呼吸灯完整样式 ================= */
-.breath-light {
-  position: relative;
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: default;
-}
-
-.bl-core {
-  position: relative;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: rgba(255,255,255,0.6);
-  box-shadow: 0 0 6px 2px rgba(255,255,255,0.25);
-  animation: blBreathe 3s ease-in-out infinite;
-  transition: background 0.5s ease, box-shadow 0.5s ease, animation-duration 0.5s ease;
-}
-
-.bl-core::after {
-  content: "";
-  position: absolute;
-  inset: -6px;
-  border-radius: 50%;
-  animation: blGlow 3s ease-in-out infinite;
-  opacity: 0;
-}
-
-.bl-tooltip {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%) translateY(4px);
-  background: rgba(20,20,20,0.92);
-  color: rgba(255,255,255,0.75);
-  font-size: 10px;
-  padding: 3px 8px;
-  border-radius: 8px;
-  border: 1px solid rgba(255,255,255,0.08);
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.2s ease, transform 0.2s ease;
-  letter-spacing: 0.04em;
-  z-index: 10;
-}
-.breath-light:hover .bl-tooltip {
-  opacity: 1;
-  transform: translateX(-50%) translateY(-2px);
-}
-
-@keyframes blBreathe {
-  0%, 100% { transform: scale(1);    opacity: 0.55; }
-  50%       { transform: scale(1.7); opacity: 1;    }
-}
-@keyframes blGlow {
-  0%, 100% { opacity: 0;   transform: scale(1);   }
-  50%       { opacity: 0.5; transform: scale(1.7); }
-}
-
-/* ========== 愤怒类：红色系，快速，大幅 ========== */
-/* Angry */
-.bl-Angry .bl-core {
-  background: rgba(255,60,60,0.90);
-  box-shadow: 0 0 10px 4px rgba(255,60,60,0.40);
-  animation-duration: 1.1s;
-}
-/* Annoyed */
-.bl-Annoyed .bl-core {
-  background: rgba(255,100,60,0.88);
-  box-shadow: 0 0 9px 3px rgba(255,100,60,0.35);
-  animation-duration: 1.3s;
-}
-/* Irritated */
-.bl-Irritated .bl-core {
-  background: rgba(255,130,60,0.85);
-  box-shadow: 0 0 8px 3px rgba(255,130,60,0.30);
-  animation-duration: 1.5s;
-}
-/* Frustrated */
-.bl-Frustrated .bl-core {
-  background: rgba(220,80,80,0.88);
-  box-shadow: 0 0 9px 3px rgba(220,80,80,0.32);
-  animation-duration: 1.2s;
-}
-/* Determined */
-.bl-Determined .bl-core {
-  background: rgba(200,80,60,0.85);
-  box-shadow: 0 0 8px 3px rgba(200,80,60,0.30);
-  animation-duration: 1.4s;
-}
-
-/* ========== 悲伤类：蓝色系，慢速，小幅 ========== */
-/* Sad */
-.bl-Sad .bl-core {
-  background: rgba(90,150,255,0.80);
-  box-shadow: 0 0 7px 2px rgba(90,150,255,0.25);
-  animation-duration: 4.5s;
-}
-/* Lonely */
-.bl-Lonely .bl-core {
-  background: rgba(110,140,220,0.75);
-  box-shadow: 0 0 6px 2px rgba(110,140,220,0.22);
-  animation-duration: 5.0s;
-}
-/* Despair */
-.bl-Despair .bl-core {
-  background: rgba(70,90,180,0.80);
-  box-shadow: 0 0 7px 2px rgba(70,90,180,0.25);
-  animation-duration: 5.5s;
-}
-/* Broken */
-.bl-Broken .bl-core {
-  background: rgba(60,70,140,0.75);
-  box-shadow: 0 0 6px 2px rgba(60,70,140,0.20);
-  animation-duration: 6.0s;
-}
-/* Uneasy */
-.bl-Uneasy .bl-core {
-  background: rgba(130,160,230,0.78);
-  box-shadow: 0 0 6px 2px rgba(130,160,230,0.22);
-  animation-duration: 4.0s;
-}
-/* Resigned */
-.bl-Resigned .bl-core {
-  background: rgba(120,130,180,0.72);
-  box-shadow: 0 0 5px 2px rgba(120,130,180,0.18);
-  animation-duration: 5.5s;
-}
-/* Disappointed */
-.bl-Disappointed .bl-core {
-  background: rgba(100,120,200,0.75);
-  box-shadow: 0 0 6px 2px rgba(100,120,200,0.20);
-  animation-duration: 4.8s;
-}
-
-/* ========== 恐惧/焦虑类：青紫色系，快速不规则 ========== */
-/* Anxious */
-.bl-Anxious .bl-core {
-  background: rgba(160,100,255,0.82);
-  box-shadow: 0 0 8px 3px rgba(160,100,255,0.28);
-  animation-duration: 1.6s;
-}
-/* Fearful */
-.bl-Fearful .bl-core {
-  background: rgba(130,80,220,0.80);
-  box-shadow: 0 0 8px 3px rgba(130,80,220,0.26);
-  animation-duration: 1.4s;
-}
-/* Shocked */
-.bl-Shocked .bl-core {
-  background: rgba(180,120,255,0.88);
-  box-shadow: 0 0 10px 4px rgba(180,120,255,0.35);
-  animation-duration: 1.0s;
-}
-
-/* ========== 疲惫/无聊类：灰色系，极慢，微幅 ========== */
-/* Tired */
-.bl-Tired .bl-core {
-  background: rgba(160,160,170,0.65);
-  box-shadow: 0 0 5px 1px rgba(160,160,170,0.18);
-  animation-duration: 6.0s;
-}
-/* Bored */
-.bl-Bored .bl-core {
-  background: rgba(150,150,155,0.60);
-  box-shadow: 0 0 4px 1px rgba(150,150,155,0.15);
-  animation-duration: 7.0s;
-}
-
-/* ========== 困惑类：橙黄色系，中速 ========== */
-/* Confused */
-.bl-Confused .bl-core {
-  background: rgba(255,190,60,0.82);
-  box-shadow: 0 0 8px 3px rgba(255,190,60,0.28);
-  animation-duration: 2.0s;
-}
-
-/* ========== 尴尬/慌乱类：橙粉色系 ========== */
-/* Embarrassed */
-.bl-Embarrassed .bl-core {
-  background: rgba(255,140,120,0.82);
-  box-shadow: 0 0 8px 3px rgba(255,140,120,0.28);
-  animation-duration: 2.0s;
-}
-/* Flustered */
-.bl-Flustered .bl-core {
-  background: rgba(255,120,100,0.85);
-  box-shadow: 0 0 9px 3px rgba(255,120,100,0.30);
-  animation-duration: 1.6s;
-}
-
-/* ========== 温柔/爱意类：粉色系，中慢速 ========== */
-/* Affectionate */
-.bl-Affectionate .bl-core {
-  background: rgba(255,160,200,0.82);
-  box-shadow: 0 0 9px 3px rgba(255,160,200,0.30);
-  animation-duration: 2.5s;
-}
-/* Clingy */
-.bl-Clingy .bl-core {
-  background: rgba(255,140,180,0.80);
-  box-shadow: 0 0 8px 3px rgba(255,140,180,0.28);
-  animation-duration: 2.2s;
-}
-/* Shy */
-.bl-Shy .bl-core {
-  background: rgba(255,150,200,0.80);
-  box-shadow: 0 0 8px 3px rgba(255,150,200,0.28);
-  animation-duration: 2.8s;
-}
-/* Soft */
-.bl-Soft .bl-core {
-  background: rgba(255,180,210,0.78);
-  box-shadow: 0 0 7px 2px rgba(255,180,210,0.24);
-  animation-duration: 3.2s;
-}
-/* Tsundere */
-.bl-Tsundere .bl-core {
-  background: rgba(255,120,160,0.82);
-  box-shadow: 0 0 8px 3px rgba(255,120,160,0.28);
-  animation-duration: 2.0s;
-}
-/* Grateful */
-.bl-Grateful .bl-core {
-  background: rgba(255,170,180,0.80);
-  box-shadow: 0 0 8px 3px rgba(255,170,180,0.26);
-  animation-duration: 2.8s;
-}
-/* Relieved/* Relieved */
-.bl-Relieved .bl-core {
-  background: rgba(200,230,255,0.80);
-  box-shadow: 0 0 7px 2px rgba(200,230,255,0.24);
-  animation-duration: 3.5s;
-}
-
-/* ========== 戏谑/特殊类 ========== */
-/* Teasing */
-.bl-Teasing .bl-core {
-  background: rgba(255,200,80,0.85);
-  box-shadow: 0 0 9px 3px rgba(255,200,80,0.30);
-  animation-duration: 1.8s;
-}
-/* Yandere：深红紫，快且大 */
-.bl-Yandere .bl-core {
-  background: rgba(200,50,120,0.90);
-  box-shadow: 0 0 12px 5px rgba(200,50,120,0.40);
-  animation-duration: 1.0s;
-}
-
-/* ========== 开心/希望类：黄绿色系，中速 ========== */
-/* Smile */
-.bl-Smile .bl-core {
-  background: rgba(255,220,80,0.85);
-  box-shadow: 0 0 8px 3px rgba(255,220,80,0.30);
-  animation-duration: 2.2s;
-}
-/* Hopeful */
-.bl-Hopeful .bl-core {
-  background: rgba(180,230,120,0.82);
-  box-shadow: 0 0 8px 3px rgba(180,230,120,0.28);
-  animation-duration: 2.5s;
-}
-/* Proud */
-.bl-Proud .bl-core {
-  background: rgba(255,210,60,0.88);
-  box-shadow: 0 0 10px 4px rgba(255,210,60,0.32);
-  animation-duration: 2.0s;
-}
-
-/* ========== 庄重/平静类：冷白灰，极慢 ========== */
-/* Solemn */
-.bl-Solemn .bl-core {
-  background: rgba(200,200,210,0.60);
-  box-shadow: 0 0 5px 2px rgba(200,200,210,0.15);
-  animation-duration: 5.0s;
-}
-/* neutral（兼容小写） */
-.bl-neutral .bl-core {
-  background: rgba(220,220,220,0.65);
-  box-shadow: 0 0 6px 2px rgba(220,220,220,0.18);
-  animation-duration: 3.5s;
-}
-
-/* ========== 通用回退 ========== */
-.bl-happy .bl-core {
-  background: rgba(255,220,80,0.85);
-  box-shadow: 0 0 8px 3px rgba(255,220,80,0.30);
-  animation-duration: 2.2s;
-}
-.bl-sad .bl-core {
-  background: rgba(100,160,255,0.80);
-  box-shadow: 0 0 7px 2px rgba(100,160,255,0.25);
-  animation-duration: 4.2s;
-}
-.bl-angry .bl-core {
-  background: rgba(255,80,80,0.90);
-  box-shadow: 0 0 10px 4px rgba(255,80,80,0.35);
-  animation-duration: 1.2s;
-}
-.bl-surprised .bl-core {
-  background: rgba(180,120,255,0.85);
-  box-shadow: 0 0 9px 3px rgba(180,120,255,0.30);
-  animation-duration: 1.5s;
-}
-.bl-shy .bl-core {
-  background: rgba(255,150,200,0.80);
-  box-shadow: 0 0 8px 3px rgba(255,150,200,0.28);
-  animation-duration: 2.8s;
-}
-
-.emotion-glyph {
-  position: relative;
-  width: 28px;
-  height: 28px;
-  flex-shrink: 0;
-  cursor: default;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.emotion-glyph svg {
-  width: 28px;
-  height: 28px;
-  overflow: visible;
-  animation: glyphPulse 3s ease-in-out infinite;
-}
-.eg-ring {
-  fill: none;
-  stroke: rgba(255,255,255,0.15);
-  stroke-width: 1.2;
-  transition: stroke 0.4s ease;
-}
-.eg-inner {
-  fill: none;
-  stroke: rgba(255,255,255,0.55);
-  stroke-width: 1.6;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  transition: stroke 0.4s ease;
-}
-.eg-happy     .eg-ring  { stroke: rgba(255,220,80,0.35); }
-.eg-happy     .eg-inner { stroke: rgba(255,220,80,0.90); }
-.eg-sad       .eg-ring  { stroke: rgba(100,160,255,0.35); }
-.eg-sad       .eg-inner { stroke: rgba(100,160,255,0.90); }
-.eg-angry     .eg-ring  { stroke: rgba(255,90,90,0.35); }
-.eg-angry     .eg-inner { stroke: rgba(255,90,90,0.90); }
-.eg-shy       .eg-ring  { stroke: rgba(255,150,200,0.35); }
-.eg-shy       .eg-inner { stroke: rgba(255,150,200,0.90); }
-.eg-surprised .eg-ring  { stroke: rgba(180,120,255,0.35); }
-.eg-surprised .eg-inner { stroke: rgba(180,120,255,0.90); }
-.eg-Solemn    .eg-ring  { stroke: rgba(255,255,255,0.18); }
-.eg-Solemn    .eg-inner { stroke: rgba(255,255,255,0.50); }
-.eg-neutral   .eg-ring  { stroke: rgba(255,255,255,0.12); }
-.eg-neutral   .eg-inner { stroke: rgba(255,255,255,0.40); }
-.emotion-glyph:hover .eg-inner   { filter: drop-shadow(0 0 3px currentColor); }
-.emotion-glyph:hover .eg-tooltip { opacity: 1; transform: translateX(-50%) translateY(-2px); }
-.eg-tooltip {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%) translateY(4px);
-  background: rgba(20,20,20,0.92);
-  color: rgba(255,255,255,0.75);
-  font-size: 10px;
-  padding: 3px 8px;
-  border-radius: 8px;
-  border: 1px solid rgba(255,255,255,0.08);
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.2s ease, transform 0.2s ease;
-  letter-spacing: 0.04em;
-}
-@keyframes glyphPulse {
-  0%, 100% { opacity: 0.75; transform: scale(1);    }
-  50%       { opacity: 1;    transform: scale(1.08); }
-}
-
-.fileUploadWrapper {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-#file { display: none; }
-.fileUploadWrapper label {
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  padding: 4px;
-  border-radius: 8px;
-  transition: background 0.2s;
-}
-.fileUploadWrapper label:hover { background: rgba(255,255,255,0.08); }
-.fileUploadWrapper label svg   { height: 18px; }
-.fileUploadWrapper label svg path,
-.fileUploadWrapper label svg circle { transition: all 0.25s; }
-.fileUploadWrapper label:hover svg path   { stroke: #fff; }
-.fileUploadWrapper label:hover svg circle { stroke: #fff; }
-.fileUploadWrapper label:hover .tooltip   { display: block; opacity: 1; }
-.tooltip {
-  position: absolute;
-  top: -38px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: none;
-  opacity: 0;
-  color: #fff;
-  font-size: 10px;
-  white-space: nowrap;
-  background: rgba(0,0,0,0.85);
-  padding: 5px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(255,255,255,0.08);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-  pointer-events: none;
-}
-
-#messageInput {
-  flex: 1;
-  height: 100%;
-  background: transparent;
-  outline: none;
-  border: none;
-  color: #f0f0f0;
-  font-size: 14px;
-  letter-spacing: 0.01em;
-  caret-color: #fff;
-}
-#messageInput::placeholder { color: rgba(255,255,255,0.28); }
-
-.luna-loader {
-  position: relative;
-  width: 28px;
-  height: 28px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.luna-loader-svg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  animation: loaderRotate 1.8s linear infinite;
-}
-.loader-track {
-  fill: none;
-  stroke: rgba(255,255,255,0.08);
-  stroke-width: 2.5;
-}
-.loader-arc {
-  fill: none;
-  stroke: rgba(255,255,255,0.75);
-  stroke-width: 2.5;
-  stroke-linecap: round;
-  stroke-dasharray: 28 60;
-  animation: loaderArcPulse 1.8s ease-in-out infinite;
-}
-.loader-core {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: rgba(255,255,255,0.85);
-  animation: loaderCorePulse 1.8s ease-in-out infinite;
-  box-shadow: 0 0 6px rgba(255,255,255,0.5);
-}
-@keyframes loaderRotate {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
-}
-@keyframes loaderArcPulse {
-  0%, 100% { stroke-dasharray: 20 68; opacity: 0.6; }
-  50%       { stroke-dasharray: 40 48; opacity: 1;   }
-}
-@keyframes loaderCorePulse {
-  0%, 100% { transform: scale(0.7); opacity: 0.5; }
-  50%       { transform: scale(1.3); opacity: 1;   }
-}
-
-.send-btn-cute {
-  width: 36px;
-  height: 36px;
-  background: rgba(255,255,255,0.10);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
-  flex-shrink: 0;
-}
-.send-btn-cute:hover:not(:disabled) {
-  background: rgba(255,255,255,0.20);
-  transform: scale(1.12);
-  box-shadow: 0 4px 14px rgba(255,255,255,0.10);
-}
-.send-btn-cute:active:not(:disabled) { transform: scale(0.95); }
-.send-btn-cute:disabled { opacity: 0.35; cursor: not-allowed; }
-.send-btn-cute svg { height: 16px; }
-
-.msgbox-fade-enter-active { transition: opacity 0.35s ease, transform 0.35s cubic-bezier(0.34,1.56,0.64,1); }
-.msgbox-fade-leave-active { transition: opacity 0.2s ease,  transform 0.2s ease; }
-.msgbox-fade-enter-from   { opacity: 0; transform: translateY(16px) scale(0.95); }
-.msgbox-fade-leave-to     { opacity: 0; transform: translateY(8px)  scale(0.97); }
-
-.debug-ui {
-  position: absolute;
-  top: 16px;
-  left: 16px;
-  z-index: 1002;
-  position: absolute;
-  display: flex;
-  gap: 8px;
-  background:
-    radial-gradient(circle at 0 0, rgba(72, 221, 255, 0.18), transparent 52%),
-    radial-gradient(circle at 100% 100%, rgba(255, 116, 207, 0.15), transparent 55%),
-    linear-gradient(145deg, rgba(8,8,8,0.98), rgba(18,18,18,0.96));
-  padding: 10px 12px;
-  border-radius: 16px;
-  box-shadow: 0 4px 18px rgba(0,0,0,0.3);
-  border: 1px solid rgba(255,255,255,0.07);
-  pointer-events: auto;
-  backdrop-filter: blur(8px);
-  overflow: hidden;
-}
-.debug-ui::before {
-  content: "";
-  position: absolute;
-  inset: 1px;
-  border-radius: inherit;
-  border: 1px solid rgba(255,255,255,0.03);
-  background-image:
-    linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px),
-    linear-gradient(0deg, rgba(255,255,255,0.035) 1px, transparent 1px);
-  background-size: 18px 18px;
-  mix-blend-mode: soft-light;
-  opacity: 0.55;
-  pointer-events: none;
-}
-.debug-ui::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(82, 230, 255, 0.9), transparent);
-  opacity: 0.0;
-  transform: translateX(-40%);
-  animation: panelScanLine 3.6s ease-in-out infinite;
-  pointer-events: none;
-}
-.cute-btn {
-  background: rgba(255,255,255,0.07);
-  color: #e8e8e8;
-  border: 1px solid rgba(255,255,255,0.10);
-  padding: 6px 14px;
-  border-radius: 20px;
-  font-size: 13px;
-  cursor: pointer;
-  transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
-.cute-btn:hover {
-  background: rgba(255,255,255,0.14);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-}
-.cute-btn:active  { transform: scale(0.96); }
-.cute-btn.small   { padding: 4px 10px; font-size: 12px; }
-.cute-btn.danger  { border-color: rgba(255,80,80,0.3); color: #ff8888; }
-.cute-btn.danger:hover { background: rgba(255,80,80,0.12); }
-.btn-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.btn-dot.green { background: #6dff8a; box-shadow: 0 0 6px rgba(109,255,138,0.6); }
-.btn-dot.red   { background: #ff6d6d; box-shadow: 0 0 6px rgba(255,109,109,0.6); }
-
-.context-menu {
-  position: fixed;
-  z-index: 1003;
-  background:
-    radial-gradient(circle at 0 0, rgba(72, 221, 255, 0.25), transparent 55%),
-    radial-gradient(circle at 100% 100%, rgba(255, 116, 207, 0.2), transparent 55%),
-    linear-gradient(160deg, #111111 0%, #1c1c1c 40%, #202020 100%);
-  border-radius: 16px;
-  padding: 6px 0 8px;
-  color: #e8e8e8;
-  min-width: 172px;
-  box-shadow:
-    0 0 0 1px rgba(0,0,0,0.8),
-    0 14px 40px rgba(0,0,0,0.7),
-    0 0 22px rgba(72, 221, 255, 0.2);
-  border: 1px solid rgba(255,255,255,0.08);
-  font-size: 13.5px;
-  pointer-events: auto;
-  user-select: none;
-  backdrop-filter: blur(12px);
-  overflow: hidden;
-}
-.context-menu::before {
-  content: "";
-  position: absolute;
-  inset: 1px;
-  border-radius: inherit;
-  border: 1px solid rgba(255,255,255,0.03);
-  background-image:
-    linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px),
-    linear-gradient(0deg, rgba(255,255,255,0.035) 1px, transparent 1px);
-  background-size: 16px 16px;
-  mix-blend-mode: soft-light;
-  opacity: 0.55;
-  pointer-events: none;
-}
-.menu-header {
-  padding: 8px 16px 6px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  margin-bottom: 2px;
-}
-.menu-logo {
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: rgba(255,255,255,0.55);
-}
-.menu-item {
-  padding: 9px 16px;
-  cursor: pointer;
-  white-space: nowrap;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  transition: background 0.15s ease, padding-left 0.15s ease, color 0.15s ease;
-}
-.menu-item:hover {
-  background: rgba(255,255,255,0.07);
-  padding-left: 20px;
-  color: #fff;
-}
-.menu-item.danger       { color: #ff8888; }
-.menu-item.danger:hover { background: rgba(255,80,80,0.10); color: #ffaaaa; }
-.mi-icon    { font-size: 14px; flex-shrink: 0; }
-.menu-divider {
-  height: 1px;
-  background: rgba(255,255,255,0.06);
-  margin: 4px 0;
-}
-.menu-pop-enter-active { transition: opacity 0.18s ease, transform 0.18s cubic-bezier(0.34,1.56,0.64,1); }
-.menu-pop-leave-active { transition: opacity 0.12s ease, transform 0.12s ease; }
-.menu-pop-enter-from   { opacity: 0; transform: scale(0.88) translateY(-6px); }
-.menu-pop-leave-to     { opacity: 0; transform: scale(0.94) translateY(-3px); }
-
-.cute-panel {
-  position: relative;
-  background:
-    radial-gradient(circle at 0 0, rgba(72, 221, 255, 0.16), transparent 55%),
-    radial-gradient(circle at 100% 100%, rgba(255, 116, 207, 0.16), transparent 55%),
-    linear-gradient(160deg, #121212 0%, #191919 45%, #202020 100%);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 18px;
-  box-shadow:
-    0 0 0 1px rgba(0,0,0,0.85),
-    0 18px 52px rgba(0,0,0,0.7),
-    0 0 26px rgba(90, 230, 255, 0.18);
-  color: #e8e8e8;
-  pointer-events: auto;
-  backdrop-filter: blur(12px);
-  overflow: hidden;
-}
-.cute-panel::before {
-  content: "";
-  position: absolute;
-  inset: 1px;
-  border-radius: inherit;
-  border: 1px solid rgba(255,255,255,0.03);
-  background-image:
-    linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px),
-    linear-gradient(0deg, rgba(255,255,255,0.035) 1px, transparent 1px);
-  background-size: 18px 18px;
-}
-
-.login-terminal {
-  --login-bg: radial-gradient(circle at 30% 20%, rgba(72, 221, 255, 0.25), transparent 55%);
-  --login-border: rgba(72, 221, 255, 0.4);
-  --login-text: #e8e8e8;
-  --login-bg-error: radial-gradient(circle at 30% 20%, rgba(255,80,80,0.25), transparent 55%);
-  --login-border-error: rgba(255,80,80,0.4);
-  --login-text-error: #ffaaaa;
-  transition: all 0.4s ease;
-}
-
-.login-terminal.login-error-state {
-  background: var(--login-bg-error);
-  border: 1px solid var(--login-border-error);
-  box-shadow: 0 0 20px rgba(255, 80, 80, 0.15);
-}
-
-.login-error {
-  background: rgba(255, 80, 80, 0.2);
-  border: 1px solid rgba(255, 80, 80, 0.4);
-  color: #ffaaaa;
-  padding: 8px 12px;
-  margin-top: 12px;
-  font-size: 12px;
-  border-radius: 4px;
-  transition: all 0.3s ease;
-  opacity: 0;
-  transform: scaleY(0);
-  transform-origin: top;
-}
-
-.login-error:not(:empty) {
-  opacity: 1;
-  transform: scaleY(1);
-}
-
-/* 添加缺失的选择器或删除无用的CSS规则 */
-/* Delete孤立的CSS属性，这些属性没有对应的选择器 */
-
-.cute-panel::after {
-  content: "";
-  position: absolute;
-  inset: 8px;
-  border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.04);
-  opacity: 0.35;
-  pointer-events: none;
-}
-.panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 14px 10px;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
-  font-weight: 600;
-  font-size: 13px;
-  cursor: move;
-  user-select: none;
-  letter-spacing: 0.04em;
-  color: rgba(255,255,255,0.75);
-  gap: 8px;
-}
-.close-x {
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.08);
-  color: var(--close-button-color, #bbb);
-  font-size: var(--close-button-font-size, 16px);
-  width: var(--close-button-size, 26px);
-  height: var(--close-button-size, 26px);
-  border-radius: 50%;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.2s, color 0.2s, transform 0.15s;
-  flex-shrink: 0;
-  
-  /* 提高无障碍支持 */
-  outline-offset: 2px;
-  outline-color: transparent;
-  
-  /* 针对触摸设备增加最小点击区域 */
-  min-width: 44px;
-  min-height: 44px;
-}
-
-.close-x:hover {
-  background: var(--close-button-hover-bg, rgba(255,80,80,0.18));
-  color: var(--close-button-hover-color, #ff8888);
-  
-  /* 触摸设备不需要变换效果 */
-  @media (hover: hover) {
-    transform: scale(1.1);
-  }
-}
-
-/* 焦点状态，增强键盘导航体验 */
-.close-x:focus-visible {
-  outline: 2px solid var(--focus-outline-color, #0078d4);
-  outline-offset: 2px;
-}
-
-/* 减少动画效果的偏好设置 */
-@media (prefers-reduced-motion: reduce) {
-  .close-x {
-    transition: none;
-  }
-  
-  .close-x:hover {
-    transform: none;
-  }
-}
-.close-x:hover {
-  background: rgba(255,80,80,0.18);
-  color: #ff8888;
-  transform: rotate(90deg) scale(1.1);
-}
-
-.appearance-panel {
-  position: fixed;
-  z-index: 1004;
-  width: 420px;
-  height: 360px;
-  display: flex;
-  flex-direction: column;
-  padding: 0;
-  overflow: hidden;
-}
-.panel-body {
-  padding: 10px 12px;
-  overflow-y: auto;
-  flex: 1;
-}
-.appearance-controls { display: flex; flex-direction: column; gap: 6px; }
-.appearance-item      { display: flex; align-items: center; }
-.checkbox-label {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  cursor: pointer;
-  user-select: none;
-}
-.checkbox-label input[type="checkbox"] {
-  width: 15px;
-  height: 15px;
-  accent-color: #fff;
-}
-.file-name {
-  font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 340px;
-  color: rgba(255,255,255,0.75);
-}
-.panel-footer {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  padding: 8px 12px 12px;
-  border-top: 1px solid rgba(255,255,255,0.04);
-}
-.appearance-hint {
-  margin: 0 12px 10px;
-  font-size: 11px;
-  color: rgba(255,255,255,0.4);
-  text-align: right;
-  user-select: none;
-  pointer-events: none;
-  animation: appearanceHintFade 0.15s ease-out;
-}
-@keyframes appearanceHintFade {
-  from { opacity: 0; transform: translateY(-2px); }
-  to   { opacity: 1; transform: translateY(0);    }
-}
-
-.history-panel {
-  position: absolute;
-  width: 320px;
-  z-index: 3000;
-  padding: 0;
-  overflow: hidden;
-}
-.header-left {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  flex: 1;
-}
-.nav-btn {
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(255,255,255,0.08);
-  color: #fff;
-  border-radius: 8px;
-  width: 26px;
-  height: 26px;
-  cursor: pointer;
-  font-size: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.2s, transform 0.15s;
-  flex-shrink: 0;
-}
-.nav-btn:hover { background: rgba(255,255,255,0.14); transform: scale(1.1); }
-.history-panel select {
-  background: rgba(255,255,255,0.06);
-  color: #e8e8e8;
-  border: 1px solid rgba(255,255,255,0.07);
-  padding: 3px 7px;
-  border-radius: 8px;
-  font-size: 12px;
-  cursor: pointer;
-  outline: none;
-}
-.history-panel select option { background: #2a2a2a; color: #fff; }
-.dates-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 5px;
-  padding: 10px;
-}
-.date-cell {
-  width: 34px;
-  height: 34px;
-  line-height: 34px;
-  text-align: center;
-  border-radius: 10px;
-  background: rgba(255,255,255,0.04);
-  cursor: pointer;
-  font-size: 12px;
-  transition: background 0.18s, transform 0.15s, box-shadow 0.18s;
-  user-select: none;
-}
-.date-cell.available {
-  background: rgba(255,255,255,0.10);
-  color: #fff;
-  font-weight: 600;
-}
-.date-cell.available:hover {
-  background: rgba(255,255,255,0.22);
-  transform: scale(1.1);
-}
-.date-cell.selected {
-  background: #fff;
-  color: #111;
-  font-weight: bold;
-  box-shadow: 0 4px 14px rgba(255,255,255,0.18);
-  transform: scale(1.08);
-}
-.date-cell.disabled {
-  background: rgba(255,255,255,0.02);
-  color: rgba(255,255,255,0.18);
-  cursor: not-allowed;
-}
-
-.chat-detail-panel {
-  position: fixed;
-  width: 360px;
-  height: 500px;
-  border-radius: 18px;
-  display: flex;
-  flex-direction: column;
-  z-index: 9999;
-  overflow: hidden;
-  user-select: none;
-  animation: panelAppear 0.24s cubic-bezier(0.34,1.56,0.64,1) both;
-}
-.drag-handle1 { cursor: move; }
-.chat-body {
-  flex: 1;
-  padding: 14px;
-  overflow-y: auto;
-  background: rgba(255,255,255,0.02);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  pointer-events: auto;
-}
-.chat-body::-webkit-scrollbar       { width: 4px; }
-.chat-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 4px; }
-.h2 { font-size: 13px; color: rgba(255,255,255,0.7); font-weight: 600; }
-.msg-wrapper { display: flex; flex-direction: column; }
-.msg-notice  { align-self: center; margin: 6px 0; text-align: center; max-width: 90%; }
-.notice-content {
-  font-size: 11px;
-  color: rgba(255,255,255,0.35);
-  background: rgba(255,255,255,0.05);
-  padding: 3px 10px;
-  border-radius: 10px;
-}
-.notice-time { margin-left: 5px; opacity: 0.6; font-size: 10px; }
-.message {
-  padding: 8px 13px;
-  border-radius: 14px;
-  max-width: 80%;
-  font-size: 13px;
-  line-height: 1.55;
-  display: flex;
-  flex-direction: column;
-  word-wrap: break-word;
-  margin-bottom: 2px;
-  animation: chatAnimation 0.22s ease both;
-}
-.incoming {
-  align-self: flex-start;
-  background: rgba(255,255,255,0.08);
-  color: #e8e8e8;
-  border-bottom-left-radius: 4px;
-}
-.outgoing {
-  align-self: flex-end;
-  background: rgba(255,255,255,0.90);
-  color: #111;
-  border-bottom-right-radius: 4px;
-}
-.msg-text { margin: 0 0 2px; }
-.msg-time { font-size: 10px; opacity: 0.45; align-self: flex-end; }
-.incoming .msg-time { align-self: flex-start; }
-@keyframes chatAnimation {
-  from { opacity: 0; transform: translateY(5px); }
-  to   { opacity: 1; transform: translateY(0);   }
-}
-
-.chat-record {
-  position: relative;
-  overflow-y: auto; /* 允许垂直滚动 */
-  max-height: 400px;
-  padding: 12px;
-  background: rgba(0, 0, 0, 0.15);
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  margin-top: 8px;
-}
-
-.chat-record-item {
-  display: flex;
-  flex-direction: column;
-  margin-bottom: 12px;
-  padding: 8px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.chat-record-item.incoming {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.chat-record-item.outgoing {
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.msg-role {
-  font-weight: bold;
-  font-size: 12px;
-  color: #aaa;
-  margin-bottom: 4px;
-}
-
-.msg-content {
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: inherit;
-  font-size: 14px;
-  color: #e8e8e8;
-  margin: 0 0 6px 0;
-  line-height: 1.4;
-}
-
-.msg-time {
-  font-size: 10px;
-  color: #aaa;
-  align-self: flex-end;
-}
-
-/* ===== 科幻启动遮罩 ===== */
-.luna-intro-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 9000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.92);
-  backdrop-filter: blur(6px);
-  pointer-events: none;
-  font-family: "Courier New", "Consolas", monospace;
-}
-
-.luna-boot-screen {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 18px;
-  width: 460px;
-  position: relative;
-  padding: 40px 32px;
-  border: 1px solid rgba(0, 255, 200, 0.18);
-  border-radius: 4px;
-  box-shadow:
-    0 0 40px rgba(0, 255, 200, 0.08),
-    inset 0 0 60px rgba(0, 255, 200, 0.03);
-}
-
-/* 扫描线 */
-.scan-line {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(0, 255, 200, 0.7), transparent);
-  animation: scanMove 2.4s ease-in-out infinite;
-  box-shadow: 0 0 10px rgba(0, 255, 200, 0.5);
-}
-@keyframes scanMove {
-  0%   { top: 0%;   opacity: 0.9; }
-  50%  { top: 100%; opacity: 0.6; }
-  100% { top: 0%;   opacity: 0.9; }
-}
-
-/* 主标题 */
-.boot-title {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  letter-spacing: 0.18em;
-}
-.boot-bracket {
-  font-size: 28px;
-  color: rgba(0, 255, 200, 0.5);
-  font-weight: 300;
-}
-.boot-name {
-  font-size: 36px;
-  font-weight: 700;
-  color: rgba(0, 255, 200, 0.95);
-  text-shadow:
-    0 0 12px rgba(0, 255, 200, 0.7),
-    0 0 30px rgba(0, 255, 200, 0.3);
-  letter-spacing: 0.3em;
-  animation: titlePulse 3s ease-in-out infinite;
-}
-
-.boot-version {
-  font-size: 11px;
-  color: rgba(0, 255, 200, 0.4);
-  letter-spacing: 0.12em;
-  align-self: flex-end;
-  margin-bottom: 4px;
-  font-size: 10px;
-  letter-spacing: 0.22em;
-  color: rgba(0, 255, 200, 0.45);
-  animation: subtitleBlink 2s step-end infinite;
-}
-@keyframes subtitleBlink {
-  0%, 90%, 100% { opacity: 1; }
-  95%            { opacity: 0; }
-}
-
-/* 进度条 */
-.boot-bar-wrap {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: flex-start;
-}
-.boot-bar-track {
-  width: 100%;
-  height: 3px;
-  background: rgba(0, 255, 200, 0.08);
-  border-radius: 2px;
-  overflow: hidden;
-  border: 1px solid rgba(0, 255, 200, 0.12);
-}
-.boot-bar-fill {
-  height: 100%;
-  width: 0%;
-  background: linear-gradient(90deg, rgba(0,255,200,0.5), rgba(0,255,200,0.95));
-  box-shadow: 0 0 8px rgba(0, 255, 200, 0.6);
-  animation: barFill 2.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-}
-@keyframes barFill {
-  0%   { width: 0%;   }
-  30%  { width: 28%;  }
-  55%  { width: 61%;  }
-  75%  { width: 79%;  }
-  90%  { width: 93%;  }
-  100% { width: 100%; }
-}
-.boot-bar-pct {
-  font-size: 9px;
-  color: rgba(0, 255, 200, 0.4);
-  letter-spacing: 0.15em;
-  animation: pctCount 2.8s linear forwards;
-}
-@keyframes pctCount {
-  0%   { opacity: 0.4; }
-  100% { opacity: 0.8; }
-}
-
-/* 滚动日志 */
-.boot-log {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.log-line {
-  font-size: 11px;
-  color: rgba(0, 255, 200, 0.55);
-  letter-spacing: 0.05em;
-  opacity: 0;
-  animation: logFadeIn 0.3s ease forwards;
-  display: flex;
-  gap: 6px;
-}
-.log-tag {
-  color: rgba(0, 255, 200, 0.3);
-  flex-shrink: 0;
-}
-@keyframes logFadeIn {
-  from { opacity: 0; transform: translateX(-6px); }
-  to   { opacity: 1; transform: translateX(0); }
-}
-
-/* 底部十六进制装饰 */
-.boot-footer {
-  display: flex;
-  gap: 12px;
-  margin-top: 4px;
-}
-.boot-hex {
-  font-size: 9px;
-  color: rgba(0, 255, 200, 0.20);
-  letter-spacing: 0.08em;
-  transition: color 0.18s ease;
-}
-
-/* 过渡动画 */
-.luna-intro-enter-active { transition: opacity 0.4s ease; }
-.luna-intro-leave-active { transition: opacity 0.8s ease; }
-.luna-intro-enter-from   { opacity: 0; }
-.luna-intro-leave-to     { opacity: 0; }
-
-.particle-canvas-overlay {
-  position: fixed;
-  inset: 0;
-  width: 100vw;
-  height: 100vh;
-  z-index: 8999;
-  pointer-events: none;
-  pointer-events: none;
-}
-
-@keyframes panelScanLine {
-  0% {
-    opacity: 0;
-    transform: translateX(-40%);
-  }
-  20% {
-    opacity: 0.9;
-    transform: translateX(0%);
-  }
-  60% {
-    opacity: 0.2;
-    transform: translateX(40%);
-  }
-  100% {
-    opacity: 0;
-    transform: translateX(60%);
-  }
-}
-
-@keyframes panelAppear {
-  from {
-    opacity: 0;
-    transform: translateY(10px) scale(0.97);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-</style>
+src\views\index\index.vue
