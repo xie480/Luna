@@ -285,6 +285,13 @@
   </div>
 </transition>
 
+<!-- ===== 代码粒子入场动画 ===== -->
+<canvas
+  v-if="codeParticleVisible"
+  ref="particleCanvasRef"
+  class="particle-canvas-overlay"
+></canvas>
+
   </div>
 </template>
 
@@ -319,7 +326,517 @@ const showDebugUI      = ref(false);
 const showMessageBox   = ref(false);
 const trackingEnabled  = ref(true);
 const isSettingOrigin  = ref(false);
+const lunaIntroVisible = ref(true);
+const codeParticleVisible = ref(false);
+const particleCanvasRef   = ref(null);
 
+function runCodeParticleIntro(onDone) {
+  codeParticleVisible.value = true;
+
+  nextTick(() => {
+    const canvas = particleCanvasRef.value;
+    if (!canvas) { onDone?.(); return; }
+
+    const W = canvas.width  = window.innerWidth;
+    const H = canvas.height = window.innerHeight;
+    const ctx = canvas.getContext("2d");
+
+    const CX    = W / 2;
+    // 下移：从 H/2 - 20 改为 H/2 + 60，确保图案不被遮挡
+    const CY    = H / 2 + 60;
+    const SCALE = Math.min(W, H) / 560;
+
+    // ============================================================
+    // 1. 猫脸 + JK少女元素轮廓采样
+    // ============================================================
+    function buildSilhouette() {
+      const pts = [];
+
+      function circle(cx, cy, rx, ry, step = 0.10) {
+        for (let a = 0; a < Math.PI * 2; a += step)
+          pts.push({ x: cx + Math.cos(a) * rx, y: cy + Math.sin(a) * ry });
+      }
+      function arc(cx, cy, rx, ry, a0, a1, step = 0.10) {
+        for (let a = a0; a <= a1; a += step)
+          pts.push({ x: cx + Math.cos(a) * rx, y: cy + Math.sin(a) * ry });
+      }
+      function line(x0, y0, x1, y1, n) {
+        for (let i = 0; i <= n; i++) {
+          const t = i / n;
+          pts.push({ x: x0 + (x1 - x0) * t, y: y0 + (y1 - y0) * t });
+        }
+      }
+      function fill(x0, y0, x1, y1, cols, rows) {
+        for (let r = 0; r <= rows; r++)
+          for (let c = 0; c <= cols; c++)
+            pts.push({
+              x: x0 + (x1 - x0) * (c / cols),
+              y: y0 + (y1 - y0) * (r / rows),
+            });
+      }
+      function scatter(cx, cy, rx, ry, n) {
+        for (let i = 0; i < n; i++)
+          pts.push({
+            x: cx + (Math.random() - 0.5) * rx * 2,
+            y: cy + (Math.random() - 0.5) * ry * 2,
+          });
+      }
+
+      const s = SCALE;
+
+      // ── 猫脸主轮廓 ──
+      circle(CX, CY, 130 * s, 115 * s, 0.05);
+      circle(CX, CY, 115 * s, 100 * s, 0.07);
+      circle(CX, CY,  95 * s,  82 * s, 0.10);
+      fill(CX - 100 * s, CY - 80 * s, CX + 100 * s, CY + 80 * s, 14, 12);
+
+      // ── 猫耳（左）──
+      line(CX - 130 * s, CY - 80  * s, CX - 80 * s, CY - 185 * s, 14);
+      line(CX - 80  * s, CY - 185 * s, CX - 38 * s, CY -  95 * s, 14);
+      line(CX - 118 * s, CY -  90 * s, CX - 82 * s, CY - 165 * s, 10);
+      line(CX - 82  * s, CY - 165 * s, CX - 50 * s, CY - 102 * s, 10);
+      fill(CX - 112 * s, CY - 158 * s, CX - 52 * s, CY - 102 * s, 5, 5);
+
+      // ── 猫耳（右）──
+      line(CX + 130 * s, CY -  80 * s, CX + 80 * s, CY - 185 * s, 14);
+      line(CX + 80  * s, CY - 185 * s, CX + 38 * s, CY -  95 * s, 14);
+      line(CX + 118 * s, CY -  90 * s, CX + 82 * s, CY - 165 * s, 10);
+      line(CX + 82  * s, CY - 165 * s, CX + 50 * s, CY - 102 * s, 10);
+      fill(CX + 52  * s, CY - 158 * s, CX + 112 * s, CY - 102 * s, 5, 5);
+
+      // ── 猫眼（左）──
+      circle(CX - 50 * s, CY - 15 * s, 30 * s, 22 * s, 0.10);
+      circle(CX - 50 * s, CY - 15 * s, 20 * s, 14 * s, 0.14);
+      circle(CX - 50 * s, CY - 15 * s,  9 * s, 15 * s, 0.18);
+      scatter(CX - 40 * s, CY - 24 * s, 6 * s, 6 * s, 8);
+      arc(CX - 50 * s, CY - 15 * s, 32 * s, 24 * s, Math.PI * 1.18, Math.PI * 1.88, 0.08);
+      for (let i = 0; i < 7; i++) {
+        const a  = Math.PI * 1.22 + i * 0.10;
+        const bx = CX - 50 * s + Math.cos(a) * 32 * s;
+        const by = CY - 15  * s + Math.sin(a) * 24 * s;
+        line(bx, by, bx + Math.cos(a) * 12 * s, by + Math.sin(a) * 12 * s, 4);
+      }
+
+      // ── 猫眼（右）──
+      circle(CX + 50 * s, CY - 15 * s, 30 * s, 22 * s, 0.10);
+      circle(CX + 50 * s, CY - 15 * s, 20 * s, 14 * s, 0.14);
+      circle(CX + 50 * s, CY - 15 * s,  9 * s, 15 * s, 0.18);
+      scatter(CX + 60 * s, CY - 24 * s, 6 * s, 6 * s, 8);
+      arc(CX + 50 * s, CY - 15 * s, 32 * s, 24 * s, Math.PI * 1.12, Math.PI * 1.82, 0.08);
+      for (let i = 0; i < 7; i++) {
+        const a  = Math.PI * 1.12 + i * 0.10;
+        const bx = CX + 50 * s + Math.cos(Math.PI * 2 - a) * 32 * s;
+        const by = CY - 15  * s + Math.sin(a) * 24 * s;
+        line(bx, by, bx - Math.cos(a) * 12 * s, by + Math.sin(a) * 12 * s, 4);
+      }
+
+      // ── 猫鼻 ──
+      line(CX - 12 * s, CY + 25 * s, CX + 12 * s, CY + 25 * s, 5);
+      line(CX - 12 * s, CY + 25 * s, CX,           CY + 40 * s, 5);
+      line(CX + 12 * s, CY + 25 * s, CX,           CY + 40 * s, 5);
+
+      // ── 猫口 ──
+      arc(CX - 24 * s, CY + 55 * s, 20 * s, 11 * s, Math.PI * 1.5, Math.PI * 2.0, 0.10);
+      arc(CX + 24 * s, CY + 55 * s, 20 * s, 11 * s, Math.PI,       Math.PI * 1.5, 0.10);
+
+      // ── 猫须（左右各4根）──
+      line(CX - 38 * s, CY + 28 * s, CX - 125 * s, CY + 18 * s, 10);
+      line(CX - 38 * s, CY + 35 * s, CX - 128 * s, CY + 34 * s, 10);
+      line(CX - 38 * s, CY + 42 * s, CX - 125 * s, CY + 50 * s, 10);
+      line(CX - 38 * s, CY + 22 * s, CX - 118 * s, CY +  5 * s, 10);
+      line(CX + 38 * s, CY + 28 * s, CX + 125 * s, CY + 18 * s, 10);
+      line(CX + 38 * s, CY + 35 * s, CX + 128 * s, CY + 34 * s, 10);
+      line(CX + 38 * s, CY + 42 * s, CX + 125 * s, CY + 50 * s, 10);
+      line(CX + 38 * s, CY + 22 * s, CX + 118 * s, CY +  5 * s, 10);
+
+      // ── 腮红 ──
+      scatter(CX - 85 * s, CY + 22 * s, 26 * s, 14 * s, 24);
+      scatter(CX + 85 * s, CY + 22 * s, 26 * s, 14 * s, 24);
+
+      // ── 蝴蝶结（头顶）──
+      for (let a = 0; a < Math.PI * 2; a += 0.12)
+        pts.push({
+          x: CX - 65 * s + Math.cos(a) * 48 * s * (1 + 0.3 * Math.cos(2 * a)),
+          y: CY - 238 * s + Math.sin(a) * 26 * s * (1 + 0.3 * Math.cos(2 * a)),
+        });
+      for (let a = 0; a < Math.PI * 2; a += 0.12)
+        pts.push({
+          x: CX + 65 * s + Math.cos(a) * 48 * s * (1 + 0.3 * Math.cos(2 * a)),
+          y: CY - 238 * s + Math.sin(a) * 26 * s * (1 + 0.3 * Math.cos(2 * a)),
+        });
+      circle(CX, CY - 238 * s, 12 * s, 12 * s, 0.22);
+      line(CX - 10 * s, CY - 226 * s, CX - 22 * s, CY - 200 * s, 6);
+      line(CX + 10 * s, CY - 226 * s, CX + 22 * s, CY - 200 * s, 6);
+                                                                                                                                                                                                      
+      // ── 衬衣领口 ──
+      line(CX, CY + 118 * s, CX - 62 * s, CY + 152 * s, 12);
+      line(CX, CY + 118 * s, CX + 62 * s, CY + 152 * s, 12);
+      line(CX - 16 * s, CY + 118 * s, CX, CY + 130 * s, 6);
+      line(CX + 16 * s, CY + 118 * s, CX, CY + 130 * s, 6);
+      circle(CX, CY + 130 * s, 6 * s, 6 * s, 0.30);
+
+      // ── 制服肩部 ──
+      arc(CX - 140 * s, CY + 105 * s, 34 * s, 22 * s, Math.PI * 1.4, Math.PI * 2.0, 0.10);
+      arc(CX + 140 * s, CY + 105 * s, 34 * s, 22 * s, Math.PI,       Math.PI * 1.6, 0.10);
+      line(CX - 140 * s, CY + 105 * s, CX - 90 * s, CY + 82 * s, 10);
+      line(CX + 140 * s, CY + 105 * s, CX + 90 * s, CY + 82 * s, 10);
+
+      // ── 樱花瓣（8片）──
+      const petalPos = [
+        [CX - 230 * s, CY - 180 * s],
+        [CX + 220 * s, CY - 150 * s],
+        [CX - 250 * s, CY +  50 * s],
+        [CX + 240 * s, CY +  70 * s],
+        [CX,           CY - 310 * s],
+        [CX - 180 * s, CY + 150 * s],
+        [CX + 185 * s, CY + 145 * s],
+        [CX - 60  * s, CY - 295 * s],
+      ];
+      petalPos.forEach(([px, py]) => {
+        for (let a = 0; a < Math.PI * 2; a += 0.16)
+          pts.push({
+            x: px + Math.cos(a) * 20 * s * (1 + 0.5 * Math.cos(a)),
+            y: py + Math.sin(a) * 13 * s,
+          });
+      });
+
+      // ── 音符（4个）──
+      const notePositions = [
+        [CX + 250 * s, CY -  70 * s],
+        [CX - 262 * s, CY +   0 * s],
+        [CX + 200 * s, CY + 160 * s],
+        [CX - 210 * s, CY + 155 * s],
+      ];
+      notePositions.forEach(([nx, ny]) => {
+        circle(nx, ny, 9 * s, 7 * s, 0.28);
+        line(nx + 9 * s, ny, nx + 9 * s, ny - 28 * s, 6);
+        line(nx + 9 * s, ny - 28 * s, nx + 20 * s, ny - 20 * s, 3);
+      });
+
+      // ── 星星（6颗）──
+      const starPos = [
+        [CX - 200 * s, CY - 110 * s],
+        [CX + 195 * s, CY - 120 * s],
+        [CX - 190 * s, CY + 120 * s],
+        [CX + 192 * s, CY + 125 * s],
+        [CX - 80  * s, CY - 280 * s],
+        [CX + 85  * s, CY - 275 * s],
+      ];
+      starPos.forEach(([sx, sy]) => {
+        for (let i = 0; i < 5; i++) {
+          const a0 = (i / 5) * Math.PI * 2 - Math.PI / 2;
+          const a1 = a0 + Math.PI / 5;
+          const R  = 14 * s, r = 6 * s;
+          line(
+            sx + Math.cos(a0) * R, sy + Math.sin(a0) * R,
+            sx + Math.cos(a1) * r, sy + Math.sin(a1) * r, 2
+          );
+          line(
+            sx + Math.cos(a1) * r, sy + Math.sin(a1) * r,
+            sx + Math.cos(a0 + Math.PI * 2 / 5) * R,
+            sy + Math.sin(a0 + Math.PI * 2 / 5) * R, 2
+          );
+        }
+      });
+
+      // ── 爱心（2个）──
+      [[CX - 160 * s, CY - 200 * s], [CX + 158 * s, CY - 195 * s]].forEach(([hx, hy]) => {
+        for (let a = 0; a < Math.PI * 2; a += 0.18) {
+          pts.push({
+            x: hx + 12 * s * (16 * Math.pow(Math.sin(a), 3)) / 16,
+            y: hy - 12 * s * (13 * Math.cos(a) - 5 * Math.cos(2*a) - 2 * Math.cos(3*a) - Math.cos(4*a)) / 16,
+          });
+        }
+      });
+
+      return pts;
+    }
+
+    const silhouette = buildSilhouette();
+
+    // ============================================================
+    // 2. 字符集
+    // ============================================================
+    const CHAR_SETS = [
+      "01",
+      "ABCDEF0123456789",
+      "アイウエオカキクケコサシスセソタチツ",
+      "{}[]()<>|/\\=+-*&^%$#@!~",
+      `"λΣΩΔΨΦπμσ♡♪★☆◇◆"`,
+      `"░▒▓█▄▀■□"`,
+    ];
+    function randChar() {
+      const set = CHAR_SETS[Math.floor(Math.random() * CHAR_SETS.length)];
+      return set[Math.floor(Math.random() * set.length)];
+    }
+
+    // ============================================================
+    // 3. 粒子构造
+    // ============================================================
+    const TOTAL = Math.min(silhouette.length, 700);
+    const chosen = silhouette.sort(() => Math.random() - 0.5).slice(0, TOTAL);
+
+    const COLORS = [
+      [255, 180, 210],
+      [255, 140, 200],
+      [200, 160, 255],
+      [0,   220, 255],
+      [255, 255, 255],
+      [255, 200, 230],
+      [255, 120, 180],
+      [180, 100, 255],
+    ];
+
+    const particles = chosen.map((target) => {
+      const col  = COLORS[Math.floor(Math.random() * COLORS.length)];
+      const edge = Math.floor(Math.random() * 4);
+      let sx, sy;
+      if      (edge === 0) { sx = Math.random() * W; sy = -30; }
+      else if (edge === 1) { sx = W + 30;             sy = Math.random() * H; }
+      else if (edge === 2) { sx = Math.random() * W; sy = H + 30; }
+      else                 { sx = -30;                sy = Math.random() * H; }
+
+      return {
+        x: sx, y: sy,
+        tx: target.x, ty: target.y,
+        char: randChar(),
+        size: 8 + Math.random() * 7,
+        speed: 0.050 + Math.random() * 0.050,
+        alpha: 0,
+        col,
+        phase: Math.random() * Math.PI * 2,
+        charTimer: 0,
+        charInterval: 3 + Math.floor(Math.random() * 6),
+        trail: [],
+        trailMax: 5 + Math.floor(Math.random() * 6),
+      };
+    });
+                                                                                                                                                                                                      
+    // ============================================================
+    // 4. 代码雨背景
+    // ============================================================
+    const RAIN_COLS = 34;
+    const rainDrops = Array.from({ length: RAIN_COLS }, (_, i) => ({
+      x:     (i / RAIN_COLS) * W + Math.random() * (W / RAIN_COLS),
+      y:     Math.random() * H,
+      speed: 1.6 + Math.random() * 2.8,
+      chars: Array.from({ length: 20 }, () => randChar()),
+      alpha: 0.07 + Math.random() * 0.10,
+      gap:   16 + Math.random() * 8,
+    }));
+                                                                                                                                                                                                      
+    // ============================================================
+    // 5. 帧参数（关键：四个阶段严格分离）
+    // ============================================================
+    let frame = 0;
+    const GATHER   = 90;
+    const HOLD     = 70;
+    const FADEOUT  = 50;
+    const DISSOLVE = 35;
+    const TOTAL_F  = GATHER + HOLD + FADEOUT + DISSOLVE;
+    let rafId;
+
+    // ============================================================
+    // 6. 渲染循环（重构：严格阶段判断，保证 DISSOLVE 一定执行）
+    // ============================================================
+    function tick() {
+
+      // ── 阶段四：DISSOLVE —— Canvas 整体淡出 + 光环爆散 ──
+      // 必须放在最顶部，优先判断，防止被跳过
+      if (frame >= GATHER + HOLD + FADEOUT) {
+        const t = (frame - GATHER - HOLD - FADEOUT) / DISSOLVE;
+        const eased = Math.min(1, t);
+                                                                                                                                                                                                      
+        // 修改 Canvas CSS 透明度实现整体淡出
+        canvas.style.opacity = String(Math.max(0, 1 - eased * eased));
+
+        ctx.clearRect(0, 0, W, H);
+
+        // 第一道光环：粉紫，从中心向外扩散
+        const r1     = 80 * SCALE + eased * Math.max(W, H) * 0.85;
+        const a1     = (1 - eased) * 0.38;
+        const grd1   = ctx.createRadialGradient(CX, CY, r1 * 0.65, CX, CY, r1);
+        grd1.addColorStop(0,   `rgba(255,160,220,0)`);
+        grd1.addColorStop(0.5, `rgba(255,160,220,${a1})`);
+        grd1.addColorStop(1,   `rgba(200,120,255,0)`);
+        ctx.fillStyle = grd1;
+        ctx.fillRect(0, 0, W, H);
+
+        // 第二道光环：科幻青，半径稍小，错开层次
+        const r2   = 40 * SCALE + eased * Math.max(W, H) * 0.55;
+        const a2   = (1 - eased) * 0.22;
+        const grd2 = ctx.createRadialGradient(CX, CY, r2 * 0.55, CX, CY, r2);
+        grd2.addColorStop(0,   `rgba(0,220,255,0)`);
+        grd2.addColorStop(0.5, `rgba(0,220,255,${a2})`);
+        grd2.addColorStop(1,   `rgba(0,220,255,0)`);
+        ctx.fillStyle = grd2;
+        ctx.fillRect(0, 0, W, H);
+                                                                                                                                                                                                      
+        frame++;
+
+        if (frame < TOTAL_F) {
+          rafId = requestAnimationFrame(tick);
+        } else {
+          // 动画彻底结束：还原 opacity，清除 Canvas，触发回调
+          canvas.style.opacity = "1";
+          ctx.clearRect(0, 0, W, H);
+          codeParticleVisible.value = false;
+          onDone?.();
+        }
+        return; // 必须 return，不能继续执行下方逻辑
+      }
+
+      // ── 阶段一/二/三：正常绘制 ──
+
+      // 残影拖尾
+      ctx.fillStyle = "rgba(0,0,0,0.28)";
+      ctx.fillRect(0, 0, W, H);
+                                                                                                                                                                                                      
+      const prog_gather = Math.min(1, frame / GATHER);
+                                                                                                                                                                                                      
+      // ── 代码雨背景 ──
+      const rainAlpha = frame < GATHER
+        ? prog_gather * 0.65
+        : frame < GATHER + HOLD
+          ? 0.65
+          : Math.max(0, 0.65 - ((frame - GATHER - HOLD) / FADEOUT));
+
+      rainDrops.forEach((drop) => {
+        drop.y += drop.speed;
+        if (drop.y > H + drop.chars.length * drop.gap)
+          drop.y = -drop.chars.length * drop.gap;
+        if (Math.random() < 0.04)
+          drop.chars[Math.floor(Math.random() * drop.chars.length)] = randChar();
+
+        drop.chars.forEach((ch, i) => {
+          const fy = drop.y + i * drop.gap;
+          if (fy < 0 || fy > H) return;
+          const fade = 1 - i / drop.chars.length;
+          ctx.save();
+          ctx.globalAlpha = drop.alpha * fade * rainAlpha;
+          ctx.font        = `${11 + i * 0.3}px "Courier New", monospace`;
+          ctx.fillStyle   = i === 0 ? "#ffffff" : "rgba(255,180,220,1)";
+          ctx.shadowColor = "rgba(255,160,210,0.6)";
+          ctx.shadowBlur  = i === 0 ? 10 : 4;
+          ctx.fillText(ch, drop.x, fy);
+          ctx.restore();
+        });
+      });
+
+      // ── 主粒子 ──
+      particles.forEach((p) => {
+        if (frame < GATHER) {
+          p.x    += (p.tx - p.x) * p.speed;
+          p.y    += (p.ty - p.y) * p.speed;
+          const t = frame / GATHER;
+          p.alpha = Math.min(1, t * t * 2.5);
+        } else if (frame < GATHER + HOLD) {
+          p.x     = p.tx + Math.sin(frame * 0.07 + p.phase) * 1.4 * SCALE;
+          p.y     = p.ty + Math.cos(frame * 0.05 + p.phase) * 1.4 * SCALE;
+          p.alpha = 1;
+          p.charTimer++;
+          if (p.charTimer >= p.charInterval) {
+            p.char      = randChar();
+            p.charTimer = 0;
+          }
+        } else {
+          // FADEOUT：粒子向外爆散
+          const t    = (frame - GATHER - HOLD) / FADEOUT;
+          const ease = t * t;
+          p.alpha    = Math.max(0, 1 - ease * 1.3);
+          const dx   = p.tx - CX, dy = p.ty - CY;
+          p.x        = p.tx + dx * ease * 1.0 + (Math.random() - 0.5) * ease * 100;
+          p.y        = p.ty + dy * ease * 1.0 + (Math.random() - 0.5) * ease * 100;
+        }
+                                                                                                                                                                                                      
+        if (p.alpha <= 0.01) return;
+
+        // 拖尾
+        p.trail.push({ x: p.x, y: p.y });
+        if (p.trail.length > p.trailMax) p.trail.shift();
+        p.trail.forEach((tp, i) => {
+          const ta = (i / p.trail.length) * p.alpha * 0.32;
+          if (ta < 0.02) return;
+          ctx.save();
+          ctx.globalAlpha = ta;
+          ctx.font        = `${p.size * 0.7}px "Courier New", monospace`;
+          ctx.fillStyle   = `rgba(${p.col[0]},${p.col[1]},${p.col[2]},1)`;
+          ctx.fillText(p.char, tp.x, tp.y);
+          ctx.restore();
+        });
+                                                                                                                                                                                                      
+        // 主字符
+        ctx.save();
+        ctx.globalAlpha = p.alpha;
+        ctx.font        = `bold ${p.size}px "Courier New", monospace`;
+        ctx.fillStyle   = `rgba(${p.col[0]},${p.col[1]},${p.col[2]},1)`;
+        ctx.shadowColor = `rgba(${p.col[0]},${p.col[1]},${p.col[2]},0.9)`;
+        ctx.shadowBlur  = 14;
+        ctx.fillText(p.char, p.x, p.y);
+        ctx.restore();
+      });
+                                                                                                                                                                                                      
+      // ── 汇聚中心光晕 ──
+      if (frame >= GATHER * 0.5 && frame < GATHER + HOLD) {
+        const prog    = Math.min(1, (frame - GATHER * 0.5) / (GATHER * 0.5));
+        const fadeOut = frame >= GATHER + HOLD * 0.6
+          ? 1 - (frame - GATHER - HOLD * 0.6) / (HOLD * 0.4)
+          : 1;
+        const radius = 280 * SCALE * prog;
+        const grd    = ctx.createRadialGradient(CX, CY, 0, CX, CY, radius);
+        grd.addColorStop(0,   `rgba(255,160,220,${0.09 * prog * fadeOut})`);
+        grd.addColorStop(0.4, `rgba(180,120,255,${0.05 * prog * fadeOut})`);
+        grd.addColorStop(1,   "rgba(0,0,0,0)");
+        ctx.fillStyle = grd;
+        ctx.fillRect(0, 0, W, H);
+      }
+                                                                                                                                                                                                      
+      // ── 保持阶段扫描线 ──
+      if (frame >= GATHER && frame < GATHER + HOLD) {
+        const t     = (frame - GATHER) / HOLD;
+        const scanY = (CY - 280 * SCALE) + t * 460 * SCALE;
+        const sGrd  = ctx.createLinearGradient(0, scanY - 16, 0, scanY + 16);
+        sGrd.addColorStop(0,   "rgba(255,180,220,0)");
+        sGrd.addColorStop(0.5, `rgba(255,180,220,${0.22 * Math.sin(t * Math.PI)})`);
+        sGrd.addColorStop(1,   "rgba(255,180,220,0)");
+        ctx.fillStyle = sGrd;
+        ctx.fillRect(CX - 200 * SCALE, scanY - 16, 400 * SCALE, 32);
+      }
+                                                                                                                                                                                                      
+      // ── HUD 装饰文字 ──
+      if (frame < GATHER + HOLD) {
+        const hudAlpha = Math.min(1, frame / 20);
+        ctx.save();
+        ctx.globalAlpha = hudAlpha * 0.32;
+        ctx.font        = '10px "Courier New", monospace';
+        ctx.fillStyle   = "rgba(255,180,220,1)";
+        ctx.fillText(`FRAME  : ${String(frame).padStart(4, "0")}`, 24, H - 60);
+        ctx.fillText(`POINTS : ${TOTAL}`,                          24, H - 46);
+        ctx.fillText(`STATUS : ${frame < GATHER ? "ASSEMBLING" : "LOCKED"}`, 24, H - 32);
+        ctx.fillText(`SYS    : LUNA-CORE v2.0.1`,                 24, H - 18);
+        ctx.textAlign = "right";
+        ctx.fillText(`RES ${W}x${H}`,         W - 24, H - 46);
+        ctx.fillText(`ENTITY : NEKO-JK MODE`, W - 24, H - 32);
+        ctx.fillText(`AI ASSISTANT ONLINE`,   W - 24, H - 18);
+        ctx.restore();
+      }
+                                                                                                                                                                                                      
+      frame++;
+      // 注意：此处不再处理终止逻辑，终止统一由顶部 DISSOLVE 分支处理
+      rafId = requestAnimationFrame(tick);
+    }
+
+    rafId = requestAnimationFrame(tick);
+
+    // 兜底：10秒强制结束
+    setTimeout(() => {
+      cancelAnimationFrame(rafId);
+      canvas.style.opacity      = "1";
+      codeParticleVisible.value = false;
+      onDone?.();
+    }, 10000);
+  });
+}  
 
 const bootLines = [
   "Initializing neural interface...",
@@ -1096,16 +1613,26 @@ onMounted(async () => {
   await nextTick();
   await applyAllEnabled(getCoreModel());
 
-  gsap.to(model, {
-    alpha:    1,
-    y:        app.renderer.height,
-    duration: 1.4,
-    ease:     "power3.out",
-    onComplete: () => {
-      lunaIntroVisible.value = false;
-    },
-  });
+// Boot 动画结束后，先播代码粒子动画，再显示模型
+gsap.to(model, { alpha: 0, duration: 0 });
 
+gsap.delayedCall(3.2, () => {
+  lunaIntroVisible.value = false;
+
+  // 模型提前移到正确位置并开始在后台渲染，保持透明
+  model.alpha = 0;
+  model.y     = app.renderer.height;
+                                                                                                                                                                                                      
+  // 粒子动画启动
+  runCodeParticleIntro(() => {
+    // 粒子结束后模型直接淡入，无空白期
+    gsap.to(model, {
+      alpha:    1,
+      duration: 1.0,
+      ease:     "power3.out",
+    });
+  });
+}); 
   applyEmotionExpressions(INITIAL_EMOTION);
   callStartup();
 });
@@ -2353,4 +2880,14 @@ onBeforeUnmount(() => {
 .luna-intro-leave-active { transition: opacity 0.8s ease; }
 .luna-intro-enter-from   { opacity: 0; }
 .luna-intro-leave-to     { opacity: 0; }
+
+.particle-canvas-overlay {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 8999;
+  pointer-events: none;
+  pointer-events: none;
+}
 </style>
