@@ -37,10 +37,10 @@ qwen:
   summary-id: a427e617960545ab878de348075015f9
 
 gemini:
-  url: https://sunlea.de/v1
+  url: https://sunlea.de/v1/chat/completions
   api: sk-RmtnZlEJoyvcruF36uhXZfIQA0y1b2xtY8dFxY2yVcYeVcMl
   summary-model-name: gemini-3-flash-preview
-  chat-model-name: gemini-3-pro-preview
+  chat-model-name: gemini-2.5-pro
 
 springdoc:
   swagger-ui:

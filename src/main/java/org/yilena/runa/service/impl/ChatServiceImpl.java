@@ -243,7 +243,7 @@ public class ChatServiceImpl implements ChatService {
                     .uri(URI.create(geminiProperty.getUrl()))
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + geminiProperty.getApi())
-                    .timeout(Duration.ofSeconds(30))
+                    .timeout(Duration.ofSeconds(60))
                     .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
                     .build();
 
@@ -316,7 +316,7 @@ public class ChatServiceImpl implements ChatService {
                     JsonNode repairedNode = tryParseJsonNode(repairedText);
                     if (isValidReplyNode(repairedNode)) {
                         log.info("REPAIR_PROMPT 修复成功");
-                        return new SendToLuna(repairedText, repairedNode.get(ModelHintConstant.REPLY).asText());
+                        return new SendToLuna(repairedNode.toString(), repairedNode.get(ModelHintConstant.REPLY).asText());
                     } else {
                         log.error("REPAIR_PROMPT 修复后仍不合规，repairedText={}", repairedText);
                     }
@@ -336,13 +336,21 @@ public class ChatServiceImpl implements ChatService {
 
         // 解析成功且包含 reply 字段
         String replyText = node.get(ModelHintConstant.REPLY).asText();
-        return new SendToLuna(valid, replyText);
+        String cleanValid = node.toString();
+        return new SendToLuna(cleanValid, replyText);
     }
 
     private JsonNode tryParseJsonNode(String text) {
         if (text == null) return null;
+        String cleaned = text.trim();
+        if (cleaned.startsWith("```")) {
+            // 使用 (?s) 開啟 DOTALL 模式，讓 . 能匹配換行符
+            cleaned = cleaned.replaceAll("(?s)^```[a-zA-Z]*\\s*", "")
+                    .replaceAll("(?s)```\\s*$", "")
+                    .trim();
+        }
         try {
-            return mapper.readTree(text);
+            return mapper.readTree(cleaned);
         } catch (JsonProcessingException e) {
             log.warn("解析 JSON 失败：{}", e.getMessage());
             return null;
