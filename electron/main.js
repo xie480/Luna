@@ -49,6 +49,11 @@ ipcMain.handle("luna.api.chat.history", async (_event, yearMonthDay) => {
   return http.get('/luna/api/chat/history', { params: { ymd: yearMonthDay } }).then(res => res.data);
 });
 
+
+ipcMain.handle("luna.app.quit", () => {
+  app.quit();
+});
+
 /* ===== pet enter/leave: use event.sender to get the right BrowserWindow ===== */
 ipcMain.on("pet:mouse-enter", (event) => {
   try {

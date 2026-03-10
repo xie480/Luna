@@ -244,13 +244,46 @@
     </div>
 
     <!-- ===== Luna 入场遮罩 ===== -->
-    <transition name="luna-intro">
-      <div v-if="lunaIntroVisible" class="luna-intro-mask">
-        <div class="luna-intro-text">
-          <span class="luna-dot" v-for="i in 3" :key="i"></span>
+<transition name="luna-intro">
+  <div v-if="lunaIntroVisible" class="luna-intro-mask">
+    <div class="luna-boot-screen">
+      <!-- 顶部扫描线 -->
+      <div class="scan-line"></div>
+
+      <!-- 主标题 -->
+      <div class="boot-title">
+        <span class="boot-bracket">[</span>
+        <span class="boot-name">LUNA</span>
+        <span class="boot-bracket">]</span>
+        <span class="boot-version">v2.0.1</span>
+      </div>
+
+      <!-- 副标题 -->
+      <div class="boot-subtitle">AI ASSISTANT CORE — INITIALIZING</div>
+
+      <!-- 进度条 -->
+      <div class="boot-bar-wrap">
+        <div class="boot-bar-track">
+          <div class="boot-bar-fill"></div>
+        </div>
+        <span class="boot-bar-pct">LOADING...</span>
+      </div>
+
+      <!-- 滚动日志 -->
+      <div class="boot-log">
+        <div class="log-line" v-for="(line, i) in bootLines" :key="i"
+          :style="{ animationDelay: i * 0.18 + 's' }">
+          <span class="log-tag">&gt;</span> {{ line }}
         </div>
       </div>
-    </transition>
+
+      <!-- 底部装饰 -->
+      <div class="boot-footer">
+        <span class="boot-hex" v-for="h in 6" :key="h">{{ hexChars[h-1] }}</span>
+      </div>
+    </div>
+  </div>
+</transition>
 
   </div>
 </template>
@@ -286,7 +319,28 @@ const showDebugUI      = ref(false);
 const showMessageBox   = ref(false);
 const trackingEnabled  = ref(true);
 const isSettingOrigin  = ref(false);
-const lunaIntroVisible = ref(true);
+
+
+const bootLines = [
+  "Initializing neural interface...",
+  "Loading Live2D core module...",
+  "Mounting expression engine...",
+  "Calibrating gaze tracking...",
+  "Connecting to Luna API...",
+  "Warming up language model...",
+  "System ready.",
+];
+
+const hexChars = ref([]);
+function genHex() {
+  hexChars.value = Array.from({ length: 6 }, () =>
+    Math.floor(Math.random() * 0xFFFF).toString(16).toUpperCase().padStart(4, "0")
+  );
+}
+genHex();
+let hexTimer = null;
+onMounted(() => { hexTimer = setInterval(genHex, 180); });
+onBeforeUnmount(() => { clearInterval(hexTimer); });
 
 const currentEmotion = ref("neutral");
 const EMOTION_LABEL_MAP = {
@@ -954,7 +1008,11 @@ async function resetModelState() {
 }
 
 /* ================= 关闭 Luna ================= */
-function closeLuna() {
+async function closeLuna() {
+  contextMenu.value.visible = false;
+  try {
+    await callShutdown();
+  } catch {}
   try {
     stopBreath();
     app?.destroy(true);
@@ -963,8 +1021,9 @@ function closeLuna() {
     console.warn("[Luna] 关闭出错", e);
   }
   if (wrapperRef.value) wrapperRef.value.innerHTML = "";
-  showMessageBox.value      = false;
-  contextMenu.value.visible = false;
+  showMessageBox.value = false;
+  // 通知 Electron 主进程终止
+  window.desktopApi?.quit?.();
 }
 
 /* ================= 等待模型就绪 ================= */
@@ -2117,6 +2176,7 @@ onBeforeUnmount(() => {
   to   { opacity: 1; transform: translateY(0);   }
 }
 
+/* ===== 科幻启动遮罩 ===== */
 .luna-intro-mask {
   position: fixed;
   inset: 0;
@@ -2124,25 +2184,173 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  background: rgba(0, 0, 0, 0.92);
+  backdrop-filter: blur(6px);
   pointer-events: none;
+  font-family: "Courier New", "Consolas", monospace;
 }
-.luna-intro-text { display: flex; gap: 10px; align-items: center; }
-.luna-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: rgba(255,255,255,0.55);
-  animation: lunaIntroDot 1.2s ease-in-out infinite;
+
+.luna-boot-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  width: 460px;
+  position: relative;
+  padding: 40px 32px;
+  border: 1px solid rgba(0, 255, 200, 0.18);
+  border-radius: 4px;
+  box-shadow:
+    0 0 40px rgba(0, 255, 200, 0.08),
+    inset 0 0 60px rgba(0, 255, 200, 0.03);
+}                                                                                                                                                                                                     
+
+/* 扫描线 */
+.scan-line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(0, 255, 200, 0.7), transparent);
+  animation: scanMove 2.4s ease-in-out infinite;
+  box-shadow: 0 0 10px rgba(0, 255, 200, 0.5);
 }
-.luna-dot:nth-child(1) { animation-delay: 0s;   }
-.luna-dot:nth-child(2) { animation-delay: 0.2s; }
-.luna-dot:nth-child(3) { animation-delay: 0.4s; }
-@keyframes lunaIntroDot {
-  0%, 80%, 100% { transform: scale(1);   opacity: 0.4; }
-  40%            { transform: scale(1.5); opacity: 1;   }
+@keyframes scanMove {
+  0%   { top: 0%;   opacity: 0.9; }
+  50%  { top: 100%; opacity: 0.6; }
+  100% { top: 0%;   opacity: 0.9; }
 }
-.luna-intro-enter-active { transition: opacity 0.3s ease; }
-.luna-intro-leave-active { transition: opacity 0.6s ease; }
+
+/* 主标题 */
+.boot-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  letter-spacing: 0.18em;
+}
+.boot-bracket {
+  font-size: 28px;
+  color: rgba(0, 255, 200, 0.5);
+  font-weight: 300;
+}
+.boot-name {
+  font-size: 36px;
+  font-weight: 700;
+  color: rgba(0, 255, 200, 0.95);
+  text-shadow:
+    0 0 12px rgba(0, 255, 200, 0.7),
+    0 0 30px rgba(0, 255, 200, 0.3);
+  letter-spacing: 0.3em;
+  animation: titlePulse 3s ease-in-out infinite;
+}
+.boot-version {
+  font-size: 11px;
+  color: rgba(0, 255, 200, 0.4);
+  letter-spacing: 0.12em;
+  align-self: flex-end;
+  margin-bottom: 4px;
+}
+@keyframes titlePulse {
+  0%, 100% { text-shadow: 0 0 12px rgba(0,255,200,0.7), 0 0 30px rgba(0,255,200,0.3); }
+  50%       { text-shadow: 0 0 20px rgba(0,255,200,0.95), 0 0 50px rgba(0,255,200,0.5); }
+}
+                                                                                                                                                                                                      
+/* 副标题 */
+.boot-subtitle {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  color: rgba(0, 255, 200, 0.45);
+  animation: subtitleBlink 2s step-end infinite;
+}
+@keyframes subtitleBlink {
+  0%, 90%, 100% { opacity: 1; }
+  95%            { opacity: 0; }
+}
+
+/* 进度条 */
+.boot-bar-wrap {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+.boot-bar-track {
+  width: 100%;
+  height: 3px;
+  background: rgba(0, 255, 200, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 255, 200, 0.12);
+}
+.boot-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, rgba(0,255,200,0.5), rgba(0,255,200,0.95));
+  box-shadow: 0 0 8px rgba(0, 255, 200, 0.6);
+  animation: barFill 2.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes barFill {
+  0%   { width: 0%;   }
+  30%  { width: 28%;  }
+  55%  { width: 61%;  }
+  75%  { width: 79%;  }
+  90%  { width: 93%;  }
+  100% { width: 100%; }
+}
+.boot-bar-pct {
+  font-size: 9px;
+  color: rgba(0, 255, 200, 0.4);
+  letter-spacing: 0.15em;
+  animation: pctCount 2.8s linear forwards;
+}
+@keyframes pctCount {
+  0%   { opacity: 0.4; }
+  100% { opacity: 0.8; }
+}
+
+/* 滚动日志 */
+.boot-log {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}                                                                                                                                                                                                     
+.log-line {
+  font-size: 11px;
+  color: rgba(0, 255, 200, 0.55);
+  letter-spacing: 0.05em;
+  opacity: 0;
+  animation: logFadeIn 0.3s ease forwards;
+  display: flex;
+  gap: 6px;
+}                                                                                                                                                                                                     
+.log-tag {
+  color: rgba(0, 255, 200, 0.3);
+  flex-shrink: 0;
+}
+@keyframes logFadeIn {
+  from { opacity: 0; transform: translateX(-6px); }
+  to   { opacity: 1; transform: translateX(0); }
+}                                                                                                                                                                                                     
+                                                                                                                                                                                                      
+/* 底部十六进制装饰 */
+.boot-footer {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
+.boot-hex {
+  font-size: 9px;
+  color: rgba(0, 255, 200, 0.20);
+  letter-spacing: 0.08em;
+  transition: color 0.18s ease;
+}
+
+/* 过渡动画 */
+.luna-intro-enter-active { transition: opacity 0.4s ease; }
+.luna-intro-leave-active { transition: opacity 0.8s ease; }
 .luna-intro-enter-from   { opacity: 0; }
 .luna-intro-leave-to     { opacity: 0; }
 </style>
