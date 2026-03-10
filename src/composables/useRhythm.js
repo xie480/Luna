@@ -18,9 +18,8 @@ export function useRhythm() {
     bodySway:      0,
     headNod:       0,
     breath:        0.5,
-    rafId:         null,
+    intervalId:    null,   // 改用 setInterval，避免 rAF 失焦节流
 
-    // 科技感擴展狀態
     glitchJitter:    0,
     glitchTimer:     0,
     scanPulseTimer:  0,
@@ -33,44 +32,41 @@ export function useRhythm() {
 
   const RHYTHM_CFG = {
     fftSize:   512,
-    smoothing: 0.86, // 更平滑的能量曲線，減少抖動感
+    smoothing: 0.86,
     bands: {
       bass: { start: 0,  end: 4  },
       mid:  { start: 5,  end: 30 },
     },
     envelope: {
-      // 更柔和的包絡，避免瞬時大幅度抖動
       bassAttack:  0.12,
       bassRelease: 0.05,
       midAttack:   0.10,
       midRelease:  0.07,
     },
     beatDetection: {
-      // 提高觸發門檻 & 降低頻率，只在較明顯的鼓點時點頭
       threshold: 0.14,
       decay:     0.80,
       cooldown:  10,
     },
     body: {
-      maxSway:        2.0,  // 身體左右最大擺幅（原 3.5）
-      smoothness:     0.08, // 更平滑的插值
+      maxSway:        2.0,
+      smoothness:     0.08,
       sinSpeed:       0.025,
-      bassMultiplier: 1.0,  // 對低頻反應略微收斂
+      bassMultiplier: 1.0,
     },
     head: {
-      nodMaxAngle:   5.5,   // 點頭最大角度（原 8.0）
-      swayMaxAngle:  2.0,   // 左右搖頭幅度（原 3.0）
+      nodMaxAngle:   5.5,
+      swayMaxAngle:  2.0,
       nodSmoothness: 0.16,
       returnSpeed:   0.07,
       microSway:     0.03,
     },
     breath: {
       baseRate:  0.48,
-      amplitude: 0.14, // 稍微減小呼吸起伏
+      amplitude: 0.14,
       speed:     0.22,
     },
     glitch: {
-      // 將 glitch 降為偶爾的細微抖動，避免搶戲
       minInterval:  260,
       maxInterval:  520,
       maxBodyShift: 1.0,
@@ -79,7 +75,6 @@ export function useRhythm() {
       burstCount:   2,
     },
     scan: {
-      // 掃描脈衝變得更少、更輕
       interval:    420,
       duration:    18,
       peakAngle:   3.0,
@@ -96,15 +91,10 @@ export function useRhythm() {
     },
   };
 
-  // ── 工具函數 ──────────────────────────────────────────────────
+  // ── 工具函数 ──────────────────────────────────────────────────
 
-  function lerp(a, b, t) {
-    return a + (b - a) * t;
-  }
-
-  function randSigned() {
-    return (Math.random() - 0.5) * 2;
-  }
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function randSigned()   { return (Math.random() - 0.5) * 2; }
 
   function quantumNoiseSample(phase) {
     return (
@@ -121,43 +111,26 @@ export function useRhythm() {
     return { isBeat, intensity: Math.min(1.0, rise * 2.0) };
   }
 
-  // ── 開機序列 ──────────────────────────────────────────────────
+  // ── 开机序列 ──────────────────────────────────────────────────
 
   function runBootSequence(core) {
-    if (!core) {
-      state.bootDone = true;
-      return;
-    }
+    if (!core) { state.bootDone = true; return; }
 
-    // bootState 不再包含 glitch 屬性，避免補間歸零導致黑閃
-    const bootState = {
-      bodyX:  -3.5,
-      headZ:  -2.0,
-      headY:   1.8,
-      breath:  0.2,
-    };
-
+    const bootState = { bodyX: -3.5, headZ: -2.0, headY: 1.8, breath: 0.2 };
     const tl = gsap.timeline({
       onComplete() {
         state.bootDone = true;
-        console.log("[律動] 開機序列完成，進入正常律動");
+        console.log("[律动] 开机序列完成，进入正常律动");
       },
     });
 
-    // 通電抖動：固定幅度疊加在靜止位置（0）上，不補間到 0，不會黑閃
-    // 使用 repeat + onRepeat 讓幅度逐漸縮小，模擬信號穩定感
     let burstStep = 0;
     const burstTotal = 6;
     tl.to(bootState, {
-      duration: 0.07,
-      repeat:   burstTotal - 1,
-      ease:     "none",
-      onRepeat() {
-        burstStep++;
-      },
+      duration: 0.07, repeat: burstTotal - 1, ease: "none",
+      onRepeat() { burstStep++; },
       onUpdate() {
         try {
-          // 幅度從 1.0 線性衰減到 0.2，始終有殘留偏移，不歸零
           const amp = 1.0 - (burstStep / burstTotal) * 0.8;
           core.setParameterValueById("ParamBodyAngleX", randSigned() * 2.5 * amp);
           core.setParameterValueById("ParamAngleZ",     randSigned() * 3.0 * amp);
@@ -167,14 +140,8 @@ export function useRhythm() {
       },
     });
 
-    // 身體從偏移位置平滑滑入
     tl.to(bootState, {
-      duration: 1.1,
-      bodyX:    0,
-      headZ:    0,
-      headY:    0,
-      breath:   0.5,
-      ease:     "power3.out",
+      duration: 1.1, bodyX: 0, headZ: 0, headY: 0, breath: 0.5, ease: "power3.out",
       onUpdate() {
         try {
           core.setParameterValueById("ParamBodyAngleX", bootState.bodyX);
@@ -185,46 +152,25 @@ export function useRhythm() {
       },
     });
 
-    // 頭部緩慢掃視（像攝像頭初始化）
     tl.to(bootState, {
-      duration: 0.7,
-      headY:    4.5,
-      ease:     "sine.inOut",
-      onUpdate() {
-        try {
-          core.setParameterValueById("ParamAngleY", bootState.headY);
-        } catch {}
-      },
+      duration: 0.7, headY: 4.5, ease: "sine.inOut",
+      onUpdate() { try { core.setParameterValueById("ParamAngleY", bootState.headY); } catch {} },
     });
-
     tl.to(bootState, {
-      duration: 0.9,
-      headY:    -3.5,
-      ease:     "sine.inOut",
-      onUpdate() {
-        try {
-          core.setParameterValueById("ParamAngleY", bootState.headY);
-        } catch {}
-      },
+      duration: 0.9, headY: -3.5, ease: "sine.inOut",
+      onUpdate() { try { core.setParameterValueById("ParamAngleY", bootState.headY); } catch {} },
     });
-
     tl.to(bootState, {
-      duration: 0.65,
-      headY:    0,
-      ease:     "power2.out",
-      onUpdate() {
-        try {
-          core.setParameterValueById("ParamAngleY", bootState.headY);
-        } catch {}
-      },
+      duration: 0.65, headY: 0, ease: "power2.out",
+      onUpdate() { try { core.setParameterValueById("ParamAngleY", bootState.headY); } catch {} },
     });
   }
 
-  // ── 主律動循環 ────────────────────────────────────────────────
+  // ── 主律动循环（改用 setInterval，防止失焦节流） ─────────────────
 
   function startNaturalRhythm(core) {
     if (!state.analyser) {
-      console.warn("[律動] analyser 未初始化，無法啟動");
+      console.warn("[律动] analyser 未初始化，无法启动");
       return;
     }
 
@@ -246,9 +192,11 @@ export function useRhythm() {
     state.bootDone = false;
     runBootSequence(core);
 
-    function frame() {
+    // 使用 setInterval(~16ms ≈ 60fps) 驱动，不受页面失焦节流影响
+    state.intervalId = setInterval(() => {
       if (!state.isListening) {
-        state.rafId = null;
+        clearInterval(state.intervalId);
+        state.intervalId = null;
         return;
       }
 
@@ -264,8 +212,10 @@ export function useRhythm() {
       const midEnergy = midSum / ((mid.end - mid.start + 1) * 255);
 
       const { bassAttack, bassRelease, midAttack, midRelease } = RHYTHM_CFG.envelope;
-      state.bassLevel += (bassEnergy - state.bassLevel) * (bassEnergy > state.bassLevel ? bassAttack  : bassRelease);
-      state.midLevel  += (midEnergy  - state.midLevel)  * (midEnergy  > state.midLevel  ? midAttack   : midRelease);
+      state.bassLevel += (bassEnergy - state.bassLevel) *
+        (bassEnergy > state.bassLevel ? bassAttack  : bassRelease);
+      state.midLevel  += (midEnergy  - state.midLevel)  *
+        (midEnergy  > state.midLevel  ? midAttack   : midRelease);
 
       if (beatCooldown > 0) {
         beatCooldown--;
@@ -292,7 +242,6 @@ export function useRhythm() {
         } else {
           state.glitchJitter *= RHYTHM_CFG.glitch.decaySpeed;
           if (Math.abs(state.glitchJitter) < 0.01) state.glitchJitter = 0;
-
           state.glitchTimer--;
           if (state.glitchTimer <= 0) {
             glitchBurst = RHYTHM_CFG.glitch.burstCount;
@@ -304,8 +253,7 @@ export function useRhythm() {
         state.scanPulseTimer--;
         if (state.scanPulseTimer <= 0 && !state.scanPulseActive) {
           state.scanPulseActive = true;
-          state.scanPulseTimer  = RHYTHM_CFG.scan.interval +
-            Math.floor(Math.random() * 80);
+          state.scanPulseTimer  = RHYTHM_CFG.scan.interval + Math.floor(Math.random() * 80);
         }
 
         if (state.scanPulseActive) {
@@ -322,7 +270,7 @@ export function useRhythm() {
       }
 
       const qNoise = quantumNoiseSample(quantumPhase) * RHYTHM_CFG.quantum.amplitude;
-      const cfg = RHYTHM_CFG;
+      const cfg    = RHYTHM_CFG;
 
       const targetBodyX =
         Math.sin(bodyPhase) * (1 + state.bassLevel * cfg.body.bassMultiplier) * cfg.body.maxSway * 0.5
@@ -337,17 +285,15 @@ export function useRhythm() {
           + state.beatEcho * cfg.head.nodMaxAngle * 0.45
           + (state.bootDone ? state.glitchJitter * 0.5 : 0);
       }
-
-      if (state.bootDone && state.scanPulseActive) {
+                                                                                                                                                                                    
+      if (state.bootDone && state.scanPulseActive)
         targetHeadZ += state.scanPulseValue * 0.6;
-      }
-
+                                                                                                                                                                                    
       let targetHeadY =
         Math.sin(headSwayPhase) * state.bassLevel * cfg.head.swayMaxAngle * 0.4;
 
-      if (state.bootDone && state.scanPulseActive) {
+      if (state.bootDone && state.scanPulseActive)
         targetHeadY += Math.sin(state.scanPulseValue * 0.8) * 1.8;
-      }
 
       const targetBreath =
         cfg.breath.baseRate
@@ -374,24 +320,22 @@ export function useRhythm() {
         } catch {}
       }
 
-      prevBass    = state.bassLevel;
-      state.rafId = requestAnimationFrame(frame);
-    }
+      prevBass = state.bassLevel;
+    }, 16); // ~60fps，setInterval 不受失焦节流影响
 
-    state.rafId = requestAnimationFrame(frame);
-    console.log("[律動] 自然律動循環啟動");
+    console.log("[律动] 自然律动循环启动（setInterval 模式）");
   }
-
-  // ── 停止循環 ──────────────────────────────────────────────────
+                                                                                                                                                                                    
+  // ── 停止循环 ──────────────────────────────────────────────────
 
   function stopRhythmLoop() {
-    if (state.rafId) {
-      cancelAnimationFrame(state.rafId);
-      state.rafId = null;
+    if (state.intervalId) {
+      clearInterval(state.intervalId);
+      state.intervalId = null;
     }
   }
-
-  // ── 平滑重置（透明背景安全版，無黑閃） ───────────────────────────
+                                                                                                                                                                                    
+  // ── 平滑重置 ──────────────────────────────────────────────────
 
   function smoothReset(core) {
     if (!core) return;
@@ -401,27 +345,14 @@ export function useRhythm() {
     const startHeadY  = core.getParameterValueById("ParamAngleY")     || 0;
     const startBreath = core.getParameterValueById("ParamBreath")     || 0.5;
 
-    const s = {
-      bodyX:  startBodyX,
-      headZ:  startHeadZ,
-      headY:  startHeadY,
-      breath: startBreath,
-      glitchAmp: 1.0,
-    };
+    const s = { bodyX: startBodyX, headZ: startHeadZ, headY: startHeadY, breath: startBreath, glitchAmp: 1.0 };
 
     const tl = gsap.timeline({
-      onComplete() {
-        console.log("[律動] 模型已平滑重置（透明背景安全斷電）");
-      },
+      onComplete() { console.log("[律动] 模型已平滑重置"); },
     });
 
-    // 第一段：微抖動，幅度固定疊加在起始值上，不補間到 0，不黑閃
     tl.to(s, {
-      duration:  0.08,
-      glitchAmp: 0.3,
-      yoyo:      true,
-      repeat:    5,
-      ease:      "none",
+      duration: 0.08, glitchAmp: 0.3, yoyo: true, repeat: 5, ease: "none",
       onUpdate() {
         try {
           core.setParameterValueById("ParamBodyAngleX", startBodyX + randSigned() * 1.4 * s.glitchAmp);
@@ -432,21 +363,12 @@ export function useRhythm() {
       },
     });
 
-    // 第二段：以起始值為基準做輕微相對過沖
-    const overshootBodyX  = startBodyX  * 0.15;
-    const overshootHeadZ  = startHeadZ  * 0.15;
-    const overshootHeadY  = startHeadY  * (-0.2);
-    const overshootBreath = startBreath > 0.5
-      ? startBreath - 0.04
-      : startBreath + 0.04;
-
     tl.to(s, {
       duration: 0.35,
-      bodyX:    overshootBodyX,
-      headZ:    overshootHeadZ,
-      headY:    overshootHeadY,
-      breath:   overshootBreath,
-      ease:     "power2.out",
+      bodyX:  startBodyX * 0.15, headZ: startHeadZ * 0.15,
+      headY:  startHeadY * (-0.2),
+      breath: startBreath > 0.5 ? startBreath - 0.04 : startBreath + 0.04,
+      ease:   "power2.out",
       onUpdate() {
         try {
           core.setParameterValueById("ParamBodyAngleX", s.bodyX);
@@ -456,15 +378,9 @@ export function useRhythm() {
         } catch {}
       },
     });
-
-    // 第三段：緩緩歸位，透明背景下自然收斂
+                                                                                                                                                                                    
     tl.to(s, {
-      duration: 1.1,
-      bodyX:    0,
-      headZ:    0,
-      headY:    0,
-      breath:   0.5,
-      ease:     "sine.out",
+      duration: 1.1, bodyX: 0, headZ: 0, headY: 0, breath: 0.5, ease: "sine.out",
       onUpdate() {
         try {
           core.setParameterValueById("ParamBodyAngleX", s.bodyX);
@@ -476,7 +392,7 @@ export function useRhythm() {
     });
   }
 
-  // ── 系统音頻開關 ──────────────────────────────────────────────
+  // ── 系统音频开关 ──────────────────────────────────────────────
 
   async function toggleSystemAudio(core, trackingEnabled) {
     if (showSystemAudioListening.value) {
@@ -487,39 +403,22 @@ export function useRhythm() {
     if (trackingEnabled.value) trackingEnabled.value = false;
 
     try {
-      // 尝试获取系统音频，如果失败则尝试获取麦克风音频
       let stream;
       try {
-        // 尝试使用getDisplayMedia获取系统音频（Chrome特有）
-        if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
-          stream = await navigator.mediaDevices.getDisplayMedia({
-            video: false,  // 只获取音频
-            audio: true
-          });
-        } else {
-          // 如果getDisplayMedia不可用，则使用getUserMedia获取麦克风音频
-          stream = await navigator.mediaDevices.getUserMedia({
-            audio: true,
-            video: false
-          });
-        }
-      } catch (displayErr) {
-        console.warn("[律動] 获取系统音频失败，尝试获取麦克风音频:", displayErr);
-        // 如果系统音频获取失败，尝试获取麦克风音频
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: false
-        });
+        // Electron 环境优先使用 getUserMedia 捕获音频
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      } catch (micErr) {
+        console.warn("[律动] getUserMedia 失败，尝试 getDisplayMedia:", micErr);
+        stream = await navigator.mediaDevices.getDisplayMedia({ video: false, audio: true });
       }
 
       state.currentStream = stream;
-
+                                                                                                                                                                                    
       if (!state.audioContext) {
         state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
       }
-
-      // 检查音频上下文状态，如果处于suspended状态则恢复
-      if (state.audioContext.state === 'suspended') {
+                                                                                                                                                                                    
+      if (state.audioContext.state === "suspended") {
         await state.audioContext.resume();
       }
 
@@ -528,24 +427,24 @@ export function useRhythm() {
       analyser.smoothingTimeConstant = RHYTHM_CFG.smoothing;
       state.analyser  = analyser;
       state.dataArray = new Uint8Array(analyser.frequencyBinCount);
-
+                                                                                                                                                                                    
       state.source = state.audioContext.createMediaStreamSource(stream);
       state.source.connect(analyser);
-
+                                                                                                                                                                                    
       state.isListening              = true;
       showSystemAudioListening.value = true;
 
       startNaturalRhythm(core);
-      console.log("[律動] 已連接到音頻源");
+      console.log("[律动] 已连接到音频源");
     } catch (err) {
-      console.error("[律動] 音頻初始化失敗:", err);
-      alert("音频访问失败，请检查浏览器权限设置或尝试使用其他浏览器。");
+      console.error("[律动] 音频初始化失败:", err);
+      alert("音频访问失败，请检查浏览器权限设置。");
     }
   }
 
   function stopSystemAudioListening(core, trackingEnabled) {
     if (!trackingEnabled.value) trackingEnabled.value = true;
-
+                                                                                                                                                                                    
     state.isListening              = false;
     showSystemAudioListening.value = false;
 
@@ -556,7 +455,7 @@ export function useRhythm() {
       state.currentStream.getTracks().forEach((t) => t.stop());
       state.currentStream = null;
     }
-
+                                                                                                                                                                                    
     if (state.source) {
       try { state.source.disconnect(); } catch {}
       state.source = null;
@@ -567,8 +466,8 @@ export function useRhythm() {
       state.audioContext = null;
       state.analyser     = null;
     }
-
-    console.log("[律動] 已斷開音頻連接");
+                                                                                                                                                                                    
+    console.log("[律动] 已断开音频连接");
   }
 
   function dispose(core, trackingEnabled) {
@@ -578,7 +477,7 @@ export function useRhythm() {
       stopRhythmLoop();
     }
   }
-
+                                                                                                                                                                                    
   return {
     showSystemAudioListening,
     toggleSystemAudio,
