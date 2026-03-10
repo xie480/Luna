@@ -125,12 +125,12 @@ export function useRhythm() {
       return;
     }
 
+    // bootState 不再包含 glitch 屬性，避免補間歸零導致黑閃
     const bootState = {
       bodyX:  -3.5,
       headZ:  -2.0,
       headY:   1.8,
       breath:  0.2,
-      glitch:  0,
     };
 
     const tl = gsap.timeline({
@@ -140,25 +140,30 @@ export function useRhythm() {
       },
     });
 
-    // 通電抖動
+    // 通電抖動：固定幅度疊加在靜止位置（0）上，不補間到 0，不會黑閃
+    // 使用 repeat + onRepeat 讓幅度逐漸縮小，模擬信號穩定感
+    let burstStep = 0;
+    const burstTotal = 6;
     tl.to(bootState, {
-      duration: 0.06,
-      glitch:    1,
-      yoyo:      true,
-      repeat:    5,
-      ease:      "none",
+      duration: 0.07,
+      repeat:   burstTotal - 1,
+      ease:     "none",
+      onRepeat() {
+        burstStep++;
+      },
       onUpdate() {
         try {
-          const j = randSigned() * 2.8 * bootState.glitch;
-          core.setParameterValueById("ParamBodyAngleX", j);
-          core.setParameterValueById("ParamAngleZ",     randSigned() * 3.5 * bootState.glitch);
-          core.setParameterValueById("ParamAngleY",     randSigned() * 2.0 * bootState.glitch);
+          // 幅度從 1.0 線性衰減到 0.2，始終有殘留偏移，不歸零
+          const amp = 1.0 - (burstStep / burstTotal) * 0.8;
+          core.setParameterValueById("ParamBodyAngleX", randSigned() * 2.5 * amp);
+          core.setParameterValueById("ParamAngleZ",     randSigned() * 3.0 * amp);
+          core.setParameterValueById("ParamAngleY",     randSigned() * 1.8 * amp);
           core.setParameterValueById("ParamBreath",     bootState.breath);
         } catch {}
       },
     });
 
-    // 身體從偏移平滑滑入
+    // 身體從偏移位置平滑滑入
     tl.to(bootState, {
       duration: 1.1,
       bodyX:    0,
@@ -382,20 +387,11 @@ export function useRhythm() {
     }
   }
 
-  // ── 平滑重置（科技感斷電版，無黑閃） ─────────────────────────────
-  //
-  // 背景透明時不可出現參數硬跳或幅度歸零瞬間切斷。
-  // 改動要點：
-  //   第一段：抖動疊加在當前讀取值之上，強度固定不補間到 0，
-  //           讓抖動本身有幅度但不會因 noise→0 造成硬跳。
-  //   第二段：以當前值為基準做極小過沖（±0.5 以內），
-  //           不硬編碼絕對角度。
-  //   第三段：緩緩 ease 歸零，透明背景下自然消失。
+  // ── 平滑重置（透明背景安全版，無黑閃） ───────────────────────────
 
   function smoothReset(core) {
     if (!core) return;
 
-    // 記錄重置開始時的當前參數值
     const startBodyX  = core.getParameterValueById("ParamBodyAngleX") || 0;
     const startHeadZ  = core.getParameterValueById("ParamAngleZ")     || 0;
     const startHeadY  = core.getParameterValueById("ParamAngleY")     || 0;
@@ -406,8 +402,6 @@ export function useRhythm() {
       headZ:  startHeadZ,
       headY:  startHeadY,
       breath: startBreath,
-      // glitchAmp 控制抖動疊加幅度，從 1 衰減到 0
-      // 但我們用它乘以一個固定小值，不會造成大幅跳變
       glitchAmp: 1.0,
     };
 
@@ -417,8 +411,7 @@ export function useRhythm() {
       },
     });
 
-    // 第一段：微抖動（幅度小且固定，疊加在當前值上，不歸零）
-    // glitchAmp 1→0.3，幅度受控，不出現硬跳
+    // 第一段：微抖動，幅度固定疊加在起始值上，不補間到 0，不黑閃
     tl.to(s, {
       duration:  0.08,
       glitchAmp: 0.3,
@@ -427,7 +420,6 @@ export function useRhythm() {
       ease:      "none",
       onUpdate() {
         try {
-          // 疊加偏移在起始值上，不替換整個值
           core.setParameterValueById("ParamBodyAngleX", startBodyX + randSigned() * 1.4 * s.glitchAmp);
           core.setParameterValueById("ParamAngleZ",     startHeadZ + randSigned() * 2.0 * s.glitchAmp);
           core.setParameterValueById("ParamAngleY",     startHeadY + randSigned() * 1.2 * s.glitchAmp);
@@ -436,10 +428,10 @@ export function useRhythm() {
       },
     });
 
-    // 第二段：以當前值為基準做輕微過沖（相對偏移，非絕對角度）
-    const overshootBodyX  = startBodyX  * 0.15;   // 往反方向 15% 的過沖
+    // 第二段：以起始值為基準做輕微相對過沖
+    const overshootBodyX  = startBodyX  * 0.15;
     const overshootHeadZ  = startHeadZ  * 0.15;
-    const overshootHeadY  = startHeadY  * (-0.2); // 頭部輕微反彈
+    const overshootHeadY  = startHeadY  * (-0.2);
     const overshootBreath = startBreath > 0.5
       ? startBreath - 0.04
       : startBreath + 0.04;
@@ -461,7 +453,7 @@ export function useRhythm() {
       },
     });
 
-    // 第三段：最終優雅歸位至靜止，透明背景下自然收斂
+    // 第三段：緩緩歸位，透明背景下自然收斂
     tl.to(s, {
       duration: 1.1,
       bodyX:    0,
