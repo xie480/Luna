@@ -1,8 +1,8 @@
 <template>
   <div class="app-root">
 
-    <!-- ===== 背景装饰粒子 ===== -->
-    <div class="bg-particles">
+    <!-- ===== 背景装饰粒子（仅启动阶段使用） ===== -->
+    <div v-if="bgParticlesVisible" class="bg-particles">
       <span v-for="i in 18" :key="i" class="particle" :style="particleStyle(i)"></span>
     </div>
 
@@ -322,6 +322,7 @@ const messageBoxRef   = ref(null);
 const historyPanelRef = ref(null);
 
 /* ================= 基础状态 ================= */
+const bgParticlesVisible = ref(true);
 const showDebugUI      = ref(false);
 const showMessageBox   = ref(false);
 const trackingEnabled  = ref(true);
@@ -340,6 +341,14 @@ function runCodeParticleIntro(onDone) {
     const W = canvas.width  = window.innerWidth;
     const H = canvas.height = window.innerHeight;
     const ctx = canvas.getContext("2d");
+
+    // 代码感更强的暗色背景，只在粒子动画期间铺满
+    const baseGrad = ctx.createLinearGradient(0, 0, 0, H);
+    baseGrad.addColorStop(0,   "#020611");
+    baseGrad.addColorStop(0.5, "#050b18");
+    baseGrad.addColorStop(1,   "#020611");
+    ctx.fillStyle = baseGrad;
+    ctx.fillRect(0, 0, W, H);
 
     const CX    = W / 2;
     // 下移：从 H/2 - 20 改为 H/2 + 60，确保图案不被遮挡
@@ -817,6 +826,10 @@ function runCodeParticleIntro(onDone) {
     codeParticleVisible.value = false;
     onDone?.();
   }
+}
+
+    tick();
+  });
 }
 
 const bootLines = [
@@ -1594,26 +1607,29 @@ onMounted(async () => {
   await nextTick();
   await applyAllEnabled(getCoreModel());
 
-// Boot 动画结束后，先播代码粒子动画，再显示模型
-gsap.to(model, { alpha: 0, duration: 0 });
+  // Boot 动画结束后，先播代码粒子动画，再显示模型
+  gsap.to(model, { alpha: 0, duration: 0 });
 
-gsap.delayedCall(3.2, () => {
-  lunaIntroVisible.value = false;
+  gsap.delayedCall(3.2, () => {
+    lunaIntroVisible.value = false;
 
-  // 模型提前移到正确位置并开始在后台渲染，保持透明
-  model.alpha = 0;
-  model.y     = app.renderer.height;
+    // 模型提前移到正确位置并开始在后台渲染，保持透明
+    model.alpha = 0;
+    model.y     = app.renderer.height;
 
-  // 粒子动画启动
-  runCodeParticleIntro(() => {
-    // 粒子结束后模型直接淡入，无空白期
-    gsap.to(model, {
-      alpha:    1,
-      duration: 1.0,
-      ease:     "power3.out",
+    // 粒子动画启动
+    runCodeParticleIntro(() => {
+      // 粒子结束后模型直接淡入，无空白期
+      gsap.to(model, {
+        alpha:    1,
+        duration: 1.0,
+        ease:     "power3.out",
+      });
+
+      // 启动画面结束后，彻底关闭背景粒子，只保留模型
+      bgParticlesVisible.value = false;
     });
   });
-});
   applyEmotionExpressions(INITIAL_EMOTION);
   callStartup();
 });
@@ -1637,6 +1653,7 @@ onBeforeUnmount(() => {
   position: relative;
   overflow: hidden;
   font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  /* 结束动画后重新让桌面透出，只保留模型 */
   background: transparent;
 }
 
