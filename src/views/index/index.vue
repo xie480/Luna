@@ -37,13 +37,10 @@
         @click.stop
       >
         <!-- 情绪图标（月相风格，悬停才显示 tooltip） -->
-        <div class="emotion-glyph" :class="`eg-${currentEmotion}`" :title="emotionLabel">
-          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <circle class="eg-ring" cx="12" cy="12" r="9" />
-            <path class="eg-inner" :d="emotionGlyphPath" />
-          </svg>
-          <span class="eg-tooltip">{{ emotionLabel }}</span>
-        </div>
+<div class="breath-light" :class="`bl-${currentEmotion}`">
+  <div class="bl-core"></div>
+  <span class="bl-tooltip">{{ emotionLabel }}</span>
+</div>
 
         <div class="fileUploadWrapper">
           <label for="file">
@@ -293,13 +290,56 @@ const lunaIntroVisible = ref(true);
 
 const currentEmotion = ref("neutral");
 const EMOTION_LABEL_MAP = {
-  neutral:   "平静",
-  happy:     "开心",
-  sad:       "难过",
-  angry:     "生气",
-  surprised: "惊讶",
-  shy:       "害羞",
-  Solemn:    "庄重",
+  // 愤怒类
+  Angry:        "愤怒",
+  Annoyed:      "烦躁",
+  Irritated:    "不耐烦",
+  Frustrated:   "沮丧",
+  Determined:   "坚定",
+  // 悲伤类
+  Sad:          "难过",
+  Lonely:       "孤独",
+  Despair:      "绝望",
+  Broken:       "心碎",
+  Uneasy:       "不安",
+  Resigned:     "无奈",
+  Disappointed: "失望",
+  // 恐惧/焦虑类
+  Anxious:      "焦虑",
+  Fearful:      "恐惧",
+  Shocked:      "震惊",
+  // 疲惫/无聊类
+  Tired:        "疲惫",
+  Bored:        "无聊",
+  // 困惑类
+  Confused:     "困惑",
+  // 尴尬/慌乱类
+  Embarrassed:  "尴尬",
+  Flustered:    "慌乱",
+  // 温柔/爱意类
+  Affectionate: "温柔",
+  Clingy:       "黏人",
+  Shy:          "害羞",
+  Soft:         "柔软",
+  Tsundere:     "傲娇",
+  Grateful:     "感激",
+  Relieved:     "释然",
+  // 戏谑类
+  Teasing:      "戏弄",
+  Yandere:      "病娇",
+  // 开心/希望类
+  Smile:        "微笑",
+  Hopeful:      "期待",
+  Proud:        "骄傲",
+  // 庄重/平静类
+  Solemn:       "庄重",
+  neutral:      "平静",
+  // 兼容小写
+  happy:        "开心",
+  sad:          "难过",
+  angry:        "生气",
+  surprised:    "惊讶",
+  shy:          "害羞",
 };
 const emotionLabel = computed(() => EMOTION_LABEL_MAP[currentEmotion.value] || currentEmotion.value);
 
@@ -601,7 +641,6 @@ function showContextMenu(x, y) {
   contextMenu.value = { visible: true, x, y };
   nextTick(() => {
     if (!contextMenuRef.value) return;
-    const ```vue
     const { width, height } = contextMenuRef.value.getBoundingClientRect();
     if (x + width  > window.innerWidth)  contextMenu.value.x = window.innerWidth  - width  - 10;
     if (y + height > window.innerHeight) contextMenu.value.y = window.innerHeight - height - 10;
@@ -1142,6 +1181,390 @@ onBeforeUnmount(() => {
 .messageBox:focus-within {
   border-color: rgba(255,255,255,0.28);
   box-shadow: 0 8px 36px rgba(0,0,0,0.4), 0 0 0 3px rgba(255,255,255,0.04);
+}
+
+/* ================= 呼吸灯 ================= */
+.breath-light {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+}
+
+/* 核心光点 */
+.bl-core {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.6);
+  box-shadow: 0 0 6px 2px rgba(255,255,255,0.25);
+  animation: blBreathe var(--bl-duration, 3s) ease-in-out infinite;
+  transition: background 0.5s ease, box-shadow 0.5s ease;
+}
+
+/* 外圈光晕（伪元素） */
+.bl-core::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--bl-color, rgba(255,255,255,0.15)) 0%, transparent 70%);
+  animation: blGlow var(--bl-duration, 3s) ease-in-out infinite;
+  opacity: 0;
+}
+
+/* tooltip */
+.bl-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background: rgba(20,20,20,0.92);
+  color: rgba(255,255,255,0.75);
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.08);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  letter-spacing: 0.04em;
+}
+.breath-light:hover .bl-tooltip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(-2px);
+}
+
+/* 呼吸动画 */
+@keyframes blBreathe {
+  0%, 100% { transform: scale(1);    opacity: 0.55; }
+  50%       { transform: scale(var(--bl-scale, 1.6)); opacity: 1; }
+}
+@keyframes blGlow {
+  0%, 100% { opacity: 0;   transform: scale(1); }
+  50%       { opacity: 0.6; transform: scale(var(--bl-scale, 1.6)); }
+}
+
+/* ===== 各情绪变量 ===== */
+
+/* ================= 呼吸灯完整样式 ================= */
+.breath-light {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+}
+
+.bl-core {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.6);
+  box-shadow: 0 0 6px 2px rgba(255,255,255,0.25);
+  animation: blBreathe 3s ease-in-out infinite;
+  transition: background 0.5s ease, box-shadow 0.5s ease, animation-duration 0.5s ease;
+}
+
+.bl-core::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  animation: blGlow 3s ease-in-out infinite;
+  opacity: 0;
+}
+
+.bl-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background: rgba(20,20,20,0.92);
+  color: rgba(255,255,255,0.75);
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.08);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  letter-spacing: 0.04em;
+  z-index: 10;
+}
+.breath-light:hover .bl-tooltip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(-2px);
+}
+
+@keyframes blBreathe {
+  0%, 100% { transform: scale(1);    opacity: 0.55; }
+  50%       { transform: scale(1.7); opacity: 1;    }
+}
+@keyframes blGlow {
+  0%, 100% { opacity: 0;   transform: scale(1);   }
+  50%       { opacity: 0.5; transform: scale(1.7); }
+}
+
+/* ========== 愤怒类：红色系，快速，大幅 ========== */
+/* Angry */
+.bl-Angry .bl-core {
+  background: rgba(255,60,60,0.90);
+  box-shadow: 0 0 10px 4px rgba(255,60,60,0.40);
+  animation-duration: 1.1s;
+}
+/* Annoyed */
+.bl-Annoyed .bl-core {
+  background: rgba(255,100,60,0.88);
+  box-shadow: 0 0 9px 3px rgba(255,100,60,0.35);
+  animation-duration: 1.3s;
+}
+/* Irritated */
+.bl-Irritated .bl-core {
+  background: rgba(255,130,60,0.85);
+  box-shadow: 0 0 8px 3px rgba(255,130,60,0.30);
+  animation-duration: 1.5s;
+}
+/* Frustrated */
+.bl-Frustrated .bl-core {
+  background: rgba(220,80,80,0.88);
+  box-shadow: 0 0 9px 3px rgba(220,80,80,0.32);
+  animation-duration: 1.2s;
+}
+/* Determined */
+.bl-Determined .bl-core {
+  background: rgba(200,80,60,0.85);
+  box-shadow: 0 0 8px 3px rgba(200,80,60,0.30);
+  animation-duration: 1.4s;
+}
+
+/* ========== 悲伤类：蓝色系，慢速，小幅 ========== */
+/* Sad */
+.bl-Sad .bl-core {
+  background: rgba(90,150,255,0.80);
+  box-shadow: 0 0 7px 2px rgba(90,150,255,0.25);
+  animation-duration: 4.5s;
+}
+/* Lonely */
+.bl-Lonely .bl-core {
+  background: rgba(110,140,220,0.75);
+  box-shadow: 0 0 6px 2px rgba(110,140,220,0.22);
+  animation-duration: 5.0s;
+}
+/* Despair */
+.bl-Despair .bl-core {
+  background: rgba(70,90,180,0.80);
+  box-shadow: 0 0 7px 2px rgba(70,90,180,0.25);
+  animation-duration: 5.5s;
+}
+/* Broken */
+.bl-Broken .bl-core {
+  background: rgba(60,70,140,0.75);
+  box-shadow: 0 0 6px 2px rgba(60,70,140,0.20);
+  animation-duration: 6.0s;
+}
+/* Uneasy */
+.bl-Uneasy .bl-core {
+  background: rgba(130,160,230,0.78);
+  box-shadow: 0 0 6px 2px rgba(130,160,230,0.22);
+  animation-duration: 4.0s;
+}                                                                                                                                                                                     
+/* Resigned */
+.bl-Resigned .bl-core {
+  background: rgba(120,130,180,0.72);
+  box-shadow: 0 0 5px 2px rgba(120,130,180,0.18);
+  animation-duration: 5.5s;
+}
+/* Disappointed */
+.bl-Disappointed .bl-core {
+  background: rgba(100,120,200,0.75);
+  box-shadow: 0 0 6px 2px rgba(100,120,200,0.20);
+  animation-duration: 4.8s;
+}
+
+/* ========== 恐惧/焦虑类：青紫色系，快速不规则 ========== */
+/* Anxious */
+.bl-Anxious .bl-core {
+  background: rgba(160,100,255,0.82);
+  box-shadow: 0 0 8px 3px rgba(160,100,255,0.28);
+  animation-duration: 1.6s;
+}
+/* Fearful */
+.bl-Fearful .bl-core {
+  background: rgba(130,80,220,0.80);
+  box-shadow: 0 0 8px 3px rgba(130,80,220,0.26);
+  animation-duration: 1.4s;
+}
+/* Shocked */
+.bl-Shocked .bl-core {
+  background: rgba(180,120,255,0.88);
+  box-shadow: 0 0 10px 4px rgba(180,120,255,0.35);
+  animation-duration: 1.0s;
+}
+
+/* ========== 疲惫/无聊类：灰色系，极慢，微幅 ========== */
+/* Tired */
+.bl-Tired .bl-core {
+  background: rgba(160,160,170,0.65);
+  box-shadow: 0 0 5px 1px rgba(160,160,170,0.18);
+  animation-duration: 6.0s;
+}
+/* Bored */
+.bl-Bored .bl-core {
+  background: rgba(150,150,155,0.60);
+  box-shadow: 0 0 4px 1px rgba(150,150,155,0.15);
+  animation-duration: 7.0s;
+}
+
+/* ========== 困惑类：橙黄色系，中速 ========== */
+/* Confused */
+.bl-Confused .bl-core {
+  background: rgba(255,190,60,0.82);
+  box-shadow: 0 0 8px 3px rgba(255,190,60,0.28);
+  animation-duration: 2.0s;
+}
+
+/* ========== 尴尬/慌乱类：橙粉色系 ========== */
+/* Embarrassed */
+.bl-Embarrassed .bl-core {
+  background: rgba(255,140,120,0.82);
+  box-shadow: 0 0 8px 3px rgba(255,140,120,0.28);
+  animation-duration: 2.0s;
+}
+/* Flustered */
+.bl-Flustered .bl-core {
+  background: rgba(255,120,100,0.85);
+  box-shadow: 0 0 9px 3px rgba(255,120,100,0.30);
+  animation-duration: 1.6s;
+}
+
+/* ========== 温柔/爱意类：粉色系，中慢速 ========== */
+/* Affectionate */
+.bl-Affectionate .bl-core {
+  background: rgba(255,160,200,0.82);
+  box-shadow: 0 0 9px 3px rgba(255,160,200,0.30);
+  animation-duration: 2.5s;
+}
+/* Clingy */
+.bl-Clingy .bl-core {
+  background: rgba(255,140,180,0.80);
+  box-shadow: 0 0 8px 3px rgba(255,140,180,0.28);
+  animation-duration: 2.2s;
+}
+/* Shy */
+.bl-Shy .bl-core {
+  background: rgba(255,150,200,0.80);
+  box-shadow: 0 0 8px 3px rgba(255,150,200,0.28);
+  animation-duration: 2.8s;
+}
+/* Soft */
+.bl-Soft .bl-core {
+  background: rgba(255,180,210,0.78);
+  box-shadow: 0 0 7px 2px rgba(255,180,210,0.24);
+  animation-duration: 3.2s;
+}
+/* Tsundere */
+.bl-Tsundere .bl-core {
+  background: rgba(255,120,160,0.82);
+  box-shadow: 0 0 8px 3px rgba(255,120,160,0.28);
+  animation-duration: 2.0s;
+}
+/* Grateful */
+.bl-Grateful .bl-core {
+  background: rgba(255,170,180,0.80);
+  box-shadow: 0 0 8px 3px rgba(255,170,180,0.26);
+  animation-duration: 2.8s;
+}
+/* Relieved */
+.bl-Relieved .bl-core {
+  background: rgba(200,230,255,0.80);
+  box-shadow: 0 0 7px 2px rgba(200,230,255,0.24);
+  animation-duration: 3.5s;
+}
+
+/* ========== 戏谑/特殊类 ========== */
+/* Teasing */
+.bl-Teasing .bl-core {
+  background: rgba(255,200,80,0.85);
+  box-shadow: 0 0 9px 3px rgba(255,200,80,0.30);
+  animation-duration: 1.8s;
+}
+/* Yandere：深红紫，快且大 */
+.bl-Yandere .bl-core {
+  background: rgba(200,50,120,0.90);
+  box-shadow: 0 0 12px 5px rgba(200,50,120,0.40);
+  animation-duration: 1.0s;
+}
+
+/* ========== 开心/希望类：黄绿色系，中速 ========== */
+/* Smile */
+.bl-Smile .bl-core {
+  background: rgba(255,220,80,0.85);
+  box-shadow: 0 0 8px 3px rgba(255,220,80,0.30);
+  animation-duration: 2.2s;
+}
+/* Hopeful */
+.bl-Hopeful .bl-core {
+  background: rgba(180,230,120,0.82);
+  box-shadow: 0 0 8px 3px rgba(180,230,120,0.28);
+  animation-duration: 2.5s;
+}
+/* Proud */
+.bl-Proud .bl-core {
+  background: rgba(255,210,60,0.88);
+  box-shadow: 0 0 10px 4px rgba(255,210,60,0.32);
+  animation-duration: 2.0s;
+}
+
+/* ========== 庄重/平静类：冷白灰，极慢 ========== */
+/* Solemn */
+.bl-Solemn .bl-core {
+  background: rgba(200,200,210,0.60);
+  box-shadow: 0 0 5px 2px rgba(200,200,210,0.15);
+  animation-duration: 5.0s;
+}                                                                                                                                                                                     
+/* neutral（兼容小写） */
+.bl-neutral .bl-core {
+  background: rgba(220,220,220,0.65);
+  box-shadow: 0 0 6px 2px rgba(220,220,220,0.18);
+  animation-duration: 3.5s;
+}
+
+/* ========== 通用回退 ========== */
+.bl-happy .bl-core {
+  background: rgba(255,220,80,0.85);
+  box-shadow: 0 0 8px 3px rgba(255,220,80,0.30);
+  animation-duration: 2.2s;
+}
+.bl-sad .bl-core {
+  background: rgba(100,160,255,0.80);
+  box-shadow: 0 0 7px 2px rgba(100,160,255,0.25);
+  animation-duration: 4.2s;
+}                                                                                                                                                                                     
+.bl-angry .bl-core {
+  background: rgba(255,80,80,0.90);
+  box-shadow: 0 0 10px 4px rgba(255,80,80,0.35);
+  animation-duration: 1.2s;
+}
+.bl-surprised .bl-core {
+  background: rgba(180,120,255,0.85);
+  box-shadow: 0 0 9px 3px rgba(180,120,255,0.30);
+  animation-duration: 1.5s;
+}
+.bl-shy .bl-core {
+  background: rgba(255,150,200,0.80);
+  box-shadow: 0 0 8px 3px rgba(255,150,200,0.28);
+  animation-duration: 2.8s;
 }
 
 .emotion-glyph {
