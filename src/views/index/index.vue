@@ -467,7 +467,7 @@ function runCodeParticleIntro(onDone) {
       circle(CX, CY - 238 * s, 12 * s, 12 * s, 0.22);
       line(CX - 10 * s, CY - 226 * s, CX - 22 * s, CY - 200 * s, 6);
       line(CX + 10 * s, CY - 226 * s, CX + 22 * s, CY - 200 * s, 6);
-                                                                                                                                                                                                      
+
       // ── 衬衣领口 ──
       line(CX, CY + 118 * s, CX - 62 * s, CY + 152 * s, 12);
       line(CX, CY + 118 * s, CX + 62 * s, CY + 152 * s, 12);
@@ -611,7 +611,7 @@ function runCodeParticleIntro(onDone) {
         trailMax: 5 + Math.floor(Math.random() * 6),
       };
     });
-                                                                                                                                                                                                      
+
     // ============================================================
     // 4. 代码雨背景
     // ============================================================
@@ -624,7 +624,7 @@ function runCodeParticleIntro(onDone) {
       alpha: 0.07 + Math.random() * 0.10,
       gap:   16 + Math.random() * 8,
     }));
-                                                                                                                                                                                                      
+
     // ============================================================
     // 5. 帧参数（关键：四个阶段严格分离）
     // ============================================================
@@ -807,7 +807,7 @@ function runCodeParticleIntro(onDone) {
     ctx.fillText(`AI ASSISTANT ONLINE`,   W - 24, H - 18);
     ctx.restore();
   }
-                                                                                                                                                                                                      
+
   frame++;
 
   if (frame < TOTAL_F) {
@@ -817,7 +817,7 @@ function runCodeParticleIntro(onDone) {
     codeParticleVisible.value = false;
     onDone?.();
   }
-}  
+}
 
 const bootLines = [
   "Initializing neural interface...",
@@ -1603,7 +1603,7 @@ gsap.delayedCall(3.2, () => {
   // 模型提前移到正确位置并开始在后台渲染，保持透明
   model.alpha = 0;
   model.y     = app.renderer.height;
-                                                                                                                                                                                                      
+
   // 粒子动画启动
   runCodeParticleIntro(() => {
     // 粒子结束后模型直接淡入，无空白期
@@ -1613,7 +1613,7 @@ gsap.delayedCall(3.2, () => {
       ease:     "power3.out",
     });
   });
-}); 
+});
   applyEmotionExpressions(INITIAL_EMOTION);
   callStartup();
 });
@@ -1945,7 +1945,7 @@ onBeforeUnmount(() => {
   background: rgba(130,160,230,0.78);
   box-shadow: 0 0 6px 2px rgba(130,160,230,0.22);
   animation-duration: 4.0s;
-}                                                                                                                                                                                     
+}
 /* Resigned */
 .bl-Resigned .bl-core {
   background: rgba(120,130,180,0.72);
@@ -2099,7 +2099,7 @@ onBeforeUnmount(() => {
   background: rgba(200,200,210,0.60);
   box-shadow: 0 0 5px 2px rgba(200,200,210,0.15);
   animation-duration: 5.0s;
-}                                                                                                                                                                                     
+}
 /* neutral（兼容小写） */
 .bl-neutral .bl-core {
   background: rgba(220,220,220,0.65);
@@ -2117,7 +2117,7 @@ onBeforeUnmount(() => {
   background: rgba(100,160,255,0.80);
   box-shadow: 0 0 7px 2px rgba(100,160,255,0.25);
   animation-duration: 4.2s;
-}                                                                                                                                                                                     
+}
 .bl-angry .bl-core {
   background: rgba(255,80,80,0.90);
   box-shadow: 0 0 10px 4px rgba(255,80,80,0.35);
@@ -2711,7 +2711,7 @@ onBeforeUnmount(() => {
   box-shadow:
     0 0 40px rgba(0, 255, 200, 0.08),
     inset 0 0 60px rgba(0, 255, 200, 0.03);
-}                                                                                                                                                                                                     
+}
 
 /* 扫描线 */
 .scan-line {
@@ -2763,7 +2763,7 @@ onBeforeUnmount(() => {
   0%, 100% { text-shadow: 0 0 12px rgba(0,255,200,0.7), 0 0 30px rgba(0,255,200,0.3); }
   50%       { text-shadow: 0 0 20px rgba(0,255,200,0.95), 0 0 50px rgba(0,255,200,0.5); }
 }
-                                                                                                                                                                                                      
+
 /* 副标题 */
 .boot-subtitle {
   font-size: 10px;
@@ -2824,7 +2824,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 4px;
-}                                                                                                                                                                                                     
+}
 .log-line {
   font-size: 11px;
   color: rgba(0, 255, 200, 0.55);
@@ -2833,7 +2833,7 @@ onBeforeUnmount(() => {
   animation: logFadeIn 0.3s ease forwards;
   display: flex;
   gap: 6px;
-}                                                                                                                                                                                                     
+}
 .log-tag {
   color: rgba(0, 255, 200, 0.3);
   flex-shrink: 0;
@@ -2841,8 +2841,8 @@ onBeforeUnmount(() => {
 @keyframes logFadeIn {
   from { opacity: 0; transform: translateX(-6px); }
   to   { opacity: 1; transform: translateX(0); }
-}                                                                                                                                                                                                     
-                                                                                                                                                                                                      
+}
+
 /* 底部十六进制装饰 */
 .boot-footer {
   display: flex;
