@@ -65,8 +65,6 @@
       </div>
     </transition>
 
-    <!-- ===== 以下为原有 Luna UI，登录后在其下方启动 ===== -->
-
     <!-- ===== 背景装饰粒子（仅启动阶段使用） ===== -->
     <div v-if="bgParticlesVisible" class="bg-particles">
       <span v-for="i in 18" :key="i" class="particle" :style="particleStyle(i)"></span>
@@ -102,7 +100,6 @@
         @contextmenu.stop
         @click.stop
       >
-        <!-- 情绪呼吸灯（不再显示文字 tooltip） -->
         <div class="breath-light" :class="`bl-${currentEmotion}`">
           <div class="bl-core"></div>
         </div>
@@ -129,7 +126,6 @@
           @keydown.enter.prevent="onSend"
         />
 
-        <!-- 高级可爱加载动画 -->
         <div v-if="isLoading" class="luna-loader">
           <svg viewBox="0 0 36 36" class="luna-loader-svg">
             <circle class="loader-track" cx="18" cy="18" r="14" />
@@ -311,53 +307,46 @@
     </div>
 
     <!-- ===== Luna 入场遮罩 ===== -->
-<transition name="luna-intro">
-  <div v-if="lunaIntroVisible" class="luna-intro-mask">
-    <div class="luna-boot-screen">
-      <!-- 顶部扫描线 -->
-      <div class="scan-line"></div>
-
-      <!-- 主标题 -->
-      <div class="boot-title">
-        <span class="boot-bracket">[</span>
-        <span class="boot-name">LUNA</span>
-        <span class="boot-bracket">]</span>
-        <span class="boot-version">v2.0.1</span>
-      </div>
-
-      <!-- 副标题 -->
-      <div class="boot-subtitle">AI 助手核心模块 · 启动中</div>
-
-      <!-- 进度条 -->
-      <div class="boot-bar-wrap">
-        <div class="boot-bar-track">
-          <div class="boot-bar-fill"></div>
+    <transition name="luna-intro">
+      <div v-if="lunaIntroVisible" class="luna-intro-mask">
+        <div class="luna-boot-screen">
+          <div class="scan-line"></div>
+          <div class="boot-title">
+            <span class="boot-bracket">[</span>
+            <span class="boot-name">LUNA</span>
+            <span class="boot-bracket">]</span>
+            <span class="boot-version">v2.0.1</span>
+          </div>
+          <div class="boot-subtitle">AI 助手核心模块 · 启动中</div>
+          <div class="boot-bar-wrap">
+            <div class="boot-bar-track">
+              <div class="boot-bar-fill"></div>
+            </div>
+            <span class="boot-bar-pct">正在加载系统…</span>
+          </div>
+          <div class="boot-log">
+            <div
+              class="log-line"
+              v-for="(line, i) in bootLines"
+              :key="i"
+              :style="{ animationDelay: i * 0.18 + 's' }"
+            >
+              <span class="log-tag">&gt;</span> {{ line }}
+            </div>
+          </div>
+          <div class="boot-footer">
+            <span class="boot-hex" v-for="h in 6" :key="h">{{ hexChars[h - 1] }}</span>
+          </div>
         </div>
-        <span class="boot-bar-pct">正在加载系统…</span>
       </div>
+    </transition>
 
-      <!-- 滚动日志 -->
-      <div class="boot-log">
-        <div class="log-line" v-for="(line, i) in bootLines" :key="i"
-          :style="{ animationDelay: i * 0.18 + 's' }">
-          <span class="log-tag">&gt;</span> {{ line }}
-        </div>
-      </div>
-
-      <!-- 底部装饰 -->
-      <div class="boot-footer">
-        <span class="boot-hex" v-for="h in 6" :key="h">{{ hexChars[h-1] }}</span>
-      </div>
-    </div>
-  </div>
-</transition>
-
-<!-- ===== 代码粒子入场动画 ===== -->
-<canvas
-  v-if="codeParticleVisible"
-  ref="particleCanvasRef"
-  class="particle-canvas-overlay"
-></canvas>
+    <!-- ===== 代码粒子入场动画 ===== -->
+    <canvas
+      v-if="codeParticleVisible"
+      ref="particleCanvasRef"
+      class="particle-canvas-overlay"
+    ></canvas>
 
   </div>
 </template>
@@ -389,15 +378,15 @@ const uiRef           = ref(null);
 const contextMenuRef  = ref(null);
 const messageBoxRef   = ref(null);
 const historyPanelRef = ref(null);
-const chatBodyRef     = ref(null);  // 新增：聊天记录滚动容器ref
+const chatBodyRef     = ref(null);
 
 /* ================= 基础状态 ================= */
-const bgParticlesVisible = ref(true);
-const showDebugUI      = ref(false);
-const showMessageBox   = ref(false);
-const trackingEnabled  = ref(true);
-const isSettingOrigin  = ref(false);
-const lunaIntroVisible = ref(false);
+const bgParticlesVisible  = ref(true);
+const showDebugUI         = ref(false);
+const showMessageBox      = ref(false);
+const trackingEnabled     = ref(true);
+const isSettingOrigin     = ref(false);
+const lunaIntroVisible    = ref(false);
 const codeParticleVisible = ref(false);
 const particleCanvasRef   = ref(null);
 
@@ -420,6 +409,7 @@ function exitApp() {
   window.desktopApi?.quit?.();
 }
 
+/* ================= 粒子入场动画 ================= */
 function runCodeParticleIntro(onDone) {
   codeParticleVisible.value = true;
 
@@ -621,7 +611,7 @@ function runCodeParticleIntro(onDone) {
         for (let a = 0; a < Math.PI * 2; a += 0.18) {
           pts.push({
             x: hx + 12 * s * (16 * Math.pow(Math.sin(a), 3)) / 16,
-            y: hy - 12 * s * (13 * Math.cos(a) - 5 * Math.cos(2*a) - 2 * Math.cos(3*a) - Math.cos(4*a)) / 16,
+            y: hy - 12 * s * (13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a)) / 16,
           });
         }
       });
@@ -644,7 +634,6 @@ function runCodeParticleIntro(onDone) {
       return set[Math.floor(Math.random() * set.length)];
     }
 
-    // 粒子动画加速：减少帧数
     const TOTAL = Math.min(silhouette.length, 700);
     const chosen = silhouette.sort(() => Math.random() - 0.5).slice(0, TOTAL);
 
@@ -667,13 +656,12 @@ function runCodeParticleIntro(onDone) {
       else if (edge === 1) { sx = W + 30;             sy = Math.random() * H; }
       else if (edge === 2) { sx = Math.random() * W; sy = H + 30; }
       else                 { sx = -30;                sy = Math.random() * H; }
-
       return {
         x: sx, y: sy,
         tx: target.x, ty: target.y,
         char: randChar(),
         size: 8 + Math.random() * 7,
-        speed: 0.10 + Math.random() * 0.10,  // 加速：原 0.05+0.05
+        speed: 0.10 + Math.random() * 0.10,
         alpha: 0,
         col,
         phase: Math.random() * Math.PI * 2,
@@ -694,7 +682,6 @@ function runCodeParticleIntro(onDone) {
       gap:   16 + Math.random() * 8,
     }));
 
-    // 缩短各阶段帧数：原 60/45/55 → 35/25/30
     const GATHER  = 35;
     const HOLD    = 25;
     const FADEOUT = 30;
@@ -721,7 +708,6 @@ function runCodeParticleIntro(onDone) {
           drop.y = -drop.chars.length * drop.gap;
         if (Math.random() < 0.04)
           drop.chars[Math.floor(Math.random() * drop.chars.length)] = randChar();
-
         drop.chars.forEach((ch, i) => {
           const fy = drop.y + i * drop.gap;
           if (fy < 0 || fy > H) return;
@@ -753,7 +739,7 @@ function runCodeParticleIntro(onDone) {
             p.charTimer = 0;
           }
         } else {
-          const t    = (frame - GATHER - HOLD) / FADEOUT;
+          const t      = (frame - GATHER - HOLD) / FADEOUT;
           const jitter = (1 - t) * 2.5 * SCALE;
           p.x = p.tx + (Math.random() - 0.5) * jitter;
           p.y = p.ty + (Math.random() - 0.5) * jitter;
@@ -852,4 +838,86 @@ function runCodeParticleIntro(onDone) {
 
       if (frame < GATHER + HOLD + FADEOUT * 0.3) {
         const hudAlpha = frame < GATHER + HOLD
-          ? 
+          ? Math.min(1, frame / 20)
+          : Math.max(0, 1 - (frame - GATHER - HOLD) / (FADEOUT * 0.3));
+        ctx.save();
+        ctx.globalAlpha = hudAlpha * 0.32;
+        ctx.font        = '10px "Courier New", monospace';
+        ctx.fillStyle   = "rgba(255,180,220,1)";
+        ctx.fillText(`FRAME  : ${String(frame).padStart(4, "0")}`, 24, H - 60);
+        ctx.fillText(`POINTS : ${TOTAL}`,                          24, H - 46);
+        ctx.fillText(`STATUS : ${frame < GATHER ? "ASSEMBLING" : frame < GATHER + HOLD ? "LOCKED" : "DISSOLVING"}`, 24, H - 32);
+        ctx.fillText(`SYS    : LUNA-CORE v2.0.1`,                  24, H - 18);
+        ctx.textAlign = "right";
+        ctx.fillText(`RES ${W}x${H}`,         W - 24, H - 46);
+        ctx.fillText(`ENTITY : NEKO-JK MODE`, W - 24, H - 32);
+        ctx.fillText(`AI ASSISTANT ONLINE`,   W - 24, H - 18);
+        ctx.restore();
+      }
+
+      frame++;
+
+      if (frame < TOTAL_F) {
+        rafId = requestAnimationFrame(tick);
+      } else {
+        ctx.clearRect(0, 0, W, H);
+        codeParticleVisible.value = false;
+        onDone?.();
+      }
+    }
+
+    tick();
+  });
+}
+
+/* ================= Boot lines & hex ================= */
+const bootLines = [
+  "正在初始化神经接口…",
+  "正在加载 Live2D 核心模块…",
+  "正在挂载表情合成引擎…",
+  "正在校准视线追踪参数…",
+  "正在连接 Luna 对话服务…",
+  "正在预热语言模型核心…",
+  "系统已就绪，等待指令。",
+];
+
+const hexChars = ref([]);
+function genHex() {
+  hexChars.value = Array.from({ length: 6 }, () =>
+    Math.floor(Math.random() * 0xFFFF).toString(16).toUpperCase().padStart(4, "0")
+  );
+}
+genHex();
+let hexTimer = null;
+onMounted(() => { hexTimer = setInterval(genHex, 180); });
+onBeforeUnmount(() => { clearInterval(hexTimer); });
+
+/* ================= 情绪 ================= */
+const currentEmotion = ref("neutral");
+
+/* ================= 登录逻辑 ================= */
+async function performLogin() {
+  if (!loginForm.value.username || !loginForm.value.password) {
+    loginError.value = "用户名或密码不能为空";
+    return;
+  }
+  loginLoading.value = true;
+  loginError.value   = "";
+  loginSuccess.value = false;
+  loginLogLines.value.push("正在向鉴权服务发送凭证…");
+  try {
+    const data  = await loginApi({
+      username: loginForm.value.username,
+      password: loginForm.value.password,
+    });
+    const token = data?.token || "";
+    if (!token) {
+      loginError.value = "鉴权服务未返回有效 Token";
+      loginLogLines.value.push("鉴权失败：Token 缺失。");
+      return;
+    }
+    authToken.value    = token;
+    loginSuccess.value = true;
+    继续收尾，断点处为 `loginSuccess.value = true;` 之后：
+
+src\views\index\index.vue
