@@ -1,4 +1,4 @@
-package org.yilena.runa.prompt;
+package org.yilena.luna.prompt;
 
 /*
     提示模板

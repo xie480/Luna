@@ -19,6 +19,12 @@ spring:
       discovery:
         enabled: false
 
+  datasource:
+    url: jdbc:postgresql://192.168.100.128:5432/ai_memory
+    username: yilena
+    password: XUWENBO219382
+    driver-class-name: org.postgresql.Driver
+
   data:
     redis:
       host: 192.168.100.128
@@ -58,3 +64,15 @@ knife4j:
 auth:
   username: Yilena
   password: XUWENBO219382
+
+mybatis-plus:
+  type-aliases-package: org.yilena.luna.*.entity
+  mapper-locations: classpath:/mapper/*.xml
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+    enable-sql-runner: true
+  configuration:
+    default-enum-type-handler: com.baomidou.mybatisplus.core.handlers.MybatisEnumTypeHandler
+    map-underscore-to-camel-case: true
