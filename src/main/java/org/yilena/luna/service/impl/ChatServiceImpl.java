@@ -17,19 +17,19 @@ import org.yilena.luna.constants.RedisKeyConstant;
 import org.yilena.luna.constants.SymbolConstant;
 import org.yilena.luna.entity.ChatMessage;
 import org.yilena.luna.entity.ChatRequest;
+import org.yilena.luna.enums.ModelType;
+import org.yilena.luna.llm.LlmMessage;
+import org.yilena.luna.llm.LlmRequest;
+import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.prompt.PromptAssembler;
 import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.service.ChatService;
 import org.yilena.luna.service.SessionService;
+import org.yilena.luna.utils.LlmClientUtil;
 import org.yilena.luna.utils.ServiceCommunicateUtil;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
@@ -43,18 +43,11 @@ public class ChatServiceImpl implements ChatService {
     private final PromptAssembler promptAssembler;
     private final SessionService sessionService;
     private final StringRedisTemplate stringRedisTemplate;
-
-    // 使用 GeminiProperty 读取中转站配置（url、api、模型名称等）
     private final GeminiProperty geminiProperty;
+    private final LlmClientUtil llmClientUtil;
 
-    // ObjectMapper 用于序列化请求体与解析响应
+    // ObjectMapper 用于解析模型返回的 JSON 结果
     private final ObjectMapper mapper = new ObjectMapper();
-
-    // 使用 JDK 内置 HttpClient 发送 HTTP 请求到中转站
-    // 设置连接超时 10s，避免中转站无响应时主线程无限阻塞
-    private static final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10))
-            .build();
 
     private static final DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy:MM:dd");
 
@@ -217,65 +210,18 @@ public class ChatServiceImpl implements ChatService {
     }
 
     /**
-     * 通过中转站（OpenAI 兼容接口）调用指定模型。
-     *
-     * @param modelName 模型名称，由 GeminiProperty 提供（chatModelName 或 summaryModelName）
-     * @param prompt    发送给模型的提示词
-     * @return 模型返回的文本内容，失败时返回 null
-     */
-    private String callRelay(String modelName, String prompt) {
-        try {
-            // 使用 LinkedHashMap 保证 JSON 序列化字段顺序（model -> messages）
-            Map<String, Object> messageMap = new LinkedHashMap<>();
-            messageMap.put("role", "user");
-            messageMap.put("content", prompt);
-
-            Map<String, Object> bodyMap = new LinkedHashMap<>();
-            bodyMap.put("model", modelName);
-            bodyMap.put("messages", List.of(messageMap));
-
-            // 序列化请求体
-            String requestBody = mapper.writeValueAsString(bodyMap);
-
-            // 构造 HTTP POST 请求，携带中转站 URL 及 Bearer Token 形式的 API 密钥
-            // 设置请求超时 30s，避免模型响应过慢时长时间阻塞
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(geminiProperty.getUrl()))
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + geminiProperty.getApi())
-                    .timeout(Duration.ofSeconds(60))
-                    .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-            // 非200状态码视为调用失败
-            if (response.statusCode() != 200) {
-                log.error("中转站返回非200状态码，model={}，statusCode={}，body={}", modelName, response.statusCode(), response.body());
-                return null;
-            }
-
-            // 解析 OpenAI 兼容格式的响应，提取 choices[0].message.content
-            JsonNode root = mapper.readTree(response.body());
-            JsonNode content = root.path("choices").path(0).path("message").path("content");
-            if (content.isMissingNode() || content.isNull()) {
-                log.error("中转站响应中未找到 choices[0].message.content，model={}，body={}", modelName, response.body());
-                return null;
-            }
-            return content.asText();
-
-        } catch (Exception e) {
-            log.error("调用中转站模型失败，model={}，错误信息={}", modelName, e.getMessage(), e);
-            return null;
-        }
-    }
-
-    /**
-     * 调用摘要模型（使用 GeminiProperty 中配置的 summaryModelName）
-     * 对摘要结果进行基本校验：不能为空、不能过短（少于10字视为无效）
+     * 调用摘要模型
      */
     private SendToLuna getSendToSummaryModel(String prompt) {
-        String text = callRelay(geminiProperty.getSummaryModelName(), prompt);
+        LlmRequest request = LlmRequest.builder()
+                .modelType(ModelType.OPENAI_COMPATIBLE)
+                .modelName(geminiProperty.getSummaryModelName())
+                .messages(List.of(LlmMessage.user(prompt)))
+                .build();
+
+        LlmResponse response = llmClientUtil.generate(request);
+        String text = response != null ? response.getContent() : null;
+
         // 校验摘要结果：为空或过短均视为无效
         if (text == null || text.isBlank() || text.length() < 10) {
             log.warn("调用Summary模型返回无效结果，text={}", text);
@@ -285,10 +231,18 @@ public class ChatServiceImpl implements ChatService {
     }
 
     /**
-     * 调用主对话模型（使用 GeminiProperty 中配置的 chatModelName），并处理 JSON 校验与修复逻辑
+     * 调用主对话模型，并处理 JSON 校验与修复逻辑
      */
     private SendToLuna getSendToLuna(String prompt) {
-        String valid = callRelay(geminiProperty.getChatModelName(), prompt);
+        LlmRequest request = LlmRequest.builder()
+                .modelType(ModelType.OPENAI_COMPATIBLE)
+                .modelName(geminiProperty.getChatModelName())
+                .messages(List.of(LlmMessage.user(prompt)))
+                .build();
+
+        LlmResponse response = llmClientUtil.generate(request);
+        String valid = response != null ? response.getContent() : null;
+
         if (valid == null) {
             log.error("主模型调用失败，返回降级回复");
             String fallback = createFallbackJson();
@@ -310,8 +264,15 @@ public class ChatServiceImpl implements ChatService {
             try {
                 // 获取修复Prompt
                 String repairPrompt = PromptTemplates.REPAIR_PROMPT.formatted(valid);
-                // 使用主模型尝试修复不合规的输出
-                String repairedText = callRelay(geminiProperty.getChatModelName(), repairPrompt);
+                LlmRequest repairReq = LlmRequest.builder()
+                        .modelType(ModelType.OPENAI_COMPATIBLE)
+                        .modelName(geminiProperty.getChatModelName())
+                        .messages(List.of(LlmMessage.user(repairPrompt)))
+                        .build();
+
+                LlmResponse repairRes = llmClientUtil.generate(repairReq);
+                String repairedText = repairRes != null ? repairRes.getContent() : null;
+
                 if (repairedText != null) {
                     JsonNode repairedNode = tryParseJsonNode(repairedText);
                     if (isValidReplyNode(repairedNode)) {
