@@ -1353,7 +1353,9 @@ async function onDateClick(d) {
 
 /* ================= 右键菜单 ================= */
 function onRightClick(e) {
-  if (uiRef.value?.contains(e.target))         return;
+  // canvas 右鍵已由 onCanvasRightClick 處理，避免重複
+  if (canvasRef.value?.contains(e.target)) return;
+  if (uiRef.value?.contains(e.target))     return;
   if (messageBoxRef.value?.contains(e.target)) return;
   showContextMenu(e.clientX, e.clientY);
 }
@@ -1422,17 +1424,18 @@ function closeAppearancePanel() {
 }
 
 /* ================= 穿透管理 ================= */
-let overModel = false;
-// 移除overUI变量，改为始终允许背景动画
-// let overUI    = false;
+// 恢復 overUI 變量
+let overUI = false;
+let overModel = false; // ← 補上這一行
 
 function updatePetState() {
-  if (overModel) window.pet?.enter();
+  if (overModel || overUI) window.pet?.enter();
   else window.pet?.leave();
 }
-// 移除对UI进入/离开事件的监听，保持背景动画持续运行
-// function uiEnter() { overUI = true;  updatePetState(); }
-// function uiLeave() { overUI = false; updatePetState(); }
+
+// 恢復 uiEnter / uiLeave
+function uiEnter() { overUI = true;  updatePetState(); }
+function uiLeave() { overUI = false; updatePetState(); }
 
 // 保持模型的进入/离开状态管理
 function modelEnter() { overModel = true;  updatePetState(); }
@@ -1447,41 +1450,44 @@ let lastPos  = { x: 0, y: 0 };
 
 function isPointInsideModel(globalPoint) {
   if (!model) return false;
-  return model.getBounds().contains(globalPoint.x, globalPoint.y);
+  // containsPoint 會考慮當前 transform，比 getBounds 更準確
+  return model.containsPoint(globalPoint);
 }
 
 function onPointerDown(e) {
-  const oe = e.data?.originalEvent;
-  if (!oe || oe.button !== 0) return;
-  const gp = e.data.global;
-  if (!isPointInsideModel(gp)) return;
+  // 新版 PIXI FederatedEvent 直接用 e.button 和 e.global
+  if (e.button !== 0) return;
   dragging = true;
-  lastPos  = { x: gp.x, y: gp.y };
-  // 当在模型上拖动时，更新模型状态
-  modelEnter();
+  lastPos  = { x: e.global.x, y: e.global.y };
 }
+
 function onPointerMove(e) {
   if (!dragging) return;
-  const dx = e.data.global.x - lastPos.x;
-  const dy = e.data.global.y - lastPos.y;
-  lastPos = { ...e.data.global };
+  const dx = e.global.x - lastPos.x;
+  const dy = e.global.y - lastPos.y;
+  lastPos = { x: e.global.x, y: e.global.y };
   container.x += dx;
   container.y += dy;
 }
-function onPointerUp() { 
-  dragging = false; 
-  // 释放鼠标时，检查是否仍在模型上
-  modelLeave();
+
+function onPointerUp() {
+  dragging = false;
 }
+
+
 
 /* ================= 滚轮缩放 ================= */
 function onWheel(ev) {
+  if (!model || !app) return;
   const rect        = canvasRef.value.getBoundingClientRect();
   const globalPoint = new PIXI.Point(ev.clientX - rect.left, ev.clientY - rect.top);
-  if (!isPointInsideModel(globalPoint)) return;
+
+  // 用 model 的 containsPoint 替代 getBounds().contains()
+  if (!model.containsPoint(globalPoint)) return;
+
   ev.preventDefault();
-  const factor     = ev.deltaY > 0 ? 0.95 : 1.05;
-  const newScale   = Math.min(10, Math.max(0.05, (container.scale.x || 1) * factor));
+  const factor   = ev.deltaY > 0 ? 0.95 : 1.05;
+  const newScale = Math.min(10, Math.max(0.05, container.scale.x * factor));
   const localPoint = container.toLocal(globalPoint, app.stage);
   container.scale.set(newScale);
   const newGlobal  = container.toGlobal(localPoint);
@@ -1811,10 +1817,13 @@ onMounted(async () => {
 
   model.on("pointerover", () => { overModel = true;  updatePetState(); });
   model.on("pointerout",  () => { overModel = false; updatePetState(); });
-  model.on("rightclick",  (e) => {
-    const rect = canvasRef.value.getBoundingClientRect();
-    showContextMenu(rect.left + e.data.global.x, rect.top + e.data.global.y);
-  });
+model.on("rightclick", (e) => {
+  // 阻止觸發 document 的 contextmenu 監聽
+  e.originalEvent?.stopPropagation?.();
+  e.originalEvent?.preventDefault?.();
+  const rect = canvasRef.value.getBoundingClientRect();
+  showContextMenu(rect.left + e.global.x, rect.top + e.global.y);
+});
 
   container.addChild(model);
   loadOrigin();
@@ -3022,9 +3031,16 @@ onBeforeUnmount(() => {
 }
 
 .login-terminal.login-error-state {
-  background: var(--login-bg-error);
-  border: 1px solid var(--login-border-error);
-  box-shadow: 0 0 20px rgba(255, 80, 80, 0.15);
+  background:
+    radial-gradient(circle at 30% 20%, rgba(255, 80, 80, 0.22), transparent 55%),
+    radial-gradient(circle at 0 0, rgba(0,255,200,0.06), transparent 55%),
+    radial-gradient(circle at 100% 100%, rgba(120,120,255,0.06), transparent 55%),
+    linear-gradient(165deg, #04070d, #050a13 45%, #050913);
+  border: 1px solid rgba(255, 80, 80, 0.45);
+  box-shadow:
+    0 0 0 1px rgba(255, 80, 80, 0.25),
+    0 18px 40px rgba(0, 0, 0, 0.9),
+    0 0 60px rgba(255, 80, 80, 0.15);
 }
 
 .login-error {
