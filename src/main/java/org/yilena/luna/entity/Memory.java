@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.yilena.luna.enums.MemoryType;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -40,7 +41,7 @@ public class Memory implements Serializable {
      * 例如：FACT (事實), PREFERENCE (偏好), SUMMARY (摘要), REFLECTION (反思)
      */
     @TableField("memory_type")
-    private String memoryType;
+    private MemoryType memoryType;
 
     /**
      * 記憶內容

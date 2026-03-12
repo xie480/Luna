@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.yilena.luna.enums.SourceType;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -41,7 +42,7 @@ public class KnowledgeBase implements Serializable {
      * 來源類型: FILE, WEB_SEARCH, MANUAL_INPUT
      */
     @TableField("source_type")
-    private String sourceType;
+    private SourceType sourceType;
 
     /**
      * 來源標識 (如文件路徑、URL)

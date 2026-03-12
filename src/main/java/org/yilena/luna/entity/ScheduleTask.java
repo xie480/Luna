@@ -5,6 +5,8 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.yilena.luna.enums.TaskStatus;
+import org.yilena.luna.enums.TaskType;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -41,13 +43,13 @@ public class ScheduleTask implements Serializable {
      * 狀態: 0-待處理, 1-已完成, 2-已取消, 3-已過期
      */
     @TableField("status")
-    private Integer status;
+    private TaskStatus status;
 
     /**
      * 任務類型: REMINDER(提醒), ACTION(執行操作), TODO(待辦)
      */
     @TableField("task_type")
-    private String taskType;
+    private TaskType taskType;
 
     @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
