@@ -21,6 +21,8 @@ import org.yilena.luna.service.KnowledgeBaseService;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -39,19 +41,24 @@ public class LunaTools {
     private final MemoryMapper memoryMapper;
     private final ObjectMapper objectMapper;
 
+    private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
     /**
      * 联网搜索工具
      */
-    @Tool("当你需要回答的问题超出了你的知识范围，或者需要获取实时信息（如新闻、天气、股价）时，调用此工具进行联网搜索。")
+    @Tool("当你需要回答的问题超出了你的知识范围，或者需要获取实时信息（如新闻、天气、股价）时，调用此工具进行联网搜索。返回格式为 JSON。")
     public String searchWeb(String query) {
         log.info("Luna 正在执行联网搜索，关键词: {}", query);
         // TODO: 对接真实的搜索引擎 API
+        String result;
         if (query.contains("天气")) {
-            return "【搜索结果】: 今天天气晴朗，气温 25 度，适合外出。";
+            result = "【搜索结果】: 今天天气晴朗，气温 25 度，适合外出。";
         } else if (query.contains("新闻")) {
-            return "【搜索结果】: 最新科技新闻显示，AI Agent 技术正在快速发展。";
+            result = "【搜索结果】: 最新科技新闻显示，AI Agent 技术正在快速发展。";
+        } else {
+            result = "【搜索结果】: 关于 \"" + query + "\" 的网络搜索暂未返回具体内容，请尝试更换关键词或告知用户无法获取实时信息。";
         }
-        return "【搜索结果】: 关于 \"" + query + "\" 的网络搜索暂未返回具体内容，请尝试更换关键词或告知用户无法获取实时信息。";
+        return success(result);
     }
 
     @Tool("""
@@ -150,7 +157,7 @@ public class LunaTools {
                 }
                 ScheduleTask task = ScheduleTask.builder()
                         .content(content)
-                        .triggerTime(LocalDateTime.parse(triggerTime, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")))
+                        .triggerTime(LocalDateTime.parse(triggerTime, DATE_TIME_FORMATTER))
                         .status(TaskStatus.valueOf(status.toUpperCase()))
                         .taskType(TaskType.valueOf(taskType.toUpperCase()))
                         .build();
@@ -167,12 +174,12 @@ public class LunaTools {
 
                 if ("PUT".equalsIgnoreCase(mode)) {
                     existing.setContent(content);
-                    existing.setTriggerTime(triggerTime != null ? LocalDateTime.parse(triggerTime, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) : null);
+                    existing.setTriggerTime(triggerTime != null ? LocalDateTime.parse(triggerTime, DATE_TIME_FORMATTER) : null);
                     existing.setStatus(status != null ? TaskStatus.valueOf(status.toUpperCase()) : null);
                     existing.setTaskType(taskType != null ? TaskType.valueOf(taskType.toUpperCase()) : null);
                 } else if ("PATCH".equalsIgnoreCase(mode)) {
                     if (content != null) existing.setContent(content);
-                    if (triggerTime != null) existing.setTriggerTime(LocalDateTime.parse(triggerTime, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+                    if (triggerTime != null) existing.setTriggerTime(LocalDateTime.parse(triggerTime, DATE_TIME_FORMATTER));
                     if (status != null) existing.setStatus(TaskStatus.valueOf(status.toUpperCase()));
                     if (taskType != null) existing.setTaskType(TaskType.valueOf(taskType.toUpperCase()));
                 }
@@ -189,6 +196,15 @@ public class LunaTools {
                 }
             }
             return error("未知的 action: " + action);
+        } catch (IllegalArgumentException e) {
+            // 专门捕获枚举解析错误，提示正确的值
+            if (e.getMessage().contains("No enum constant")) {
+                return error("枚举值无效。TaskStatus 可选值: " + Arrays.toString(TaskStatus.values()) +
+                        ", TaskType 可选值: " + Arrays.toString(TaskType.values()));
+            }
+            return error("参数错误: " + e.getMessage());
+        } catch (DateTimeParseException e) {
+            return error("时间格式错误，请使用 'yyyy-MM-dd HH:mm:ss'。输入值为: " + triggerTime);
         } catch (Exception e) {
             return error("操作异常: " + e.getMessage());
         }
@@ -258,6 +274,11 @@ public class LunaTools {
                 }
             }
             return error("未知的 action: " + action);
+        } catch (IllegalArgumentException e) {
+            if (e.getMessage().contains("No enum constant")) {
+                return error("枚举值无效。MemoryType 可选值: " + Arrays.toString(MemoryType.values()));
+            }
+            return error("参数错误: " + e.getMessage());
         } catch (Exception e) {
             return error("操作异常: " + e.getMessage());
         }
@@ -286,8 +307,9 @@ public class LunaTools {
                 SourceType st;
                 try {
                     st = SourceType.valueOf(sourceType.toUpperCase());
-                } catch (Exception e) {
-                    st = SourceType.values()[0]; // fallback
+                } catch (IllegalArgumentException e) {
+                    // 明确提示错误，而不是默默使用默认值
+                    return error("无效的 sourceType: " + sourceType + "。可选值: " + Arrays.toString(SourceType.values()));
                 }
                 knowledgeBaseService.addKnowledge(title, content, st, sourcePath);
                 return success("知识库写入成功");
