@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.exception.LunaExceptionContext;
+import org.yilena.luna.llm.LlmResponse;
 
 /**
  * 异常分析 Agent 服务
@@ -62,10 +63,9 @@ public class ExceptionAgentService {
             }
             
             重要规则：
-            1 不要暴露系统内部技术细节
-            2 提示要自然友好
-            3 必须说明无法解决的原因
-            4 返回内容必须是 JSON，不要包含 Markdown 格式标记
+            1 提示要自然友好
+            2 必须说明无法解决的原因
+            3 返回内容必须是 JSON，不要包含 Markdown 格式标记
             """;
 
     public JsonNode analyzeException(LunaExceptionContext context) {
@@ -80,7 +80,7 @@ public class ExceptionAgentService {
             );
 
             log.info("正在请求 AI 分析异常...");
-            String response = chatLanguageModel.generate(prompt);
+            LlmResponse response = llmClientUtil.generate(request);
             
             // 清理可能的 Markdown 标记
             response = response.replace("```json", "").replace("```", "").trim();
