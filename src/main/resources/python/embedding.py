@@ -2,20 +2,24 @@ import sys
 import json
 from sentence_transformers import SentenceTransformer
 
-# 模型只加载一次
-model = SentenceTransformer("D:/AI_Models/bge-base-zh-v1.5-model")
-
-def get_embedding(text):
+def get_embedding(model_path, text):
+    # 模型路径由参数传入
+    model = SentenceTransformer(model_path)
     vec = model.encode(text).tolist()
     return vec
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
+    # 参数顺序: 脚本路径, 模型路径, 文本
+    if len(sys.argv) < 3:
         print("[]")
         sys.exit(0)
 
-    text = sys.argv[1]
+    model_path = sys.argv[1]
+    text = sys.argv[2]
 
-    vector = get_embedding(text)
-
-    print(json.dumps(vector, ensure_ascii=False))
+    try:
+        vector = get_embedding(model_path, text)
+        print(json.dumps(vector, ensure_ascii=False))
+    except Exception as e:
+        # 发生异常时打印空数组，避免Java端解析错误
+        print("[]")

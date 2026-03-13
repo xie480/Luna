@@ -77,3 +77,8 @@ mybatis-plus:
   configuration:
     default-enum-type-handler: com.baomidou.mybatisplus.core.handlers.MybatisEnumTypeHandler
     map-underscore-to-camel-case: true
+
+embedding:
+  python-path: D:/AI_Models/BGE-base-zh-v1.5/bge-env/Scripts/python.exe
+  script-path: ./python/embedding.py
+  model-path: D:/AI_Models/bge-base-zh-v1.5-model

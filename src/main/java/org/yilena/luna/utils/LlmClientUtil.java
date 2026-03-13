@@ -14,6 +14,7 @@ import org.yilena.luna.enums.ModelType;
 import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
 import org.yilena.luna.llm.LlmResponse;
+import org.yilena.luna.properties.EmbeddingProperty;
 import org.yilena.luna.properties.GeminiProperty;
 
 import java.io.BufferedReader;
@@ -32,6 +33,7 @@ import java.util.List;
 public class LlmClientUtil {
 
     private final GeminiProperty geminiProperty;
+    private final EmbeddingProperty embeddingProperty;
 
     private EmbeddingModel embeddingModel;
 
@@ -114,15 +116,21 @@ public class LlmClientUtil {
         }
     }
 
-    public static String getEmbedding(String text) throws Exception {
+    /**
+     * 获取文本 Embedding
+     * 改为实例方法以使用注入的配置
+     */
+    public String getEmbedding(String text) throws Exception {
 
-        String pythonPath = "D:/AI_Models/BGE-base-zh-v1.5/bge-env/Scripts/python.exe";
-        String scriptPath = "./python/embedding.py";
+        String pythonPath = embeddingProperty.getPythonPath();
+        String scriptPath = embeddingProperty.getScriptPath();
+        String modelPath = embeddingProperty.getModelPath();
 
         ProcessBuilder pb = new ProcessBuilder(
                 pythonPath,
                 scriptPath,
-                text
+                modelPath, // 传递模型路径
+                text       // 传递文本
         );
 
         Process process = pb.start();
