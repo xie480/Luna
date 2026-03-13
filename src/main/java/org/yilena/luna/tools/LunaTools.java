@@ -5,13 +5,13 @@ import dev.langchain4j.agent.tool.Tool;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import org.yilena.luna.entity.AgentMemory;
+import org.yilena.luna.entity.Memory;
 import org.yilena.luna.entity.ScheduleTask;
 import org.yilena.luna.entity.UserPreference;
 import org.yilena.luna.enums.SourceType;
 import org.yilena.luna.enums.TaskStatus;
 import org.yilena.luna.enums.TaskType;
-import org.yilena.luna.mapper.AgentMemoryMapper;
+import org.yilena.luna.mapper.MemoryMapper;
 import org.yilena.luna.mapper.ScheduleTaskMapper;
 import org.yilena.luna.mapper.UserPreferenceMapper;
 import org.yilena.luna.service.KnowledgeBaseService;
@@ -32,7 +32,7 @@ public class LunaTools {
     private final KnowledgeBaseService knowledgeBaseService;
     private final UserPreferenceMapper userPreferenceMapper;
     private final ScheduleTaskMapper scheduleTaskMapper;
-    private final AgentMemoryMapper agentMemoryMapper;
+    private final MemoryMapper memoryMapper;
 
     /**
      * 联网搜索工具
@@ -135,13 +135,12 @@ public class LunaTools {
     public String saveMemory(String content, String category) {
         log.info("Luna 正在写入长期记忆，类别: {}, 内容: {}", category, content);
         try {
-            AgentMemory memory = AgentMemory.builder()
+            Memory memory = Memory.builder()
                     .content(content)
                     .category(category)
-                    .importance(3) // 默认重要度
                     .build();
             
-            agentMemoryMapper.insert(memory);
+            memoryMapper.insert(memory);
             return "已将信息写入长期记忆。";
         } catch (Exception e) {
             return "写入记忆失败: " + e.getMessage();
