@@ -32,6 +32,7 @@ import org.yilena.luna.service.ChatService;
 import org.yilena.luna.service.KnowledgeBaseService;
 import org.yilena.luna.service.SessionService;
 import org.yilena.luna.sse.LunaStatusPublisher;
+import org.yilena.luna.utils.ContextPruner;
 import org.yilena.luna.utils.LlmClientUtil;
 import org.yilena.luna.utils.ServiceCommunicateUtil;
 
@@ -155,6 +156,23 @@ public class ChatServiceImpl implements ChatService {
 
         // 将当前输入加入用户会话上下文当中（在压缩判断之后写入，避免被覆盖）
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.USER, input, LocalTime.now()));
+
+        // --- 上下文裁剪 ---
+        ContextPruner.ContextPayload payload = ContextPruner.ContextPayload.builder()
+                .systemPrompt(PromptTemplates.SYSTEM_PROMPT)
+                .userInput(input)
+                .recentChatHistory(memorySnippets)
+                .knowledgeBase(knowledgeSnippets)
+                // TODO: 后续接入长期记忆、日程、偏好等模块时，在此处填充
+                .userPreferences(Collections.emptyList())
+                .scheduleReminders(Collections.emptyList())
+                .longTermMemory(Collections.emptyList())
+                .build();
+
+        ContextPruner.ContextPayload pruned = ContextPruner.prune(payload);
+        memorySnippets = pruned.getRecentChatHistory();
+        knowledgeSnippets = pruned.getKnowledgeBase();
+        // -----------------
 
         // 组装提示词 (包含 RAG 知识库片段)
         String prompt = promptAssembler.assembleWithKnowledge(memorySnippets, knowledgeSnippets, input);
