@@ -112,4 +112,60 @@ public class LlmClientUtil {
             return null;
         }
     }
+
+    /**
+     * 获取文本的 Embedding 向量 (用于 RAG 知识库)
+     * 默认调用 OpenAI 兼容的 /embeddings 接口
+     *
+     * @param text 需要向量化的文本
+     * @return 浮点数向量列表
+     */
+    public List<Double> getEmbedding(String text) {
+        try {
+            // 简单的 URL 替换逻辑，假设配置的是 chat/completions 结尾
+            String embedUrl = geminiProperty.getUrl().replace("/chat/completions", "/embeddings");
+            // 如果替换后没有变化（说明原 URL 不是以 chat/completions 结尾），可能需要根据实际情况调整
+            // 这里暂且假设用户配置的是标准 OpenAI 兼容路径
+
+            Map<String, Object> bodyMap = new LinkedHashMap<>();
+            // 使用 text-embedding-004 模型，这是 Gemini 系列常用的 embedding 模型
+            bodyMap.put("model", "text-embedding-004");
+            bodyMap.put("input", text);
+
+            String requestBody = mapper.writeValueAsString(bodyMap);
+
+            HttpRequest httpRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(embedUrl))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + geminiProperty.getApi())
+                    .timeout(Duration.ofSeconds(30))
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() != 200) {
+                log.error("Embedding 调用失败，statusCode={}，body={}", response.statusCode(), response.body());
+                return Collections.emptyList();
+            }
+
+            JsonNode root = mapper.readTree(response.body());
+            JsonNode embeddingNode = root.path("data").path(0).path("embedding");
+
+            if (embeddingNode.isMissingNode() || !embeddingNode.isArray()) {
+                log.error("Embedding 响应格式错误，body={}", response.body());
+                return Collections.emptyList();
+            }
+
+            List<Double> vector = new ArrayList<>();
+            for (JsonNode node : embeddingNode) {
+                vector.add(node.asDouble());
+            }
+            return vector;
+
+        } catch (Exception e) {
+            log.error("获取 Embedding 异常: {}", e.getMessage(), e);
+            return Collections.emptyList();
+        }
+    }
 }
