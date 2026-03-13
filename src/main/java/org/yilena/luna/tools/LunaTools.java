@@ -7,17 +7,17 @@ import dev.langchain4j.agent.tool.Tool;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.yilena.luna.annotation.LunaLogRecord;
+import org.yilena.luna.entity.LunaLog;
 import org.yilena.luna.entity.Memory;
 import org.yilena.luna.entity.ScheduleTask;
 import org.yilena.luna.entity.UserPreference;
-import org.yilena.luna.enums.MemoryType;
-import org.yilena.luna.enums.SourceType;
-import org.yilena.luna.enums.TaskStatus;
-import org.yilena.luna.enums.TaskType;
+import org.yilena.luna.enums.*;
 import org.yilena.luna.mapper.MemoryMapper;
 import org.yilena.luna.mapper.ScheduleTaskMapper;
 import org.yilena.luna.mapper.UserPreferenceMapper;
 import org.yilena.luna.service.KnowledgeBaseService;
+import org.yilena.luna.service.LunaLogService;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -39,6 +39,7 @@ public class LunaTools {
     private final UserPreferenceMapper userPreferenceMapper;
     private final ScheduleTaskMapper scheduleTaskMapper;
     private final MemoryMapper memoryMapper;
+    private final LunaLogService lunaLogService;
     private final ObjectMapper objectMapper;
 
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -47,6 +48,7 @@ public class LunaTools {
      * 联网搜索工具
      */
     @Tool("当你需要回答的问题超出了你的知识范围，或者需要获取实时信息（如新闻、天气、股价）时，调用此工具进行联网搜索。返回格式为 JSON。")
+    @LunaLogRecord(module = "tool", action = "search_web", type = LogType.TOOL_CALL)
     public String searchWeb(String query) {
         log.info("Luna 正在执行联网搜索，关键词: {}", query);
         // TODO: 对接真实的搜索引擎 API
@@ -85,6 +87,7 @@ public class LunaTools {
     - 成功: {"status":"success", "data": {"id":1, "prefKey":"theme", "prefValue":"dark", ...}}
     - 失败: {"status":"error", "message":"INSERT 操作必须提供 prefKey 和 prefValue"}
     """)
+    @LunaLogRecord(module = "tool", action = "manage_preference", type = LogType.TOOL_CALL)
     public String manageUserPreference(String action, Long id, String mode, String prefKey, String prefValue, String description, Boolean hardDelete) {
         try {
             if ("INSERT".equalsIgnoreCase(action)) {
@@ -149,6 +152,7 @@ public class LunaTools {
     - hardDelete: DELETE 时选填。true 为物理删除，false 为逻辑删除(默认)。
     - content, triggerTime, status, taskType: 根据 action 和 mode 提供。
     """)
+    @LunaLogRecord(module = "tool", action = "manage_schedule", type = LogType.TOOL_CALL)
     public String manageScheduleTask(String action, Long id, String mode, String content, String triggerTime, String status, String taskType, Boolean hardDelete) {
         try {
             if ("INSERT".equalsIgnoreCase(action)) {
@@ -228,6 +232,7 @@ public class LunaTools {
     - hardDelete: DELETE 时选填。true 为物理删除，false 为逻辑删除(默认)。
     - sessionId, memoryType, content, weight: 根据 action 和 mode 提供。
     """)
+    @LunaLogRecord(module = "tool", action = "manage_memory", type = LogType.TOOL_CALL)
     public String manageMemory(String action, Long id, String mode, String sessionId, String memoryType, String content, Integer weight, Boolean hardDelete) {
         try {
             if ("INSERT".equalsIgnoreCase(action)) {
@@ -298,6 +303,7 @@ public class LunaTools {
     - title, content, sourceType, sourcePath: INSERT 时提供。
     - query: QUERY 时提供的搜索词。
     """)
+    @LunaLogRecord(module = "tool", action = "manage_knowledge", type = LogType.TOOL_CALL)
     public String manageKnowledgeBase(String action, String title, String content, String sourceType, String sourcePath, String query) {
         try {
             if ("INSERT".equalsIgnoreCase(action)) {
@@ -318,6 +324,60 @@ public class LunaTools {
                 return success(knowledgeBaseService.searchKnowledge(query, 5));
             }
             return error("未知的 action: " + action + "，知识库暂仅支持 INSERT 和 QUERY");
+        } catch (Exception e) {
+            return error("操作异常: " + e.getMessage());
+        }
+    }
+
+    @Tool("""
+    【系统日志(LunaLog) 管理工具】
+    用于查询、插入或删除系统日志。
+    
+    参数说明:
+    - action: 必填。可选值: "INSERT", "QUERY", "DELETE"
+    - logType: INSERT/QUERY 时选填。枚举: LUNA_OUTPUT, TOOL_CALL, ERROR, SELF_UPDATE, SYSTEM_EVENT, API_CALL
+    - module: INSERT/QUERY 时选填。
+    - content: INSERT 时选填。
+    - startTime: QUERY/DELETE 时选填。格式: yyyy-MM-dd HH:mm:ss
+    - endTime: QUERY 时选填。格式: yyyy-MM-dd HH:mm:ss
+    - limit: QUERY 时选填，默认 10。
+    - id: DELETE 时必填 (除非使用 beforeTime)。
+    - beforeTime: DELETE 时选填，删除此时间之前的日志。
+    """)
+    @LunaLogRecord(module = "tool", action = "manage_log", type = LogType.TOOL_CALL)
+    public String manageLog(String action, String logType, String module, String content, String startTime, String endTime, Integer limit, Long id, String beforeTime) {
+        try {
+            if ("INSERT".equalsIgnoreCase(action)) {
+                LunaLog log = LunaLog.builder()
+                        .logType(logType != null ? LogType.valueOf(logType.toUpperCase()) : LogType.SYSTEM_EVENT)
+                        .module(module)
+                        .content(content)
+                        .createAt(LocalDateTime.now())
+                        .build();
+                lunaLogService.save(log);
+                return success("日志插入成功，ID: " + log.getId());
+            } else if ("QUERY".equalsIgnoreCase(action)) {
+                LambdaQueryWrapper<LunaLog> wrapper = new LambdaQueryWrapper<>();
+                if (logType != null) wrapper.eq(LunaLog::getLogType, LogType.valueOf(logType.toUpperCase()));
+                if (module != null) wrapper.eq(LunaLog::getModule, module);
+                if (startTime != null) wrapper.ge(LunaLog::getCreateAt, LocalDateTime.parse(startTime, DATE_TIME_FORMATTER));
+                if (endTime != null) wrapper.le(LunaLog::getCreateAt, LocalDateTime.parse(endTime, DATE_TIME_FORMATTER));
+                wrapper.orderByDesc(LunaLog::getCreateAt);
+                wrapper.last("LIMIT " + (limit != null ? limit : 10));
+                return success(lunaLogService.list(wrapper));
+            } else if ("DELETE".equalsIgnoreCase(action)) {
+                if (id != null) {
+                    lunaLogService.removeById(id);
+                    return success("已删除日志 ID: " + id);
+                } else if (beforeTime != null) {
+                    LambdaQueryWrapper<LunaLog> wrapper = new LambdaQueryWrapper<>();
+                    wrapper.le(LunaLog::getCreateAt, LocalDateTime.parse(beforeTime, DATE_TIME_FORMATTER));
+                    lunaLogService.remove(wrapper);
+                    return success("已清理 " + beforeTime + " 之前的日志");
+                }
+                return error("DELETE 操作必须提供 id 或 beforeTime");
+            }
+            return error("未知的 action: " + action);
         } catch (Exception e) {
             return error("操作异常: " + e.getMessage());
         }
