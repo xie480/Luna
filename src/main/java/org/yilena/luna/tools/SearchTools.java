@@ -1,36 +1,119 @@
 package org.yilena.luna.tools;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.Tool;
 import lombok.extern.slf4j.Slf4j;
+import okhttp3.*;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.enums.LogType;
+
+import java.util.HashMap;
+import java.util.Map;
 
 @Slf4j
 @Component
 public class SearchTools extends BaseTool {
 
+    @Value("${serper.api-key:}")
+    private String apiKey;
+
+    private final OkHttpClient client;
+
     public SearchTools(ObjectMapper objectMapper) {
         super(objectMapper);
+        this.client = new OkHttpClient().newBuilder().build();
     }
 
     /**
-     * 联网搜索工具
+     * 通用的 Serper API 请求执行器
      */
-    @Tool("当你需要回答的问题超出了你的知识范围，或者需要获取实时信息（如新闻、天气、股价）时，调用此工具进行联网搜索。返回格式为 JSON。")
+    private String executeSerperRequest(String endpoint, Map<String, Object> payload) {
+        if (apiKey == null || apiKey.trim().isEmpty()) {
+            return error("未配置 Serper API Key，请在 application.yaml 中配置 serper.api-key");
+        }
+
+        try {
+            String jsonBody = objectMapper.writeValueAsString(payload);
+            MediaType mediaType = MediaType.parse("application/json");
+            RequestBody body = RequestBody.create(mediaType, jsonBody);
+            
+            Request request = new Request.Builder()
+                    .url("https://google.serper.dev/" + endpoint)
+                    .method("POST", body)
+                    .addHeader("X-API-KEY", apiKey)
+                    .addHeader("Content-Type", "application/json")
+                    .build();
+
+            try (Response response = client.newCall(request).execute()) {
+                if (response.isSuccessful() && response.body() != null) {
+                    // 将返回的 JSON 字符串解析为 JsonNode，避免 success() 方法二次转义字符串
+                    JsonNode jsonNode = objectMapper.readTree(response.body().string());
+                    return success(jsonNode);
+                } else {
+                    String errorBody = response.body() != null ? response.body().string() : "";
+                    log.error("Serper API 请求失败: HTTP {}, Body: {}", response.code(), errorBody);
+                    return error("搜索请求失败: HTTP " + response.code());
+                }
+            }
+        } catch (Exception e) {
+            log.error("执行搜索请求异常", e);
+            return error("搜索异常: " + e.getMessage());
+        }
+    }
+
+    @Tool("当你需要回答的问题超出了你的知识范围，或者需要获取实时信息（如新闻、天气、股价）时，调用此工具进行普通网页搜索。返回格式为 JSON。")
     @LunaLogRecord(module = "tool", action = "search_web", type = LogType.TOOL_CALL)
     public String searchWeb(String query) {
-        log.info("Luna 正在执行联网搜索，关键词: {}", query);
-        // TODO: 对接真实的搜索引擎 API
-        String result;
-        if (query.contains("天气")) {
-            result = "【搜索结果】: 今天天气晴朗，气温 25 度，适合外出。";
-        } else if (query.contains("新闻")) {
-            result = "【搜索结果】: 最新科技新闻显示，AI Agent 技术正在快速发展。";
-        } else {
-            result = "【搜索结果】: 关于 \"" + query + "\" 的网络搜索暂未返回具体内容，请尝试更换关键词或告知用户无法获取实时信息。";
-        }
-        return success(result);
+        log.info("Luna 正在执行普通网页搜索，关键词: {}", query);
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("q", query);
+        payload.put("gl", "cn");
+        payload.put("hl", "zh-cn");
+        return executeSerperRequest("search", payload);
+    }
+
+    @Tool("当你需要搜索图片时，调用此工具进行图片搜索。返回格式为 JSON。")
+    @LunaLogRecord(module = "tool", action = "search_images", type = LogType.TOOL_CALL)
+    public String searchImages(String query) {
+        log.info("Luna 正在执行图片搜索，关键词: {}", query);
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("q", query);
+        payload.put("gl", "cn");
+        payload.put("hl", "zh-cn");
+        return executeSerperRequest("images", payload);
+    }
+
+    @Tool("当你需要获取最新新闻时，调用此工具进行新闻搜索。返回格式为 JSON。")
+    @LunaLogRecord(module = "tool", action = "search_news", type = LogType.TOOL_CALL)
+    public String searchNews(String query) {
+        log.info("Luna 正在执行新闻搜索，关键词: {}", query);
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("q", query);
+        payload.put("gl", "cn");
+        payload.put("hl", "zh-cn");
+        return executeSerperRequest("news", payload);
+    }
+
+    @Tool("当你需要通过图片URL进行以图搜图时，调用此工具。返回格式为 JSON。")
+    @LunaLogRecord(module = "tool", action = "search_lens", type = LogType.TOOL_CALL)
+    public String searchLens(String url) {
+        log.info("Luna 正在执行以图搜图，URL: {}", url);
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("url", url);
+        payload.put("gl", "cn");
+        payload.put("hl", "zh-cn");
+        return executeSerperRequest("lens", payload);
+    }
+
+    @Tool("当你需要抓取特定网页的具体内容时，调用此工具。返回格式为 JSON。")
+    @LunaLogRecord(module = "tool", action = "scrape_web", type = LogType.TOOL_CALL)
+    public String scrapeWeb(String url) {
+        log.info("Luna 正在执行网页内容抓取，URL: {}", url);
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("url", url);
+        return executeSerperRequest("scrape", payload);
     }
 }
