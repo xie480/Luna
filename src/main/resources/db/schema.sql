@@ -80,3 +80,14 @@ COMMENT ON COLUMN schedule_task.status IS '狀態: 0-待處理, 1-已完成, 2-�
 COMMENT ON COLUMN schedule_task.task_type IS '任務類型: 0-REMINDER, 1-ACTION, 2-TODO ';
 COMMENT ON COLUMN schedule_task.created_at IS '創建時間';
 COMMENT ON COLUMN schedule_task.updated_at IS '更新時間';
+
+-- ==========================================
+-- 追加: 階段5 RAG 向量知識庫支持
+-- ==========================================
+-- 啟用 pgvector 擴展 (如果尚未啟用)
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- 為 knowledge_base 表添加向量字段 (假設維度為 768，可根據實際 Embedding 模型調整)
+ALTER TABLE knowledge_base ADD COLUMN embedding vector(768);
+
+COMMENT ON COLUMN knowledge_base.embedding IS '文本的向量表示 (PGVector)';

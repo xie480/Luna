@@ -56,6 +56,13 @@ public class KnowledgeBase implements Serializable {
     @TableField("vector_id")
     private String vectorId;
 
+    /**
+     * 文本的向量表示 (PGVector)
+     * 格式如: "[0.1, 0.2, ...]"
+     */
+    @TableField("embedding")
+    private String embedding;
+
     @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
