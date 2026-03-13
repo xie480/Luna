@@ -1,6 +1,8 @@
 package org.yilena.luna.tools;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.toolkit.SqlRunner;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.Tool;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,11 +20,12 @@ import org.yilena.luna.service.KnowledgeBaseService;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Luna 智能体工具集
- * 包含联网搜索、知识库写入、记忆管理、日程管理等工具
- * 供大模型通过 Function Calling 主动调用
+ * 提供标准化的 CRUD 操作，供大模型通过 Function Calling 主动调用
  */
 @Slf4j
 @Component
@@ -33,117 +36,279 @@ public class LunaTools {
     private final UserPreferenceMapper userPreferenceMapper;
     private final ScheduleTaskMapper scheduleTaskMapper;
     private final MemoryMapper memoryMapper;
+    private final ObjectMapper objectMapper;
 
     /**
      * 联网搜索工具
-     * 目前为模拟实现，实际生产环境应对接 Google Serper / Bing Search API 等
      */
     @Tool("当你需要回答的问题超出了你的知识范围，或者需要获取实时信息（如新闻、天气、股价）时，调用此工具进行联网搜索。")
     public String searchWeb(String query) {
         log.info("Luna 正在执行联网搜索，关键词: {}", query);
-        
         // TODO: 对接真实的搜索引擎 API
         if (query.contains("天气")) {
             return "【搜索结果】: 今天天气晴朗，气温 25 度，适合外出。";
         } else if (query.contains("新闻")) {
             return "【搜索结果】: 最新科技新闻显示，AI Agent 技术正在快速发展。";
         }
-        
         return "【搜索结果】: 关于 \"" + query + "\" 的网络搜索暂未返回具体内容，请尝试更换关键词或告知用户无法获取实时信息。";
     }
 
-    /**
-     * 写入知识库工具
-     * 用于将有价值的信息（如搜索结果、用户的重要笔记）永久存入向量数据库
-     */
-    @Tool("当你从联网搜索中获取了有价值的信息，或者用户提供了重要的文档内容时，调用此工具将其保存到知识库中，以便未来检索。")
-    public String saveToKnowledgeBase(String title, String content, String sourcePath) {
-        log.info("Luna 正在写入知识库，标题: {}", title);
-        try {
-            knowledgeBaseService.addKnowledge(title, content, SourceType.values()[1], sourcePath);
-            return "成功将内容写入知识库。";
-        } catch (Exception e) {
-            log.error("写入知识库失败", e);
-            return "写入知识库失败: " + e.getMessage();
-        }
-    }
+    @Tool("""
+    【用户偏好(UserPreference) CRUD 工具】
+    目标实体类定义 (Schema):
+    - id: Long (自动生成, 插入时不填)
+    - prefKey: String (必填, 偏好键, 如 "theme", "nickname")
+    - prefValue: String (必填, 偏好值)
+    - description: String (选填, 描述/备注)
+    - createdAt: DateTime (自动生成)
+    - updatedAt: DateTime (自动生成)
+    - deleted: Integer (自动生成, 逻辑删除标记)
 
-    /**
-     * 写入用户偏好工具
-     * 用于记录用户的个人喜好、称呼、习惯等
-     */
-    @Tool("当用户明确表达了某种偏好（如'叫我主人'、'我喜欢简洁的回答'）时，调用此工具记录用户偏好。")
-    public String saveUserPreference(String key, String value, String description) {
-        log.info("Luna 正在记录用户偏好，Key: {}, Value: {}", key, value);
-        try {
-            UserPreference existing = userPreferenceMapper.selectOne(
-                    new LambdaQueryWrapper<UserPreference>().eq(UserPreference::getPrefKey, key)
-            );
+    业务流程约束: 当偏好变更时，必须先调用 QUERY 查出旧偏好，再决定是 UPDATE 还是 DELETE 后重新 INSERT。
 
-            if (existing != null) {
-                existing.setPrefValue(value);
-                userPreferenceMapper.updateById(existing);
-            } else {
-                UserPreference pref = UserPreference.builder()
-                        .prefKey(key)
-                        .prefValue(value)
-                        .description(description)
-                        .build();
+    参数说明:
+    - action: 必填。可选值: "INSERT", "UPDATE", "DELETE", "QUERY"
+    - id: UPDATE 和 DELETE 时必填。
+    - mode: UPDATE 时必填。可选值: "PATCH" (部分更新，忽略空值), "PUT" (全量替换，空值将覆盖原值)
+    - hardDelete: DELETE 时选填。true 为物理删除，false 为逻辑删除(默认)。
+    - prefKey, prefValue, description: 根据 action 和 mode 提供。
+
+    返回格式示例:
+    - 成功: {"status":"success", "data": {"id":1, "prefKey":"theme", "prefValue":"dark", ...}}
+    - 失败: {"status":"error", "message":"INSERT 操作必须提供 prefKey 和 prefValue"}
+    """)
+    public String manageUserPreference(String action, Long id, String mode, String prefKey, String prefValue, String description, Boolean hardDelete) {
+        try {
+            if ("INSERT".equalsIgnoreCase(action)) {
+                if (prefKey == null || prefValue == null) return error("INSERT 必须提供 prefKey 和 prefValue");
+                UserPreference pref = UserPreference.builder().prefKey(prefKey).prefValue(prefValue).description(description).build();
                 userPreferenceMapper.insert(pref);
+                return success(userPreferenceMapper.selectById(pref.getId()));
+            } else if ("QUERY".equalsIgnoreCase(action)) {
+                LambdaQueryWrapper<UserPreference> wrapper = new LambdaQueryWrapper<>();
+                if (prefKey != null) wrapper.eq(UserPreference::getPrefKey, prefKey);
+                return success(userPreferenceMapper.selectList(wrapper));
+            } else if ("UPDATE".equalsIgnoreCase(action)) {
+                if (id == null || mode == null) return error("UPDATE 必须提供 id 和 mode(PATCH/PUT)");
+                UserPreference existing = userPreferenceMapper.selectById(id);
+                if (existing == null) return error("未找到 id=" + id + " 的记录");
+
+                if ("PUT".equalsIgnoreCase(mode)) {
+                    existing.setPrefKey(prefKey);
+                    existing.setPrefValue(prefValue);
+                    existing.setDescription(description);
+                } else if ("PATCH".equalsIgnoreCase(mode)) {
+                    if (prefKey != null) existing.setPrefKey(prefKey);
+                    if (prefValue != null) existing.setPrefValue(prefValue);
+                    if (description != null) existing.setDescription(description);
+                } else {
+                    return error("未知的 mode: " + mode);
+                }
+                userPreferenceMapper.updateById(existing);
+                return success(userPreferenceMapper.selectById(id));
+            } else if ("DELETE".equalsIgnoreCase(action)) {
+                if (id == null) return error("DELETE 必须提供 id");
+                if (Boolean.TRUE.equals(hardDelete)) {
+                    SqlRunner.db().delete("DELETE FROM user_preference WHERE id = {0}", id);
+                    return success("已执行物理删除 id=" + id);
+                } else {
+                    userPreferenceMapper.deleteById(id);
+                    return success("已执行逻辑删除 id=" + id);
+                }
             }
-            return "已成功记录用户偏好。";
+            return error("未知的 action: " + action);
         } catch (Exception e) {
-            return "记录用户偏好失败: " + e.getMessage();
+            return error("操作异常: " + e.getMessage());
         }
     }
 
-    /**
-     * 添加日程任务工具
-     */
-    @Tool("当用户要求你提醒某事或安排日程时，调用此工具添加任务。时间格式必须为 'yyyy-MM-dd HH:mm:ss'。")
-    public String addScheduleTask(String content, String timeString) {
-        log.info("Luna 正在添加日程，内容: {}, 时间: {}", content, timeString);
-        try {
-            LocalDateTime triggerTime;
-            try {
-                triggerTime = LocalDateTime.parse(timeString, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-            } catch (Exception e) {
-                // 如果解析失败，尝试使用当前时间延后一小时作为默认值
-                triggerTime = LocalDateTime.now().plusHours(1);
-                log.warn("时间格式解析失败，使用默认时间: {}", triggerTime);
-            }
+    @Tool("""
+    【日程任务(ScheduleTask) CRUD 工具】
+    目标实体类定义 (Schema):
+    - id: Long (自动生成, 插入时不填)
+    - content: String (必填, 任务内容)
+    - triggerTime: String (必填, 格式: yyyy-MM-dd HH:mm:ss)
+    - status: String (必填, 枚举: PENDING, COMPLETED, CANCELLED, EXPIRED)
+    - taskType: String (必填, 枚举: REMINDER, ACTION, TODO)
+    - createdAt: DateTime (自动生成)
+    - updatedAt: DateTime (自动生成)
+    - deleted: Integer (自动生成, 逻辑删除标记)
 
-            ScheduleTask task = ScheduleTask.builder()
-                    .content(content)
-                    .triggerTime(triggerTime)
-                    .status(TaskStatus.values()[0]) // 默认取第一个枚举值 (通常是 0-待处理)
-                    .taskType(TaskType.REMINDER)    // 对应 REMINDER(提醒)
-                    .build();
-            
-            scheduleTaskMapper.insert(task);
-            return "已添加日程任务，预定时间: " + triggerTime.toString();
+    参数说明:
+    - action: 必填。可选值: "INSERT", "UPDATE", "DELETE", "QUERY"
+    - id: UPDATE 和 DELETE 时必填。
+    - mode: UPDATE 时必填。可选值: "PATCH", "PUT"
+    - hardDelete: DELETE 时选填。true 为物理删除，false 为逻辑删除(默认)。
+    - content, triggerTime, status, taskType: 根据 action 和 mode 提供。
+    """)
+    public String manageScheduleTask(String action, Long id, String mode, String content, String triggerTime, String status, String taskType, Boolean hardDelete) {
+        try {
+            if ("INSERT".equalsIgnoreCase(action)) {
+                if (content == null || triggerTime == null || status == null || taskType == null) {
+                    return error("INSERT 必须提供 content, triggerTime, status, taskType");
+                }
+                ScheduleTask task = ScheduleTask.builder()
+                        .content(content)
+                        .triggerTime(LocalDateTime.parse(triggerTime, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")))
+                        .status(TaskStatus.valueOf(status.toUpperCase()))
+                        .taskType(TaskType.valueOf(taskType.toUpperCase()))
+                        .build();
+                scheduleTaskMapper.insert(task);
+                return success(scheduleTaskMapper.selectById(task.getId()));
+            } else if ("QUERY".equalsIgnoreCase(action)) {
+                LambdaQueryWrapper<ScheduleTask> wrapper = new LambdaQueryWrapper<>();
+                if (status != null) wrapper.eq(ScheduleTask::getStatus, TaskStatus.valueOf(status.toUpperCase()));
+                return success(scheduleTaskMapper.selectList(wrapper));
+            } else if ("UPDATE".equalsIgnoreCase(action)) {
+                if (id == null || mode == null) return error("UPDATE 必须提供 id 和 mode");
+                ScheduleTask existing = scheduleTaskMapper.selectById(id);
+                if (existing == null) return error("未找到 id=" + id + " 的记录");
+
+                if ("PUT".equalsIgnoreCase(mode)) {
+                    existing.setContent(content);
+                    existing.setTriggerTime(triggerTime != null ? LocalDateTime.parse(triggerTime, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) : null);
+                    existing.setStatus(status != null ? TaskStatus.valueOf(status.toUpperCase()) : null);
+                    existing.setTaskType(taskType != null ? TaskType.valueOf(taskType.toUpperCase()) : null);
+                } else if ("PATCH".equalsIgnoreCase(mode)) {
+                    if (content != null) existing.setContent(content);
+                    if (triggerTime != null) existing.setTriggerTime(LocalDateTime.parse(triggerTime, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+                    if (status != null) existing.setStatus(TaskStatus.valueOf(status.toUpperCase()));
+                    if (taskType != null) existing.setTaskType(TaskType.valueOf(taskType.toUpperCase()));
+                }
+                scheduleTaskMapper.updateById(existing);
+                return success(scheduleTaskMapper.selectById(id));
+            } else if ("DELETE".equalsIgnoreCase(action)) {
+                if (id == null) return error("DELETE 必须提供 id");
+                if (Boolean.TRUE.equals(hardDelete)) {
+                    SqlRunner.db().delete("DELETE FROM schedule_task WHERE id = {0}", id);
+                    return success("已执行物理删除 id=" + id);
+                } else {
+                    scheduleTaskMapper.deleteById(id);
+                    return success("已执行逻辑删除 id=" + id);
+                }
+            }
+            return error("未知的 action: " + action);
         } catch (Exception e) {
-            return "添加日程失败: " + e.getMessage();
+            return error("操作异常: " + e.getMessage());
         }
     }
 
-    /**
-     * 写入长期记忆工具
-     * 用于存储关于用户的关键事实或长期需要记住的信息
-     */
-    @Tool("当你需要记住关于用户的一个关键事实（非偏好类，例如用户的生日、家庭成员、职业背景）时，调用此工具。")
-    public String saveMemory(String content, String category) {
-        log.info("Luna 正在写入长期记忆，类别: {}, 内容: {}", category, content);
+    @Tool("""
+    【长期记忆(Memory) CRUD 工具】
+    目标实体类定义 (Schema):
+    - id: Long (自动生成, 插入时不填)
+    - category: String (必填, 记忆类别, 如 "FACT", "PREFERENCE", "EVENT")
+    - content: String (必填, 记忆内容)
+    - createdAt: DateTime (自动生成)
+    - updatedAt: DateTime (自动生成)
+
+    参数说明:
+    - action: 必填。可选值: "INSERT", "UPDATE", "DELETE", "QUERY"
+    - id: UPDATE 和 DELETE 时必填。
+    - mode: UPDATE 时必填。可选值: "PATCH", "PUT"
+    - hardDelete: DELETE 时选填。true 为物理删除，false 为逻辑删除(默认)。
+    - category, content: 根据 action 和 mode 提供。
+    """)
+    public String manageMemory(String action, Long id, String mode, String category, String content, Boolean hardDelete) {
         try {
-            Memory memory = Memory.builder()
-                    .content(content)
-                    .category(category)
-                    .build();
-            
-            memoryMapper.insert(memory);
-            return "已将信息写入长期记忆。";
+            if ("INSERT".equalsIgnoreCase(action)) {
+                if (category == null || content == null) return error("INSERT 必须提供 category 和 content");
+                Memory memory = Memory.builder().category(category).content(content).build();
+                memoryMapper.insert(memory);
+                return success(memoryMapper.selectById(memory.getId())); // 假设 Memory 实体有 getId()
+            } else if ("QUERY".equalsIgnoreCase(action)) {
+                LambdaQueryWrapper<Memory> wrapper = new LambdaQueryWrapper<>();
+                if (category != null) wrapper.eq(Memory::getCategory, category);
+                return success(memoryMapper.selectList(wrapper));
+            } else if ("UPDATE".equalsIgnoreCase(action)) {
+                if (id == null || mode == null) return error("UPDATE 必须提供 id 和 mode");
+                Memory existing = memoryMapper.selectById(id);
+                if (existing == null) return error("未找到 id=" + id + " 的记录");
+
+                if ("PUT".equalsIgnoreCase(mode)) {
+                    existing.setCategory(category);
+                    existing.setContent(content);
+                } else if ("PATCH".equalsIgnoreCase(mode)) {
+                    if (category != null) existing.setCategory(category);
+                    if (content != null) existing.setContent(content);
+                }
+                memoryMapper.updateById(existing);
+                return success(memoryMapper.selectById(id));
+            } else if ("DELETE".equalsIgnoreCase(action)) {
+                if (id == null) return error("DELETE 必须提供 id");
+                if (Boolean.TRUE.equals(hardDelete)) {
+                    SqlRunner.db().delete("DELETE FROM memory WHERE id = {0}", id);
+                    return success("已执行物理删除 id=" + id);
+                } else {
+                    memoryMapper.deleteById(id);
+                    return success("已执行逻辑删除 id=" + id);
+                }
+            }
+            return error("未知的 action: " + action);
         } catch (Exception e) {
-            return "写入记忆失败: " + e.getMessage();
+            return error("操作异常: " + e.getMessage());
+        }
+    }
+
+    @Tool("""
+    【知识库(KnowledgeBase) CRUD 工具】
+    目标实体类定义 (Schema):
+    - id: Long (自动生成)
+    - title: String (必填, 标题)
+    - content: String (必填, 内容)
+    - sourceType: String (必填, 来源类型, 如 TEXT, WEB, FILE)
+    - sourcePath: String (选填, 来源路径)
+
+    参数说明:
+    - action: 必填。可选值: "INSERT", "QUERY" (注: 知识库涉及向量化，暂不支持直接 UPDATE/DELETE，请通过重新 INSERT 覆盖)
+    - title, content, sourceType, sourcePath: INSERT 时提供。
+    - query: QUERY 时提供的搜索词。
+    """)
+    public String manageKnowledgeBase(String action, String title, String content, String sourceType, String sourcePath, String query) {
+        try {
+            if ("INSERT".equalsIgnoreCase(action)) {
+                if (title == null || content == null || sourceType == null) {
+                    return error("INSERT 必须提供 title, content 和 sourceType");
+                }
+                SourceType st;
+                try {
+                    st = SourceType.valueOf(sourceType.toUpperCase());
+                } catch (Exception e) {
+                    st = SourceType.values()[0]; // fallback
+                }
+                knowledgeBaseService.addKnowledge(title, content, st, sourcePath);
+                return success("知识库写入成功");
+            } else if ("QUERY".equalsIgnoreCase(action)) {
+                if (query == null) return error("QUERY 必须提供 query");
+                return success(knowledgeBaseService.searchKnowledge(query, 5));
+            }
+            return error("未知的 action: " + action + "，知识库暂仅支持 INSERT 和 QUERY");
+        } catch (Exception e) {
+            return error("操作异常: " + e.getMessage());
+        }
+    }
+
+    // --- 辅助方法 ---
+
+    private String success(Object data) {
+        try {
+            Map<String, Object> map = new HashMap<>();
+            map.put("status", "success");
+            map.put("data", data);
+            return objectMapper.writeValueAsString(map);
+        } catch (Exception e) {
+            return "{\"status\":\"error\", \"message\":\"JSON序列化失败\"}";
+        }
+    }
+
+    private String error(String message) {
+        try {
+            Map<String, Object> map = new HashMap<>();
+            map.put("status", "error");
+            map.put("message", message);
+            return objectMapper.writeValueAsString(map);
+        } catch (Exception e) {
+            return "{\"status\":\"error\", \"message\":\"" + message + "\"}";
         }
     }
 }

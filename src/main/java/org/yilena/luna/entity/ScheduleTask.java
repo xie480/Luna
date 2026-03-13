@@ -56,4 +56,11 @@ public class ScheduleTask implements Serializable {
 
     @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
+
+    /**
+     * 邏輯刪除標記 (0: 未刪除, 1: 已刪除)
+     */
+    @TableLogic
+    @TableField("deleted")
+    private Integer deleted;
 }
