@@ -28,12 +28,6 @@ public abstract class BaseTool {
         try {
             Map<String, Object> map = new HashMap<>();
             map.put("status", "error");
-            map.put("message**Generating New Tools Files**
-
-I'm now generating all the files, including `BaseTool.java`, `SearchTools.java`, `PreferenceTools.java`, `ScheduleTools.java`, `MemoryTools.java`, `KnowledgeBaseTools.java`, and `LogTools.java`, alongside an empty `LunaTools.java`. The `BaseTool` class will be abstract to handle the `ObjectMapper` and helper methods, supporting dependency injection for all other tool classes. All dependencies and annotations are added.
-
-
-", message);
             return objectMapper.writeValueAsString(map);
         } catch (Exception e) {
             return "{\"status\":\"error\", \"message\":\"" + message + "\"}";
