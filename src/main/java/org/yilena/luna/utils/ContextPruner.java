@@ -25,7 +25,7 @@ import java.util.List;
 public class ContextPruner {
 
     // 默认最大字符数限制 (可根据实际模型 Context Window 调整，如 32k token 约 10万字符，这里保守设为 20000)
-    public static final int MAX_PROMPT_CHARS = 20000;
+    public static final int MAX_PROMPT_CHARS = 60000;
 
     @Data
     @Builder
