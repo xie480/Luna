@@ -16,15 +16,31 @@ public final class PromptAssembler {
     private static final int MAX_PROMPT_CHARS = 15000;
 
     /*
-        核心组装逻辑
+        核心组装逻辑 (无知识库)
      */
     public String assemble(List<String> memorySnippets, String userInput) {
+        return assembleWithKnowledge(memorySnippets, null, userInput);
+    }
+
+    /*
+        核心组装逻辑 (包含知识库 RAG)
+     */
+    public String assembleWithKnowledge(List<String> memorySnippets, List<String> knowledgeSnippets, String userInput) {
         // 输入检查
         Objects.requireNonNull(userInput, "用户输入为空");
         StringBuilder prompt = new StringBuilder(MAX_PROMPT_CHARS);
 
         // System Prompt
         append(prompt, PromptTemplates.SYSTEM_PROMPT);
+
+        // Knowledge Base Prompt (RAG 上下文)
+        if (knowledgeSnippets != null && !knowledgeSnippets.isEmpty()) {
+            String kbMerged = merge(knowledgeSnippets);
+            if (!kbMerged.isEmpty()) {
+                String kbBlock = "【本地知识库检索结果】\n" + kbMerged + "\n\n请优先参考以上知识库内容回答用户的问题。如果知识库内容与问题无关，请按照你的正常逻辑回答。";
+                append(prompt, kbBlock);
+            }
+        }
 
         // Memory Prompt
         appendMemoryIfPresent(prompt, memorySnippets);
@@ -48,12 +64,11 @@ public final class PromptAssembler {
     }
 
     private String merge(List<String> snippets) {
-        String merged = snippets.stream()
+        return snippets.stream()
                 .filter(Objects::nonNull)
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.joining("\n\n"));
-        return merged;
     }
 
 

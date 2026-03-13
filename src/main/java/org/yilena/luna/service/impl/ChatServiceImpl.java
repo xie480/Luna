@@ -17,6 +17,7 @@ import org.yilena.luna.constants.RedisKeyConstant;
 import org.yilena.luna.constants.SymbolConstant;
 import org.yilena.luna.entity.ChatMessage;
 import org.yilena.luna.entity.ChatRequest;
+import org.yilena.luna.entity.KnowledgeBase;
 import org.yilena.luna.enums.ModelType;
 import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
@@ -25,6 +26,7 @@ import org.yilena.luna.prompt.PromptAssembler;
 import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.service.ChatService;
+import org.yilena.luna.service.KnowledgeBaseService;
 import org.yilena.luna.service.SessionService;
 import org.yilena.luna.utils.LlmClientUtil;
 import org.yilena.luna.utils.ServiceCommunicateUtil;
@@ -45,6 +47,7 @@ public class ChatServiceImpl implements ChatService {
     private final StringRedisTemplate stringRedisTemplate;
     private final GeminiProperty geminiProperty;
     private final LlmClientUtil llmClientUtil;
+    private final KnowledgeBaseService knowledgeBaseService;
 
     // ObjectMapper 用于解析模型返回的 JSON 结果
     private final ObjectMapper mapper = new ObjectMapper();
@@ -67,6 +70,22 @@ public class ChatServiceImpl implements ChatService {
             log.error("用户输入为空");
             return ResponseEntity.badRequest().body("用户输入为空");
         }
+
+        // --- RAG 检索逻辑 ---
+        List<String> knowledgeSnippets = null;
+        try {
+            // 检索 Top 3 相关知识
+            List<KnowledgeBase> kbs = knowledgeBaseService.searchKnowledge(input, 3);
+            if (kbs != null && !kbs.isEmpty()) {
+                knowledgeSnippets = kbs.stream()
+                        .map(kb -> String.format("标题: %s\n内容: %s", kb.getTitle(), kb.getContent()))
+                        .collect(Collectors.toList());
+                log.info("RAG检索命中: {} 条", kbs.size());
+            }
+        } catch (Exception e) {
+            log.error("RAG检索异常: {}", e.getMessage());
+        }
+        // -------------------
 
         // 获取上下文最近N条信息（在写入用户消息前先获取，用于压缩判断）
         List<ChatMessage> recent = sessionService.getRecentMessages(keyPrefix, false);
@@ -120,8 +139,8 @@ public class ChatServiceImpl implements ChatService {
         // 将当前输入加入用户会话上下文当中（在压缩判断之后写入，避免被覆盖）
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.USER, input, LocalTime.now()));
 
-        // 组装提示词
-        String prompt = promptAssembler.assemble(memorySnippets, input);
+        // 组装提示词 (包含 RAG 知识库片段)
+        String prompt = promptAssembler.assembleWithKnowledge(memorySnippets, knowledgeSnippets, input);
 
         // 发送请求
         SendToLuna result = getSendToLuna(prompt);
