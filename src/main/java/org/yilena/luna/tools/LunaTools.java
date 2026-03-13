@@ -57,11 +57,10 @@ public class LunaTools {
      * 用于将有价值的信息（如搜索结果、用户的重要笔记）永久存入向量数据库
      */
     @Tool("当你从联网搜索中获取了有价值的信息，或者用户提供了重要的文档内容时，调用此工具将其保存到知识库中，以便未来检索。")
-    public String saveToKnowledgeBase(String title, String content) {
+    public String saveToKnowledgeBase(String title, String content, String sourcePath) {
         log.info("Luna 正在写入知识库，标题: {}", title);
         try {
-            // 假设 SourceType 中有 TEXT 或类似枚举，如果没有请根据实际情况调整
-            knowledgeBaseService.addKnowledge(title, content, SourceType.values()[0], "Luna-Auto-Learning");
+            knowledgeBaseService.addKnowledge(title, content, SourceType.values()[1], sourcePath);
             return "成功将内容写入知识库。";
         } catch (Exception e) {
             log.error("写入知识库失败", e);
@@ -74,7 +73,7 @@ public class LunaTools {
      * 用于记录用户的个人喜好、称呼、习惯等
      */
     @Tool("当用户明确表达了某种偏好（如'叫我主人'、'我喜欢简洁的回答'）时，调用此工具记录用户偏好。")
-    public String saveUserPreference(String key, String value) {
+    public String saveUserPreference(String key, String value, String description) {
         log.info("Luna 正在记录用户偏好，Key: {}, Value: {}", key, value);
         try {
             UserPreference existing = userPreferenceMapper.selectOne(
@@ -88,6 +87,7 @@ public class LunaTools {
                 UserPreference pref = UserPreference.builder()
                         .prefKey(key)
                         .prefValue(value)
+                        .description(description)
                         .build();
                 userPreferenceMapper.insert(pref);
             }
