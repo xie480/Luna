@@ -3,7 +3,6 @@ package org.yilena.luna.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
-import org.apache.ibatis.annotations.Select;
 import org.yilena.luna.entity.KnowledgeBase;
 
 import java.util.List;
@@ -22,9 +21,5 @@ public interface KnowledgeBaseMapper extends BaseMapper<KnowledgeBase> {
      * @param topK         返回的最相似結果數量
      * @return 檢索到的知識庫片段列表
      */
-    @Select("SELECT id, title, content, source_type, source_path, vector_id, created_at, updated_at " +
-            "FROM knowledge_base " +
-            "ORDER BY embedding <=> cast(#{vectorString} as vector) " +
-            "LIMIT #{topK}")
     List<KnowledgeBase> searchByVector(@Param("vectorString") String vectorString, @Param("topK") int topK);
 }
