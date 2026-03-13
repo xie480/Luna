@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.Tool;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.annotation.LunaLogRecord;
+import org.yilena.luna.annotation.LunaState;
 import org.yilena.luna.entity.LunaLog;
 import org.yilena.luna.enums.LogType;
 import org.yilena.luna.service.LunaLogService;
@@ -23,6 +24,7 @@ public class LogTools extends BaseTool {
         this.lunaLogService = lunaLogService;
     }
 
+    @LunaState(value = "Luna 正在查阅系统日志...", status = "LOG")
     @Tool("""
     【系统日志(LunaLog) 管理工具】
     用于查询、插入或删除系统日志。

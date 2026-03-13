@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.yilena.luna.exception.LunaExceptionContext;
 import org.yilena.luna.service.ExceptionAgentService;
 import org.yilena.luna.service.ExceptionRetryService;
+import org.yilena.luna.sse.LunaStatusPublisher;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
@@ -25,6 +26,7 @@ public class ExceptionRetryServiceImpl implements ExceptionRetryService {
     private final ExceptionAgentService exceptionAgentService;
     private final ApplicationContext applicationContext;
     private final ObjectMapper objectMapper;
+    private final LunaStatusPublisher statusPublisher;
 
     @Override
     public Map<String, Object> handleException(LunaExceptionContext context) {
@@ -38,14 +40,19 @@ public class ExceptionRetryServiceImpl implements ExceptionRetryService {
             log.warn("异常重试次数超限，直接返回。ErrorID: {}", errorId);
             result.put("message", "唔...这个问题有点顽固，Luna尝试修复了几次都没有成功。建议主人稍后再试，或者查看日志。");
             result.put("reason", "重试次数超限");
+            statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "IDLE", "");
             return result;
         }
+
+        // 推送状态：正在分析异常
+        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "ANALYZING", "哎呀，遇到点小状况，Luna 正在分析原因...");
 
         // 1. 调用 AI 分析
         JsonNode aiDecision = exceptionAgentService.analyzeException(context);
         if (aiDecision == null) {
             result.put("message", "系统发生未知错误，且 AI 辅助分析失败。");
             result.put("reason", "AI 服务不可用");
+            statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "IDLE", "");
             return result;
         }
 
@@ -56,6 +63,9 @@ public class ExceptionRetryServiceImpl implements ExceptionRetryService {
             String toolName = aiDecision.get("tool").asText();
             JsonNode params = aiDecision.get("params");
             log.info("AI 判定可修复，尝试调用工具: {}", toolName);
+            
+            // 推送状态：正在尝试修复
+            statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "FIXING", "Luna 正在尝试调用工具自我修复...");
 
             try {
                 // 3. 动态调用 MCP Tool
@@ -80,6 +90,8 @@ public class ExceptionRetryServiceImpl implements ExceptionRetryService {
             result.put("reason", reason);
         }
 
+        // 恢复空闲状态
+        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "IDLE", "");
         return result;
     }
 

@@ -8,6 +8,7 @@ import okhttp3.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.annotation.LunaLogRecord;
+import org.yilena.luna.annotation.LunaState;
 import org.yilena.luna.enums.LogType;
 
 import java.util.HashMap;
@@ -64,6 +65,7 @@ public class SearchTools extends BaseTool {
         }
     }
 
+    @LunaState(value = "Luna 正在全网搜索最新资讯...", status = "SEARCHING")
     @Tool("当你需要回答的问题超出了你的知识范围，或者需要获取实时信息（如新闻、天气、股价）时，调用此工具进行普通网页搜索。返回格式为 JSON。")
     @LunaLogRecord(module = "tool", action = "search_web", type = LogType.TOOL_CALL)
     public String searchWeb(String query) {
@@ -75,6 +77,7 @@ public class SearchTools extends BaseTool {
         return executeSerperRequest("search", payload);
     }
 
+    @LunaState(value = "Luna 正在搜索相关图片...", status = "SEARCHING")
     @Tool("当你需要搜索图片时，调用此工具进行图片搜索。返回格式为 JSON。")
     @LunaLogRecord(module = "tool", action = "search_images", type = LogType.TOOL_CALL)
     public String searchImages(String query) {
@@ -86,6 +89,7 @@ public class SearchTools extends BaseTool {
         return executeSerperRequest("images", payload);
     }
 
+    @LunaState(value = "Luna 正在查阅最新新闻...", status = "SEARCHING")
     @Tool("当你需要获取最新新闻时，调用此工具进行新闻搜索。返回格式为 JSON。")
     @LunaLogRecord(module = "tool", action = "search_news", type = LogType.TOOL_CALL)
     public String searchNews(String query) {
@@ -97,6 +101,7 @@ public class SearchTools extends BaseTool {
         return executeSerperRequest("news", payload);
     }
 
+    @LunaState(value = "Luna 正在进行以图搜图...", status = "SEARCHING")
     @Tool("当你需要通过图片URL进行以图搜图时，调用此工具。返回格式为 JSON。")
     @LunaLogRecord(module = "tool", action = "search_lens", type = LogType.TOOL_CALL)
     public String searchLens(String url) {
@@ -108,6 +113,7 @@ public class SearchTools extends BaseTool {
         return executeSerperRequest("lens", payload);
     }
 
+    @LunaState(value = "Luna 正在抓取网页内容...", status = "SCRAPING")
     @Tool("当你需要抓取特定网页的具体内容时，调用此工具。返回格式为 JSON。")
     @LunaLogRecord(module = "tool", action = "scrape_web", type = LogType.TOOL_CALL)
     public String scrapeWeb(String url) {

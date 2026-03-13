@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.Tool;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.annotation.LunaLogRecord;
+import org.yilena.luna.annotation.LunaState;
 import org.yilena.luna.entity.ScheduleTask;
 import org.yilena.luna.enums.LogType;
 import org.yilena.luna.enums.TaskStatus;
@@ -28,6 +29,7 @@ public class ScheduleTools extends BaseTool {
         this.scheduleTaskMapper = scheduleTaskMapper;
     }
 
+    @LunaState(value = "Luna 正在安排日程任务...", status = "SCHEDULE")
     @Tool("""
     【日程任务(ScheduleTask) CRUD 工具】
     目标实体类定义 (Schema):

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.Tool;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.annotation.LunaLogRecord;
+import org.yilena.luna.annotation.LunaState;
 import org.yilena.luna.entity.Memory;
 import org.yilena.luna.enums.LogType;
 import org.yilena.luna.enums.MemoryType;
@@ -23,6 +24,7 @@ public class MemoryTools extends BaseTool {
         this.memoryMapper = memoryMapper;
     }
 
+    @LunaState(value = "Luna 正在回忆过去的点点滴滴...", status = "MEMORY")
     @Tool("""
     【长期记忆(Memory) CRUD 工具】
     目标实体类定义 (Schema):

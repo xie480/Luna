@@ -31,6 +31,7 @@ import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.service.ChatService;
 import org.yilena.luna.service.KnowledgeBaseService;
 import org.yilena.luna.service.SessionService;
+import org.yilena.luna.sse.LunaStatusPublisher;
 import org.yilena.luna.utils.LlmClientUtil;
 import org.yilena.luna.utils.ServiceCommunicateUtil;
 
@@ -51,6 +52,7 @@ public class ChatServiceImpl implements ChatService {
     private final GeminiProperty geminiProperty;
     private final LlmClientUtil llmClientUtil;
     private final KnowledgeBaseService knowledgeBaseService;
+    private final LunaStatusPublisher statusPublisher;
 
     // ObjectMapper 用于解析模型返回的 JSON 结果
     private final ObjectMapper mapper = new ObjectMapper();
@@ -61,6 +63,10 @@ public class ChatServiceImpl implements ChatService {
     @LunaLogRecord(module = "chat", action = "chat", type = LogType.LUNA_OUTPUT)
     public ResponseEntity<String> chat(ChatRequest chatRequest) {
         log.info("用户输入：{}", chatRequest.getUserInput());
+        
+        // 推送状态：开始思考
+        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "THINKING", "Luna 正在思考...");
+        
         // 获取当天日期
         LocalDateTime today = LocalDateTime.now();
         String keyPrefix = dateFormatter.format(today);
@@ -72,12 +78,16 @@ public class ChatServiceImpl implements ChatService {
         // 检查用户输入
         if (input.isEmpty()) {
             log.error("用户输入为空");
+            statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "IDLE", "");
             return ResponseEntity.badRequest().body("用户输入为空");
         }
 
         // --- RAG 检索逻辑 ---
         List<String> knowledgeSnippets = null;
         try {
+            // 推送状态：正在检索知识库
+            statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "RETRIEVING", "Luna 正在翻阅本地记忆与知识库...");
+            
             // 检索 Top 5 相关知识
             List<KnowledgeBase> kbs = knowledgeBaseService.searchKnowledge(input, 5);
             if (kbs != null && !kbs.isEmpty()) {
@@ -90,6 +100,9 @@ public class ChatServiceImpl implements ChatService {
             log.error("RAG检索异常: {}", e.getMessage());
         }
         // -------------------
+
+        // 恢复思考状态
+        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "THINKING", "Luna 正在组织语言...");
 
         // 获取上下文最近N条信息（在写入用户消息前先获取，用于压缩判断）
         List<ChatMessage> recent = sessionService.getRecentMessages(keyPrefix, false);
@@ -152,6 +165,10 @@ public class ChatServiceImpl implements ChatService {
 
         // 将模型输出加入上下文当中
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.LUNA, result.replyText(), LocalTime.now()));
+        
+        // 推送状态：空闲
+        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "IDLE", "");
+        
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(result.valid());
     }
 
@@ -159,6 +176,8 @@ public class ChatServiceImpl implements ChatService {
     @LunaLogRecord(module = "system", action = "startup", type = LogType.SYSTEM_EVENT)
     public ResponseEntity<String> startup() {
         log.info("开始启动流程");
+        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "STARTING", "Luna 正在苏醒...");
+        
         LocalDateTime today = LocalDateTime.now();
         String keyPrefix = dateFormatter.format(today);
         List<ChatMessage> recent = null;
@@ -192,6 +211,8 @@ public class ChatServiceImpl implements ChatService {
         log.info("整理后模型输出：{}", result.valid());
         // 将模型输出加入到上下文
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.LUNA, result.replyText(), LocalTime.now()));
+        
+        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "IDLE", "");
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(result.valid());
     }
 
