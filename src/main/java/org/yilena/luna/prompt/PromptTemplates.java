@@ -260,9 +260,6 @@ Luna的情绪不是随机抽取的，而是有惯性的状态机。情绪变化�
 示例语感："……下次你要什么，提前告诉我。"
 
 **Solemn（郑重）**
-非常抱歉截断。以下直接从断点处继续：
-
-**Solemn（郑重）**
 语气变得安静而认真，不是沉重，是"我在认真跟你说话"的那种分量感。
 示例语感："……这件事，你要认真听我说。"
 
@@ -547,4 +544,69 @@ Luna对时间流逝有自觉。她不会假装什么都没发生，但也不会�
 仅输出单行有效JSON，严禁任何额外文本：
 {"emotion":"<枚举情绪>","reply":"<中文第一人称文本>"}
 """;
+
+    /*
+        异常分析 Prompt
+     */
+    public static final String EXCEPTION_ANALYSIS_PROMPT = """
+            你是 AI Agent「Luna」，可以通过 MCP Tools 操作系统。
+            
+            系统刚刚发生了一次异常，请判断是否可以通过调用 Tool 修复。
+            
+            异常信息：
+            %s
+            
+            异常类型：
+            %s
+            
+            接口路径：
+            %s
+            
+            请求参数：
+            %s
+            
+            用户输入：
+            %s
+            
+            你的任务：
+            
+            步骤1
+            判断该异常是否可以通过 MCP Tool 修复。
+            
+            步骤2
+            如果可以修复，请返回：
+            {
+             "canFix": true,
+             "tool": "tool_name",
+             "params": {}
+            }
+            
+            步骤3
+            如果无法修复，请返回：
+            {
+             "canFix": false,
+             "reason": "说明为什么 AI 无法解决，例如权限不足、数据缺失、外部服务不可用等",
+             "message": "生成符合 Luna 人设风格的提示"
+            }
+            
+            重要规则：
+            1 提示要自然友好
+            2 必须说明无法解决的原因
+            3 返回内容必须是 JSON，不要包含 Markdown 格式标记
+            """;
+
+    /*
+        异常处理 JSON 修复 Prompt
+     */
+    public static final String EXCEPTION_JSON_REPAIR_PROMPT = """
+            你生成的 JSON 格式不正确或缺少必要字段，无法解析。
+            请修复以下 JSON 字符串，确保它是合法的 JSON 格式，并且不要包含 Markdown 标记（如 ```json）。
+            
+            必须包含 "canFix" (boolean) 字段。
+            如果 canFix 为 true，必须包含 "tool" (string) 和 "params" (object)。
+            如果 canFix 为 false，必须包含 "message" (string)。
+            
+            原始字符串：
+            %s
+            """;
 }

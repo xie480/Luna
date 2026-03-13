@@ -6,8 +6,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.util.ContentCachingRequestWrapper;
 import org.yilena.luna.service.ExceptionRetryService;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Map;
 
@@ -26,6 +28,26 @@ public class GlobalExceptionHandler {
     public Map<String, Object> handleException(Exception e, HttpServletRequest request) {
         log.error("捕获全局异常: {}", e.getMessage(), e);
 
+        // 尝试获取用户输入的 Body 内容
+        String userInput = "无法获取";
+        if (request instanceof ContentCachingRequestWrapper wrapper) {
+            byte[] buf = wrapper.getContentAsByteArray();
+            if (buf.length > 0) {
+                try {
+                    String encoding = request.getCharacterEncoding();
+                    if (encoding == null) {
+                        encoding = StandardCharsets.UTF_8.name();
+                    }
+                    userInput = new String(buf, encoding);
+                } catch (Exception ex) {
+                    log.warn("解析请求体失败: {}", ex.getMessage());
+                    userInput = "解析失败";
+                }
+            } else {
+                userInput = "Body为空或未被读取";
+            }
+        }
+
         // 1. 构建异常上下文
         LunaExceptionContext context = LunaExceptionContext.builder()
                 .errorType(e.getClass().getSimpleName())
@@ -34,11 +56,10 @@ public class GlobalExceptionHandler {
                 .requestUri(request.getRequestURI())
                 .requestMethod(request.getMethod())
                 .requestParams(request.getParameterMap())
+                .userInput(userInput)
                 .timestamp(LocalDateTime.now())
                 .retryCount(0) // 初始重试次数
                 .build();
-
-        // TODO: 如果需要获取 POST Body 中的 userInput，需要配合 RequestWrapper 使用，此处暂略
 
         // 2. 调用 AI 修复服务
         return exceptionRetryService.handleException(context);
