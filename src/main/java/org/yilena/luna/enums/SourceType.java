@@ -1,6 +1,7 @@
 package org.yilena.luna.enums;
 
 import com.baomidou.mybatisplus.annotation.EnumValue;
+import com.fasterxml.jackson.annotation.JsonValue;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
@@ -10,11 +11,12 @@ import lombok.Getter;
 @Getter
 @AllArgsConstructor
 public enum SourceType {
-    FILE("FILE", "本地文件"),
-    WEB_SEARCH("WEB_SEARCH", "网络搜索"),
-    MANUAL_INPUT("MANUAL_INPUT", "手动输入");
+    FILE(0, "本地文件"),
+    WEB_SEARCH(1, "网络搜索"),
+    MANUAL_INPUT(2, "手动输入");
 
     @EnumValue
-    private final String code;
+    @JsonValue
+    private final Integer code;
     private final String desc;
 }

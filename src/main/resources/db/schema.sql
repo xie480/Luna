@@ -33,7 +33,7 @@ COMMENT ON TABLE knowledge_base IS '本地知識庫表，存儲文件解析內�
 COMMENT ON COLUMN knowledge_base.id IS '主鍵 ID';
 COMMENT ON COLUMN knowledge_base.title IS '標題/文件名/網頁標題';
 COMMENT ON COLUMN knowledge_base.content IS '原始文本內容 (分片後的內容)';
-COMMENT ON COLUMN knowledge_base.source_type IS '來源類型: 0-FILE, 1-WEB_SEARCH, 2-MANUAL_INPUT (枚舉映射為數字)';
+COMMENT ON COLUMN knowledge_base.source_type IS '來源類型: 0-FILE, 1-WEB_SEARCH, 2-MANUAL_INPUT ';
 COMMENT ON COLUMN knowledge_base.source_path IS '來源標識 (如文件路徑、URL)';
 COMMENT ON COLUMN knowledge_base.vector_id IS '向量數據庫中的 ID (用於關聯 Vector DB)';
 COMMENT ON COLUMN knowledge_base.created_at IS '創建時間';
@@ -53,8 +53,8 @@ CREATE TABLE luna_memory (
 
 COMMENT ON TABLE luna_memory IS '長期記憶表';
 COMMENT ON COLUMN luna_memory.id IS '主鍵 ID';
-COMMENT ON COLUMN luna_memory.session_id IS '會話 ID 或日期標識（例如：2023:10:27）';
-COMMENT ON COLUMN luna_memory.memory_type IS '記憶類型: 0-FACT, 1-PREFERENCE, 2-SUMMARY, 3-REFLECTION (枚舉映射為數字)';
+COMMENT ON COLUMN luna_memory.session_id IS '會話 ID';
+COMMENT ON COLUMN luna_memory.memory_type IS '記憶類型: 0-FACT, 1-PREFERENCE, 2-SUMMARY, 3-REFLECTION ';
 COMMENT ON COLUMN luna_memory.content IS '記憶內容';
 COMMENT ON COLUMN luna_memory.weight IS '權重，用於標識記憶的重要性，默認為 1';
 COMMENT ON COLUMN luna_memory.created_at IS '創建時間';
@@ -76,7 +76,7 @@ COMMENT ON TABLE schedule_task IS '日程與待辦事項表，用於 Luna 主動
 COMMENT ON COLUMN schedule_task.id IS '主鍵 ID';
 COMMENT ON COLUMN schedule_task.content IS '任務內容';
 COMMENT ON COLUMN schedule_task.trigger_time IS '觸發時間 (如果是提醒類任務)';
-COMMENT ON COLUMN schedule_task.status IS '狀態: 0-待處理, 1-已完成, 2-已取消, 3-已過期 (枚舉映射為數字)';
-COMMENT ON COLUMN schedule_task.task_type IS '任務類型: 0-REMINDER, 1-ACTION, 2-TODO (枚舉映射為數字)';
+COMMENT ON COLUMN schedule_task.status IS '狀態: 0-待處理, 1-已完成, 2-已取消, 3-已過期 ';
+COMMENT ON COLUMN schedule_task.task_type IS '任務類型: 0-REMINDER, 1-ACTION, 2-TODO ';
 COMMENT ON COLUMN schedule_task.created_at IS '創建時間';
 COMMENT ON COLUMN schedule_task.updated_at IS '更新時間';

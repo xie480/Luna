@@ -1,6 +1,7 @@
 package org.yilena.luna.enums;
 
 import com.baomidou.mybatisplus.annotation.EnumValue;
+import com.fasterxml.jackson.annotation.JsonValue;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
@@ -10,12 +11,13 @@ import lombok.Getter;
 @Getter
 @AllArgsConstructor
 public enum MemoryType {
-    FACT("FACT", "客观事实"),
-    PREFERENCE("PREFERENCE", "用户偏好"),
-    SUMMARY("SUMMARY", "对话摘要"),
-    REFLECTION("REFLECTION", "自我反思");
+    FACT(0, "客观事实"),
+    PREFERENCE(1, "用户偏好"),
+    SUMMARY(2, "对话摘要"),
+    REFLECTION(3, "自我反思");
 
     @EnumValue
-    private final String code;
+    @JsonValue
+    private final Integer code;
     private final String desc;
 }

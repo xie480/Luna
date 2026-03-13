@@ -1,6 +1,7 @@
 package org.yilena.luna.enums;
 
 import com.baomidou.mybatisplus.annotation.EnumValue;
+import com.fasterxml.jackson.annotation.JsonValue;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
@@ -10,11 +11,12 @@ import lombok.Getter;
 @Getter
 @AllArgsConstructor
 public enum TaskType {
-    REMINDER("REMINDER", "提醒"),
-    ACTION("ACTION", "执行操作"),
-    TODO("TODO", "待办事项");
+    REMINDER(0, "提醒"),
+    ACTION(1, "执行操作"),
+    TODO(2, "待办事项");
 
     @EnumValue
-    private final String code;
+    @JsonValue
+    private final Integer code;
     private final String desc;
 }
