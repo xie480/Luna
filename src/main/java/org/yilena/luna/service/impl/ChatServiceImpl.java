@@ -3,6 +3,7 @@ package org.yilena.luna.service.impl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.connection.RedisConnection;
@@ -270,7 +271,7 @@ public class ChatServiceImpl implements ChatService {
         if (valid == null) {
             log.error("主模型调用失败，返回降级回复");
             String fallback = createFallbackJson();
-            return new SendToLuna(fallback, extractReplyFromJsonSafe(fallback));
+            return new SendToLuna(removeThoughtFromJson(fallback), extractReplyFromJsonSafe(fallback));
         }
 
         JsonNode node = tryParseJsonNode(valid);
@@ -301,7 +302,9 @@ public class ChatServiceImpl implements ChatService {
                     JsonNode repairedNode = tryParseJsonNode(repairedText);
                     if (isValidReplyNode(repairedNode)) {
                         log.info("REPAIR_PROMPT 修复成功");
-                        return new SendToLuna(repairedNode.toString(), repairedNode.get(ModelHintConstant.REPLY).asText());
+                        // 修复成功后，同样需要移除 thought 字段再返回给前端
+                        String cleanJson = removeThoughtFromJson(repairedNode.toString());
+                        return new SendToLuna(cleanJson, repairedNode.get(ModelHintConstant.REPLY).asText());
                     } else {
                         log.error("REPAIR_PROMPT 修复后仍不合规，repairedText={}", repairedText);
                     }
@@ -316,12 +319,13 @@ public class ChatServiceImpl implements ChatService {
             // 修复失败，返回降级JSON
             String fallback = createFallbackJson();
             log.error("模型输出最终不可用，返回降级内容：{}", fallback);
-            return new SendToLuna(fallback, extractReplyFromJsonSafe(fallback));
+            return new SendToLuna(removeThoughtFromJson(fallback), extractReplyFromJsonSafe(fallback));
         }
 
         // 解析成功且包含 reply 字段
         String replyText = node.get(ModelHintConstant.REPLY).asText();
-        String cleanValid = node.toString();
+        // 移除 thought 字段，只保留 emotion 和 reply 返回给前端
+        String cleanValid = removeThoughtFromJson(node.toString());
         return new SendToLuna(cleanValid, replyText);
     }
 
@@ -350,8 +354,8 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private String createFallbackJson() {
-        // 降级返回，仅包含 emotion + reply，便于后端解析
-        return "{\"emotion\":\"Solemn\",\"reply\":\"生成回复失败，请稍后重试。\"}";
+        // 降级返回，包含 thought 字段以保持格式一致性
+        return "{\"thought\":\"系统降级，无法进行思考。\",\"emotion\":\"Solemn\",\"reply\":\"生成回复失败，请稍后重试。\"}";
     }
 
     private String extractReplyFromJsonSafe(String json) {
@@ -360,6 +364,24 @@ public class ChatServiceImpl implements ChatService {
             return node.get(ModelHintConstant.REPLY).asText();
         }
         return "";
+    }
+
+    /**
+     * 从 JSON 字符串中移除 thought 字段，仅保留 emotion 和 reply
+     */
+    private String removeThoughtFromJson(String json) {
+        try {
+            JsonNode node = tryParseJsonNode(json);
+            if (node != null && node.isObject()) {
+                ObjectNode objectNode = (ObjectNode) node;
+                objectNode.remove("thought");
+                return objectNode.toString();
+            }
+        } catch (Exception e) {
+            log.warn("移除 thought 字段失败：{}", e.getMessage());
+        }
+        // 如果处理失败，返回原 JSON（虽然包含 thought，但至少是合法的 JSON）
+        return json;
     }
 
     private record SendToLuna(String valid, String replyText) {
