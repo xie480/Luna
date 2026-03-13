@@ -16,9 +16,10 @@ import org.yilena.luna.llm.LlmRequest;
 import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.properties.GeminiProperty;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -113,27 +114,25 @@ public class LlmClientUtil {
         }
     }
 
-    /**
-     * 获取文本的 Embedding 向量 (用于 RAG 知识库)
-     *
-     * @param text 需要向量化的文本
-     * @return 浮点数向量列表
-     */
-    public List<Double> getEmbedding(String text) {
-        try {
-            Response<dev.langchain4j.data.embedding.Embedding> response = embeddingModel.embed(text);
-            List<Float> vectorFloat = response.content().vectorAsList();
-            
-            // 将 Float 转换为 Double 以兼容现有业务逻辑
-            List<Double> vectorDouble = new ArrayList<>(vectorFloat.size());
-            for (Float v : vectorFloat) {
-                vectorDouble.add(v.doubleValue());
-            }
-            return vectorDouble;
+    public static String getEmbedding(String text) throws Exception {
 
-        } catch (Exception e) {
-            log.error("获取 Embedding 异常: {}", e.getMessage(), e);
-            return Collections.emptyList();
-        }
+        String pythonPath = "D:/AI_Models/BGE-base-zh-v1.5/bge-env/Scripts/python.exe";
+        String scriptPath = "./python/embedding.py";
+
+        ProcessBuilder pb = new ProcessBuilder(
+                pythonPath,
+                scriptPath,
+                text
+        );
+
+        Process process = pb.start();
+
+        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+
+        String result = reader.readLine();
+
+        process.waitFor();
+
+        return result;
     }
 }
