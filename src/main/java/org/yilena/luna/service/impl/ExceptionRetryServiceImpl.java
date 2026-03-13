@@ -20,12 +20,7 @@ import java.util.UUID;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class ExceptionRetryServiceImpl**Assembling the Components**
-
-I'm finishing the file generation. I've created all the necessary components: `LunaExceptionContext`, `ExceptionAgentService`, `ExceptionRetryService`, `ExceptionRetryServiceImpl`, and `GlobalExceptionHandler`. I've added a basic implementation for the `executeTool` method using reflection to call the Spring beans, which should satisfy the user's prompt, and all files are generated. I am confident that the code will work, and will now assemble it.
-
-
- implements ExceptionRetryService {
+public class ExceptionRetryServiceImpl implements ExceptionRetryService {
 
     private final ExceptionAgentService exceptionAgentService;
     private final ApplicationContext applicationContext;
@@ -41,7 +36,7 @@ I'm finishing the file generation. I've created all the necessary components: `L
         // 防止无限循环：如果重试次数超过 1，直接返回兜底提示
         if (context.getRetryCount() > 1) {
             log.warn("异常重试次数超限，直接返回。ErrorID: {}", errorId);
-            result.put("message", "唔...这个问题有点顽固，我尝试修复了几次都没有成功。建议你稍后再试，或者联系开发者查看日志。");
+            result.put("message", "唔...这个问题有点顽固，Luna尝试修复了几次都没有成功。建议主人稍后再试，或者查看日志。");
             result.put("reason", "重试次数超限");
             return result;
         }
@@ -68,13 +63,13 @@ I'm finishing the file generation. I've created all the necessary components: `L
                 
                 // 4. 修复成功，返回提示
                 result.put("success", true);
-                result.put("message", "刚刚出了点小差错，不过我已经通过 " + toolName + " 自动修复啦！请重新尝试一下操作。");
+                result.put("message", "刚刚出了点小差错，不过Luna已经通过 " + toolName + " 自动修复啦！请重新尝试一下操作。");
                 result.put("reason", "AI 自动修复成功");
                 result.put("repairResult", toolResult);
             } catch (Exception e) {
                 log.error("AI 尝试修复失败", e);
                 // 修复失败，返回遗憾的提示
-                result.put("message", "我尝试自动修复这个问题，但是执行工具时又失败了... (｡•́︿•̀｡)");
+                result.put("message", "Luna尝试自动修复这个问题，但是执行工具时又失败了... (｡•́︿•̀｡)");
                 result.put("reason", "自动修复工具执行失败: " + e.getMessage());
             }
         } else {
