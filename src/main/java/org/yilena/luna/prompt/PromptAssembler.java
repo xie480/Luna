@@ -13,7 +13,7 @@ import java.util.stream.Collectors;
 @Component
 public final class PromptAssembler {
     // 总体prompt区块最大字符数
-    private static final int MAX_PROMPT_CHARS = 15000;
+    private static final int MAX_PROMPT_CHARS = 60000;
 
     /*
         核心组装逻辑 (无知识库)

@@ -2,11 +2,8 @@ package org.yilena.luna.utils;
 
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.ChatLanguageModel;
-import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
-import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
 import dev.langchain4j.model.output.Response;
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -34,26 +31,6 @@ public class LlmClientUtil {
 
     private final GeminiProperty geminiProperty;
     private final EmbeddingProperty embeddingProperty;
-
-    private EmbeddingModel embeddingModel;
-
-    @PostConstruct
-    public void init() {
-        // 提取 Base URL (LangChain4j 期望的格式是不带 /chat/completions 的根路径)
-        String baseUrl = geminiProperty.getUrl()
-                .replace("/chat/completions", "")
-                .replace("/embeddings", "");
-
-        // 初始化全局复用的 Embedding 模型
-        this.embeddingModel = OpenAiEmbeddingModel.builder()
-                .baseUrl(baseUrl)
-                .apiKey(geminiProperty.getApi())
-                .modelName("text-embedding-004")
-                .timeout(Duration.ofSeconds(30))
-                .logRequests(false)
-                .logResponses(false)
-                .build();
-    }
 
     /**
      * 统一的模型生成入口

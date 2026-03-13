@@ -74,8 +74,8 @@ public class ChatServiceImpl implements ChatService {
         // --- RAG 检索逻辑 ---
         List<String> knowledgeSnippets = null;
         try {
-            // 检索 Top 3 相关知识
-            List<KnowledgeBase> kbs = knowledgeBaseService.searchKnowledge(input, 3);
+            // 检索 Top 5 相关知识
+            List<KnowledgeBase> kbs = knowledgeBaseService.searchKnowledge(input, 5);
             if (kbs != null && !kbs.isEmpty()) {
                 knowledgeSnippets = kbs.stream()
                         .map(kb -> String.format("标题: %s\n内容: %s", kb.getTitle(), kb.getContent()))
