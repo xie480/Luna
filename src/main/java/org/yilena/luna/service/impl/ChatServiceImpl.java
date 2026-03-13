@@ -215,7 +215,7 @@ public class ChatServiceImpl implements ChatService {
     private SendToLuna getSendToSummaryModel(String prompt) {
         LlmRequest request = LlmRequest.builder()
                 .modelType(ModelType.OPENAI_COMPATIBLE)
-                .modelName(geminiProperty.getSummaryModelName())
+                .modelName(geminiProperty.getMidModelName())
                 .messages(List.of(LlmMessage.user(prompt)))
                 .build();
 
@@ -236,7 +236,7 @@ public class ChatServiceImpl implements ChatService {
     private SendToLuna getSendToLuna(String prompt) {
         LlmRequest request = LlmRequest.builder()
                 .modelType(ModelType.OPENAI_COMPATIBLE)
-                .modelName(geminiProperty.getChatModelName())
+                .modelName(geminiProperty.getBigModelName())
                 .messages(List.of(LlmMessage.user(prompt)))
                 .build();
 
@@ -266,7 +266,7 @@ public class ChatServiceImpl implements ChatService {
                 String repairPrompt = PromptTemplates.REPAIR_PROMPT.formatted(valid);
                 LlmRequest repairReq = LlmRequest.builder()
                         .modelType(ModelType.OPENAI_COMPATIBLE)
-                        .modelName(geminiProperty.getChatModelName())
+                        .modelName(geminiProperty.getBigModelName())
                         .messages(List.of(LlmMessage.user(repairPrompt)))
                         .build();
 

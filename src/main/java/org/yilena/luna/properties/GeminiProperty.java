@@ -10,6 +10,7 @@ import org.springframework.context.annotation.Configuration;
 public class GeminiProperty {
     private String url;
     private String api;
-    private String chatModelName;
-    private String summaryModelName;
+    private String bigModelName;
+    private String midModelName;
+    private String smallModelName;
 }

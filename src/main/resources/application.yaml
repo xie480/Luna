@@ -43,10 +43,11 @@ qwen:
   summary-id: a427e617960545ab878de348075015f9
 
 gemini:
-  url: https://sunlea.de/v1/chat/completions
-  api: sk-RmtnZlEJoyvcruF36uhXZfIQA0y1b2xtY8dFxY2yVcYeVcMl
-  summary-model-name: gemini-3-flash-preview
-  chat-model-name: gemini-2.5-pro
+  url: https://catiecli.sukaka.top/v1/chat/completions
+  api: sk-ant-bdd5aa945da3ceb5771d2300066a0390bb27b8abc02d725b
+  small-model-name: gcli-gemini-3-flash-preview-search
+  mid-model-name: gcli-gemini-3-flash-preview-search
+  big-model-name: gcli-gemini-3-pro-preview-search
 
 springdoc:
   swagger-ui:

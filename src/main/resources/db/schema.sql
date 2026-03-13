@@ -10,8 +10,8 @@ CREATE TABLE user_preference (
 
 COMMENT ON TABLE user_preference IS '用戶畫像/偏好表，用於存儲用戶的關鍵設定';
 COMMENT ON COLUMN user_preference.id IS '主鍵 ID';
-COMMENT ON COLUMN user_preference.pref_key IS '偏好鍵 (如: nickname, birthday, job)';
-COMMENT ON COLUMN user_preference.pref_value IS '偏好值 (如: Yilena, 10-27, Developer)';
+COMMENT ON COLUMN user_preference.pref_key IS '偏好鍵';
+COMMENT ON COLUMN user_preference.pref_value IS '偏好值 ';
 COMMENT ON COLUMN user_preference.description IS '描述/備註 (用於輔助模型理解該設定的上下文)';
 COMMENT ON COLUMN user_preference.created_at IS '創建時間';
 COMMENT ON COLUMN user_preference.updated_at IS '更新時間';
