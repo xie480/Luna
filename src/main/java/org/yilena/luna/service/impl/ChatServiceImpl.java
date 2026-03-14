@@ -63,7 +63,7 @@ public class ChatServiceImpl implements ChatService {
     private static final DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy:MM:dd");
 
     @Override
-    @LunaLogRecord(module = LogModuleConstant.CHAT, action = LogActionConstant.CHAT, type = LogType.LUNA_OUTPUT)
+    @LunaLogRecord(module = LogModuleConstant.CHAT, action = LogActionConstant.CHAT, type = LogType.LUNA_OUTPUT, content = "用户对话交互")
     public ResponseEntity<String> chat(ChatRequest chatRequest) {
         log.info("用户输入：{}", chatRequest.getUserInput());
         
@@ -193,7 +193,7 @@ public class ChatServiceImpl implements ChatService {
     }
 
     @Override
-    @LunaLogRecord(module = LogModuleConstant.SYSTEM, action = LogActionConstant.STARTUP, type = LogType.SYSTEM_EVENT)
+    @LunaLogRecord(module = LogModuleConstant.SYSTEM, action = LogActionConstant.STARTUP, type = LogType.SYSTEM_EVENT, content = "系统启动")
     public ResponseEntity<String> startup() {
         log.info("开始启动流程");
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "STARTING", "Luna 正在苏醒...");
@@ -237,7 +237,7 @@ public class ChatServiceImpl implements ChatService {
     }
 
     @Override
-    @LunaLogRecord(module = LogModuleConstant.SYSTEM, action = LogActionConstant.SHUTDOWN, type = LogType.SYSTEM_EVENT)
+    @LunaLogRecord(module = LogModuleConstant.SYSTEM, action = LogActionConstant.SHUTDOWN, type = LogType.SYSTEM_EVENT, content = "系统关闭")
     public void shutdown() {
         log.info("开始关机流程");
         LocalDateTime today = LocalDateTime.now();

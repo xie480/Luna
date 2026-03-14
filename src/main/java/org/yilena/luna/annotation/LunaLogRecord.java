@@ -10,5 +10,6 @@ import java.lang.annotation.*;
 public @interface LunaLogRecord {
     String module() default "";
     String action() default "";
+    String content() default "";
     LogType type() default LogType.SYSTEM_EVENT;
 }

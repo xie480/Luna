@@ -38,7 +38,7 @@ public class KnowledgeBaseTools extends BaseTool {
     - title, content, sourceType, sourcePath: INSERT 时提供。
     - query: QUERY 时提供的搜索词。
     """)
-    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_KNOWLEDGE, type = LogType.TOOL_CALL)
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_KNOWLEDGE, type = LogType.TOOL_CALL, content = "管理知识库")
     public String manageKnowledgeBase(String action, String title, String content, String sourceType, String sourcePath, String query) {
         try {
             if ("INSERT".equalsIgnoreCase(action)) {

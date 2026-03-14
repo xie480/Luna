@@ -51,7 +51,7 @@ public class ScheduleTools extends BaseTool {
     - hardDelete: DELETE 时选填。true 为物理删除，false 为逻辑删除(默认)。
     - content, triggerTime, status, taskType: 根据 action 和 mode 提供。
     """)
-    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_SCHEDULE, type = LogType.TOOL_CALL)
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_SCHEDULE, type = LogType.TOOL_CALL, content = "管理日程任务")
     public String manageScheduleTask(String action, Long id, String mode, String content, String triggerTime, String status, String taskType, Boolean hardDelete) {
         try {
             if ("INSERT".equalsIgnoreCase(action)) {

@@ -48,7 +48,7 @@ public class PreferenceTools extends BaseTool {
     - 成功: {"status":"success", "data": {"id":1, "prefKey":"theme", "prefValue":"dark", ...}}
     - 失败: {"status":"error", "message":"INSERT 操作必须提供 prefKey 和 prefValue"}
     """)
-    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_PREFERENCE, type = LogType.TOOL_CALL)
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_PREFERENCE, type = LogType.TOOL_CALL, content = "管理用户偏好设置")
     public String manageUserPreference(String action, Long id, String mode, String prefKey, String prefValue, String description, Boolean hardDelete) {
         try {
             if ("INSERT".equalsIgnoreCase(action)) {

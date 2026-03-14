@@ -45,7 +45,7 @@ public class MemoryTools extends BaseTool {
     - hardDelete: DELETE 时选填。true 为物理删除，false 为逻辑删除(默认)。
     - sessionId, memoryType, content, weight: 根据 action 和 mode 提供。
     """)
-    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_MEMORY, type = LogType.TOOL_CALL)
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_MEMORY, type = LogType.TOOL_CALL, content = "管理长期记忆")
     public String manageMemory(String action, Long id, String mode, String sessionId, String memoryType, String content, Integer weight, Boolean hardDelete) {
         try {
             if ("INSERT".equalsIgnoreCase(action)) {

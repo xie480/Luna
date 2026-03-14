@@ -42,7 +42,7 @@ public class LogTools extends BaseTool {
     - id: DELETE 时必填 (除非使用 beforeTime)。
     - beforeTime: DELETE 时选填，删除此时间之前的日志。
     """)
-    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL)
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "管理系统日志")
     public String manageLog(String action, String logType, String module, String content, String startTime, String endTime, Integer limit, Long id, String beforeTime) {
         try {
             if ("INSERT".equalsIgnoreCase(action)) {
