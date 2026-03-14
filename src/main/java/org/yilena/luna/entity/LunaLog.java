@@ -1,12 +1,12 @@
 package org.yilena.luna.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
-import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.yilena.luna.enums.LogType;
+import org.yilena.luna.handler.JsonbTypeHandler;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -36,10 +36,10 @@ public class LunaLog implements Serializable {
     @TableField("content")
     private String content;
 
-    @TableField(value = "request_data", typeHandler = JacksonTypeHandler.class)
+    @TableField(value = "request_data", typeHandler = JsonbTypeHandler.class)
     private Map<String, Object> requestData;
 
-    @TableField(value = "response_data", typeHandler = JacksonTypeHandler.class)
+    @TableField(value = "response_data", typeHandler = JsonbTypeHandler.class)
     private Object responseData;
 
     @TableField("error_message")
