@@ -860,11 +860,6 @@ onMounted(async () => {
     model.interactive = true;
     model.cursor      = "pointer";
 
-    // 【修復】設置精確的 hitArea，防止 Live2D 模型的透明網格過大導致全屏無法穿透
-    const mw = model.internalModel.width || 2000;
-    const mh = model.internalModel.height || 4000;
-    model.hitArea = new PIXI.Rectangle(-mw / 2, -mh, mw, mh);
-
     // 如果已经过了开机动画（例如快速登录或跳过），直接显示
     if (!lunaIntroVisible.value && loginSuccess.value) {
       model.alpha = 1;
