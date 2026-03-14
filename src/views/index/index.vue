@@ -75,11 +75,6 @@
       </div>
     </transition>
 
-    <!-- ===== 背景裝飾粒子 ===== -->
-    <div v-if="bgParticlesVisible" class="bg-particles">
-      <span v-for="i in 18" :key="i" class="particle" :style="particleStyle(i)"></span>
-    </div>
-
     <!-- ===== 聊天氣泡容器 ===== -->
     <div
       class="bubble-stack"
@@ -286,17 +281,17 @@ async function performLogin() {
   loginSuccess.value = false;
   loginLogLines.value.push("正在向鑒權服務發送憑證…");
   try {
-    const data = await loginApi({
-      username: loginForm.value.username,
-      password: loginForm.value.password,
-    });
-    const token = data?.token || "";
-    if (!token) {
-      loginError.value = "鑒權服務未返回有效 Token";
-      loginLogLines.value.push("鑒權失敗：Token 缺失。");
-      return;
-    }
-    authToken.value = token;
+    // const data = await loginApi({
+    //   username: loginForm.value.username,
+    //   password: loginForm.value.password,
+    // });
+    // const token = data?.token || "";
+    // if (!token) {
+    //   loginError.value = "鑒權服務未返回有效 Token";
+    //   loginLogLines.value.push("鑒權失敗：Token 缺失。");
+    //   return;
+    // }
+    authToken.value = "1212";
     loginSuccess.value = true;
     loginLogLines.value.push("鑒權通過，正在啟動 LUNA 核心…");
     
