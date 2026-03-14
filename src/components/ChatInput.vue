@@ -1,121 +1,159 @@
 <template>
-  <div class="chat-bar-wrapper">
-    <!-- 设置按钮 -->
-    <button class="btn-icon settings-btn" @click="$emit('open-settings')" title="设置">
-      <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none">
-        <circle cx="12" cy="12" r="3"></circle>
-        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-      </svg>
+  <div class="chat-bar-wrapper" @mouseenter="$emit('mouseenter')" @mouseleave="$emit('mouseleave')">
+    
+    <!-- 設置按鈕 -->
+    <button class="icon-btn settings-btn" @click="$emit('open-settings')">
+      ⚙️
     </button>
 
-    <!-- 输入框 -->
-    <input 
-      ref="inputRef"
-      v-model="text"
-      class="chat-input"
-      :placeholder="placeholder"
-      @keyup.enter="sendMessage"
-      @keydown.esc="$emit('close')"
-    />
+    <!-- 歷史記錄按鈕 -->
+    <button class="icon-btn history-btn" @click="$emit('toggle-history')">
+      📅
+    </button>
 
-    <!-- 发送按钮 -->
-    <button class="btn-icon send-btn" @click="sendMessage" :disabled="loading">
-      <span v-if="loading">...</span>
-      <span v-else>➤</span>
+    <!-- 輸入框容器 -->
+    <div class="input-container">
+      <input 
+        ref="inputRef"
+        v-model="inputText" 
+        type="text" 
+        placeholder="Type a message..." 
+        @keydown.enter="sendMessage"
+        :disabled="loading"
+      />
+      
+      <!-- 呼吸燈情緒指示器 (無 tooltip) -->
+      <div class="emotion-indicator" :style="emotionStyle"></div>
+    </div>
+
+    <button class="send-btn" @click="sendMessage" :disabled="loading || !inputText">
+      {{ loading ? '...' : 'SEND' }}
     </button>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick } from 'vue';
+import { ref, computed } from 'vue';
 
-const props = defineProps({
-  loading: Boolean,
-  placeholder: { type: String, default: "和 Luna 说点什么..." }
-});
+const props = defineProps(['loading', 'currentEmotion']);
+const emit = defineEmits(['send', 'open-settings', 'toggle-history', 'mouseenter', 'mouseleave', 'close']);
 
-const emit = defineEmits(['send', 'open-settings', 'close']);
-const text = ref("");
-const inputRef = ref(null);
-
-onMounted(() => {
-  nextTick(() => inputRef.value?.focus());
-});
+const inputText = ref("");
 
 function sendMessage() {
-  if (!text.value.trim() || props.loading) return;
-  emit('send', text.value);
-  text.value = "";
+  if (!inputText.value.trim() || props.loading) return;
+  emit('send', inputText.value);
+  inputText.value = "";
 }
+
+// Emotion 映射表
+const EMOTION_MAP = {
+  // 憤怒/煩躁 (紅/快)
+  Angry: { color: '#ff2a2a', speed: '0.8s', intensity: '0 0 15px' },
+  Annoyed: { color: '#ff5500', speed: '1.2s', intensity: '0 0 10px' },
+  Irritated: { color: '#ff5500', speed: '1.0s', intensity: '0 0 10px' },
+  Tsundere: { color: '#ff0055', speed: '1.5s', intensity: '0 0 12px' },
+  
+  // 悲傷/消極 (藍/慢)
+  Sad: { color: '#4a90e2', speed: '3s', intensity: '0 0 8px' },
+  Lonely: { color: '#5065a5', speed: '3.5s', intensity: '0 0 6px' },
+  Despair: { color: '#2c3e50', speed: '4s', intensity: '0 0 5px' },
+  Broken: { color: '#000000', speed: '5s', intensity: '0 0 2px' },
+  
+  // 快樂/積極 (橙/黃/粉)
+  Smile: { color: '#ffd700', speed: '2s', intensity: '0 0 12px' },
+  Happy: { color: '#ffaa00', speed: '1.5s', intensity: '0 0 14px' },
+  Affectionate: { color: '#ff69b4', speed: '2s', intensity: '0 0 15px' },
+  Hopeful: { color: '#00ffc8', speed: '2.5s', intensity: '0 0 12px' },
+  
+  // 恐懼/焦慮 (紫/顫抖)
+  Fearful: { color: '#8e44ad', speed: '0.5s', intensity: '0 0 8px' },
+  Anxious: { color: '#9b59b6', speed: '0.6s', intensity: '0 0 8px' },
+  Uneasy: { color: '#a569bd', speed: '1s', intensity: '0 0 8px' },
+  
+  // 默認
+  default: { color: 'var(--primary, #00ffc8)', speed: '3s', intensity: '0 0 8px' }
+};
+
+const emotionStyle = computed(() => {
+  const em = EMOTION_MAP[props.currentEmotion] || EMOTION_MAP.default;
+  return {
+    backgroundColor: em.color,
+    boxShadow: em.intensity + ' ' + em.color,
+    animationDuration: em.speed
+  };
+});
 </script>
 
 <style scoped>
 .chat-bar-wrapper {
   position: fixed;
-  bottom: 80px;
+  bottom: 40px;
   left: 50%;
   transform: translateX(-50%);
-  width: 460px;
-  height: 54px;
-  background: rgba(255, 255, 255, 0.9);
-  border-radius: 27px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
   display: flex;
   align-items: center;
-  padding: 0 12px;
-  z-index: 9999;
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  gap: 10px;
+  background: var(--bg-panel, rgba(5,10,19,0.9));
+  padding: 10px 15px;
+  border-radius: 50px;
+  border: 1px solid var(--border, rgba(0,255,200,0.3));
+  backdrop-filter: blur(8px);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  z-index: 9000;
 }
 
-.chat-bar-wrapper:hover {
-  transform: translateX(-50%) scale(1.02);
-}
-
-.chat-input {
-  flex: 1;
-  border: none;
-  background: transparent;
-  height: 100%;
-  font-size: 15px;
-  padding: 0 12px;
-  outline: none;
-  color: #333;
-}
-
-.chat-input::placeholder {
-  color: #999;
-}
-
-.btn-icon {
+.icon-btn {
   background: none;
   border: none;
+  font-size: 18px;
   cursor: pointer;
-  padding: 8px;
-  border-radius: 50%;
+  opacity: 0.7;
+  transition: 0.2s;
+  padding: 5px;
+}
+.icon-btn:hover { opacity: 1; transform: scale(1.1); }
+
+.input-container {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: center;
-  transition: background 0.2s, color 0.2s;
-  color: #666;
 }
 
-.btn-icon:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.08);
-  color: #000;
+input {
+  background: rgba(0,0,0,0.3);
+  border: none;
+  color: var(--text-main, #fff);
+  padding: 8px 12px;
+  width: 300px;
+  border-radius: 4px;
+  outline: none;
 }
 
-.btn-icon:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+/* 呼吸燈 */
+.emotion-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-left: 10px;
+  animation: breathe infinite ease-in-out;
+  transition: background-color 0.8s ease, box-shadow 0.8s ease, animation-duration 0.8s ease;
 }
 
-.settings-btn {
-  margin-right: 4px;
+@keyframes breathe {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
 }
+
 .send-btn {
-  margin-left: 4px;
-  font-size: 16px;
+  background: var(--primary, #00ffc8);
+  color: #000;
+  border: none;
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-weight: bold;
+  font-size: 12px;
+  cursor: pointer;
 }
+.send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
