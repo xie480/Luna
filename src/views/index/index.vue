@@ -539,10 +539,10 @@ function toggleTrackingSetupMode() {
 }
 
 function drawTrackingMarker() {
-  if (!model) return;
+  if (!container) return;
   if (!trackingMarker) {
     trackingMarker = new PIXI.Graphics();
-    model.addChild(trackingMarker);
+    container.addChild(trackingMarker); // 修复：将标记点添加到 container 而不是 model，统一坐标系
   }
   trackingMarker.clear();
   trackingMarker.beginFill(0xff0000);
@@ -560,7 +560,8 @@ function onPointerDown(e) {
   if (e.button !== 0) return;
   
   if (isTrackingSetupMode.value) {
-    const localPoint = model.toLocal(e.global);
+    // 修复：使用 container.toLocal 统一坐标系，而不是 model.toLocal
+    const localPoint = container.toLocal(e.global);
     trackingOriginOffset = { x: localPoint.x, y: localPoint.y };
     drawTrackingMarker();
     return;
@@ -850,10 +851,6 @@ onMounted(async () => {
     model.interactive = true;
     model.cursor      = "pointer";
 
-    // 修复：移除强制设置的巨大 hitArea，让 pixi-live2d-display 自动根据模型网格进行精确的碰撞检测
-    // 这样点击、拖拽和鼠标跟踪设定的触发区域就会严格贴合模型本身
-    // model.hitArea = new PIXI.Rectangle(-1000, -2000, 2000, 4000);
-
     // 如果已经过了开机动画（例如快速登录或跳过），直接显示
     if (!lunaIntroVisible.value && loginSuccess.value) {
       model.alpha = 1;
@@ -880,6 +877,10 @@ onMounted(async () => {
 
     await waitForModelReady(5000);
     loadModelTransform();
+    
+    // 修复：在应用外貌之前，先从 localStorage 加载外貌状态
+    appearance.loadAppearanceState();
+    
     await nextTick();
     await appearance.applyAllEnabled(getCoreModel());
     await applyEmotionExpressions(INITIAL_EMOTION);
@@ -891,7 +892,6 @@ onMounted(async () => {
 
   await preloadExpressions();
   startBreath();
-  appearance.loadAppearanceState();
 });
 
 onBeforeUnmount(() => {
