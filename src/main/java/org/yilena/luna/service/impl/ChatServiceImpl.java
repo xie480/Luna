@@ -14,6 +14,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.annotation.LunaLogRecord;
+import org.yilena.luna.constants.LogActionConstant;
+import org.yilena.luna.constants.LogModuleConstant;
 import org.yilena.luna.constants.ModelHintConstant;
 import org.yilena.luna.constants.RedisKeyConstant;
 import org.yilena.luna.constants.SymbolConstant;
@@ -61,7 +63,7 @@ public class ChatServiceImpl implements ChatService {
     private static final DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy:MM:dd");
 
     @Override
-    @LunaLogRecord(module = "chat", action = "chat", type = LogType.LUNA_OUTPUT)
+    @LunaLogRecord(module = LogModuleConstant.CHAT, action = LogActionConstant.CHAT, type = LogType.LUNA_OUTPUT)
     public ResponseEntity<String> chat(ChatRequest chatRequest) {
         log.info("用户输入：{}", chatRequest.getUserInput());
         
@@ -191,7 +193,7 @@ public class ChatServiceImpl implements ChatService {
     }
 
     @Override
-    @LunaLogRecord(module = "system", action = "startup", type = LogType.SYSTEM_EVENT)
+    @LunaLogRecord(module = LogModuleConstant.SYSTEM, action = LogActionConstant.STARTUP, type = LogType.SYSTEM_EVENT)
     public ResponseEntity<String> startup() {
         log.info("开始启动流程");
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "STARTING", "Luna 正在苏醒...");
@@ -235,7 +237,7 @@ public class ChatServiceImpl implements ChatService {
     }
 
     @Override
-    @LunaLogRecord(module = "system", action = "shutdown", type = LogType.SYSTEM_EVENT)
+    @LunaLogRecord(module = LogModuleConstant.SYSTEM, action = LogActionConstant.SHUTDOWN, type = LogType.SYSTEM_EVENT)
     public void shutdown() {
         log.info("开始关机流程");
         LocalDateTime today = LocalDateTime.now();

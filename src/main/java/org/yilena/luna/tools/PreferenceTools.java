@@ -7,6 +7,8 @@ import dev.langchain4j.agent.tool.Tool;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
+import org.yilena.luna.constants.LogActionConstant;
+import org.yilena.luna.constants.LogModuleConstant;
 import org.yilena.luna.entity.UserPreference;
 import org.yilena.luna.enums.LogType;
 import org.yilena.luna.mapper.UserPreferenceMapper;
@@ -46,7 +48,7 @@ public class PreferenceTools extends BaseTool {
     - 成功: {"status":"success", "data": {"id":1, "prefKey":"theme", "prefValue":"dark", ...}}
     - 失败: {"status":"error", "message":"INSERT 操作必须提供 prefKey 和 prefValue"}
     """)
-    @LunaLogRecord(module = "tool", action = "manage_preference", type = LogType.TOOL_CALL)
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_PREFERENCE, type = LogType.TOOL_CALL)
     public String manageUserPreference(String action, Long id, String mode, String prefKey, String prefValue, String description, Boolean hardDelete) {
         try {
             if ("INSERT".equalsIgnoreCase(action)) {

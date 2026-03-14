@@ -6,6 +6,8 @@ import dev.langchain4j.agent.tool.Tool;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
+import org.yilena.luna.constants.LogActionConstant;
+import org.yilena.luna.constants.LogModuleConstant;
 import org.yilena.luna.entity.LunaLog;
 import org.yilena.luna.enums.LogType;
 import org.yilena.luna.service.LunaLogService;
@@ -40,7 +42,7 @@ public class LogTools extends BaseTool {
     - id: DELETE 时必填 (除非使用 beforeTime)。
     - beforeTime: DELETE 时选填，删除此时间之前的日志。
     """)
-    @LunaLogRecord(module = "tool", action = "manage_log", type = LogType.TOOL_CALL)
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL)
     public String manageLog(String action, String logType, String module, String content, String startTime, String endTime, Integer limit, Long id, String beforeTime) {
         try {
             if ("INSERT".equalsIgnoreCase(action)) {

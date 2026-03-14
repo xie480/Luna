@@ -5,6 +5,8 @@ import dev.langchain4j.agent.tool.Tool;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
+import org.yilena.luna.constants.LogActionConstant;
+import org.yilena.luna.constants.LogModuleConstant;
 import org.yilena.luna.enums.LogType;
 import org.yilena.luna.enums.SourceType;
 import org.yilena.luna.service.KnowledgeBaseService;
@@ -36,7 +38,7 @@ public class KnowledgeBaseTools extends BaseTool {
     - title, content, sourceType, sourcePath: INSERT 时提供。
     - query: QUERY 时提供的搜索词。
     """)
-    @LunaLogRecord(module = "tool", action = "manage_knowledge", type = LogType.TOOL_CALL)
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_KNOWLEDGE, type = LogType.TOOL_CALL)
     public String manageKnowledgeBase(String action, String title, String content, String sourceType, String sourcePath, String query) {
         try {
             if ("INSERT".equalsIgnoreCase(action)) {

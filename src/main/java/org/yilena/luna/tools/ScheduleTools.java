@@ -7,6 +7,8 @@ import dev.langchain4j.agent.tool.Tool;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
+import org.yilena.luna.constants.LogActionConstant;
+import org.yilena.luna.constants.LogModuleConstant;
 import org.yilena.luna.entity.ScheduleTask;
 import org.yilena.luna.enums.LogType;
 import org.yilena.luna.enums.TaskStatus;
@@ -49,7 +51,7 @@ public class ScheduleTools extends BaseTool {
     - hardDelete: DELETE 时选填。true 为物理删除，false 为逻辑删除(默认)。
     - content, triggerTime, status, taskType: 根据 action 和 mode 提供。
     """)
-    @LunaLogRecord(module = "tool", action = "manage_schedule", type = LogType.TOOL_CALL)
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_SCHEDULE, type = LogType.TOOL_CALL)
     public String manageScheduleTask(String action, Long id, String mode, String content, String triggerTime, String status, String taskType, Boolean hardDelete) {
         try {
             if ("INSERT".equalsIgnoreCase(action)) {
