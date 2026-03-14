@@ -1,5 +1,5 @@
 // main.js
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, globalShortcut } from "electron";
 import axios from "axios";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -128,6 +128,15 @@ function createWindow() {
   // 最大化但保留任务栏
   win.once("ready-to-show", () => {
     win.maximize();
+
+    // === 注册全局快捷键 Ctrl+L (Mac下为 Cmd+L) ===
+    globalShortcut.register("CommandOrControl+L", () => {
+      // 发送消息给渲染进程，切换输入框显示状态
+      win.webContents.send("pet:toggle-chat");
+      // 确保窗口此时可以捕获鼠标（取消穿透），并获得焦点
+      win.setIgnoreMouseEvents(false);
+      win.focus();
+    });
   });
 
   // 启动时允许穿透（forward: true 保证可在 renderer 转发事件）
@@ -138,11 +147,16 @@ function createWindow() {
 
   win.webContents.setBackgroundThrottling(false);
 
-  win.webContents.openDevTools({ mode: "detach" });
+  // win.webContents.openDevTools({ mode: "detach" });
 
 }
 
 app.whenReady().then(createWindow);
+
+app.on("will-quit", () => {
+  // 注销所有快捷键
+  globalShortcut.unregisterAll();
+});
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();

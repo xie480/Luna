@@ -14,4 +14,6 @@ contextBridge.exposeInMainWorld("desktopApi", {
 contextBridge.exposeInMainWorld("pet", {
   enter: () => ipcRenderer.send("pet:mouse-enter"),
   leave: () => ipcRenderer.send("pet:mouse-leave"),
+  // 监听快捷键切换聊天框
+  onToggleChat: (callback) => ipcRenderer.on("pet:toggle-chat", (_event, value) => callback(value)),
 });
