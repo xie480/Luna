@@ -87,7 +87,7 @@ const emotionStyle = computed(() => {
 <style scoped>
 .chat-bar-wrapper {
   position: fixed;
-  bottom: 40px;
+  bottom: 80px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
