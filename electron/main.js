@@ -83,12 +83,16 @@ ipcMain.handle("luna.app.quit", () => {
   app.quit();
 });
 
-/* ===== pet enter/leave: use event.sender to get the right BrowserWindow ===== */
+/* ===== pet enter/leave: 修复穿透问题 ===== */
 ipcMain.on("pet:mouse-enter", (event) => {
   try {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (win && !win.isDestroyed()) {
+      // 停止忽略鼠标事件，允许点击
       win.setIgnoreMouseEvents(false);
+      // 可选：如果需要输入框立即获得焦点，可以调用 win.focus()，
+      // 但这可能会抢占其他应用焦点，视需求而定。
+      // win.focus(); 
     }
   } catch (err) {
     console.error("pet:mouse-enter error:", err);
@@ -99,6 +103,7 @@ ipcMain.on("pet:mouse-leave", (event) => {
   try {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (win && !win.isDestroyed()) {
+      // 恢复穿透，forward: true 保证鼠标移动事件仍能传给前端
       win.setIgnoreMouseEvents(true, { forward: true });
     }
   } catch (err) {
@@ -112,10 +117,10 @@ function createWindow() {
     width: 900,
     height: 700,
     frame: false,        // 无系统边框
-    transparent: true,   // 透明窗口（可选）
+    transparent: true,   // 透明窗口
     resizable: true,
     alwaysOnTop: true,   // 桌宠关键
-    skipTaskbar: true, // 可选
+    skipTaskbar: true,   // 可选
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -148,7 +153,6 @@ function createWindow() {
   win.webContents.setBackgroundThrottling(false);
 
   // win.webContents.openDevTools({ mode: "detach" });
-
 }
 
 app.whenReady().then(createWindow);

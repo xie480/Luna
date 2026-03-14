@@ -36,6 +36,18 @@
               <button class="action-btn danger" @click="quitApp">退出应用</button>
             </div>
           </div>
+          
+          <div class="control-group">
+            <label>输入框主题</label>
+            <select v-model="inputTheme" @change="saveSettings" class="theme-select">
+              <option value="default">默认 (Default)</option>
+              <option value="neon">霓虹 (Neon)</option>
+              <option value="glass">毛玻璃 (Glass)</option>
+              <option value="minimal">极简 (Minimal)</option>
+            </select>
+            <p class="hint">选择聊天输入框的视觉风格。</p>
+          </div>
+
           <div class="control-group">
             <label>账户状态</label>
             <div class="status-text">
@@ -47,20 +59,40 @@
         <!-- 2. 调控 UI -->
         <div v-if="currentTab === 'ui'" class="tab-content">
           <h3>UI 调控</h3>
-          <p class="hint">调整模型在屏幕上的显示</p>
+          <p class="hint">调整模型在屏幕上的显示位置与大小</p>
           
           <div class="control-group">
             <label>模型缩放: {{ modelScale.toFixed(2) }}</label>
             <input 
               type="range" 
-              min="0.05" max="0.5" step="0.01" 
+              min="0.05" max="1.0" step="0.01" 
               v-model.number="modelScale"
-              @input="updateModelScale"
+              @input="updateModelTransform"
+            />
+          </div>
+
+          <div class="control-group">
+            <label>水平位置 (X): {{ modelX }}</label>
+            <input 
+              type="range" 
+              min="-500" max="500" step="10" 
+              v-model.number="modelX"
+              @input="updateModelTransform"
+            />
+          </div>
+
+          <div class="control-group">
+            <label>垂直位置 (Y): {{ modelY }}</label>
+            <input 
+              type="range" 
+              min="-500" max="500" step="10" 
+              v-model.number="modelY"
+              @input="updateModelTransform"
             />
           </div>
           
           <div class="control-group">
-            <button class="action-btn" @click="$emit('reset-model')">重置模型状态</button>
+            <button class="action-btn" @click="resetModelTransform">重置模型状态</button>
           </div>
         </div>
 
@@ -136,7 +168,7 @@ const props = defineProps({
   isLoggedIn: Boolean
 });
 
-const emit = defineEmits(['close', 'reset-model']);
+const emit = defineEmits(['close', 'reset-model', 'theme-change']);
 
 // === 菜单配置 ===
 const currentTab = ref('basic');
@@ -177,40 +209,88 @@ function stopDrag() {
 
 // === 业务逻辑 ===
 
-// 1. 基础
+// 1. 基础 & 主题
+const inputTheme = ref('default');
+
 function quitApp() {
   if (window.desktopApi) window.desktopApi.quit();
 }
 
-// 2. UI 调控
+// 2. UI 调控 (位置与大小)
 const modelScale = ref(0.1);
+const modelX = ref(0);
+const modelY = ref(0);
 
+// 初始化加载设置
 onMounted(() => {
+  loadSettings();
+  
+  // 同步当前模型状态
   if (props.model) {
-    modelScale.value = props.model.scale.x;
+    // 如果 localStorage 没存，就用模型当前的
+    if (!localStorage.getItem('luna_model_scale')) modelScale.value = props.model.scale.x;
+    if (!localStorage.getItem('luna_model_x')) modelX.value = props.model.x;
+    if (!localStorage.getItem('luna_model_y')) modelY.value = props.model.y;
+    
+    // 强制应用一次保存的设置
+    updateModelTransform();
   }
 });
 
-function updateModelScale() {
+function loadSettings() {
+  const savedTheme = localStorage.getItem('luna_input_theme');
+  if (savedTheme) {
+    inputTheme.value = savedTheme;
+    emit('theme-change', savedTheme); // 通知父组件应用主题
+  }
+
+  const savedScale = localStorage.getItem('luna_model_scale');
+  if (savedScale) modelScale.value = parseFloat(savedScale);
+
+  const savedX = localStorage.getItem('luna_model_x');
+  if (savedX) modelX.value = parseFloat(savedX);
+
+  const savedY = localStorage.getItem('luna_model_y');
+  if (savedY) modelY.value = parseFloat(savedY);
+}
+
+function saveSettings() {
+  localStorage.setItem('luna_input_theme', inputTheme.value);
+  localStorage.setItem('luna_model_scale', modelScale.value);
+  localStorage.setItem('luna_model_x', modelX.value);
+  localStorage.setItem('luna_model_y', modelY.value);
+  
+  // 触发主题变更事件
+  emit('theme-change', inputTheme.value);
+}
+
+function updateModelTransform() {
   if (props.model) {
     props.model.scale.set(modelScale.value);
+    props.model.x = modelX.value;
+    props.model.y = modelY.value;
+    saveSettings();
   }
+}
+
+function resetModelTransform() {
+  modelScale.value = 0.1;
+  modelX.value = 0;
+  modelY.value = 0;
+  updateModelTransform();
+  emit('reset-model');
 }
 
 // 3. 外貌
 function handleAppearanceChange(file, isChecked) {
   if (!props.core || !props.appearance) return;
-  // 更新状态
   props.appearance.appearanceEnabled.value[file] = isChecked;
-  // 应用变更
   props.appearance.onAppearanceToggle(file, props.core);
 }
 
 // 4. 律动
 function toggleRhythm() {
   if (props.rhythm && props.core) {
-    // 这里的 trackingEnabled 暂时传一个 ref(true) 或者从父组件传下来，
-    // 简单起见，我们假设开启律动时暂时不考虑眼球追踪的冲突，或者在 useRhythm 内部处理
     const dummyTracking = { value: true }; 
     props.rhythm.toggleSystemAudio(props.core, dummyTracking);
   }
@@ -223,11 +303,8 @@ const historyLogs = ref([]);
 async function fetchHistory() {
   if (!historyDate.value || !window.desktopApi) return;
   try {
-    // 格式转换: 2023-10-27 -> 2023:10:27
     const dateStr = historyDate.value.replace(/-/g, ':');
     const res = await window.desktopApi.history(dateStr);
-    
-    // 解析返回的字符串数组
     const rawList = res?.data ?? res;
     historyLogs.value = (Array.isArray(rawList) ? rawList : [])
       .filter((item) => typeof item === "string")
@@ -243,7 +320,6 @@ async function fetchHistory() {
   }
 }
 
-// 初始加载一次历史
 onMounted(() => {
   fetchHistory();
 });
@@ -358,6 +434,15 @@ onMounted(() => {
   margin-bottom: 8px;
   font-size: 13px;
   color: #606266;
+}
+
+.theme-select {
+  width: 100%;
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid #dcdfe6;
+  color: #606266;
+  outline: none;
 }
 
 .action-btn {
