@@ -161,6 +161,7 @@ async function selectDate(dateStr) {
   try {
     // dateStr 已經是 YYYY:MM:DD 格式
     const res = await window.desktopApi.history(dateStr);
+    console.log("History", res);
     messages.value = (res || []).map(m => ({
       sender: m.role === 'assistant' ? 'luna' : (m.role === 'system' ? 'system' : 'user'),
       content: m.content,
