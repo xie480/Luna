@@ -2,10 +2,10 @@
   <div class="app-root">
 
     <!-- 頂部提示框 (設定模式時顯示) -->
-    <div v-if="isSetupMode" class="top-banner">
+    <div v-if="isSetupMode" class="top-banner" @mouseenter="uiEnter" @mouseleave="uiLeave">
       正在進行初始位置設定，請調整模型位置和大小。
     </div>
-    <div v-if="isTrackingSetupMode" class="top-banner">
+    <div v-if="isTrackingSetupMode" class="top-banner" @mouseenter="uiEnter" @mouseleave="uiLeave">
       正在進行滑鼠追蹤設定，請點擊模型對應的位置設置為跟蹤點。
     </div>
 
@@ -467,7 +467,8 @@ function uiEnter() {
 function uiLeave() {
   clearTimeout(uiLeaveTimer);
   uiLeaveTimer = setTimeout(() => {
-    const hovered = document.querySelector('.chat-bar-wrapper:hover, .settings-panel:hover, .login-terminal:hover, .history-panel:hover');
+    // 【修復】將 .top-banner 也加入 UI 判定範圍，防止鼠標在橫幅上時穿透
+    const hovered = document.querySelector('.chat-bar-wrapper:hover, .settings-panel:hover, .login-terminal:hover, .history-panel:hover, .top-banner:hover');
     if (hovered) {
       overUI = true;
     } else {
@@ -858,6 +859,11 @@ onMounted(async () => {
     model.y           = app.renderer.height || window.innerHeight;
     model.interactive = true;
     model.cursor      = "pointer";
+
+    // 【修復】設置精確的 hitArea，防止 Live2D 模型的透明網格過大導致全屏無法穿透
+    const mw = model.internalModel.width || 2000;
+    const mh = model.internalModel.height || 4000;
+    model.hitArea = new PIXI.Rectangle(-mw / 2, -mh, mw, mh);
 
     // 如果已经过了开机动画（例如快速登录或跳过），直接显示
     if (!lunaIntroVisible.value && loginSuccess.value) {
