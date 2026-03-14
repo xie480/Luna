@@ -316,6 +316,7 @@ public class ChatServiceImpl implements ChatService {
         }
 
         JsonNode node = tryParseJsonNode(valid);
+        log.info("模型原始输出：{}", node.toString());
         // 如果解析失败或不包含reply字段，尝试用REPAIR_PROMPT修复
         if (!isValidReplyNode(node)) {
             log.warn("模型输出无法解析或不包含 reply 字段，尝试修复。原始输出：{}", valid);
