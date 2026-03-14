@@ -75,6 +75,11 @@
               {{ isTrackingSetupMode ? '設定完成' : '開始設定' }}
             </button>
           </div>
+
+          <!-- 退出按鈕移至通用設置底部右下角 -->
+          <div class="section" style="text-align: right; margin-top: 30px; border: none;">
+            <button class="quit-btn" @click="quitApp">退出應用</button>
+          </div>
         </div>
 
         <!-- 外貌定製 -->
@@ -120,9 +125,6 @@
 
       </div>
     </div>
-
-    <!-- 退出按鈕 (右下角) -->
-    <button class="quit-btn" @click="quitApp">退出應用</button>
   </div>
 </template>
 
@@ -368,9 +370,6 @@ select {
 
 /* 退出按鈕 */
 .quit-btn {
-  position: absolute;
-  bottom: 15px;
-  right: 15px;
   background: rgba(255, 50, 50, 0.15);
   border: 1px solid rgba(255, 50, 50, 0.4);
   color: #ffaaaa;

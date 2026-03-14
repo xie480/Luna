@@ -8,11 +8,6 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 【優化】禁用硬件加速
-// 這行代碼解決了透明視窗在部分顯卡上導致的白屏/灰屏/閃爍問題
-// 必須在 app.whenReady() 之前調用
-app.disableHardwareAcceleration();
-
 /* ===== HTTP 客户端 ===== */
 let authToken = null;
 
@@ -157,7 +152,7 @@ function createWindow() {
 
   win.webContents.setBackgroundThrottling(false);
 
-  // win.webContents.openDevTools({ mode: "detach" });
+  win.webContents.openDevTools({ mode: "detach" });
 }
 
 app.whenReady().then(createWindow);
