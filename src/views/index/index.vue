@@ -11,6 +11,8 @@
             'login-error-state': !!loginError,
             'login-success-state': loginSuccess && !loginError
           }"
+          @mouseenter="uiEnter"
+          @mouseleave="uiLeave"
         >
           <div class="login-header">
             <div class="login-header-left">
@@ -97,6 +99,8 @@
         @send="onSend" 
         @open-settings="openSettings"
         @close="showChat = false"
+        @mouseenter="uiEnter"
+        @mouseleave="uiLeave"
       />
     </transition>
 
@@ -111,6 +115,8 @@
         :isLoggedIn="loginSuccess"
         @close="showSettings = false" 
         @reset-model="resetModelState"
+        @mouseenter="uiEnter"
+        @mouseleave="uiLeave"
       />
     </transition>
 
@@ -404,7 +410,8 @@ function uiLeave() {
   clearTimeout(uiLeaveTimer);
   uiLeaveTimer = setTimeout(() => {
     // 检查是否有 UI 面板处于 hover 状态
-    const hovered = document.querySelector('.chat-bar-wrapper:hover, .settings-panel:hover');
+    // 增加 .login-terminal:hover 以确保登录框可点击
+    const hovered = document.querySelector('.chat-bar-wrapper:hover, .settings-panel:hover, .login-terminal:hover');
     if (hovered) {
       overUI = true;
     } else {
