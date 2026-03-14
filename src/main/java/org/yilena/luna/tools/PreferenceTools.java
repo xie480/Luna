@@ -9,6 +9,7 @@ import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
 import org.yilena.luna.constants.LogActionConstant;
 import org.yilena.luna.constants.LogModuleConstant;
+import org.yilena.luna.constants.LunaStateConstant;
 import org.yilena.luna.entity.UserPreference;
 import org.yilena.luna.enums.LogType;
 import org.yilena.luna.mapper.UserPreferenceMapper;
@@ -23,7 +24,7 @@ public class PreferenceTools extends BaseTool {
         this.userPreferenceMapper = userPreferenceMapper;
     }
 
-    @LunaState(value = "Luna 正在记录主人的偏好...", status = "PREFERENCE")
+    @LunaState(value = LunaStateConstant.VALUE_PREFERENCE, status = LunaStateConstant.STATUS_PREFERENCE)
     @Tool("""
     【用户偏好(UserPreference) CRUD 工具】
     目标实体类定义 (Schema):

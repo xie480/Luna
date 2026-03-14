@@ -9,6 +9,7 @@ import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
 import org.yilena.luna.constants.LogActionConstant;
 import org.yilena.luna.constants.LogModuleConstant;
+import org.yilena.luna.constants.LunaStateConstant;
 import org.yilena.luna.entity.ScheduleTask;
 import org.yilena.luna.enums.LogType;
 import org.yilena.luna.enums.TaskStatus;
@@ -31,7 +32,7 @@ public class ScheduleTools extends BaseTool {
         this.scheduleTaskMapper = scheduleTaskMapper;
     }
 
-    @LunaState(value = "Luna 正在安排日程任务...", status = "SCHEDULE")
+    @LunaState(value = LunaStateConstant.VALUE_SCHEDULE, status = LunaStateConstant.STATUS_SCHEDULE)
     @Tool("""
     【日程任务(ScheduleTask) CRUD 工具】
     目标实体类定义 (Schema):

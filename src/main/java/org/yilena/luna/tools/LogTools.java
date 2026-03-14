@@ -8,6 +8,7 @@ import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
 import org.yilena.luna.constants.LogActionConstant;
 import org.yilena.luna.constants.LogModuleConstant;
+import org.yilena.luna.constants.LunaStateConstant;
 import org.yilena.luna.entity.LunaLog;
 import org.yilena.luna.enums.LogType;
 import org.yilena.luna.service.LunaLogService;
@@ -26,7 +27,7 @@ public class LogTools extends BaseTool {
         this.lunaLogService = lunaLogService;
     }
 
-    @LunaState(value = "Luna 正在查阅系统日志...", status = "LOG")
+    @LunaState(value = LunaStateConstant.VALUE_LOG, status = LunaStateConstant.STATUS_LOG)
     @Tool("""
     【系统日志(LunaLog) 管理工具】
     用于查询、插入或删除系统日志。

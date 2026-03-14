@@ -1,5 +1,7 @@
 package org.yilena.luna.annotation;
 
+import org.yilena.luna.constants.LunaStateConstant;
+
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -19,5 +21,5 @@ public @interface LunaState {
     /**
      * 状态标识码
      */
-    String status() default "WORKING";
+    String status() default LunaStateConstant.STATUS_WORKING;
 }

@@ -7,6 +7,7 @@ import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
 import org.yilena.luna.constants.LogActionConstant;
 import org.yilena.luna.constants.LogModuleConstant;
+import org.yilena.luna.constants.LunaStateConstant;
 import org.yilena.luna.enums.LogType;
 import org.yilena.luna.enums.SourceType;
 import org.yilena.luna.service.KnowledgeBaseService;
@@ -23,7 +24,7 @@ public class KnowledgeBaseTools extends BaseTool {
         this.knowledgeBaseService = knowledgeBaseService;
     }
 
-    @LunaState(value = "Luna 正在查阅或整理本地知识库...", status = "KNOWLEDGE_BASE")
+    @LunaState(value = LunaStateConstant.VALUE_KNOWLEDGE_BASE, status = LunaStateConstant.STATUS_KNOWLEDGE_BASE)
     @Tool("""
     【知识库(KnowledgeBase) CRUD 工具】
     目标实体类定义 (Schema):

@@ -9,6 +9,7 @@ import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
 import org.yilena.luna.constants.LogActionConstant;
 import org.yilena.luna.constants.LogModuleConstant;
+import org.yilena.luna.constants.LunaStateConstant;
 import org.yilena.luna.entity.Memory;
 import org.yilena.luna.enums.LogType;
 import org.yilena.luna.enums.MemoryType;
@@ -26,7 +27,7 @@ public class MemoryTools extends BaseTool {
         this.memoryMapper = memoryMapper;
     }
 
-    @LunaState(value = "Luna 正在回忆过去的点点滴滴...", status = "MEMORY")
+    @LunaState(value = LunaStateConstant.VALUE_MEMORY, status = LunaStateConstant.STATUS_MEMORY)
     @Tool("""
     【长期记忆(Memory) CRUD 工具】
     目标实体类定义 (Schema):

@@ -11,6 +11,7 @@ import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
 import org.yilena.luna.constants.LogActionConstant;
 import org.yilena.luna.constants.LogModuleConstant;
+import org.yilena.luna.constants.LunaStateConstant;
 import org.yilena.luna.enums.LogType;
 
 import java.util.HashMap;
@@ -67,7 +68,7 @@ public class SearchTools extends BaseTool {
         }
     }
 
-    @LunaState(value = "Luna 正在全网搜索最新资讯...", status = "SEARCHING")
+    @LunaState(value = LunaStateConstant.VALUE_SEARCH_WEB, status = LunaStateConstant.STATUS_SEARCHING)
     @Tool("当你需要回答的问题超出了你的知识范围，或者需要获取实时信息（如新闻、天气、股价）时，调用此工具进行普通网页搜索。返回格式为 JSON。")
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.SEARCH_WEB, type = LogType.TOOL_CALL, content = "执行网页搜索")
     public String searchWeb(String query) {
@@ -79,7 +80,7 @@ public class SearchTools extends BaseTool {
         return executeSerperRequest("search", payload);
     }
 
-    @LunaState(value = "Luna 正在搜索相关图片...", status = "SEARCHING")
+    @LunaState(value = LunaStateConstant.VALUE_SEARCH_IMAGES, status = LunaStateConstant.STATUS_SEARCHING)
     @Tool("当你需要搜索图片时，调用此工具进行图片搜索。返回格式为 JSON。")
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.SEARCH_IMAGES, type = LogType.TOOL_CALL, content = "执行图片搜索")
     public String searchImages(String query) {
@@ -91,7 +92,7 @@ public class SearchTools extends BaseTool {
         return executeSerperRequest("images", payload);
     }
 
-    @LunaState(value = "Luna 正在查阅最新新闻...", status = "SEARCHING")
+    @LunaState(value = LunaStateConstant.VALUE_SEARCH_NEWS, status = LunaStateConstant.STATUS_SEARCHING)
     @Tool("当你需要获取最新新闻时，调用此工具进行新闻搜索。返回格式为 JSON。")
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.SEARCH_NEWS, type = LogType.TOOL_CALL, content = "执行新闻搜索")
     public String searchNews(String query) {
@@ -103,7 +104,7 @@ public class SearchTools extends BaseTool {
         return executeSerperRequest("news", payload);
     }
 
-    @LunaState(value = "Luna 正在进行以图搜图...", status = "SEARCHING")
+    @LunaState(value = LunaStateConstant.VALUE_SEARCH_LENS, status = LunaStateConstant.STATUS_SEARCHING)
     @Tool("当你需要通过图片URL进行以图搜图时，调用此工具。返回格式为 JSON。")
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.SEARCH_LENS, type = LogType.TOOL_CALL, content = "执行以图搜图")
     public String searchLens(String url) {
@@ -115,7 +116,7 @@ public class SearchTools extends BaseTool {
         return executeSerperRequest("lens", payload);
     }
 
-    @LunaState(value = "Luna 正在抓取网页内容...", status = "SCRAPING")
+    @LunaState(value = LunaStateConstant.VALUE_SCRAPE_WEB, status = LunaStateConstant.STATUS_SCRAPING)
     @Tool("当你需要抓取特定网页的具体内容时，调用此工具。返回格式为 JSON。")
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.SCRAPE_WEB, type = LogType.TOOL_CALL, content = "抓取网页内容")
     public String scrapeWeb(String url) {
