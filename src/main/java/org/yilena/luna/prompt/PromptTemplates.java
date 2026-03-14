@@ -3,6 +3,7 @@ package org.yilena.luna.prompt;
 /*
     提示模板
  */
+// todo 思维链没有起效
 public final class PromptTemplates {
 
     private PromptTemplates() {}
