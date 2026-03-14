@@ -71,7 +71,7 @@ const EMOTION_MAP = {
   Fearful: { color: '#8e44ad', speed: '0.5s', intensity: '0 0 8px' },
   Anxious: { color: '#9b59b6', speed: '0.6s', intensity: '0 0 8px' },
   Uneasy: { color: '#a569bd', speed: '1s', intensity: '0 0 8px' },
-  default: { color: 'var(--primary, #00ffc8)', speed: '3s', intensity: '0 0 8px' }
+  default: { color: '#00ffc8', speed: '3s', intensity: '0 0 8px' } // 修复：移除 var(--primary) 避免受主题干扰
 };
 
 const emotionStyle = computed(() => {

@@ -592,6 +592,8 @@ function onPointerUp() {
 /* ================= 滾輪縮放 ================= */
 function onWheel(ev) {
   if (!model || !app) return;
+  if (!overModel) return; // 修复：仅当鼠标悬停在模型上时才允许缩放
+  
   const rect        = canvasRef.value.getBoundingClientRect();
   const globalPoint = new PIXI.Point(ev.clientX - rect.left, ev.clientY - rect.top);
 
@@ -853,8 +855,9 @@ onMounted(async () => {
     model.interactive = true;
     model.cursor      = "pointer";
 
-    // 確保模型有 hitArea，以便在透明區域也能觸發事件
-    model.hitArea = new PIXI.Rectangle(-1000, -2000, 2000, 4000);
+    // 修复：移除强制设置的巨大 hitArea，让 pixi-live2d-display 自动根据模型网格进行精确的碰撞检测
+    // 这样点击、拖拽和鼠标跟踪设定的触发区域就会严格贴合模型本身
+    // model.hitArea = new PIXI.Rectangle(-1000, -2000, 2000, 4000);
 
     // 如果已经过了开机动画（例如快速登录或跳过），直接显示
     if (!lunaIntroVisible.value && loginSuccess.value) {
