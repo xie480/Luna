@@ -735,9 +735,16 @@ async function preloadExpressions() {
       try {
         const res = await fetch(`/models/luna/${encodeURIComponent(name)}.exp3.json`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        expressionCache.set(name, await res.json());
+        
+        const text = await res.text();
+        // 檢查是否返回了 HTML (通常是 404 時 dev server 返回了 index.html)
+        if (text.trim().startsWith('<')) {
+          throw new Error("文件未找到 (返回了 HTML)");
+        }
+        
+        expressionCache.set(name, JSON.parse(text));
       } catch (e) {
-        console.error(`[Live2D] 加載失敗: ${name}`, e);
+        console.warn(`[Live2D] 表情文件加載跳過: ${name} - ${e.message}`);
       }
     })
   );

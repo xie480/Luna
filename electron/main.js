@@ -26,57 +26,70 @@ http.interceptors.request.use((config) => {
 
 /* ===== IPC handlers for your chat API (unchanged) ===== */
 ipcMain.handle("luna.api.chat.startup", async () => {
-  return http.post("/luna/api/chat/startup").then(res => res.data);
+  return http.post("/luna/api/chat/startup")
+    .then(res => res.data)
+    .catch(err => { throw new Error(err.message); });
 });
 
 ipcMain.handle("luna.api.chat.message", async (_, payload) => {
-  return http.post("/luna/api/chat/message", payload).then(res => res.data);
+  return http.post("/luna/api/chat/message", payload)
+    .then(res => res.data)
+    .catch(err => { throw new Error(err.message); });
 });
 
 ipcMain.handle("luna.api.chat.shutdown", async () => {
-  return http.post("/luna/api/chat/shutdown").then(res => res.data);
+  return http.post("/luna/api/chat/shutdown")
+    .then(res => res.data)
+    .catch(err => { throw new Error(err.message); });
 });
 
-ipcMain.handle("luna.api.chat.history.date",async (_event, yearMonth) => {
-    console.log('[History] fetching available dates for', yearMonth);
+ipcMain.handle("luna.api.chat.history.date", async (_event, yearMonth) => {
+  console.log('[History] fetching available dates for', yearMonth);
 
-    if (typeof yearMonth !== 'string') {
-      throw new TypeError('yearMonth must be string');
-    }
-
-    return http.get('/luna/api/chat/history/date', {
-      params: { ym: yearMonth }
-    }).then(res => res.data);
+  if (typeof yearMonth !== 'string') {
+    throw new TypeError('yearMonth must be string');
   }
-);
 
+  return http.get('/luna/api/chat/history/date', {
+    params: { ym: yearMonth }
+  })
+  .then(res => res.data)
+  .catch(err => { throw new Error(err.message); });
+});
 
 ipcMain.handle("luna.api.chat.history", async (_event, yearMonthDay) => {
   console.log('[History] fetching chat history for', yearMonthDay);
   if (typeof yearMonthDay !== 'string') {
     throw new TypeError('yearMonthDay must be string');
   }
-  return http.get('/luna/api/chat/history', { params: { ymd: yearMonthDay } }).then(res => res.data);
+  return http.get('/luna/api/chat/history', { params: { ymd: yearMonthDay } })
+    .then(res => res.data)
+    .catch(err => { throw new Error(err.message); });
 });
-
 
 /* ===== Auth: login / logout ===== */
 ipcMain.handle("auth.login", async (_event, payload) => {
-  const data = await http.post("/auth/login", payload).then(res => res.data);
-  if (data && data.token) {
-    authToken = data.token;
-  }
-  return data;
+  return http.post("/auth/login", payload)
+    .then(res => {
+      if (res.data && res.data.token) {
+        authToken = res.data.token;
+      }
+      return res.data;
+    })
+    .catch(err => { throw new Error(err.message); });
 });
 
 ipcMain.handle("auth.logout", async (_event, token) => {
   const t = token || authToken;
   if (!t) return;
-  const res = await http.post("/auth/logout", null, {
+  return http.post("/auth/logout", null, {
     headers: { Authorization: t },
-  }).then(res => res.data);
-  authToken = null;
-  return res;
+  })
+  .then(res => {
+    authToken = null;
+    return res.data;
+  })
+  .catch(err => { throw new Error(err.message); });
 });
 
 ipcMain.handle("luna.app.quit", () => {
