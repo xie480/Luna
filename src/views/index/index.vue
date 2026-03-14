@@ -522,9 +522,12 @@ function loadModelTransform() {
   if (raw && container) {
     try {
       const data = JSON.parse(raw);
-      container.x = data.x;
-      container.y = data.y;
-      container.scale.set(data.scale);
+      // 增加数据校验，防止 NaN 或 0 导致模型消失
+      if (typeof data.x === 'number' && !isNaN(data.x)) container.x = data.x;
+      if (typeof data.y === 'number' && !isNaN(data.y)) container.y = data.y;
+      if (typeof data.scale === 'number' && !isNaN(data.scale) && data.scale > 0) {
+        container.scale.set(data.scale);
+      }
     } catch (e) {}
   }
 }
@@ -568,13 +571,12 @@ function onPointerDown(e) {
     return;
   }
 
-  // 【修改】允許隨時拖拽，不再限制於 isSetupMode
+  // 允許隨時拖拽
   dragging = true;
   lastPos  = { x: e.global.x, y: e.global.y };
 }
 
 function onPointerMove(e) {
-  // 【修改】允許隨時拖拽，不再限制於 isSetupMode
   if (!dragging) return;
   const dx = e.global.x - lastPos.x;
   const dy = e.global.y - lastPos.y;
@@ -589,12 +591,10 @@ function onPointerUp() {
 
 /* ================= 滾輪縮放 ================= */
 function onWheel(ev) {
-  // 【修改】允許隨時縮放，不再限制於 isSetupMode
   if (!model || !app) return;
   const rect        = canvasRef.value.getBoundingClientRect();
   const globalPoint = new PIXI.Point(ev.clientX - rect.left, ev.clientY - rect.top);
 
-  // 移除 containsPoint 限制，允許在整個畫布上縮放
   ev.preventDefault();
   const factor   = ev.deltaY > 0 ? 0.95 : 1.05;
   const newScale = Math.min(10, Math.max(0.05, container.scale.x * factor));
@@ -768,7 +768,7 @@ function toggleHistory() {
 }
 
 /* ================= 等待模型就绪 ================= */
-function waitForModelReady(timeout = 5000) {
+function waitForModelReady(timeout = 10000) {
   return new Promise((resolve) => {
     const start = performance.now();
     (function poll() {
@@ -783,22 +783,26 @@ function waitForModelReady(timeout = 5000) {
 async function startBootSequence() {
   lunaIntroVisible.value = true;
 
-  gsap.delayedCall(4.5, () => {
+  gsap.delayedCall(4.5, async () => {
     lunaIntroVisible.value = false;
-
-    if (!model || !app) return;
-
-    model.alpha = 0;
-    model.y     = app.renderer.height + 40;
-
-    gsap.to(model, {
-      alpha: 1,
-      y: app.renderer.height,
-      duration: 1.2,
-      ease: "power3.out",
-    });
-
     bgParticlesVisible.value = false;
+
+    // 确保模型已经加载完毕，否则等待
+    if (!model) {
+      await waitForModelReady(10000);
+    }
+
+    if (model && app) {
+      model.alpha = 0;
+      model.y     = (app.renderer.height || window.innerHeight) + 40;
+
+      gsap.to(model, {
+        alpha: 1,
+        y: app.renderer.height || window.innerHeight,
+        duration: 1.2,
+        ease: "power3.out",
+      });
+    }
   });
 
   await applyEmotionExpressions(INITIAL_EMOTION);
@@ -837,7 +841,7 @@ onMounted(async () => {
 
   // 加載模型 (增加錯誤處理)
   try {
-    model = await Live2DModel.from("/models/luna/jk鹽.model3.json", {
+    model = await Live2DModel.from("/models/luna/jk盐.model3.json", {
       autoInteract: false,
       ticker:       PIXI.Ticker.shared,
     });
@@ -845,15 +849,20 @@ onMounted(async () => {
     model.scale.set(0.1);
     model.anchor.set(0.5, 1);
     model.x           = app.renderer.width / 2;
-    model.y           = app.renderer.height;
+    model.y           = app.renderer.height || window.innerHeight;
     model.interactive = true;
     model.cursor      = "pointer";
 
     // 確保模型有 hitArea，以便在透明區域也能觸發事件
     model.hitArea = new PIXI.Rectangle(-1000, -2000, 2000, 4000);
 
-    model.alpha = 0;
-    model.y     = app.renderer.height + 60;
+    // 如果已经过了开机动画（例如快速登录或跳过），直接显示
+    if (!lunaIntroVisible.value && loginSuccess.value) {
+      model.alpha = 1;
+    } else {
+      model.alpha = 0;
+      model.y += 60;
+    }
 
     model
       .on("pointerdown",      onPointerDown)
@@ -875,6 +884,7 @@ onMounted(async () => {
     loadModelTransform();
     await nextTick();
     await appearance.applyAllEnabled(getCoreModel());
+    await applyEmotionExpressions(INITIAL_EMOTION);
 
   } catch (e) {
     console.error("[Live2D] 模型加載失敗", e);
