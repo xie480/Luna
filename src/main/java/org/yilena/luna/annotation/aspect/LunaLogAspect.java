@@ -1,5 +1,7 @@
 package org.yilena.luna.annotation.aspect;
 
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -7,6 +9,8 @@ import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.springframework.stereotype.Component;
+import org.springframework.validation.BindingResult;
+import org.springframework.web.multipart.MultipartFile;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.entity.LunaLog;
 import org.yilena.luna.enums.LogType;
@@ -54,9 +58,10 @@ public class LunaLogAspect {
             Map<String, Object> requestData = new HashMap<>();
             if (parameterNames != null && args != null) {
                 for (int i = 0; i < parameterNames.length && i < args.length; i++) {
-                    // 简单过滤，避免序列化过大对象
-                    if (args[i] != null) {
-                        requestData.put(parameterNames[i], args[i]);
+                    Object arg = args[i];
+                    // 过滤掉无法序列化的对象 (如 Request, Response, 文件等)
+                    if (arg != null && !isFilterObject(arg)) {
+                        requestData.put(parameterNames[i], arg);
                     }
                 }
             }
@@ -70,6 +75,7 @@ public class LunaLogAspect {
                     .logType(logType)
                     .module(annotation.module())
                     .action(annotation.action())
+                    .content(annotation.content()) // 修复：补充 content 字段赋值
                     .requestData(requestData)
                     .responseData(result) // JacksonTypeHandler 会自动处理序列化
                     .costTime(costTime)
@@ -89,5 +95,16 @@ public class LunaLogAspect {
         } catch (Exception e) {
             log.error("记录系统日志失败", e);
         }
+    }
+
+    /**
+     * 判断是否为需要过滤的对象
+     * 过滤 ServletRequest, ServletResponse, MultipartFile, BindingResult 等无法直接序列化的对象
+     */
+    private boolean isFilterObject(Object arg) {
+        return arg instanceof ServletRequest ||
+               arg instanceof ServletResponse ||
+               arg instanceof MultipartFile ||
+               arg instanceof BindingResult;
     }
 }
