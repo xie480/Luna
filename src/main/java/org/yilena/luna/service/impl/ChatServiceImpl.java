@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.constants.LogActionConstant;
 import org.yilena.luna.constants.LogModuleConstant;
+import org.yilena.luna.constants.LunaStateConstant;
 import org.yilena.luna.constants.ModelHintConstant;
 import org.yilena.luna.constants.RedisKeyConstant;
 import org.yilena.luna.constants.SymbolConstant;
@@ -68,7 +69,7 @@ public class ChatServiceImpl implements ChatService {
         log.info("用户输入：{}", chatRequest.getUserInput());
         
         // 推送状态：开始思考
-        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "THINKING", "Luna 正在思考...");
+        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_THINKING, LunaStateConstant.VALUE_THINKING);
         
         // 获取当天日期
         LocalDateTime today = LocalDateTime.now();
@@ -81,7 +82,7 @@ public class ChatServiceImpl implements ChatService {
         // 检查用户输入
         if (input.isEmpty()) {
             log.error("用户输入为空");
-            statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "IDLE", "");
+            statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
             return ResponseEntity.badRequest().body("用户输入为空");
         }
 
@@ -89,7 +90,7 @@ public class ChatServiceImpl implements ChatService {
         List<String> knowledgeSnippets = null;
         try {
             // 推送状态：正在检索知识库
-            statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "RETRIEVING", "Luna 正在翻阅本地记忆与知识库...");
+            statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_RETRIEVING, LunaStateConstant.VALUE_RETRIEVING);
             
             // 检索 Top 5 相关知识
             List<KnowledgeBase> kbs = knowledgeBaseService.searchKnowledge(input, 5);
@@ -105,7 +106,7 @@ public class ChatServiceImpl implements ChatService {
         // -------------------
 
         // 恢复思考状态
-        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "THINKING", "Luna 正在组织语言...");
+        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_THINKING, LunaStateConstant.VALUE_THINKING_ORGANIZE);
 
         // 获取上下文最近N条信息（在写入用户消息前先获取，用于压缩判断）
         List<ChatMessage> recent = sessionService.getRecentMessages(keyPrefix, false);
@@ -187,7 +188,7 @@ public class ChatServiceImpl implements ChatService {
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.LUNA, result.replyText(), LocalTime.now()));
         
         // 推送状态：空闲
-        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "IDLE", "");
+        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
         
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(result.valid());
     }
@@ -196,7 +197,7 @@ public class ChatServiceImpl implements ChatService {
     @LunaLogRecord(module = LogModuleConstant.SYSTEM, action = LogActionConstant.STARTUP, type = LogType.SYSTEM_EVENT, content = "系统启动")
     public ResponseEntity<String> startup() {
         log.info("开始启动流程");
-        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "STARTING", "Luna 正在苏醒...");
+        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_STARTING, LunaStateConstant.VALUE_STARTING);
         
         LocalDateTime today = LocalDateTime.now();
         String keyPrefix = dateFormatter.format(today);
@@ -232,7 +233,7 @@ public class ChatServiceImpl implements ChatService {
         // 将模型输出加入到上下文
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.LUNA, result.replyText(), LocalTime.now()));
         
-        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "IDLE", "");
+        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(result.valid());
     }
 

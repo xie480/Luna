@@ -20,41 +20,41 @@ public class LunaStatusPublisher {
     /**
      * 订阅状态流
      */
-    public SseEmitter subscribe(String clientId) {
+    public SseEmitter subscribe() {
         // 设置超时时间为 0（永不超时），或者设置一个较长的时间
         SseEmitter emitter = new SseEmitter(0L);
-        emitters.put(clientId, emitter);
+        emitters.put(DEFAULT_CLIENT_ID, emitter);
 
         emitter.onCompletion(() -> {
-            log.info("SSE 连接已完成: {}", clientId);
-            emitters.remove(clientId);
+            log.info("SSE 连接已完成: {}", DEFAULT_CLIENT_ID);
+            emitters.remove(DEFAULT_CLIENT_ID);
         });
         emitter.onTimeout(() -> {
-            log.info("SSE 连接已超时: {}", clientId);
-            emitters.remove(clientId);
+            log.info("SSE 连接已超时: {}", DEFAULT_CLIENT_ID);
+            emitters.remove(DEFAULT_CLIENT_ID);
         });
         emitter.onError((e) -> {
-            log.error("SSE 连接发生错误: {}", clientId, e);
-            emitters.remove(clientId);
+            log.error("SSE 连接发生错误: {}", DEFAULT_CLIENT_ID, e);
+            emitters.remove(DEFAULT_CLIENT_ID);
         });
 
         // 发送连接成功初始状态
-        publish(clientId, "IDLE", "");
+        publish(DEFAULT_CLIENT_ID, "IDLE", "");
         return emitter;
     }
 
     /**
      * 发布状态
      */
-    public void publish(String clientId, String status, String message) {
-        SseEmitter emitter = emitters.get(clientId);
+    public void publish(String DEFAULT_CLIENT_ID, String status, String message) {
+        SseEmitter emitter = emitters.get(DEFAULT_CLIENT_ID);
         if (emitter != null) {
             try {
                 LunaStatusMessage msg = new LunaStatusMessage(status, message, System.currentTimeMillis());
                 emitter.send(SseEmitter.event().name("luna-status").data(msg));
             } catch (Exception e) {
-                log.warn("向客户端 {} 推送状态失败，移除连接", clientId);
-                emitters.remove(clientId);
+                log.warn("向客户端 {} 推送状态失败，移除连接", DEFAULT_CLIENT_ID);
+                emitters.remove(DEFAULT_CLIENT_ID);
             }
         }
     }

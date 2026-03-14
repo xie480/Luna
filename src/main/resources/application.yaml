@@ -45,9 +45,9 @@ qwen:
 gemini:
   url: https://catiecli.sukaka.top/v1/chat/completions
   api: sk-ant-bdd5aa945da3ceb5771d2300066a0390bb27b8abc02d725b
-  small-model-name: gcli-gemini-3-flash-preview-search
-  mid-model-name: gcli-gemini-3-flash-preview-search
-  big-model-name: gcli-gemini-3-pro-preview-search
+  small-model-name: gcli-gemini-3-flash-preview
+  mid-model-name: gcli-gemini-3-flash-preview
+  big-model-name: gcli-gemini-3-pro-preview
 
 springdoc:
   swagger-ui:
@@ -68,6 +68,7 @@ auth:
 
 mybatis-plus:
   type-aliases-package: org.yilena.luna.*.entity
+  type-handlers-package: com.baomidou.mybatisplus.extension.handlers
   mapper-locations: classpath:/mapper/*.xml
   global-config:
     db-config:

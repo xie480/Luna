@@ -21,7 +21,7 @@ public class LunaStatusController {
 
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "订阅 Luna 状态流 (SSE)")
-    public SseEmitter stream(@RequestParam(defaultValue = LunaStatusPublisher.DEFAULT_CLIENT_ID) String clientId) {
-        return statusPublisher.subscribe(clientId);
+    public SseEmitter stream() {
+        return statusPublisher.subscribe();
     }
 }
