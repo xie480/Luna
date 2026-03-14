@@ -26,6 +26,10 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public Map<String, Object> handleException(Exception e, HttpServletRequest request) {
+        if(e instanceof AuthException){
+            log.warn("用户认证失败: {}", e.getMessage());
+            throw new RuntimeException(e);
+        }
         log.error("捕获全局异常: {}", e.getMessage(), e);
 
         // 尝试获取用户输入的 Body 内容
