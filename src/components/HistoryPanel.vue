@@ -2,10 +2,11 @@
   <div 
     class="history-panel" 
     :style="{ left: x + 'px', top: y + 'px' }"
-    @mousedown="startDrag"
+    @mouseenter="$emit('mouseenter')" 
+    @mouseleave="$emit('mouseleave')"
   >
-    <!-- 標題欄 -->
-    <div class="history-header">
+    <!-- 標題欄 (可拖拽) -->
+    <div class="history-header" @mousedown="startDrag">
       <span class="title">MEMORY ARCHIVE</span>
       <button class="close-btn" @click="$emit('close')">×</button>
     </div>
@@ -70,7 +71,7 @@
 import { ref, onMounted, computed, nextTick } from 'vue';
 
 const props = defineProps(['visible']);
-const emit = defineEmits(['close']);
+const emit = defineEmits(['close', 'mouseenter', 'mouseleave']);
 
 // 拖拽邏輯
 const x = ref(window.innerWidth / 2 - 350);
@@ -122,11 +123,12 @@ const daysInMonth = computed(() => {
   return days;
 });
 
+// 格式化為 YYYY:MM:DD
 function formatDateStr(date) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  return `${y}:${m}:${d}`;
 }
 
 function formatTime(ts) {
@@ -142,7 +144,8 @@ function changeMonth(delta) {
 }
 
 async function fetchAvailableDates() {
-  const ym = `${currentYear.value}-${String(currentMonth.value + 1).padStart(2, '0')}`;
+  // 格式化為 YYYY:MM
+  const ym = `${currentYear.value}:${String(currentMonth.value + 1).padStart(2, '0')}`;
   try {
     const res = await window.desktopApi.historyDate(ym);
     availableDates.value = new Set(res || []);
@@ -156,6 +159,7 @@ async function selectDate(dateStr) {
   loading.value = true;
   messages.value = [];
   try {
+    // dateStr 已經是 YYYY:MM:DD 格式
     const res = await window.desktopApi.history(dateStr);
     messages.value = (res || []).map(m => ({
       sender: m.role === 'assistant' ? 'luna' : (m.role === 'system' ? 'system' : 'user'),
@@ -210,11 +214,12 @@ defineExpose({
   font-family: "Segoe UI", sans-serif;
 }
 .history-header {
-  padding: 10px 15px;
-  background: rgba(0,0,0,0.3);
+  padding: 12px 15px;
+  background: rgba(0,0,0,0.2);
   border-bottom: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
+  align-items: center;
   cursor: move;
   user-select: none;
 }
@@ -222,6 +227,7 @@ defineExpose({
   font-size: 12px;
   letter-spacing: 2px;
   color: var(--primary, #00ffc8);
+  font-weight: bold;
 }
 .close-btn {
   background: none;
@@ -236,29 +242,33 @@ defineExpose({
   overflow: hidden;
 }
 .calendar-section {
-  width: 220px;
+  width: 240px;
   border-right: 1px solid var(--border);
-  padding: 10px;
+  padding: 15px;
   display: flex;
   flex-direction: column;
+  background: var(--bg-sidebar, rgba(0,0,0,0.1));
 }
 .cal-nav {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 10px;
+  align-items: center;
+  margin-bottom: 15px;
   font-size: 14px;
+  color: var(--text-main);
 }
 .cal-nav button {
   background: none;
   border: 1px solid var(--border);
   color: var(--primary);
   cursor: pointer;
-  padding: 2px 8px;
+  padding: 4px 10px;
+  border-radius: 4px;
 }
 .cal-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
+  gap: 6px;
 }
 .cal-day {
   aspect-ratio: 1;
@@ -268,17 +278,20 @@ defineExpose({
   font-size: 12px;
   cursor: pointer;
   border-radius: 4px;
-  color: rgba(255,255,255,0.5);
+  color: var(--text-dim, rgba(255,255,255,0.5));
+  transition: 0.2s;
 }
-.cal-day:hover { background: rgba(255,255,255,0.1); }
+.cal-day:hover { background: var(--hover, rgba(255,255,255,0.1)); }
 .cal-day.has-data { 
   color: var(--text-main); 
   font-weight: bold;
   border: 1px solid var(--border);
+  background: rgba(255,255,255,0.05);
 }
 .cal-day.selected {
   background: var(--primary);
   color: #000;
+  border-color: var(--primary);
 }
 
 .chat-section {
@@ -286,7 +299,7 @@ defineExpose({
   position: relative;
   display: flex;
   flex-direction: column;
-  background: rgba(0,0,0,0.2);
+  background: rgba(0,0,0,0.1);
 }
 .loading-mask {
   position: absolute;
@@ -331,7 +344,7 @@ defineExpose({
 }
 .msg-meta {
   font-size: 10px;
-  color: rgba(255,255,255,0.4);
+  color: var(--text-dim, rgba(255,255,255,0.4));
   display: flex;
   gap: 8px;
 }
@@ -344,6 +357,7 @@ defineExpose({
   font-size: 13px;
   line-height: 1.5;
   white-space: pre-wrap;
+  color: var(--text-main);
 }
 .user .msg-bubble {
   background: var(--primary-dim);
@@ -356,6 +370,7 @@ defineExpose({
   gap: 10px;
   opacity: 0.5;
   font-size: 11px;
+  color: var(--text-dim);
 }
-.sys-line { flex: 1; height: 1px; background: rgba(255,255,255,0.2); }
+.sys-line { flex: 1; height: 1px; background: var(--border); }
 </style>
