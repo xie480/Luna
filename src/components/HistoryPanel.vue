@@ -61,7 +61,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, nextTick } from 'vue';
+import { ref, onMounted, computed, nextTick, onBeforeUnmount } from 'vue';
 
 const props = defineProps(['visible']);
 const emit = defineEmits(['close', 'mouseenter', 'mouseleave']);
@@ -220,6 +220,11 @@ onMounted(() => {
       selectDate(today);
     }
   });
+});
+
+// 確保組件銷毀時（如關閉窗口）發送 mouseleave，防止窗口卡在不可穿透狀態
+onBeforeUnmount(() => {
+  emit('mouseleave');
 });
 
 // 獲取當前時間字符串 HH:MM:SS
