@@ -24,6 +24,13 @@ import java.io.IOException;
 public class RequestCachingFilter extends OncePerRequestFilter {
 
     @Override
+    protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        // 跳过 SSE 接口，避免长连接被缓存包装导致异常
+        return uri.contains("/api/luna/status/stream");
+    }
+
+    @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull FilterChain filterChain)
             throws ServletException, IOException {
         // 包装请求以缓存 Body

@@ -3,6 +3,7 @@ package org.yilena.luna.controller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -17,7 +18,7 @@ public class LunaStatusController {
 
     private final LunaStatusPublisher statusPublisher;
 
-    @GetMapping(value = "/stream")
+    @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "訂閱 Luna 狀態流 (SSE)", description = "建立 SSE 連接，如果已存在連接會自動重連")
     public SseEmitter stream() {
         return statusPublisher.subscribe();
