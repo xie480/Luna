@@ -170,24 +170,23 @@ async function selectDate(dateStr) {
     
     messages.value = (res || []).reduce((acc, line) => {
       // 解析正則: TAG:Content:Time
-      const match = line.match(/^([A-Z]+):(.*):(\d{1,2}:\d{2}:\d{2})$/);
+      // 修改正則以支持帶底線的 TAG (如 CONTEXT_SUMMARY)
+      const match = line.match(/^([A-Z_]+):(.*):(\d{1,2}:\d{2}:\d{2})$/);
       
       if (match) {
         const [_, tag, content, time] = match;
         
-        // 過濾 SUMMARY
-        if (tag !== 'CONTEXT_SUMMARY') {
-          let sender = 'system';
-          if (tag === 'LUNA') sender = 'luna';
-          else if (tag === 'USER') sender = 'user';
-          else if (tag === 'STARTUP') sender = 'system';
-          
-          acc.push({
-            sender,
-            content,
-            time // 直接使用字符串時間
-          });
-        }
+        let sender = 'system';
+        if (tag === 'LUNA') sender = 'luna';
+        else if (tag === 'USER') sender = 'user';
+        else if (tag === 'STARTUP') sender = 'system';
+        else if (tag === 'CONTEXT_SUMMARY') sender = 'system';
+        
+        acc.push({
+          sender,
+          content,
+          time // 直接使用字符串時間
+        });
       }
       return acc;
     }, []);
