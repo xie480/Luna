@@ -21,7 +21,8 @@ export function registerChatIpc() {
     console.log(`[SSE] ${isFirstAttempt ? 'Starting' : 'Reconnecting'} stream connection...`);
 
     try {
-      const response = await http.post("/luna/api/chat/startup", {}, {
+      // 根據新接口：GET /api/luna/status/stream
+      const response = await http.get("/api/luna/status/stream", {
         headers: {
           'Accept': 'text/event-stream',
           'Cache-Control': 'no-cache',
@@ -147,6 +148,7 @@ export function registerChatIpc() {
       currentStream = null;
     }
     
-    return http.post("/luna/api/chat/shutdown");
+    // 根據新接口：GET /api/luna/status/disconnect
+    return http.get("/api/luna/status/disconnect");
   });
 }
