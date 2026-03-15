@@ -134,13 +134,24 @@ function changeMonth(delta) {
 
 async function fetchAvailableDates() {
   // 格式化為 YYYY:MM
-  const ym = `${currentYear.value}:${String(currentMonth.value + 1).padStart(2, '0')}`;
+  const year = currentYear.value;
+  const month = String(currentMonth.value + 1).padStart(2, '0');
+  const ym = `${year}:${month}`;
+  
   try {
     const res = await window.desktopApi.historyDate(ym);
-    console.log("Available dates:", res);
-    availableDates.value = new Set(res || []);
+    console.log("Available dates raw:", res);
+    
+    // 转换逻辑：将 ['15', '09'] 转换为 ['2023:10:15', '2023:10:09']
+    const formattedDates = (res || []).map(day => {
+      const d = String(day).padStart(2, '0');
+      return `${year}:${month}:${d}`;
+    });
+    
+    availableDates.value = new Set(formattedDates);
   } catch (e) {
     console.error("Fetch dates error", e);
+    availableDates.value = new Set();
   }
 }
 
