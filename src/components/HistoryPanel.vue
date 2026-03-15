@@ -33,7 +33,7 @@
         </div>
       </div>
 
-      <!-- 右側：聊天記錄 (Discord 風格) -->
+      <!-- 右側：聊天記錄 (Discord 風格 - 無頭像) -->
       <div class="chat-section">
         <div v-if="loading" class="loading-mask">LOADING...</div>
         <div class="chat-list" ref="chatListRef">
@@ -48,18 +48,16 @@
               <span class="sys-line"></span>
             </div>
 
-            <!-- 對話消息 -->
-            <template v-else>
-              <div class="avatar" v-if="msg.sender === 'luna'">🌙</div>
-              <div class="msg-content-wrap">
-                <div class="msg-meta">
-                  <span class="name">{{ msg.sender === 'luna' ? 'LUNA' : 'USER' }}</span>
-                  <span class="time">{{ msg.time }}</span>
-                </div>
-                <div class="msg-bubble">{{ msg.content }}</div>
+            <!-- 對話消息 (Discord 風格) -->
+            <div v-else class="discord-msg-group">
+              <div class="discord-header">
+                <span class="username">{{ msg.sender === 'luna' ? 'LUNA' : 'USER' }}</span>
+                <span class="timestamp">{{ msg.time }}</span>
               </div>
-              <div class="avatar user" v-if="msg.sender === 'user'">👤</div>
-            </template>
+              <div class="discord-content">
+                {{ msg.content }}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -151,6 +149,9 @@ async function fetchAvailableDates() {
 }
 
 async function selectDate(dateStr) {
+  // 優化：如果該日期沒有數據，則不執行任何操作
+  if (!availableDates.value.has(dateStr)) return;
+
   selectedDate.value = dateStr;
   loading.value = true;
   messages.value = [];
@@ -161,8 +162,6 @@ async function selectDate(dateStr) {
     
     messages.value = (res || []).reduce((acc, line) => {
       // 解析正則: TAG:Content:Time
-      // Content 可能包含冒號，所以取第一個冒號和最後一個冒號之間的所有內容
-      // 格式示例: "LUNA:你好:12:00:00"
       const match = line.match(/^([A-Z]+):(.*):(\d{1,2}:\d{2}:\d{2})$/);
       
       if (match) {
@@ -202,7 +201,18 @@ function scrollToBottom() {
 
 onMounted(() => {
   fetchAvailableDates();
-  selectDate(formatDateStr(new Date()));
+  // 嘗試加載當天，如果當天沒數據，selectDate 內部的判斷會攔截，但這裡我們希望初始化時能顯示
+  // 為了體驗，可以不強制攔截初始化，或者在 fetchAvailableDates 後自動選擇最近的一天
+  // 這裡暫時保持默認選擇當天，如果當天沒數據則顯示空白
+  const today = formatDateStr(new Date());
+  // 這裡手動調用一次 API 獲取當天數據，繞過 selectDate 的 has check，確保剛打開時能看到當天（如果有）
+  // 或者等待 availableDates 加載完。為了簡單，這裡直接調用：
+  window.desktopApi.history(today).then(res => {
+    if (res && res.length > 0) {
+      availableDates.value.add(today); // 確保當天被標記為有數據
+      selectDate(today);
+    }
+  });
 });
 
 // 獲取當前時間字符串 HH:MM:SS
@@ -230,23 +240,24 @@ defineExpose({
 <style scoped>
 .history-panel {
   position: fixed;
-  width: 700px;
-  height: 500px;
-  background: var(--bg-panel, rgba(5,10,19,0.95));
-  border: 1px solid var(--border, rgba(0,255,200,0.3));
+  width: 800px; /* 稍微加寬以適應 Discord 風格 */
+  height: 550px;
+  background: var(--bg-panel, rgba(20, 22, 26, 0.98)); /* 更深沈的背景 */
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.9);
   z-index: 9999;
-  backdrop-filter: blur(10px);
-  color: var(--text-main, #e8fff8);
-  font-family: "Segoe UI", sans-serif;
+  backdrop-filter: blur(12px);
+  color: #dcddde; /* Discord 默認文字顏色 */
+  font-family: "gg sans", "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
 }
+
 .history-header {
-  padding: 12px 15px;
-  background: rgba(0,0,0,0.2);
-  border-bottom: 1px solid var(--border);
+  padding: 14px 18px;
+  background: rgba(0,0,0,0.3);
+  border-bottom: 1px solid rgba(0,0,0,0.2);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -255,50 +266,60 @@ defineExpose({
 }
 .title {
   font-size: 12px;
-  letter-spacing: 2px;
-  color: var(--primary, #00ffc8);
-  font-weight: bold;
+  letter-spacing: 1.5px;
+  color: #72767d;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 .close-btn {
   background: none;
   border: none;
-  color: var(--primary);
-  font-size: 18px;
+  color: #b9bbbe;
+  font-size: 20px;
   cursor: pointer;
+  transition: color 0.2s;
 }
+.close-btn:hover { color: #fff; }
+
 .history-body {
   flex: 1;
   display: flex;
   overflow: hidden;
 }
+
+/* ===== 左側日曆 ===== */
 .calendar-section {
   width: 240px;
-  border-right: 1px solid var(--border);
-  padding: 15px;
+  border-right: 1px solid rgba(255,255,255,0.06);
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  background: var(--bg-sidebar, rgba(0,0,0,0.1));
+  background: rgba(0,0,0,0.2);
 }
 .cal-nav {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 15px;
+  margin-bottom: 20px;
   font-size: 14px;
-  color: var(--text-main);
+  color: #fff;
+  font-weight: bold;
 }
 .cal-nav button {
   background: none;
-  border: 1px solid var(--border);
-  color: var(--primary);
+  border: none;
+  color: #b9bbbe;
   cursor: pointer;
-  padding: 4px 10px;
-  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 16px;
+  transition: color 0.2s;
 }
+.cal-nav button:hover { color: #fff; }
+
 .cal-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 6px;
+  gap: 8px;
 }
 .cal-day {
   aspect-ratio: 1;
@@ -306,30 +327,45 @@ defineExpose({
   align-items: center;
   justify-content: center;
   font-size: 12px;
-  cursor: pointer;
   border-radius: 4px;
-  color: var(--text-dim, rgba(255,255,255,0.5));
-  transition: 0.2s;
-}
-.cal-day:hover { background: var(--hover, rgba(255,255,255,0.1)); }
-.cal-day.has-data { 
-  color: var(--text-main); 
-  font-weight: bold;
-  border: 1px solid var(--border);
-  background: rgba(255,255,255,0.05);
-}
-.cal-day.selected {
-  background: var(--primary);
-  color: #000;
-  border-color: var(--primary);
+  transition: all 0.2s;
+  
+  /* 默認狀態：無數據，不可點擊，變暗 */
+  opacity: 0.2;
+  color: #fff;
+  pointer-events: none;
+  background: transparent;
 }
 
+/* 有數據的日期：高亮，可點擊 */
+.cal-day.has-data {
+  opacity: 1;
+  pointer-events: auto;
+  cursor: pointer;
+  background: rgba(255,255,255,0.05);
+  color: #dcddde;
+  font-weight: normal;
+}
+.cal-day.has-data:hover {
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+}
+
+/* 選中狀態 */
+.cal-day.selected {
+  background: var(--primary, #00ffc8) !important;
+  color: #000 !important;
+  font-weight: bold;
+  box-shadow: 0 0 10px rgba(0, 255, 200, 0.3);
+}
+
+/* ===== 右側聊天記錄 (Discord Style) ===== */
 .chat-section {
   flex: 1;
   position: relative;
   display: flex;
   flex-direction: column;
-  background: rgba(0,0,0,0.1);
+  background: transparent;
 }
 .loading-mask {
   position: absolute;
@@ -346,61 +382,90 @@ defineExpose({
 .chat-list {
   flex: 1;
   overflow-y: auto;
-  padding: 20px;
+  padding: 20px 0; /* 上下 padding，左右由 message group 控制 */
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 4px; /* 消息間距更緊湊 */
 }
+
+/* 滾動條美化 */
+.chat-list::-webkit-scrollbar { width: 8px; }
+.chat-list::-webkit-scrollbar-track { background: #2e3338; }
+.chat-list::-webkit-scrollbar-thumb { background: #202225; border-radius: 4px; }
+
 .chat-row {
-  display: flex;
-  gap: 12px;
-  max-width: 90%;
+  width: 100%;
+  padding: 2px 16px;
+  transition: background 0.1s;
 }
-.chat-row.luna { align-self: flex-start; }
-.chat-row.user { align-self: flex-end; flex-direction: row-reverse; }
-.chat-row.system { align-self: center; width: 100%; justify-content: center; }
-
-.avatar {
-  width: 36px; height: 36px;
-  background: rgba(255,255,255,0.1);
-  border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 18px;
-}
-.msg-content-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.msg-meta {
-  font-size: 10px;
-  color: var(--text-dim, rgba(255,255,255,0.4));
-  display: flex;
-  gap: 8px;
-}
-.user .msg-meta { flex-direction: row-reverse; }
-
-.msg-bubble {
-  background: rgba(255,255,255,0.08);
-  padding: 8px 12px;
-  border-radius: 4px;
-  font-size: 13px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  color: var(--text-main);
-}
-.user .msg-bubble {
-  background: var(--primary-dim);
-  border: 1px solid var(--border);
+.chat-row:hover {
+  background: rgba(255,255,255,0.02); /* 鼠標懸停整行高亮 */
 }
 
+/* 系統消息 */
 .system-msg {
   display: flex;
   align-items: center;
   gap: 10px;
-  opacity: 0.5;
-  font-size: 11px;
-  color: var(--text-dim);
+  margin: 16px 0;
+  padding: 0 16px;
 }
-.sys-line { flex: 1; height: 1px; background: var(--border); }
+.sys-line { flex: 1; height: 1px; background: #4f545c; }
+.sys-text { 
+  font-size: 12px; 
+  color: #72767d; 
+  font-weight: 600;
+}
+
+/* Discord 消息組 */
+.discord-msg-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px; /* 消息組之間的間距 */
+}
+
+.discord-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.username {
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.username:hover { text-decoration: underline; }
+
+/* LUNA 樣式 */
+.luna .username {
+  color: var(--primary, #00ffc8);
+  text-shadow: 0 0 10px rgba(0, 255, 200, 0.2);
+}
+
+/* USER 樣式 */
+.user .username {
+  color: #ffffff;
+}
+
+.timestamp {
+  font-size: 11px;
+  color: #72767d;
+  font-weight: 400;
+}
+
+.discord-content {
+  font-size: 14px;
+  line-height: 1.375rem;
+  color: #dcddde;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  padding-right: 10px;
+}
+
+/* LUNA 的消息內容稍微亮一點 */
+.luna .discord-content {
+  color: #e8fff8;
+}
 </style>
