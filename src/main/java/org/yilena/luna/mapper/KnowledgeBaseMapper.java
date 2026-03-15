@@ -21,5 +21,5 @@ public interface KnowledgeBaseMapper extends BaseMapper<KnowledgeBase> {
      * @param topK         返回的最相似結果數量
      * @return 檢索到的知識庫片段列表
      */
-    List<KnowledgeBase> searchByVector(@Param("vectorString") String vectorString, @Param("topK") int topK);
+    List<KnowledgeBase> searchByVector(@Param("vectorString") String vectorString, @Param("topK") Integer topK);
 }

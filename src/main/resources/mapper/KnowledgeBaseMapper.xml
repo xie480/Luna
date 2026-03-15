@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.yilena.luna.mapper.KnowledgeBaseMapper">
+
+    <!-- 通用查詢映射結果 -->
+    <resultMap id="BaseResultMap" type="org.yilena.luna.entity.KnowledgeBase">
+        <id column="id" property="id" />
+        <result column="title" property="title" />
+        <result column="content" property="content" />
+        <result column="source_type" property="sourceType" />
+        <result column="source_path" property="sourcePath" />
+        <result column="embedding" property="embedding" />
+        <result column="created_at" property="createdAt" />
+        <result column="updated_at" property="updatedAt" />
+    </resultMap>
+
+    <!-- 
+        基於 PGVector 的向量檢索 
+        注意：
+        1. <=> 操作符在 XML 中必須轉義為 &lt;=&gt;
+        2. cast(#{vectorString} as vector) 將字符串轉換為 pgvector 類型
+        3. LIMIT #{topK} 綁定第二個參數
+    -->
+    <select id="searchByVector" resultMap="BaseResultMap">
+        SELECT 
+            id, 
+            title, 
+            content, 
+            source_type, 
+            source_path, 
+            embedding, 
+            created_at, 
+            updated_at
+        FROM knowledge_base
+        ORDER BY embedding &lt;=&gt; cast(#{vectorString} as vector)
+        LIMIT #{topK}
+    </select>
+
+</mapper>
