@@ -35,7 +35,8 @@ export function registerChatIpc() {
           'X-Accel-Buffering': 'no', // 防止 Nginx 緩衝 SSE 流
         },
         responseType: 'stream',
-        adapter: 'http' // 強制使用 Node.js HTTP 適配器
+        adapter: 'http', // 強制使用 Node.js HTTP 適配器
+        timeout: 0 // ⚠️ 關鍵修復：SSE 是長連接，必須禁用超時，否則會被全局的 10s timeout 切斷
       });
 
       // 兼容性處理：判斷返回的是完整的 response 對象還是已經被攔截器解包的 stream
