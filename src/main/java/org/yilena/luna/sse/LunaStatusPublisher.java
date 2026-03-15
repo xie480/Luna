@@ -26,17 +26,19 @@ public class LunaStatusPublisher {
         SseEmitter emitter = new SseEmitter(0L);
         emitters.put(DEFAULT_CLIENT_ID, emitter);
 
+        // 【重要修复】使用 remove(key, value) 确保只有当前这个 emitter 结束时才移除
+        // 防止前端刷新页面时，旧连接的断开回调误删了刚建立的新连接
         emitter.onCompletion(() -> {
-            log.info("----------------SSE 连接已完成: {}", DEFAULT_CLIENT_ID);
-            emitters.remove(DEFAULT_CLIENT_ID);
+            log.info("----------------SSE 连接已完成 (Client Disconnected): {}", DEFAULT_CLIENT_ID);
+            emitters.remove(DEFAULT_CLIENT_ID, emitter);
         });
         emitter.onTimeout(() -> {
             log.info("----------------SSE 连接已超时: {}", DEFAULT_CLIENT_ID);
-            emitters.remove(DEFAULT_CLIENT_ID);
+            emitters.remove(DEFAULT_CLIENT_ID, emitter);
         });
         emitter.onError((e) -> {
             log.error("----------------SSE 连接发生错误: {}", DEFAULT_CLIENT_ID, e);
-            emitters.remove(DEFAULT_CLIENT_ID);
+            emitters.remove(DEFAULT_CLIENT_ID, emitter);
         });
 
         // 发送连接成功初始状态
@@ -47,17 +49,21 @@ public class LunaStatusPublisher {
     /**
      * 发布状态
      */
-    public void publish(String DEFAULT_CLIENT_ID, String status, String message) {
-        SseEmitter emitter = emitters.get(DEFAULT_CLIENT_ID);
+    public void publish(String clientId, String status, String message) {
+        // 使用传入的 clientId，而不是遮蔽静态变量
+        SseEmitter emitter = emitters.get(clientId);
         if (emitter != null) {
             try {
                 LunaStatusMessage msg = new LunaStatusMessage(status, message, System.currentTimeMillis());
                 emitter.send(SseEmitter.event().name("luna-status").data(msg));
-                log.info("向客户端 {} 推送状态成功, 状态：{}，msg：{}", DEFAULT_CLIENT_ID, status, message);
+                log.info("向客户端 {} 推送状态成功, 状态：{}，msg：{}", clientId, status, message);
             } catch (Exception e) {
-                log.warn("向客户端 {} 推送状态失败，移除连接", DEFAULT_CLIENT_ID);
-                emitters.remove(DEFAULT_CLIENT_ID);
+                // 只有发送失败（例如客户端断开但回调还没触发）时才会走到这里
+                log.warn("向客户端 {} 推送状态失败，移除连接", clientId);
+                emitters.remove(clientId, emitter);
             }
+        } else {
+            log.debug("客户端 {} 未连接，跳过推送", clientId);
         }
     }
 }
