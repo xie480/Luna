@@ -21,10 +21,15 @@ public class LunaStatusPublisher {
      * 订阅状态流
      */
     public SseEmitter subscribe() {
+        if(emitters.containsKey(DEFAULT_CLIENT_ID)){
+            log.error("----------------SSE 订阅请求被拒绝，已存在默认客户端连接");
+            return emitters.get(DEFAULT_CLIENT_ID);
+        }
         log.info("----------------SSE 订阅请求: {}", DEFAULT_CLIENT_ID);
-        // 设置超时时间为 0（永不超时），或者设置一个较长的时间
-        SseEmitter emitter = new SseEmitter(0L);
+        // 设置超时时间为 一天
+        SseEmitter emitter = new SseEmitter(1000L * 60 * 60 * 24);
         emitters.put(DEFAULT_CLIENT_ID, emitter);
+        log.info("----------------SSE 订阅成功: {}", DEFAULT_CLIENT_ID);
 
         // 【重要修复】使用 remove(key, value) 确保只有当前这个 emitter 结束时才移除
         // 防止前端刷新页面时，旧连接的断开回调误删了刚建立的新连接
