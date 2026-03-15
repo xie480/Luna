@@ -25,18 +25,14 @@
         ref="inputRef"
         v-model="inputText" 
         type="text" 
-        placeholder="Type a message..." 
+        :placeholder="statusText ? '' : 'Type a message...'" 
         @keydown.enter="sendMessage"
         :disabled="loading"
       />
       
       <!-- 狀態顯示層 (當有狀態文本且輸入框為空時顯示) -->
       <div v-if="statusText && !inputText" class="status-overlay">
-        <span class="status-icon">⚡</span>
         <span class="status-text">{{ statusText }}</span>
-        <span class="status-dots">
-          <span>.</span><span>.</span><span>.</span>
-        </span>
       </div>
 
       <!-- 呼吸燈情緒指示器 (無 tooltip) -->
@@ -44,7 +40,8 @@
     </div>
 
     <button class="send-btn" @click="sendMessage" :disabled="loading || !inputText">
-      {{ loading ? '...' : 'SEND' }}
+      <span v-if="loading" class="spinner"></span>
+      <span v-else>SEND</span>
     </button>
   </div>
 </template>
@@ -178,33 +175,10 @@ input:focus {
   animation: fadeIn 0.3s ease;
 }
 
-.status-icon {
-  margin-right: 6px;
-  animation: pulse 1.5s infinite;
-}
-
 .status-text {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.status-dots span {
-  animation: blink 1.4s infinite both;
-  margin-left: 1px;
-}
-.status-dots span:nth-child(2) { animation-delay: 0.2s; }
-.status-dots span:nth-child(3) { animation-delay: 0.4s; }
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.6; transform: scale(0.9); }
-}
-
-@keyframes blink {
-  0% { opacity: 0.2; }
-  20% { opacity: 1; }
-  100% { opacity: 0.2; }
 }
 
 @keyframes fadeIn {
@@ -237,10 +211,27 @@ input:focus {
   font-size: 12px;
   cursor: pointer;
   transition: 0.2s;
+  min-width: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .send-btn:hover:not(:disabled) {
   filter: brightness(1.1);
   transform: translateY(-1px);
 }
 .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* 加載 Spinner */
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(0,0,0,0.3);
+  border-top-color: #000;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
 </style>

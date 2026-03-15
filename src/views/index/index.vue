@@ -92,6 +92,13 @@
       </div>
     </div>
 
+    <!-- ===== 隱藏的測量用氣泡 (useBubble 必需) ===== -->
+    <div 
+      ref="dummyBoxRef" 
+      class="css-chat-bubble" 
+      style="position: absolute; visibility: hidden; pointer-events: none; top: -9999px; left: -9999px; width: fit-content; max-width: 280px;"
+    ></div>
+
     <!-- ===== 新版 UI 組件 ===== -->
     
     <!-- 聊天輸入框 (Ctrl+L 呼出) -->
