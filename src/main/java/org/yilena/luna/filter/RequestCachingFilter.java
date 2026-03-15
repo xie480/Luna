@@ -19,7 +19,7 @@ import java.io.IOException;
  * 用于包装 HttpServletRequest，以便在后续处理（如异常处理）中可以重复读取 Request Body
  */
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE)
+@Order(Ordered.LOWEST_PRECEDENCE)
 @WebFilter(filterName = "requestCachingFilter", urlPatterns = "/*")
 public class RequestCachingFilter extends OncePerRequestFilter {
 
