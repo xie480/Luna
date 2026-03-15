@@ -33,7 +33,7 @@
         </div>
       </div>
 
-      <!-- 右側：聊天記錄 (Discord 風格 - 無頭像) -->
+      <!-- 右側：聊天記錄 (Line 風格) -->
       <div class="chat-section">
         <div v-if="loading" class="loading-mask">LOADING...</div>
         <div class="chat-list" ref="chatListRef">
@@ -48,15 +48,10 @@
               <span class="sys-line"></span>
             </div>
 
-            <!-- 對話消息 (Discord 風格) -->
-            <div v-else class="discord-msg-group">
-              <div class="discord-header">
-                <span class="username">{{ msg.sender === 'luna' ? 'LUNA' : 'USER' }}</span>
-                <span class="timestamp">{{ msg.time }}</span>
-              </div>
-              <div class="discord-content">
-                {{ msg.content }}
-              </div>
+            <!-- 對話消息 (Line 風格) -->
+            <div v-else class="line-msg-wrapper">
+              <div class="line-bubble">{{ msg.content }}</div>
+              <div class="line-time">{{ msg.time }}</div>
             </div>
           </div>
         </div>
@@ -241,9 +236,9 @@ defineExpose({
 <style scoped>
 .history-panel {
   position: fixed;
-  width: 800px; /* 稍微加寬以適應 Discord 風格 */
+  width: 700px; /* 調整為剛好合適的寬度 */
   height: 550px;
-  background: var(--bg-panel, rgba(20, 22, 26, 0.98)); /* 更深沈的背景 */
+  background: var(--bg-panel, rgba(20, 22, 26, 0.98));
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
   display: flex;
@@ -251,8 +246,8 @@ defineExpose({
   box-shadow: 0 20px 60px rgba(0,0,0,0.9);
   z-index: 9999;
   backdrop-filter: blur(12px);
-  color: #dcddde; /* Discord 默認文字顏色 */
-  font-family: "gg sans", "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  color: #dcddde;
+  font-family: "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
 }
 
 .history-header {
@@ -291,6 +286,7 @@ defineExpose({
 /* ===== 左側日曆 ===== */
 .calendar-section {
   width: 240px;
+  flex-shrink: 0;
   border-right: 1px solid rgba(255,255,255,0.06);
   padding: 20px;
   display: flex;
@@ -360,13 +356,14 @@ defineExpose({
   box-shadow: 0 0 10px rgba(0, 255, 200, 0.3);
 }
 
-/* ===== 右側聊天記錄 (Discord Style) ===== */
+/* ===== 右側聊天記錄 (Line Style) ===== */
 .chat-section {
   flex: 1;
   position: relative;
   display: flex;
   flex-direction: column;
   background: transparent;
+  overflow: hidden; /* 防止整體溢出 */
 }
 .loading-mask {
   position: absolute;
@@ -383,90 +380,99 @@ defineExpose({
 .chat-list {
   flex: 1;
   overflow-y: auto;
-  padding: 20px 0; /* 上下 padding，左右由 message group 控制 */
+  overflow-x: hidden; /* 隱藏橫向滾動條 */
+  padding: 20px 16px;
   display: flex;
   flex-direction: column;
-  gap: 4px; /* 消息間距更緊湊 */
+  gap: 16px; /* 氣泡之間的間距 */
 }
 
 /* 滾動條美化 */
-.chat-list::-webkit-scrollbar { width: 8px; }
-.chat-list::-webkit-scrollbar-track { background: #2e3338; }
-.chat-list::-webkit-scrollbar-thumb { background: #202225; border-radius: 4px; }
+.chat-list::-webkit-scrollbar { width: 6px; }
+.chat-list::-webkit-scrollbar-track { background: transparent; }
+.chat-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+.chat-list::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 
+/* 聊天行容器 */
 .chat-row {
+  display: flex;
   width: 100%;
-  padding: 2px 16px;
-  transition: background 0.1s;
-}
-.chat-row:hover {
-  background: rgba(255,255,255,0.02); /* 鼠標懸停整行高亮 */
 }
 
-/* 系統消息 */
+/* LUNA 靠左 */
+.chat-row.luna {
+  justify-content: flex-start;
+}
+
+/* USER 靠右 */
+.chat-row.user {
+  justify-content: flex-end;
+}
+
+/* 系統消息居中 */
+.chat-row.system {
+  justify-content: center;
+}
+
+/* 系統消息樣式 */
 .system-msg {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 16px 0;
-  padding: 0 16px;
+  width: 100%;
+  margin: 8px 0;
 }
-.sys-line { flex: 1; height: 1px; background: #4f545c; }
+.sys-line { flex: 1; height: 1px; background: rgba(255,255,255,0.1); }
 .sys-text { 
-  font-size: 12px; 
-  color: #72767d; 
-  font-weight: 600;
+  font-size: 11px; 
+  color: rgba(255,255,255,0.4); 
 }
 
-/* Discord 消息組 */
-.discord-msg-group {
+/* Line 風格氣泡包裝器 */
+.line-msg-wrapper {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-bottom: 10px; /* 消息組之間的間距 */
+  align-items: flex-end; /* 讓時間對齊氣泡底部 */
+  gap: 6px;
+  max-width: 85%; /* 限制氣泡最大寬度 */
 }
 
-.discord-header {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
+/* USER 的時間在左，氣泡在右 */
+.chat-row.user .line-msg-wrapper {
+  flex-direction: row-reverse;
 }
 
-.username {
-  font-size: 15px;
-  font-weight: 500;
-  cursor: pointer;
-}
-.username:hover { text-decoration: underline; }
-
-/* LUNA 樣式 */
-.luna .username {
-  color: var(--primary, #00ffc8);
-  text-shadow: 0 0 10px rgba(0, 255, 200, 0.2);
-}
-
-/* USER 樣式 */
-.user .username {
-  color: #ffffff;
-}
-
-.timestamp {
-  font-size: 11px;
-  color: #72767d;
-  font-weight: 400;
-}
-
-.discord-content {
+/* 氣泡本體 */
+.line-bubble {
+  padding: 10px 14px;
+  border-radius: 16px;
   font-size: 14px;
-  line-height: 1.375rem;
-  color: #dcddde;
-  white-space: pre-wrap;
+  line-height: 1.5;
   word-wrap: break-word;
-  padding-right: 10px;
+  white-space: pre-wrap;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
 }
 
-/* LUNA 的消息內容稍微亮一點 */
-.luna .discord-content {
+/* LUNA 氣泡樣式 (深色半透明) */
+.luna .line-bubble {
+  background: rgba(255, 255, 255, 0.1);
   color: #e8fff8;
+  border-top-left-radius: 4px; /* 左上角直角，模擬小尾巴 */
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* USER 氣泡樣式 (主題色) */
+.user .line-bubble {
+  background: var(--primary, #00ffc8);
+  color: #000;
+  border-top-right-radius: 4px; /* 右上角直角，模擬小尾巴 */
+  font-weight: 500;
+}
+
+/* 時間標籤 */
+.line-time {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
+  margin-bottom: 2px; /* 微調對齊氣泡底部 */
+  flex-shrink: 0;
 }
 </style>
