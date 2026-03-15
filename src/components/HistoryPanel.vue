@@ -54,7 +54,7 @@
               <div class="msg-content-wrap">
                 <div class="msg-meta">
                   <span class="name">{{ msg.sender === 'luna' ? 'LUNA' : 'USER' }}</span>
-                  <span class="time">{{ formatTime(msg.timestamp) }}</span>
+                  <span class="time">{{ msg.time }}</span>
                 </div>
                 <div class="msg-bubble">{{ msg.content }}</div>
               </div>
@@ -131,10 +131,6 @@ function formatDateStr(date) {
   return `${y}:${m}:${d}`;
 }
 
-function formatTime(ts) {
-  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-
 function changeMonth(delta) {
   let m = currentMonth.value + delta;
   if (m > 11) { m = 0; currentYear.value++; }
@@ -161,12 +157,34 @@ async function selectDate(dateStr) {
   try {
     // dateStr 已經是 YYYY:MM:DD 格式
     const res = await window.desktopApi.history(dateStr);
-    console.log("History", res);
-    messages.value = (res || []).map(m => ({
-      sender: m.role === 'assistant' ? 'luna' : (m.role === 'system' ? 'system' : 'user'),
-      content: m.content,
-      timestamp: m.created_at || Date.now()
-    }));
+    // res 格式: ["TAG:Content:Time", ...]
+    
+    messages.value = (res || []).reduce((acc, line) => {
+      // 解析正則: TAG:Content:Time
+      // Content 可能包含冒號，所以取第一個冒號和最後一個冒號之間的所有內容
+      // 格式示例: "LUNA:你好:12:00:00"
+      const match = line.match(/^([A-Z]+):(.*):(\d{1,2}:\d{2}:\d{2})$/);
+      
+      if (match) {
+        const [_, tag, content, time] = match;
+        
+        // 過濾 SUMMARY
+        if (tag !== 'SUMMARY') {
+          let sender = 'system';
+          if (tag === 'LUNA') sender = 'luna';
+          else if (tag === 'USER') sender = 'user';
+          else if (tag === 'STARTUP') sender = 'system';
+          
+          acc.push({
+            sender,
+            content,
+            time // 直接使用字符串時間
+          });
+        }
+      }
+      return acc;
+    }, []);
+
     await nextTick();
     scrollToBottom();
   } catch (e) {
@@ -187,11 +205,22 @@ onMounted(() => {
   selectDate(formatDateStr(new Date()));
 });
 
+// 獲取當前時間字符串 HH:MM:SS
+function getCurrentTimeStr() {
+  const d = new Date();
+  return d.toLocaleTimeString('en-GB', { hour12: false });
+}
+
 // 暴露給父組件調用，用於實時插入新消息
 defineExpose({
   pushMessage: (msg) => {
     if (selectedDate.value === formatDateStr(new Date())) {
-      messages.value.push(msg);
+      // 確保消息有 time 字段
+      const msgWithTime = {
+        ...msg,
+        time: msg.time || getCurrentTimeStr()
+      };
+      messages.value.push(msgWithTime);
       nextTick(scrollToBottom);
     }
   }
