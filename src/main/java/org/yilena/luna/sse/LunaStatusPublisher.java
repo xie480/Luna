@@ -1,74 +1,58 @@
 package org.yilena.luna.sse;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
+/**
+ * Luna 狀態發布器
+ * 專注於業務邏輯，調用 SseSessionManager 進行底層通信
+ */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class LunaStatusPublisher {
 
-    // 默认的单机客户端ID（对于本地桌面 Agent 通常只有一个前端连接）
+    private final SseSessionManager sessionManager;
+
+    // 默認的單機客戶端ID
     public static final String DEFAULT_CLIENT_ID = "default";
 
-    // 存储客户端连接
-    private final Map<String, SseEmitter> emitters = new ConcurrentHashMap<>();
-
     /**
-     * 订阅状态流
+     * 訂閱狀態流
      */
     public SseEmitter subscribe() {
-        if(emitters.containsKey(DEFAULT_CLIENT_ID)){
-            log.error("----------------SSE 订阅请求被拒绝，已存在默认客户端连接");
-            return emitters.get(DEFAULT_CLIENT_ID);
-        }
-        log.info("----------------SSE 订阅请求: {}", DEFAULT_CLIENT_ID);
-        // 设置超时时间为 一天
-        SseEmitter emitter = new SseEmitter(1000L * 60 * 60 * 24);
-        emitters.put(DEFAULT_CLIENT_ID, emitter);
-        log.info("----------------SSE 订阅成功: {}", DEFAULT_CLIENT_ID);
+        log.info("----------------SSE 訂閱請求: {}", DEFAULT_CLIENT_ID);
+        
+        // 調用管理器建立連接（管理器內部會處理舊連接清理）
+        SseEmitter emitter = sessionManager.connect(DEFAULT_CLIENT_ID);
 
-        // 【重要修复】使用 remove(key, value) 确保只有当前这个 emitter 结束时才移除
-        // 防止前端刷新页面时，旧连接的断开回调误删了刚建立的新连接
-        emitter.onCompletion(() -> {
-            log.info("----------------SSE 连接已完成 (Client Disconnected): {}", DEFAULT_CLIENT_ID);
-            emitters.remove(DEFAULT_CLIENT_ID, emitter);
-        });
-        emitter.onTimeout(() -> {
-            log.info("----------------SSE 连接已超时: {}", DEFAULT_CLIENT_ID);
-            emitters.remove(DEFAULT_CLIENT_ID, emitter);
-        });
-        emitter.onError((e) -> {
-            log.error("----------------SSE 连接发生错误: {}", DEFAULT_CLIENT_ID, e);
-            emitters.remove(DEFAULT_CLIENT_ID, emitter);
-        });
-
-        // 发送连接成功初始状态
+        // 發送連接成功初始狀態
         publish(DEFAULT_CLIENT_ID, "IDLE", "");
+        
         return emitter;
     }
 
     /**
-     * 发布状态
+     * 斷開訂閱
+     */
+    public void unsubscribe() {
+        sessionManager.disconnect(DEFAULT_CLIENT_ID);
+    }
+
+    /**
+     * 發布狀態
      */
     public void publish(String clientId, String status, String message) {
-        // 使用传入的 clientId，而不是遮蔽静态变量
-        SseEmitter emitter = emitters.get(clientId);
-        if (emitter != null) {
-            try {
-                LunaStatusMessage msg = new LunaStatusMessage(status, message, System.currentTimeMillis());
-                emitter.send(SseEmitter.event().name("luna-status").data(msg));
-                log.info("向客户端 {} 推送状态成功, 状态：{}，msg：{}", clientId, status, message);
-            } catch (Exception e) {
-                // 只有发送失败（例如客户端断开但回调还没触发）时才会走到这里
-                log.warn("向客户端 {} 推送状态失败，移除连接", clientId);
-                emitters.remove(clientId, emitter);
+        if (sessionManager.isConnected(clientId)) {
+            LunaStatusMessage msg = new LunaStatusMessage(status, message, System.currentTimeMillis());
+            boolean success = sessionManager.send(clientId, "luna-status", msg);
+            if (success) {
+                log.info("向客戶端 {} 推送狀態成功, 狀態：{}，msg：{}", clientId, status, message);
             }
         } else {
-            log.debug("客户端 {} 未连接，跳过推送", clientId);
+            log.debug("客戶端 {} 未連接，跳過推送", clientId);
         }
     }
 }
