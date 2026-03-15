@@ -66,7 +66,7 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     @LunaLogRecord(module = LogModuleConstant.CHAT, action = LogActionConstant.CHAT, type = LogType.LUNA_OUTPUT, content = "用户对话交互")
-    public ResponseEntity<String> chat(ChatRequest chatRequest) {
+    public ResponseEntity<Object> chat(ChatRequest chatRequest) {
         log.info("用户输入：{}", chatRequest.getUserInput());
         
         // 推送状态：开始思考
@@ -194,12 +194,13 @@ public class ChatServiceImpl implements ChatService {
         // 推送状态：空闲
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
         
-        return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(result.valid());
+        // 返回 Object (JsonNode) 以解决 406 Not Acceptable 问题
+        return ResponseEntity.ok(tryParseJsonNode(result.valid()));
     }
 
     @Override
     @LunaLogRecord(module = LogModuleConstant.SYSTEM, action = LogActionConstant.STARTUP, type = LogType.SYSTEM_EVENT, content = "系统启动")
-    public ResponseEntity<String> startup() {
+    public ResponseEntity<Object> startup() {
         log.info("开始启动流程");
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_STARTING, LunaStateConstant.VALUE_STARTING);
         
@@ -242,7 +243,9 @@ public class ChatServiceImpl implements ChatService {
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.LUNA, result.replyText(), LocalTime.now()));
         
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
-        return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(result.valid());
+        
+        // 返回 Object (JsonNode) 以解决 406 Not Acceptable 问题
+        return ResponseEntity.ok(tryParseJsonNode(result.valid()));
     }
 
     @Override

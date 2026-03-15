@@ -34,6 +34,9 @@ public class LlmClientUtil {
     private final GeminiProperty geminiProperty;
     private final EmbeddingProperty embeddingProperty;
 
+    // 缓存解压后的临时脚本路径，避免每次请求都重复解压
+    private static volatile String cachedScriptPath;
+
     /**
      * 统一的模型生成入口
      */
@@ -156,19 +159,26 @@ public class LlmClientUtil {
      * 解析 Python 脚本路径
      * 1. 优先使用配置的绝对路径
      * 2. 如果文件不存在，尝试从 Classpath (resources/python/embedding.py) 加载并复制到临时文件
+     * 3. 增加缓存机制，避免重复解压
      */
     private String resolveScriptPath(String configuredPath) throws IOException {
+        // 1. 检查缓存
+        if (cachedScriptPath != null && new File(cachedScriptPath).exists()) {
+            return cachedScriptPath;
+        }
+
+        // 2. 检查配置的物理路径
         File file = new File(configuredPath);
         if (file.exists()) {
+            cachedScriptPath = configuredPath;
             return configuredPath;
         }
 
-        log.warn("配置的脚本路径不存在: {}，尝试从 Classpath (resources/python/embedding.py) 加载...", configuredPath);
-
-        // 尝试从 resources/python/embedding.py 加载
+        // 3. 尝试从 Classpath 加载
         // 注意：getResourceAsStream 的路径不需要以 / 开头，相对于 classpath 根目录
         try (InputStream is = this.getClass().getClassLoader().getResourceAsStream("python/embedding.py")) {
             if (is == null) {
+                log.warn("配置的脚本路径不存在: {}，且无法在 Classpath 中找到 python/embedding.py", configuredPath);
                 throw new FileNotFoundException("无法在磁盘或 Classpath 中找到 embedding.py。配置路径: " + configuredPath);
             }
 
@@ -179,8 +189,9 @@ public class LlmClientUtil {
             // 将资源文件复制到临时文件
             Files.copy(is, tempFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
 
-            log.info("已将脚本提取到临时文件: {}", tempFile.getAbsolutePath());
-            return tempFile.getAbsolutePath();
+            log.info("已从 Classpath 提取脚本到临时文件: {}", tempFile.getAbsolutePath());
+            cachedScriptPath = tempFile.getAbsolutePath();
+            return cachedScriptPath;
         }
     }
 }
