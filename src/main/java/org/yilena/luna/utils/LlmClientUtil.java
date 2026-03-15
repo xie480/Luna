@@ -16,6 +16,7 @@ import org.yilena.luna.properties.GeminiProperty;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -110,13 +111,41 @@ public class LlmClientUtil {
                 text       // 传递文本
         );
 
+        // 合并错误流到标准输出流，或者分别读取。这里选择分别读取以便区分错误。
         Process process = pb.start();
 
-        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        // 读取标准输出 (stdout)
+        StringBuilder output = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line);
+            }
+        }
 
-        String result = reader.readLine();
+        // 读取标准错误 (stderr)
+        StringBuilder errorOutput = new StringBuilder();
+        try (BufferedReader errorReader = new BufferedReader(new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = errorReader.readLine()) != null) {
+                errorOutput.append(line).append("\n");
+            }
+        }
 
-        process.waitFor();
+        int exitCode = process.waitFor();
+
+        if (exitCode != 0) {
+            String errorMsg = errorOutput.toString();
+            log.error("Python Embedding 脚本执行失败 (ExitCode: {}). Stderr: {}", exitCode, errorMsg);
+            throw new RuntimeException("Python脚本执行异常: " + errorMsg);
+        }
+
+        String result = output.toString().trim();
+        if (result.isEmpty()) {
+            String errorMsg = errorOutput.toString();
+            log.error("Python Embedding 脚本返回为空. Stderr: {}", errorMsg);
+            throw new RuntimeException("Python脚本返回为空. Stderr: " + errorMsg);
+        }
 
         return result;
     }
