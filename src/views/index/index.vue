@@ -500,9 +500,10 @@ function modelLeave() {
   }, 150);
 }
 
-watch(showChat, () => { updatePetState(); });
-watch(showSettings, () => { updatePetState(); });
-watch(showHistory, () => { updatePetState(); });
+// 監聽 UI 顯示狀態，當 UI 關閉時強制觸發 uiLeave 檢查，防止 mouseleave 事件丟失
+watch(showChat, (val) => { if(!val) uiLeave(); else updatePetState(); });
+watch(showSettings, (val) => { if(!val) uiLeave(); else updatePetState(); });
+watch(showHistory, (val) => { if(!val) uiLeave(); else updatePetState(); });
 
 // 監聽模型顯示狀態
 watch(modelVisible, (val) => {

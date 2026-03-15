@@ -151,8 +151,8 @@ function createWindow() {
     globalShortcut.register("CommandOrControl+L", () => {
       // 发送消息给渲染进程，切换输入框显示状态
       win.webContents.send("pet:toggle-chat");
-      // 确保窗口此时可以捕获鼠标（取消穿透），并获得焦点
-      win.setIgnoreMouseEvents(false);
+      // 修复：移除 win.setIgnoreMouseEvents(false)，防止强制锁定不穿透
+      // 只保留 focus 以便输入框获得焦点
       win.focus();
     });
   });
