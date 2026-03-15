@@ -21,20 +21,21 @@ public class LunaStatusPublisher {
      * 订阅状态流
      */
     public SseEmitter subscribe() {
+        log.info("----------------SSE 订阅请求: {}", DEFAULT_CLIENT_ID);
         // 设置超时时间为 0（永不超时），或者设置一个较长的时间
         SseEmitter emitter = new SseEmitter(0L);
         emitters.put(DEFAULT_CLIENT_ID, emitter);
 
         emitter.onCompletion(() -> {
-            log.info("SSE 连接已完成: {}", DEFAULT_CLIENT_ID);
+            log.info("----------------SSE 连接已完成: {}", DEFAULT_CLIENT_ID);
             emitters.remove(DEFAULT_CLIENT_ID);
         });
         emitter.onTimeout(() -> {
-            log.info("SSE 连接已超时: {}", DEFAULT_CLIENT_ID);
+            log.info("----------------SSE 连接已超时: {}", DEFAULT_CLIENT_ID);
             emitters.remove(DEFAULT_CLIENT_ID);
         });
         emitter.onError((e) -> {
-            log.error("SSE 连接发生错误: {}", DEFAULT_CLIENT_ID, e);
+            log.error("----------------SSE 连接发生错误: {}", DEFAULT_CLIENT_ID, e);
             emitters.remove(DEFAULT_CLIENT_ID);
         });
 
@@ -52,6 +53,7 @@ public class LunaStatusPublisher {
             try {
                 LunaStatusMessage msg = new LunaStatusMessage(status, message, System.currentTimeMillis());
                 emitter.send(SseEmitter.event().name("luna-status").data(msg));
+                log.info("向客户端 {} 推送状态成功, 状态：{}，msg：{}", DEFAULT_CLIENT_ID, status, message);
             } catch (Exception e) {
                 log.warn("向客户端 {} 推送状态失败，移除连接", DEFAULT_CLIENT_ID);
                 emitters.remove(DEFAULT_CLIENT_ID);
