@@ -7,11 +7,13 @@ export function registerChatIpc() {
   ipcMain.handle("luna.api.chat.startup", async (event) => {
     try {
       // SSE 订阅请求：需要设置 Accept 头，并以流的方式接收
+      // 必须显式指定 Accept: text/event-stream 以避免 406 Not Acceptable
       const response = await http.post("/luna/api/chat/startup", {}, {
         headers: {
           'Accept': 'text/event-stream',
           'Cache-Control': 'no-cache',
           'Connection': 'keep-alive',
+          'X-Accel-Buffering': 'no', // 防止 Nginx 缓冲 SSE 流
         },
         responseType: 'stream'
       });
