@@ -5,8 +5,8 @@ import { fileURLToPath } from "url";
 
 // 引入統一的 HTTP 客戶端和 Token 管理
 import http, { setAuthToken, getAuthToken } from "../src/main/httpClient.js";
-// 引入我們寫好的 chatIpc
-import { registerChatIpc } from "../src/main/ipc/chatIpc.js";
+// 引入我們寫好的 chatIpc 以及暴露出來的 startSSE 和 stopSSE
+import { registerChatIpc, startSSE, stopSSE } from "../src/main/ipc/chatIpc.js";
 
 /* ===== 修复 __dirname ===== */
 const __filename = fileURLToPath(import.meta.url);
@@ -45,6 +45,9 @@ ipcMain.handle("auth.login", async (event, payload) => {
       if (data && data.token) {
         // 登錄成功後保存 Token，後續所有請求（包括 SSE）都會自動帶上
         setAuthToken(data.token);
+        
+        // ⚠️ 登錄成功後自動啟動 SSE 監聽，無需前端手動調用 startup
+        startSSE(event.sender).catch(err => console.error("[Main] Auto start SSE failed:", err));
       }
       return data;
     })
@@ -59,6 +62,10 @@ ipcMain.handle("auth.logout", async (_event, token) => {
   })
   .then(data => {
     setAuthToken(null);
+    
+    // ⚠️ 登出後自動關閉 SSE 監聽
+    stopSSE();
+    
     return data;
   })
   .catch(err => { throw new Error(err.message); });
