@@ -165,6 +165,7 @@ async function selectDate(dateStr) {
   try {
     // dateStr 已經是 YYYY:MM:DD 格式
     const res = await window.desktopApi.history(dateStr);
+    console.log("History raw:", res);
     // res 格式: ["TAG:Content:Time", ...]
     
     messages.value = (res || []).reduce((acc, line) => {
@@ -175,7 +176,7 @@ async function selectDate(dateStr) {
         const [_, tag, content, time] = match;
         
         // 過濾 SUMMARY
-        if (tag !== 'SUMMARY') {
+        if (tag !== 'CONTEXT_SUMMARY') {
           let sender = 'system';
           if (tag === 'LUNA') sender = 'luna';
           else if (tag === 'USER') sender = 'user';
