@@ -30,6 +30,15 @@
         :disabled="loading"
       />
       
+      <!-- 狀態顯示層 (當有狀態文本且輸入框為空時顯示) -->
+      <div v-if="statusText && !inputText" class="status-overlay">
+        <span class="status-icon">⚡</span>
+        <span class="status-text">{{ statusText }}</span>
+        <span class="status-dots">
+          <span>.</span><span>.</span><span>.</span>
+        </span>
+      </div>
+
       <!-- 呼吸燈情緒指示器 (無 tooltip) -->
       <div class="emotion-indicator" :style="emotionStyle"></div>
     </div>
@@ -43,7 +52,7 @@
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue';
 
-const props = defineProps(['loading', 'currentEmotion']);
+const props = defineProps(['loading', 'currentEmotion', 'statusText']);
 const emit = defineEmits(['send', 'open-settings', 'toggle-history', 'mouseenter', 'mouseleave', 'close']);
 
 const inputText = ref("");
@@ -149,6 +158,58 @@ input {
 input:focus {
   border-color: var(--primary);
   background: rgba(0,0,0,0.5);
+}
+
+/* 狀態顯示層特效 */
+.status-overlay {
+  position: absolute;
+  left: 16px;
+  right: 30px;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  pointer-events: none; /* 允許點擊穿透到 input */
+  color: var(--primary, #00ffc8);
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  text-shadow: 0 0 5px rgba(0, 255, 200, 0.5);
+  animation: fadeIn 0.3s ease;
+}
+
+.status-icon {
+  margin-right: 6px;
+  animation: pulse 1.5s infinite;
+}
+
+.status-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-dots span {
+  animation: blink 1.4s infinite both;
+  margin-left: 1px;
+}
+.status-dots span:nth-child(2) { animation-delay: 0.2s; }
+.status-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.9); }
+}
+
+@keyframes blink {
+  0% { opacity: 0.2; }
+  20% { opacity: 1; }
+  100% { opacity: 0.2; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 /* 呼吸燈 */

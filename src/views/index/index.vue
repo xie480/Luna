@@ -100,6 +100,7 @@
         v-if="showChat" 
         :loading="isLoading"
         :currentEmotion="currentEmotion"
+        :statusText="lunaStatus"
         @send="onSend" 
         @open-settings="openSettings"
         @toggle-history="toggleHistory"
@@ -217,6 +218,7 @@ const showHistory      = ref(false);
 const historyPanelRef  = ref(null);
 const trackingEnabled  = ref(true);
 const lunaIntroVisible = ref(false);
+const lunaStatus       = ref(""); // Luna 的實時狀態文本
 
 const { loadTheme } = useTheme();
 
@@ -862,6 +864,18 @@ onMounted(async () => {
       if (!showChat.value) {
         showSettings.value = false;
         showHistory.value = false;
+      }
+    });
+  }
+
+  // 監聽 Luna 狀態更新
+  if (window.desktopApi && window.desktopApi.onStatusUpdate) {
+    window.desktopApi.onStatusUpdate((data) => {
+      // data: { status: "...", message: "...", timestamp: ... }
+      if (data && data.message) {
+        lunaStatus.value = data.message;
+      } else {
+        lunaStatus.value = "";
       }
     });
   }

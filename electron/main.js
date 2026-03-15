@@ -10,6 +10,7 @@ const __dirname = path.dirname(__filename);
 
 /* ===== HTTP 客户端 ===== */
 let authToken = null;
+let sseStream = null; // 保存 SSE 流對象
 
 const http = axios.create({
   baseURL: "http://localhost:8001",
@@ -23,6 +24,68 @@ http.interceptors.request.use((config) => {
   }
   return config;
 });
+
+/* ===== SSE 連接管理 ===== */
+function startSseStream(win) {
+  if (!authToken) return;
+  stopSseStream(); // 防止重複連接
+
+  console.log("[SSE] Starting status stream connection...");
+  
+  // 根據提供的後端代碼，路徑為 /api/luna/status/stream
+  http.get("/api/luna/status/stream", {
+    responseType: 'stream'
+  }).then(response => {
+    sseStream = response.data;
+    
+    sseStream.on('data', (chunk) => {
+      const text = chunk.toString();
+      const lines = text.split('\n');
+      
+      for (const line of lines) {
+        // 解析 SSE 格式: data: {...}
+        if (line.startsWith('data:')) {
+          try {
+            const jsonStr = line.substring(5).trim();
+            if (!jsonStr) continue;
+            
+            const data = JSON.parse(jsonStr);
+            // 發送給渲染進程
+            if (win && !win.isDestroyed()) {
+              win.webContents.send('luna:status-update', data);
+            }
+          } catch (e) {
+            // 忽略解析錯誤或心跳包
+          }
+        }
+      }
+    });
+
+    sseStream.on('end', () => {
+      console.log("[SSE] Stream ended");
+      sseStream = null;
+    });
+
+    sseStream.on('error', (err) => {
+      console.error("[SSE] Stream error:", err);
+      sseStream = null;
+    });
+
+  }).catch(err => {
+    console.error("[SSE] Connection failed:", err.message);
+  });
+}
+
+function stopSseStream() {
+  if (sseStream) {
+    try {
+      sseStream.destroy();
+    } catch (e) {
+      console.error("[SSE] Error destroying stream:", e);
+    }
+    sseStream = null;
+  }
+}
 
 /* ===== IPC handlers for your chat API (unchanged) ===== */
 ipcMain.handle("luna.api.chat.startup", async () => {
@@ -68,11 +131,14 @@ ipcMain.handle("luna.api.chat.history", async (_event, yearMonthDay) => {
 });
 
 /* ===== Auth: login / logout ===== */
-ipcMain.handle("auth.login", async (_event, payload) => {
+ipcMain.handle("auth.login", async (event, payload) => {
   return http.post("/auth/login", payload)
     .then(res => {
       if (res.data && res.data.token) {
         authToken = res.data.token;
+        // 登錄成功後啟動 SSE
+        const win = BrowserWindow.fromWebContents(event.sender);
+        startSseStream(win);
       }
       return res.data;
     })
@@ -80,6 +146,7 @@ ipcMain.handle("auth.login", async (_event, payload) => {
 });
 
 ipcMain.handle("auth.logout", async (_event, token) => {
+  stopSseStream(); // 登出時斷開 SSE
   const t = token || authToken;
   if (!t) return;
   return http.post("/auth/logout", null, {
