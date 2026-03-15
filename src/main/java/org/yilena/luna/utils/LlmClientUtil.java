@@ -14,9 +14,10 @@ import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.properties.EmbeddingProperty;
 import org.yilena.luna.properties.GeminiProperty;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -101,7 +102,8 @@ public class LlmClientUtil {
     public String getEmbedding(String text) throws Exception {
 
         String pythonPath = embeddingProperty.getPythonPath();
-        String scriptPath = embeddingProperty.getScriptPath();
+        // 自动解析脚本路径：如果配置路径不存在，则尝试从资源文件加载
+        String scriptPath = resolveScriptPath(embeddingProperty.getScriptPath());
         String modelPath = embeddingProperty.getModelPath();
 
         ProcessBuilder pb = new ProcessBuilder(
@@ -148,5 +150,37 @@ public class LlmClientUtil {
         }
 
         return result;
+    }
+
+    /**
+     * 解析 Python 脚本路径
+     * 1. 优先使用配置的绝对路径
+     * 2. 如果文件不存在，尝试从 Classpath (resources/python/embedding.py) 加载并复制到临时文件
+     */
+    private String resolveScriptPath(String configuredPath) throws IOException {
+        File file = new File(configuredPath);
+        if (file.exists()) {
+            return configuredPath;
+        }
+
+        log.warn("配置的脚本路径不存在: {}，尝试从 Classpath (resources/python/embedding.py) 加载...", configuredPath);
+
+        // 尝试从 resources/python/embedding.py 加载
+        // 注意：getResourceAsStream 的路径不需要以 / 开头，相对于 classpath 根目录
+        try (InputStream is = this.getClass().getClassLoader().getResourceAsStream("python/embedding.py")) {
+            if (is == null) {
+                throw new FileNotFoundException("无法在磁盘或 Classpath 中找到 embedding.py。配置路径: " + configuredPath);
+            }
+
+            // 创建临时文件
+            File tempFile = File.createTempFile("luna_embedding_", ".py");
+            tempFile.deleteOnExit(); // 程序退出时自动删除
+
+            // 将资源文件复制到临时文件
+            Files.copy(is, tempFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+
+            log.info("已将脚本提取到临时文件: {}", tempFile.getAbsolutePath());
+            return tempFile.getAbsolutePath();
+        }
     }
 }
