@@ -53,6 +53,18 @@
           </div>
 
           <div class="section">
+            <div class="section-title">MODEL DISPLAY / 模型顯示</div>
+            <label class="app-item">
+              <input 
+                type="checkbox" 
+                :checked="isModelVisible"
+                @change="$emit('toggle-model')"
+              />
+              <span>顯示 Live2D 模型</span>
+            </label>
+          </div>
+
+          <div class="section">
             <div class="section-title">INITIAL SETUP / 初始設定</div>
             <p class="desc">調整模型在屏幕上的初始位置和大小。</p>
             <button 
@@ -134,11 +146,12 @@ import { useTheme } from '../composables/useTheme';
 
 const props = defineProps([
   'core', 'model', 'appearance', 'rhythm', 
-  'isLoggedIn', 'isSetupMode', 'isTrackingSetupMode'
+  'isLoggedIn', 'isSetupMode', 'isTrackingSetupMode',
+  'isModelVisible'
 ]);
 const emit = defineEmits([
   'close', 'reset-model', 'toggle-setup', 'toggle-tracking-setup', 
-  'mouseenter', 'mouseleave'
+  'mouseenter', 'mouseleave', 'toggle-model'
 ]);
 
 // 拖拽邏輯

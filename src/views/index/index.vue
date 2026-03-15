@@ -131,10 +131,12 @@
         :isLoggedIn="loginSuccess"
         :isSetupMode="isSetupMode"
         :isTrackingSetupMode="isTrackingSetupMode"
+        :isModelVisible="modelVisible"
         @close="showSettings = false" 
         @reset-model="resetModelState"
         @toggle-setup="toggleSetupMode"
         @toggle-tracking-setup="toggleTrackingSetupMode"
+        @toggle-model="modelVisible = !modelVisible"
         @mouseenter="uiEnter"
         @mouseleave="uiLeave"
       />
@@ -224,9 +226,13 @@ const isTrackingSetupMode = ref(false);
 
 const TRANSFORM_KEY = "luna:transform";
 const TRACKING_ORIGIN_KEY = "luna:tracking-origin";
+const LUNA_VISIBLE_KEY = "luna:visible";
 
 let trackingOriginOffset = { x: 0, y: 0 };
 let trackingMarker = null;
+
+// 模型顯示狀態
+const modelVisible = ref(localStorage.getItem(LUNA_VISIBLE_KEY) !== "false");
 
 /* ================= 登錄狀態 ================= */
 const loginVisible   = ref(true);
@@ -498,6 +504,18 @@ watch(showChat, () => { updatePetState(); });
 watch(showSettings, () => { updatePetState(); });
 watch(showHistory, () => { updatePetState(); });
 
+// 監聽模型顯示狀態
+watch(modelVisible, (val) => {
+  localStorage.setItem(LUNA_VISIBLE_KEY, val);
+  if (container) {
+    container.visible = val;
+  }
+  if (!val) {
+    overModel = false;
+    updatePetState();
+  }
+});
+
 /* ================= 設定模式邏輯 ================= */
 function toggleSetupMode() {
   if (isTrackingSetupMode.value) isTrackingSetupMode.value = false;
@@ -632,7 +650,7 @@ function applyLookAt(dx, dy) {
 }
 
 function onGlobalPointerMove(ev) {
-  if (!trackingEnabled.value || !model) return;
+  if (!trackingEnabled.value || !model || !modelVisible.value) return;
   const rect  = canvasRef.value.getBoundingClientRect();
   const world = new PIXI.Point(ev.clientX - rect.left, ev.clientY - rect.top);
   const local = container.toLocal(world, app.stage);
@@ -829,6 +847,7 @@ onMounted(async () => {
   });
 
   container = new PIXI.Container();
+  container.visible = modelVisible.value; // 初始化可見性
   app.stage.addChild(container);
 
   // 提前綁定事件，防止模型加載失敗導致無法交互
