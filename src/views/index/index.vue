@@ -225,7 +225,7 @@ const showHistory      = ref(false);
 const historyPanelRef  = ref(null);
 const trackingEnabled  = ref(true);
 const lunaIntroVisible = ref(false);
-const lunaStatus       = ref(""); // Luna 的實時狀態文本
+const lunaStatus       = ref(""); 
 
 const { loadTheme } = useTheme();
 
@@ -240,7 +240,6 @@ const LUNA_VISIBLE_KEY = "luna:visible";
 let trackingOriginOffset = { x: 0, y: 0 };
 let trackingMarker = null;
 
-// 模型顯示狀態
 const modelVisible = ref(localStorage.getItem(LUNA_VISIBLE_KEY) !== "false");
 
 /* ================= 登錄狀態 ================= */
@@ -310,11 +309,9 @@ async function performLogin() {
     loginSuccess.value = true;
     loginLogLines.value.push("鑒權通過，正在啟動 LUNA 核心…");
     
-    // 【修復】在移除 UI 前強制重置穿透狀態，防止鼠標被透明層阻擋
     overUI = false;
     updatePetState();
 
-    // 先淡出登錄幕布，再啟動加載動畫
     loginVisible.value = false;
     setTimeout(() => {
       startBootSequence();
@@ -332,34 +329,20 @@ function onLoginSubmit() {
   if (!loginLoading.value) performLogin();
 }
 
-function particleStyle(i) {
-  const size  = 4 + (i % 5) * 3;
-  const left  = (i * 37 + 11) % 100;
-  const top   = (i * 53 + 7)  % 100;
-  const delay = (i * 0.4) % 3;
-  const dur   = 3 + (i % 4);
-  return {
-    width:             `${size}px`,
-    height:            `${size}px`,
-    left:              `${left}%`,
-    top:               `${top}%`,
-    animationDelay:    `${delay}s`,
-    animationDuration: `${dur}s`,
-  };
-}
-
 let app       = null;
 let container = null;
-let model     = null; // PIXI Model
+let model     = null; 
 const expressionCache = new Map();
 
 /* ================= 氣泡 ================= */
 const dummyBoxRef = ref(null);
-const { chatBubbles, bubbleAnchor, registerBubble, sendReplyAsBubbles } = useBubble(dummyBoxRef, showChat);
+// 【修復 Bug 1】: 傳入 ref(false) 替代 showChat，防止氣泡因為輸入框打開而被強制隱藏
+const alwaysShowBubbles = ref(false);
+const { chatBubbles, bubbleAnchor, registerBubble, sendReplyAsBubbles } = useBubble(dummyBoxRef, alwaysShowBubbles);
 
 bubbleAnchor.value = { x: window.innerWidth / 2, y: window.innerHeight - 150 };
 
-/* ================= 外貌 & 律動 (Composables) ================= */
+/* ================= 外貌 & 律動 ================= */
 const appearance = useAppearance();
 const rhythm = useRhythm();
 
@@ -375,24 +358,36 @@ const isLoading = computed(() => sending.value || lastReply.value.loading);
 function normalizeResponse(res) {
   const data = res?.data ?? res;
   if (typeof data === "string") {
-    try { return JSON.parse(data); } catch (e) { return { reply: data }; }
+    try { return JSON.parse(data); } catch (e) { return data; } // 如果解析失敗，直接返回字符串
   }
   return data;
 }
 
 async function handleModelReply(res) {
   console.log("[Luna] 模型已返回內容", res);
-  lastReply.value.loading = false;
   if (!res) return;
-  const em = res.emotion || "";
-  const replyText = res.reply || res.text || "";
-  if (!replyText) return;
+  
+  // 【修復 Bug 1】: 增強文本提取邏輯，兼容純字符串和對象
+  let replyText = "";
+  let em = "";
+
+  if (typeof res === 'string') {
+    replyText = res;
+  } else {
+    replyText = res.reply || res.text || res.message || res.data || "";
+    em = res.emotion || "";
+  }
+
+  if (!replyText) {
+    console.warn("[Luna] 無法從響應中提取文本:", res);
+    return;
+  }
+
   if (em) {
     currentEmotion.value = em;
-    try { await applyEmotionExpressions(em); } catch (e) { console.warn("[Luna] 表情應用失敗", e); }
+    try { applyEmotionExpressions(em); } catch (e) { console.warn("[Luna] 表情應用失敗", e); }
   }
   
-  // 推送消息到歷史記錄面板
   if (showHistory.value && historyPanelRef.value) {
     historyPanelRef.value.pushMessage({
       sender: 'luna',
@@ -401,12 +396,13 @@ async function handleModelReply(res) {
     });
   }
 
+  console.log("[Luna] 準備渲染氣泡:", replyText);
+  // 觸發氣泡動畫
   await sendReplyAsBubbles(replyText, { interval: 1000, duration: 5000 });
   lastReply.value.text = replyText;
 }
 
 function handleNetworkError() {
-  lastReply.value.loading = false;
   appearance.showAppearanceHint("網絡請求失敗");
 }
 
@@ -414,10 +410,10 @@ function handleNetworkError() {
 async function onSend(text) {
   if (sending.value) return;
   if (!text) return;
+  
   sending.value = true;
   lastReply.value.loading = true;
 
-  // 推送用戶消息到歷史記錄面板
   if (showHistory.value && historyPanelRef.value) {
     historyPanelRef.value.pushMessage({
       sender: 'user',
@@ -428,13 +424,18 @@ async function onSend(text) {
 
   try {
     const res = await chatApi({ userInput: text }, authToken.value);
-    await handleModelReply(normalizeResponse(res));
+    
+    // 【修復 Bug 2】: 收到網絡響應後，立即關閉加載動畫，不要等待氣泡渲染完畢
+    sending.value = false;
+    lastReply.value.loading = false;
+
+    // 異步處理氣泡和表情，不阻塞 UI 狀態
+    handleModelReply(normalizeResponse(res));
   } catch (e) {
     console.error("[Luna] 發送失敗", e);
-    handleNetworkError();
-  } finally {
     sending.value = false;
-    await nextTick();
+    lastReply.value.loading = false;
+    handleNetworkError();
   }
 }
 
@@ -443,9 +444,11 @@ async function callStartup() {
   lastReply.value.loading = true;
   try {
     const res = await startupApi({}, authToken.value);
-    await handleModelReply(normalizeResponse(res));
+    lastReply.value.loading = false; // 立即關閉加載
+    handleModelReply(normalizeResponse(res));
   } catch (e) {
     console.error("[Luna] 啟動失敗", e);
+    lastReply.value.loading = false;
     handleNetworkError();
   }
 }
@@ -454,10 +457,10 @@ async function callShutdown() {
   lastReply.value.loading = true;
   try {
     const res = await shutdownApi({}, authToken.value);
-    await handleModelReply(normalizeResponse(res));
+    lastReply.value.loading = false; // 立即關閉加載
+    handleModelReply(normalizeResponse(res));
   } catch (e) {
     console.error("[Luna] 關閉失敗", e);
-  } finally {
     lastReply.value.loading = false;
   }
 }
@@ -482,7 +485,6 @@ function uiEnter() {
 function uiLeave() {
   clearTimeout(uiLeaveTimer);
   uiLeaveTimer = setTimeout(() => {
-    // 【修復】將 .top-banner 也加入 UI 判定範圍，防止鼠標在橫幅上時穿透
     const hovered = document.querySelector('.chat-bar-wrapper:hover, .settings-panel:hover, .login-terminal:hover, .history-panel:hover, .top-banner:hover');
     if (hovered) {
       overUI = true;
@@ -509,12 +511,10 @@ function modelLeave() {
   }, 150);
 }
 
-// 監聽 UI 顯示狀態，當 UI 關閉時強制觸發 uiLeave 檢查，防止 mouseleave 事件丟失
 watch(showChat, (val) => { if(!val) uiLeave(); else updatePetState(); });
 watch(showSettings, (val) => { if(!val) uiLeave(); else updatePetState(); });
 watch(showHistory, (val) => { if(!val) uiLeave(); else updatePetState(); });
 
-// 監聽模型顯示狀態
 watch(modelVisible, (val) => {
   localStorage.setItem(LUNA_VISIBLE_KEY, val);
   if (container) {
@@ -546,7 +546,6 @@ function loadModelTransform() {
   if (raw && container) {
     try {
       const data = JSON.parse(raw);
-      // 增加数据校验，防止 NaN 或 0 导致模型消失
       if (typeof data.x === 'number' && !isNaN(data.x)) container.x = data.x;
       if (typeof data.y === 'number' && !isNaN(data.y)) container.y = data.y;
       if (typeof data.scale === 'number' && !isNaN(data.scale) && data.scale > 0) {
@@ -571,7 +570,7 @@ function drawTrackingMarker() {
   if (!container) return;
   if (!trackingMarker) {
     trackingMarker = new PIXI.Graphics();
-    container.addChild(trackingMarker); // 修复：将标记点添加到 container 而不是 model，统一坐标系
+    container.addChild(trackingMarker); 
   }
   trackingMarker.clear();
   trackingMarker.beginFill(0xff0000);
@@ -589,14 +588,12 @@ function onPointerDown(e) {
   if (e.button !== 0) return;
   
   if (isTrackingSetupMode.value) {
-    // 修复：使用 container.toLocal 统一坐标系，而不是 model.toLocal
     const localPoint = container.toLocal(e.global);
     trackingOriginOffset = { x: localPoint.x, y: localPoint.y };
     drawTrackingMarker();
     return;
   }
 
-  // 允許隨時拖拽
   dragging = true;
   lastPos  = { x: e.global.x, y: e.global.y };
 }
@@ -617,7 +614,7 @@ function onPointerUp() {
 /* ================= 滾輪縮放 ================= */
 function onWheel(ev) {
   if (!model || !app) return;
-  if (!overModel) return; // 修复：仅当鼠标悬停在模型上时才允许缩放
+  if (!overModel) return; 
   
   const rect        = canvasRef.value.getBoundingClientRect();
   const globalPoint = new PIXI.Point(ev.clientX - rect.left, ev.clientY - rect.top);
@@ -754,7 +751,6 @@ async function applyEmotionExpressions(emotion) {
 
 /* ================= 預加載表情文件 ================= */
 async function preloadExpressions() {
-  // 將繁體中文替換為簡體中文，以匹配實際的文件名
   const allFiles = [
     "眼-生气", "脸红2隐藏", "脸黑", "眼-哭哭", "眼-泪眼汪汪",
     "眼-眩晕流汗", "脸红", "眼-平静死鱼眼", "嘴-平静v形（不可张开",
@@ -767,7 +763,6 @@ async function preloadExpressions() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         
         const text = await res.text();
-        // 檢查是否返回了 HTML (通常是 404 時 dev server 返回了 index.html)
         if (text.trim().startsWith('<')) {
           throw new Error("文件未找到 (返回了 HTML)");
         }
@@ -814,7 +809,7 @@ function waitForModelReady(timeout = 10000) {
   });
 }
 
-/* ================= 啟動序列：登錄通過後再觸發 ================= */
+/* ================= 啟動序列 ================= */
 async function startBootSequence() {
   lunaIntroVisible.value = true;
 
@@ -822,7 +817,6 @@ async function startBootSequence() {
     lunaIntroVisible.value = false;
     bgParticlesVisible.value = false;
 
-    // 确保模型已经加载完毕，否则等待
     if (!model) {
       await waitForModelReady(10000);
     }
@@ -857,14 +851,12 @@ onMounted(async () => {
   });
 
   container = new PIXI.Container();
-  container.visible = modelVisible.value; // 初始化可見性
+  container.visible = modelVisible.value; 
   app.stage.addChild(container);
 
-  // 提前綁定事件，防止模型加載失敗導致無法交互
   wrapperRef.value.addEventListener("pointermove", onGlobalPointerMove);
   wrapperRef.value.addEventListener("wheel",       onWheel, { passive: false });
 
-  // 監聽快捷鍵
   if (window.pet && window.pet.onToggleChat) {
     window.pet.onToggleChat(() => {
       showChat.value = !showChat.value;
@@ -875,10 +867,8 @@ onMounted(async () => {
     });
   }
 
-  // 監聽 Luna 狀態更新
   if (window.desktopApi && window.desktopApi.onStatusUpdate) {
     window.desktopApi.onStatusUpdate((data) => {
-      // data: { status: "...", message: "...", timestamp: ... }
       if (data && data.message) {
         lunaStatus.value = data.message;
       } else {
@@ -887,7 +877,6 @@ onMounted(async () => {
     });
   }
 
-  // 加載模型 (增加錯誤處理)
   try {
     model = await Live2DModel.from("/models/luna/jk盐.model3.json", {
       autoInteract: false,
@@ -901,7 +890,6 @@ onMounted(async () => {
     model.interactive = true;
     model.cursor      = "pointer";
 
-    // 如果已经过了开机动画（例如快速登录或跳过），直接显示
     if (!lunaIntroVisible.value && loginSuccess.value) {
       model.alpha = 1;
     } else {
@@ -928,7 +916,6 @@ onMounted(async () => {
     await waitForModelReady(5000);
     loadModelTransform();
     
-    // 修复：在应用外貌之前，先从 localStorage 加载外貌状态
     appearance.loadAppearanceState();
     
     await nextTick();
