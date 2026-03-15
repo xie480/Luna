@@ -5,9 +5,24 @@ const http = axios.create({
   timeout: 10_000
 });
 
-// 可选：统一日志 / token / header
+// 統一管理 Token
+let authToken = null;
+
+export function setAuthToken(token) {
+  authToken = token;
+}
+
+export function getAuthToken() {
+  return authToken;
+}
+
+// 統一日誌 / token / header
 http.interceptors.request.use((config) => {
   console.log("[HTTP]", config.method?.toUpperCase(), config.url);
+  if (authToken) {
+    config.headers = config.headers || {};
+    config.headers.Authorization = authToken;
+  }
   return config;
 });
 

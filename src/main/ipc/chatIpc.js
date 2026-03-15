@@ -27,24 +27,28 @@ export function registerChatIpc() {
 
     try {
       // 根據新接口：GET /api/luna/status/stream
-      const response = await http.get("/api/luna/status/stream", {
+      const responseOrStream = await http.get("/api/luna/status/stream", {
         headers: {
           'Accept': 'text/event-stream',
           'Cache-Control': 'no-cache',
           'Connection': 'keep-alive',
           'X-Accel-Buffering': 'no', // 防止 Nginx 緩衝 SSE 流
         },
-        responseType: 'stream'
+        responseType: 'stream',
+        adapter: 'http' // 強制使用 Node.js HTTP 適配器
       });
 
-      console.log(`[ChatIPC] Response received. Status: ${response.status}`);
-
-      const stream = response.data;
-      
-      // 檢查 stream 是否有效
-      if (!stream || typeof stream.on !== 'function') {
-        console.error("[ChatIPC] Error: response.data is not a stream! Type:", typeof stream);
-        throw new Error("Response data is not a stream");
+      // 兼容性處理：判斷返回的是完整的 response 對象還是已經被攔截器解包的 stream
+      let stream;
+      if (responseOrStream && responseOrStream.data && typeof responseOrStream.data.on === 'function') {
+        console.log("[ChatIPC] Received full response object.");
+        stream = responseOrStream.data;
+      } else if (responseOrStream && typeof responseOrStream.on === 'function') {
+        console.log("[ChatIPC] Received stream directly (Interceptor active).");
+        stream = responseOrStream;
+      } else {
+        console.error("[ChatIPC] Invalid response type:", typeof responseOrStream, responseOrStream);
+        throw new Error("Response is not a stream");
       }
 
       currentStream = stream;
@@ -55,24 +59,20 @@ export function registerChatIpc() {
       // 監聽數據流
       stream.on('data', (chunk) => {
         const chunkStr = chunk.toString();
-        // 使用 JSON.stringify 打印，可以看清換行符等不可見字符
-        console.log(`[ChatIPC] DATA CHUNK (${chunk.length} bytes):`, JSON.stringify(chunkStr));
+        console.log(`[ChatIPC] DATA CHUNK:`, JSON.stringify(chunkStr));
         
         buffer += chunkStr;
         
-        // SSE 消息通常以雙換行符分隔
         const parts = buffer.split('\n\n');
-        // 保留最後一個可能不完整的部分
         buffer = parts.pop();
 
         parts.forEach(part => {
-          if (!part.trim()) return; // 跳過空塊
+          if (!part.trim()) return;
 
           const lines = part.split('\n');
           let eventName = null;
           let dataStr = "";
 
-          // 解析 SSE 協議字段
           lines.forEach(line => {
             if (line.startsWith('event:')) {
               eventName = line.substring(6).trim();
@@ -83,14 +83,10 @@ export function registerChatIpc() {
 
           if (dataStr) {
             console.log(`[ChatIPC] Parsed Event: ${eventName || 'default'}, Data: ${dataStr}`);
-            
-            // 後端發送的是 event: luna-status
-            // 我們可以根據 eventName 做特殊處理，目前統一發送給前端
             try {
               const data = JSON.parse(dataStr);
               sender.send('luna:status-update', data);
             } catch (e) {
-              console.warn("[ChatIPC] JSON parse error:", e);
               sender.send('luna:status-update', dataStr);
             }
           }
@@ -114,10 +110,8 @@ export function registerChatIpc() {
     } catch (error) {
       console.error("[ChatIPC] Connection failed:", error);
       if (isFirstAttempt) {
-        // 第一次失敗直接拋出，讓前端知道啟動失敗
         throw error;
       } else {
-        // 後續斷線則嘗試重連
         scheduleReconnect(sender);
       }
     }
@@ -126,10 +120,7 @@ export function registerChatIpc() {
   // 調度重連
   function scheduleReconnect(sender) {
     if (intentionalShutdown) return;
-    if (reconnectTimer) {
-        console.log("[ChatIPC] Reconnect already scheduled.");
-        return; 
-    }
+    if (reconnectTimer) return;
 
     console.log("[ChatIPC] Scheduling reconnect in 3s...");
     reconnectTimer = setTimeout(() => {
@@ -142,14 +133,10 @@ export function registerChatIpc() {
   ipcMain.handle("luna.api.chat.startup", async (event) => {
     console.log("[ChatIPC] IPC 'luna.api.chat.startup' invoked.");
     intentionalShutdown = false;
-    
-    // 清理之前的定時器
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
     }
-    
-    // 第一次連接，如果失敗會拋出異常給前端
     await connectSSE(event.sender, true);
     return { status: "connected" };
   });
@@ -164,19 +151,15 @@ export function registerChatIpc() {
   ipcMain.handle("luna.api.chat.shutdown", async () => {
     console.log("[ChatIPC] IPC 'luna.api.chat.shutdown' invoked.");
     intentionalShutdown = true;
-    
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
     }
-    
     if (currentStream) {
       console.log("[ChatIPC] Destroying active stream.");
       currentStream.destroy();
       currentStream = null;
     }
-    
-    // 根據新接口：GET /api/luna/status/disconnect
     return http.get("/api/luna/status/disconnect");
   });
 }

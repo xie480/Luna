@@ -1,111 +1,21 @@
 // main.js
 import { app, BrowserWindow, ipcMain, globalShortcut } from "electron";
-import axios from "axios";
 import path from "path";
 import { fileURLToPath } from "url";
+
+// 引入統一的 HTTP 客戶端和 Token 管理
+import http, { setAuthToken, getAuthToken } from "../src/main/httpClient.js";
+// 引入我們寫好的 chatIpc
+import { registerChatIpc } from "../src/main/ipc/chatIpc.js";
 
 /* ===== 修复 __dirname ===== */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/* ===== HTTP 客户端 ===== */
-let authToken = null;
-let sseStream = null; // 保存 SSE 流對象
+// 註冊 chatIpc 中的監聽器 (Startup, Message, Shutdown, SSE)
+registerChatIpc();
 
-const http = axios.create({
-  baseURL: "http://localhost:8001",
-  timeout: 1000000,
-});
-
-http.interceptors.request.use((config) => {
-  if (authToken) {
-    config.headers = config.headers || {};
-    config.headers.Authorization = authToken;
-  }
-  return config;
-});
-
-/* ===== SSE 連接管理 ===== */
-function startSseStream(win) {
-  if (!authToken) return;
-  stopSseStream(); // 防止重複連接
-
-  console.log("[SSE] Starting status stream connection...");
-  
-  // 根據提供的後端代碼，路徑為 /api/luna/status/stream
-  http.get("/api/luna/status/stream", {
-    responseType: 'stream'
-  }).then(response => {
-    sseStream = response.data;
-    
-    sseStream.on('data', (chunk) => {
-      const text = chunk.toString();
-      const lines = text.split('\n');
-      
-      for (const line of lines) {
-        // 解析 SSE 格式: data: {...}
-        if (line.startsWith('data:')) {
-          try {
-            const jsonStr = line.substring(5).trim();
-            if (!jsonStr) continue;
-            
-            const data = JSON.parse(jsonStr);
-            // 發送給渲染進程
-            if (win && !win.isDestroyed()) {
-              win.webContents.send('luna:status-update', data);
-            }
-          } catch (e) {
-            // 忽略解析錯誤或心跳包
-          }
-        }
-      }
-    });
-
-    sseStream.on('end', () => {
-      console.log("[SSE] Stream ended");
-      sseStream = null;
-    });
-
-    sseStream.on('error', (err) => {
-      console.error("[SSE] Stream error:", err);
-      sseStream = null;
-    });
-
-  }).catch(err => {
-    console.error("[SSE] Connection failed:", err.message);
-  });
-}
-
-function stopSseStream() {
-  if (sseStream) {
-    try {
-      sseStream.destroy();
-    } catch (e) {
-      console.error("[SSE] Error destroying stream:", e);
-    }
-    sseStream = null;
-  }
-}
-
-/* ===== IPC handlers for your chat API (unchanged) ===== */
-ipcMain.handle("luna.api.chat.startup", async () => {
-  return http.post("/luna/api/chat/startup")
-    .then(res => res.data)
-    .catch(err => { throw new Error(err.message); });
-});
-
-ipcMain.handle("luna.api.chat.message", async (_, payload) => {
-  return http.post("/luna/api/chat/message", payload)
-    .then(res => res.data)
-    .catch(err => { throw new Error(err.message); });
-});
-
-ipcMain.handle("luna.api.chat.shutdown", async () => {
-  return http.post("/luna/api/chat/shutdown")
-    .then(res => res.data)
-    .catch(err => { throw new Error(err.message); });
-});
-
+/* ===== IPC handlers for History API ===== */
 ipcMain.handle("luna.api.chat.history.date", async (_event, yearMonth) => {
   console.log('[History] fetching available dates for', yearMonth);
 
@@ -113,11 +23,10 @@ ipcMain.handle("luna.api.chat.history.date", async (_event, yearMonth) => {
     throw new TypeError('yearMonth must be string');
   }
 
+  // 由於 httpClient 已經配置了攔截器返回 res.data，這裡直接 return 即可
   return http.get('/luna/api/chat/history/date', {
     params: { ym: yearMonth }
-  })
-  .then(res => res.data)
-  .catch(err => { throw new Error(err.message); });
+  }).catch(err => { throw new Error(err.message); });
 });
 
 ipcMain.handle("luna.api.chat.history", async (_event, yearMonthDay) => {
@@ -126,35 +35,31 @@ ipcMain.handle("luna.api.chat.history", async (_event, yearMonthDay) => {
     throw new TypeError('yearMonthDay must be string');
   }
   return http.get('/luna/api/chat/history', { params: { ymd: yearMonthDay } })
-    .then(res => res.data)
     .catch(err => { throw new Error(err.message); });
 });
 
 /* ===== Auth: login / logout ===== */
 ipcMain.handle("auth.login", async (event, payload) => {
   return http.post("/auth/login", payload)
-    .then(res => {
-      if (res.data && res.data.token) {
-        authToken = res.data.token;
-        // 登錄成功後啟動 SSE
-        const win = BrowserWindow.fromWebContents(event.sender);
-        startSseStream(win);
+    .then(data => {
+      if (data && data.token) {
+        // 登錄成功後保存 Token，後續所有請求（包括 SSE）都會自動帶上
+        setAuthToken(data.token);
       }
-      return res.data;
+      return data;
     })
     .catch(err => { throw new Error(err.message); });
 });
 
 ipcMain.handle("auth.logout", async (_event, token) => {
-  stopSseStream(); // 登出時斷開 SSE
-  const t = token || authToken;
+  const t = token || getAuthToken();
   if (!t) return;
   return http.post("/auth/logout", null, {
     headers: { Authorization: t },
   })
-  .then(res => {
-    authToken = null;
-    return res.data;
+  .then(data => {
+    setAuthToken(null);
+    return data;
   })
   .catch(err => { throw new Error(err.message); });
 });
@@ -170,9 +75,6 @@ ipcMain.on("pet:mouse-enter", (event) => {
     if (win && !win.isDestroyed()) {
       // 停止忽略鼠标事件，允许点击
       win.setIgnoreMouseEvents(false);
-      // 可选：如果需要输入框立即获得焦点，可以调用 win.focus()，
-      // 但这可能会抢占其他应用焦点，视需求而定。
-      // win.focus(); 
     }
   } catch (err) {
     console.error("pet:mouse-enter error:", err);
@@ -218,8 +120,6 @@ function createWindow() {
     globalShortcut.register("CommandOrControl+L", () => {
       // 发送消息给渲染进程，切换输入框显示状态
       win.webContents.send("pet:toggle-chat");
-      // 修复：移除 win.setIgnoreMouseEvents(false)，防止强制锁定不穿透
-      // 只保留 focus 以便输入框获得焦点
       win.focus();
     });
   });
