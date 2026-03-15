@@ -40,6 +40,7 @@ export function registerChatIpc() {
       // 監聽數據流
       stream.on('data', (chunk) => {
         buffer += chunk.toString();
+        console.log("[SSE] Received chunk:", chunk.toString());
         
         // SSE 消息通常以雙換行符分隔
         const parts = buffer.split('\n\n');
