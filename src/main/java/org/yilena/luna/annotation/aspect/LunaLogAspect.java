@@ -31,6 +31,12 @@ public class LunaLogAspect {
 
     private final LunaLogService lunaLogService;
 
+    /**
+     * 用于在业务逻辑中覆盖默认的返回值日志记录
+     * 例如：Controller返回给前端的是清洗后的数据，但日志希望记录原始数据
+     */
+    public static final ThreadLocal<Object> LOG_RESPONSE_OVERRIDE = new ThreadLocal<>();
+
     @Around("@annotation(lunaLogRecord)")
     public Object around(ProceedingJoinPoint point, LunaLogRecord lunaLogRecord) throws Throwable {
         long startTime = System.currentTimeMillis();
@@ -71,13 +77,22 @@ public class LunaLogAspect {
                 logType = LogType.ERROR;
             }
 
+            // 检查是否有覆盖的响应数据
+            Object responseData = LOG_RESPONSE_OVERRIDE.get();
+            if (responseData != null) {
+                // 使用完后立即清除，防止污染线程
+                LOG_RESPONSE_OVERRIDE.remove();
+            } else {
+                responseData = result;
+            }
+
             LunaLog logEntity = LunaLog.builder()
                     .logType(logType)
                     .module(annotation.module())
                     .action(annotation.action())
-                    .content(annotation.content()) // 修复：补充 content 字段赋值
+                    .content(annotation.content())
                     .requestData(requestData)
-                    .responseData(result) // JacksonTypeHandler 会自动处理序列化
+                    .responseData(responseData) // JacksonTypeHandler 会自动处理序列化
                     .costTime(costTime)
                     .createAt(LocalDateTime.now())
                     .traceId(UUID.randomUUID().toString())
@@ -94,6 +109,8 @@ public class LunaLogAspect {
             lunaLogService.save(logEntity);
         } catch (Exception e) {
             log.error("记录系统日志失败", e);
+            // 确保异常时也能清理 ThreadLocal
+            LOG_RESPONSE_OVERRIDE.remove();
         }
     }
 

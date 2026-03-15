@@ -14,6 +14,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.annotation.LunaLogRecord;
+import org.yilena.luna.annotation.aspect.LunaLogAspect;
 import org.yilena.luna.constants.LogActionConstant;
 import org.yilena.luna.constants.LogModuleConstant;
 import org.yilena.luna.constants.LunaStateConstant;
@@ -184,6 +185,9 @@ public class ChatServiceImpl implements ChatService {
         SendToLuna result = getSendToLuna(prompt);
         log.info("整理后模型输出：{}", result.valid());
 
+        // 设置日志覆盖：记录包含 thought 的原始 JSON
+        LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(result.raw());
+
         // 将模型输出加入上下文当中
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.LUNA, result.replyText(), LocalTime.now()));
         
@@ -230,6 +234,10 @@ public class ChatServiceImpl implements ChatService {
         // 发送
         SendToLuna result = getSendToLuna(prompt);
         log.info("整理后模型输出：{}", result.valid());
+
+        // 设置日志覆盖：记录包含 thought 的原始 JSON
+        LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(result.raw());
+
         // 将模型输出加入到上下文
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.LUNA, result.replyText(), LocalTime.now()));
         
@@ -292,9 +300,9 @@ public class ChatServiceImpl implements ChatService {
         // 校验摘要结果：为空或过短均视为无效
         if (text == null || text.isBlank() || text.length() < 10) {
             log.warn("调用Summary模型返回无效结果，text={}", text);
-            return new SendToLuna("{\"emotion\":\"Solemn\",\"reply\":\"<error>生成摘要失败</error>\"}", "<error>生成摘要失败</error>");
+            return new SendToLuna("{\"emotion\":\"Solemn\",\"reply\":\"<error>生成摘要失败</error>\"}", "{\"emotion\":\"Solemn\",\"reply\":\"<error>生成摘要失败</error>\"}", "<error>生成摘要失败</error>");
         }
-        return new SendToLuna(text, text);
+        return new SendToLuna(text, text, text);
     }
 
     /**
@@ -313,7 +321,7 @@ public class ChatServiceImpl implements ChatService {
         if (valid == null) {
             log.error("主模型调用失败，返回降级回复");
             String fallback = createFallbackJson();
-            return new SendToLuna(removeThoughtFromJson(fallback), extractReplyFromJsonSafe(fallback));
+            return new SendToLuna(fallback, removeThoughtFromJson(fallback), extractReplyFromJsonSafe(fallback));
         }
 
         JsonNode node = tryParseJsonNode(valid);
@@ -346,8 +354,9 @@ public class ChatServiceImpl implements ChatService {
                     if (isValidReplyNode(repairedNode)) {
                         log.info("REPAIR_PROMPT 修复成功");
                         // 修复成功后，同样需要移除 thought 字段再返回给前端
-                        String cleanJson = removeThoughtFromJson(repairedNode.toString());
-                        return new SendToLuna(cleanJson, repairedNode.get(ModelHintConstant.REPLY).asText());
+                        String raw = repairedNode.toString();
+                        String cleanJson = removeThoughtFromJson(raw);
+                        return new SendToLuna(raw, cleanJson, repairedNode.get(ModelHintConstant.REPLY).asText());
                     } else {
                         log.error("REPAIR_PROMPT 修复后仍不合规，repairedText={}", repairedText);
                     }
@@ -362,14 +371,15 @@ public class ChatServiceImpl implements ChatService {
             // 修复失败，返回降级JSON
             String fallback = createFallbackJson();
             log.error("模型输出最终不可用，返回降级内容：{}", fallback);
-            return new SendToLuna(removeThoughtFromJson(fallback), extractReplyFromJsonSafe(fallback));
+            return new SendToLuna(fallback, removeThoughtFromJson(fallback), extractReplyFromJsonSafe(fallback));
         }
 
         // 解析成功且包含 reply 字段
         String replyText = node.get(ModelHintConstant.REPLY).asText();
+        String raw = node.toString();
         // 移除 thought 字段，只保留 emotion 和 reply 返回给前端
-        String cleanValid = removeThoughtFromJson(node.toString());
-        return new SendToLuna(cleanValid, replyText);
+        String cleanValid = removeThoughtFromJson(raw);
+        return new SendToLuna(raw, cleanValid, replyText);
     }
 
     private JsonNode tryParseJsonNode(String text) {
@@ -427,6 +437,6 @@ public class ChatServiceImpl implements ChatService {
         return json;
     }
 
-    private record SendToLuna(String valid, String replyText) {
+    private record SendToLuna(String raw, String valid, String replyText) {
     }
 }
