@@ -142,6 +142,7 @@ async function fetchAvailableDates() {
   const ym = `${currentYear.value}:${String(currentMonth.value + 1).padStart(2, '0')}`;
   try {
     const res = await window.desktopApi.historyDate(ym);
+    console.log("Available dates:", res);
     availableDates.value = new Set(res || []);
   } catch (e) {
     console.error("Fetch dates error", e);
