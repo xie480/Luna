@@ -135,6 +135,7 @@ export async function startSSE(sender, isFirstAttempt = true) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
+  // 如果已經連接，可以選擇不重連，或者強制刷新。這裡保持原邏輯（強制刷新）以確保狀態最新
   await connectSSE(sender, isFirstAttempt);
 }
 
@@ -164,8 +165,23 @@ export function registerChatIpc() {
   // === 启动 ===
   ipcMain.handle("luna.api.chat.startup", async (event) => {
     console.log("[ChatIPC] IPC 'luna.api.chat.startup' invoked.");
-    await startSSE(event.sender, true);
-    return { status: "connected" };
+    
+    // 1. 確保 SSE 連接 (狀態推送)
+    // 雖然登錄時可能已經啟動，但這裡再次確認或刷新連接
+    await startSSE(event.sender, false);
+
+    // 2. 請求后端 Chat Startup 接口 (获取问候语/初始化会话)
+    // 這是修復的關鍵：之前遺漏了這個調用，導致後端認為 startup 未被觸發
+    try {
+      console.log("[ChatIPC] Calling backend chat startup endpoint...");
+      const response = await http.post("/luna/api/chat/startup");
+      console.log("[ChatIPC] Chat startup response:", response);
+      return response;
+    } catch (error) {
+      console.error("[ChatIPC] Chat startup failed:", error);
+      // 即使 startup 接口失敗，只要 SSE 連接成功，也返回一個狀態對象，避免前端報錯
+      return { status: "connected", error: error.message };
+    }
   });
 
   // === 聊天 ===
@@ -177,7 +193,17 @@ export function registerChatIpc() {
   // === 关闭 ===
   ipcMain.handle("luna.api.chat.shutdown", async () => {
     console.log("[ChatIPC] IPC 'luna.api.chat.shutdown' invoked.");
+    
+    // 1. 关闭 SSE
     await stopSSE();
-    return { status: "disconnected" };
+
+    // 2. 调用后端 Chat Shutdown 接口 (清理会话)
+    try {
+      console.log("[ChatIPC] Calling backend chat shutdown endpoint...");
+      return await http.post("/luna/api/chat/shutdown");
+    } catch (error) {
+      console.error("[ChatIPC] Chat shutdown failed:", error);
+      return { status: "disconnected" };
+    }
   });
 }
