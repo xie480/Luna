@@ -21,9 +21,14 @@ export function registerChatIpc() {
       const stream = response.data;
       let buffer = "";
 
+      console.log("[SSE] Connected to stream.");
+
       // 监听数据流
       stream.on('data', (chunk) => {
-        buffer += chunk.toString();
+        const chunkStr = chunk.toString();
+        console.log("[SSE] Raw Chunk Received:", chunkStr);
+
+        buffer += chunkStr;
         
         // SSE 消息通常以双换行符分隔
         const parts = buffer.split('\n\n');
@@ -36,6 +41,7 @@ export function registerChatIpc() {
             if (line.startsWith('data:')) {
               const dataStr = line.substring(5).trim();
               if (dataStr) {
+                console.log("[SSE] Processing Data:", dataStr);
                 try {
                   // 尝试解析 JSON
                   const data = JSON.parse(dataStr);
@@ -51,7 +57,11 @@ export function registerChatIpc() {
       });
 
       stream.on('error', (err) => {
-        console.error("SSE Stream Error:", err);
+        console.error("[SSE] Stream Error:", err);
+      });
+
+      stream.on('end', () => {
+        console.log("[SSE] Stream ended.");
       });
 
       // 连接建立成功
