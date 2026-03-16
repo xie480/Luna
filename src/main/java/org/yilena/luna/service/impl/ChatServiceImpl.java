@@ -4,10 +4,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import dev.langchain4j.model.chat.ChatLanguageModel;
-import dev.langchain4j.model.openai.OpenAiChatModel;
-import dev.langchain4j.service.AiServices;
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.connection.RedisConnection;
@@ -18,12 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.aspect.LunaLogAspect;
-import org.yilena.luna.constants.LogActionConstant;
-import org.yilena.luna.constants.LogModuleConstant;
-import org.yilena.luna.constants.LunaStateConstant;
-import org.yilena.luna.constants.ModelHintConstant;
-import org.yilena.luna.constants.RedisKeyConstant;
-import org.yilena.luna.constants.SymbolConstant;
+import org.yilena.luna.constants.*;
 import org.yilena.luna.entity.ChatMessage;
 import org.yilena.luna.entity.ChatRequest;
 import org.yilena.luna.entity.KnowledgeBase;
@@ -39,13 +30,11 @@ import org.yilena.luna.service.ChatService;
 import org.yilena.luna.service.KnowledgeBaseService;
 import org.yilena.luna.service.SessionService;
 import org.yilena.luna.sse.LunaStatusPublisher;
-import org.yilena.luna.tools.*;
 import org.yilena.luna.utils.ContextPruner;
 import org.yilena.luna.utils.LlmClientUtil;
 import org.yilena.luna.utils.ServiceCommunicateUtil;
 
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
@@ -64,50 +53,10 @@ public class ChatServiceImpl implements ChatService {
     private final KnowledgeBaseService knowledgeBaseService;
     private final LunaStatusPublisher statusPublisher;
 
-    // 注入所有的 Tools
-    private final SearchTools searchTools;
-    private final KnowledgeBaseTools knowledgeBaseTools;
-    private final MemoryTools memoryTools;
-    private final ScheduleTools scheduleTools;
-    private final LogTools logTools;
-    private final PreferenceTools preferenceTools;
-
     // ObjectMapper 用于解析模型返回的 JSON 结果
     private final ObjectMapper mapper = new ObjectMapper();
 
     private static final DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy:MM:dd");
-
-    // 定义 LangChain4j Agent 接口
-    private interface LunaToolAgent {
-        String chat(String prompt);
-    }
-
-    private LunaToolAgent toolAgent;
-
-    @PostConstruct
-    public void initAgent() {
-        // 提取 baseUrl，LangChain4j 的 OpenAiChatModel 期望的 baseUrl 是到 /v1 为止
-        String baseUrl = geminiProperty.getUrl();
-        if (baseUrl != null && baseUrl.endsWith("/chat/completions")) {
-            baseUrl = baseUrl.substring(0, baseUrl.length() - "/chat/completions".length());
-        }
-
-        // 使用 yaml 中的 midModel 初始化支持 Tool Calling 的 ChatLanguageModel
-        ChatLanguageModel chatModel = OpenAiChatModel.builder()
-                .baseUrl(baseUrl)
-                .apiKey(geminiProperty.getApi())
-                .modelName(geminiProperty.getMidModelName()) // 采用 midModel
-                .timeout(Duration.ofSeconds(1200)) // 工具调用可能耗时较长，增加超时时间
-                .build();
-
-        // 构建 AiServices 代理，并注册所有工具
-        this.toolAgent = AiServices.builder(LunaToolAgent.class)
-                .chatLanguageModel(chatModel)
-                .tools(searchTools, knowledgeBaseTools, memoryTools, scheduleTools, logTools, preferenceTools)
-                .build();
-        
-        log.info("LunaToolAgent 初始化完成，已注册工具并使用模型: {}", geminiProperty.getMidModelName());
-    }
 
     @Override
     @LunaLogRecord(module = LogModuleConstant.CHAT, action = LogActionConstant.CHAT, type = LogType.LUNA_OUTPUT, content = "用户对话交互")
@@ -357,14 +306,8 @@ public class ChatServiceImpl implements ChatService {
      * 调用主对话模型，并处理 JSON 校验与修复逻辑
      */
     private SendToLuna getSendToLuna(String prompt) {
-        // 使用 LangChain4j Agent 替代原有的 llmClientUtil，以支持 Tool Calling
-        String valid = null;
-        try {
-            log.info("正在调用 LunaToolAgent (包含工具支持)...");
-            valid = toolAgent.chat(prompt);
-        } catch (Exception e) {
-            log.error("LunaToolAgent 调用异常: {}", e.getMessage(), e);
-        }
+        // 使用 LlmClientUtil 封装的 Agent 调用
+        String valid = llmClientUtil.chatWithTools(prompt);
 
         if (valid == null) {
             log.error("主模型调用失败，返回降级回复");
@@ -388,7 +331,7 @@ public class ChatServiceImpl implements ChatService {
             try {
                 // 获取修复Prompt
                 String repairPrompt = PromptTemplates.REPAIR_PROMPT.formatted(valid);
-                // 修复不需要工具，可以直接用 llmClientUtil
+                // 修复不需要工具，可以直接用 llmClientUtil.generate
                 LlmRequest repairReq = LlmRequest.builder()
                         .modelType(ModelType.OPENAI_COMPATIBLE)
                         .modelName(geminiProperty.getBigModelName())

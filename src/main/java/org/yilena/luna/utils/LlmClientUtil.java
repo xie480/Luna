@@ -6,7 +6,9 @@ import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.output.Response;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
+import org.yilena.luna.config.LunaAgentConfig;
 import org.yilena.luna.enums.ModelType;
 import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
@@ -25,6 +27,7 @@ import java.util.List;
 /**
  * LLM 模型调用工具类
  * 已重构为基于 LangChain4j 实现，支持多模态及更优雅的 API 调用
+ * 包含 Tool Agent 的调用封装
  */
 @Slf4j
 @Component
@@ -34,11 +37,31 @@ public class LlmClientUtil {
     private final GeminiProperty geminiProperty;
     private final EmbeddingProperty embeddingProperty;
 
+    // 使用 @Lazy 注入 Agent，防止因 Tool 依賴 Service 而 Service 依賴 LlmClientUtil 導致的循環依賴
+    @Lazy
+    private final LunaAgentConfig.LunaToolAgent toolAgent;
+
     // 缓存解压后的临时脚本路径，避免每次请求都重复解压
     private static volatile String cachedScriptPath;
 
     /**
-     * 统一的模型生成入口
+     * 調用帶有工具支持的 Agent 進行對話
+     *
+     * @param prompt 提示詞
+     * @return 模型返回的 JSON 字符串，如果失敗則返回 null
+     */
+    public String chatWithTools(String prompt) {
+        try {
+            log.info("正在調用 LunaToolAgent (包含工具支持)...");
+            return toolAgent.chat(prompt);
+        } catch (Exception e) {
+            log.error("LunaToolAgent 調用異常: {}", e.getMessage(), e);
+            return null;
+        }
+    }
+
+    /**
+     * 统一的模型生成入口 (無工具支持，用於簡單生成或修復)
      */
     public LlmResponse generate(LlmRequest request) {
         if (request.getModelType() == ModelType.OPENAI_COMPATIBLE) {
