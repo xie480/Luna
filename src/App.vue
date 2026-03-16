@@ -201,19 +201,19 @@ import {
   shutdown as shutdownApi,
   login as loginApi,
   logout as logoutApi,
-} from "../../api/index.js";
-import { EMOTION_EXPRESSIONS } from "../../utils/emotion-expressions";
+} from "../src/api/index.js";
+import { EMOTION_EXPRESSIONS } from "../src/utils/emotion-expressions";
 import { Live2DModel } from "pixi-live2d-display/cubism4";
 
-import { useBubble }     from "../../composables/useBubble.js";
-import { useAppearance } from "../../composables/useAppearance.js";
-import { useRhythm }     from "../../composables/useRhythm.js";
-import { useTheme }      from "../../composables/useTheme.js";
+import { useBubble }     from "../src/composables/useBubble.js";
+import { useAppearance } from "../src/composables/useAppearance.js";
+import { useRhythm }     from "../src/composables/useRhythm.js";
+import { useTheme }      from "../src/composables/useTheme.js";
 
 // 引入新組件
-import ChatInput from "../../components/ChatInput.vue";
-import SettingsPanel from "../../components/SettingsPanel.vue";
-import HistoryPanel from "../../components/HistoryPanel.vue";
+import ChatInput from "../src/components/ChatInput.vue";
+import SettingsPanel from "../src/components/SettingsPanel.vue";
+import HistoryPanel from "../src/components/HistoryPanel.vue";
 
 /* ================= DOM refs ================= */
 const canvasRef       = ref(null);
