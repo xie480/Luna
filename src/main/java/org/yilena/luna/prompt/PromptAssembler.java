@@ -19,21 +19,21 @@ public final class PromptAssembler {
         核心组装逻辑 (无知识库)
      */
     public String assemble(List<String> memorySnippets, String userInput) {
-        return assembleWithKnowledge(memorySnippets, null, userInput);
+        return assembleFinalPrompt(memorySnippets, null, null, userInput);
     }
 
     /*
-        核心组装逻辑 (包含知识库 RAG)
+        核心组装逻辑 (包含知识库 RAG 和 Tool Context)
      */
-    public String assembleWithKnowledge(List<String> memorySnippets, List<String> knowledgeSnippets, String userInput) {
+    public String assembleFinalPrompt(List<String> memorySnippets, List<String> knowledgeSnippets, String toolContext, String userInput) {
         // 输入检查
         Objects.requireNonNull(userInput, "用户输入为空");
         StringBuilder prompt = new StringBuilder(MAX_PROMPT_CHARS);
 
-        // System Prompt
+        // 1. System Prompt
         append(prompt, PromptTemplates.SYSTEM_PROMPT);
 
-        // Knowledge Base Prompt (RAG 上下文)
+        // 2. Knowledge Base Prompt (RAG 上下文)
         if (knowledgeSnippets != null && !knowledgeSnippets.isEmpty()) {
             String kbMerged = merge(knowledgeSnippets);
             if (!kbMerged.isEmpty()) {
@@ -42,10 +42,15 @@ public final class PromptAssembler {
             }
         }
 
-        // Memory Prompt
+        // 3. 工具执行结果 (Tool Context)
+        if (toolContext != null && !toolContext.isBlank()) {
+            append(prompt, PromptTemplates.TOOL_CONTEXT_PROMPT.formatted(toolContext));
+        }
+
+        // 4. Memory Prompt
         appendMemoryIfPresent(prompt, memorySnippets);
 
-        // Runtime Prompt
+        // 5. Runtime Prompt
         String runtimePrompt = PromptTemplates.RUNTIME_PROMPT.formatted(userInput.trim());
         prompt.append(runtimePrompt);
 

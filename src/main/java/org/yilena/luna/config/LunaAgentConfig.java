@@ -3,6 +3,7 @@ package org.yilena.luna.config;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.service.AiServices;
+import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
 import lombok.RequiredArgsConstructor;
@@ -34,17 +35,25 @@ public class LunaAgentConfig {
     private final PreferenceTools preferenceTools;
 
     /**
-     * 定義 LangChain4j Agent 接口
-     * 使用 @UserMessage 和 @V 註解，確保傳入的 prompt 被當作純文本變量安全注入，
-     * 徹底避免 LangChain4j 解析 prompt 內部的 {{...}} 導致變量缺失異常。
+     * 路由 Agent：只負責判斷和調用工具，不負責扮演角色
      */
-    public interface LunaToolAgent {
-        @UserMessage("{{prompt}}")
-        String chat(@V("prompt") String prompt);
+    public interface LunaToolRouter {
+        @SystemMessage("""
+            你是一个后台数据检索与工具调用路由节点。
+            你的唯一任务是分析用户的输入，判断是否需要调用提供的工具（如联网搜索、查询数据库、管理日程等）。
+            
+            规则：
+            1. 如果需要调用工具，请立即调用。获取结果后，请用客观、简练的语言总结你查到的数据。
+            2. 如果用户的输入只是普通的闲聊、问候，或者根据提供的本地知识库已经足够回答，【绝对不要】调用任何工具。
+            3. 如果不需要调用工具，请直接且仅回复这几个大写字母："NO_ACTION_NEEDED"。
+            4. 绝对不要模仿任何角色语气，不要输出 JSON，只输出客观数据总结或 "NO_ACTION_NEEDED"。
+            """)
+        @UserMessage("用户输入: {{userInput}}\n本地知识库参考: {{ragContext}}")
+        String route(@V("userInput") String userInput, @V("ragContext") String ragContext);
     }
 
     @Bean
-    public LunaToolAgent lunaToolAgent() {
+    public LunaToolRouter lunaToolRouter() {
         // 提取 baseUrl，LangChain4j 的 OpenAiChatModel 期望的 baseUrl 是到 /v1 為止
         String baseUrl = geminiProperty.getUrl();
         if (baseUrl != null && baseUrl.endsWith("/chat/completions")) {
@@ -55,20 +64,20 @@ public class LunaAgentConfig {
         ChatLanguageModel chatModel = OpenAiChatModel.builder()
                 .baseUrl(baseUrl)
                 .apiKey(geminiProperty.getApi())
-                .modelName(geminiProperty.getMidModelName()) // 采用 midModel
-                .timeout(Duration.ofSeconds(120)) // 縮短超時時間，防止被反向代理(如Nginx/Cloudflare)強制掐斷連接
+                .modelName(geminiProperty.getMidModelName()) // 采用 midModel 處理工具
+                .timeout(Duration.ofSeconds(120)) // 縮短超時時間，防止被反向代理強制掐斷連接
                 .maxRetries(3) // 增加重試機制應對網絡抖動
                 .logRequests(true) // 開啟請求日誌，方便排查網絡問題
                 .logResponses(true) // 開啟響應日誌
                 .build();
 
         // 构建 AiServices 代理，并注册所有工具
-        LunaToolAgent agent = AiServices.builder(LunaToolAgent.class)
+        LunaToolRouter router = AiServices.builder(LunaToolRouter.class)
                 .chatLanguageModel(chatModel)
                 .tools(searchTools, knowledgeBaseTools, memoryTools, scheduleTools, logTools, preferenceTools)
                 .build();
 
-        log.info("LunaToolAgent 初始化完成，已註冊工具並使用模型: {}", geminiProperty.getMidModelName());
-        return agent;
+        log.info("LunaToolRouter 初始化完成，已註冊工具並使用模型: {}", geminiProperty.getMidModelName());
+        return router;
     }
 }

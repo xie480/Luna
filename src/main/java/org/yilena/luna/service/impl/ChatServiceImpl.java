@@ -172,10 +172,14 @@ public class ChatServiceImpl implements ChatService {
         knowledgeSnippets = pruned.getKnowledgeBase();
         // -----------------
 
-        // 组装提示词 (包含 RAG 知识库片段)
-        String prompt = promptAssembler.assembleWithKnowledge(memorySnippets, knowledgeSnippets, input);
+        // 【新增】：调用 midModel (Router) 判断并执行工具
+        String ragMerged = knowledgeSnippets != null ? String.join("\n", knowledgeSnippets) : "";
+        String toolContext = llmClientUtil.executeToolsIfNecessary(input, ragMerged);
 
-        // 发送请求
+        // 组装最终提示词 (包含 RAG 和 Tool 结果)
+        String prompt = promptAssembler.assembleFinalPrompt(memorySnippets, knowledgeSnippets, toolContext, input);
+
+        // 发送请求给 bigModel (主脑)
         SendToLuna result = getSendToLuna(prompt);
         log.info("整理后模型输出：{}", result.valid());
 
@@ -303,11 +307,18 @@ public class ChatServiceImpl implements ChatService {
     }
 
     /**
-     * 调用主对话模型，并处理 JSON 校验与修复逻辑
+     * 调用主对话模型 (bigModel)，不再处理工具，只负责生成 JSON
      */
     private SendToLuna getSendToLuna(String prompt) {
-        // 使用 LlmClientUtil 封装的 Agent 调用
-        String valid = llmClientUtil.chatWithTools(prompt);
+        // 直接使用 llmClientUtil.generate 调用 bigModel
+        LlmRequest request = LlmRequest.builder()
+                .modelType(ModelType.OPENAI_COMPATIBLE)
+                .modelName(geminiProperty.getBigModelName()) // 强制使用 bigModel
+                .messages(List.of(LlmMessage.user(prompt)))
+                .build();
+
+        LlmResponse response = llmClientUtil.generate(request);
+        String valid = response != null ? response.getContent() : null;
 
         if (valid == null) {
             log.error("主模型调用失败，返回降级回复");

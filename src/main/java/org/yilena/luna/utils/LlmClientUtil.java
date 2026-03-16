@@ -27,7 +27,7 @@ import java.util.List;
 /**
  * LLM 模型调用工具类
  * 已重构为基于 LangChain4j 实现，支持多模态及更优雅的 API 调用
- * 包含 Tool Agent 的调用封装
+ * 包含 Tool Router 的调用封装
  */
 @Slf4j
 @Component
@@ -37,37 +37,44 @@ public class LlmClientUtil {
     private final GeminiProperty geminiProperty;
     private final EmbeddingProperty embeddingProperty;
 
-    // 使用 ObjectProvider 延迟获取 Agent，解决循环依赖问题
-    // LunaAgentConfig -> Tools -> Service -> LlmClientUtil -> LunaAgentConfig
-    private final ObjectProvider<LunaAgentConfig.LunaToolAgent> toolAgentProvider;
+    // 使用 ObjectProvider 延迟获取 Router，解决循环依赖问题
+    private final ObjectProvider<LunaAgentConfig.LunaToolRouter> toolRouterProvider;
 
     // 缓存解压后的临时脚本路径，避免每次请求都重复解压
     private static volatile String cachedScriptPath;
 
     /**
-     * 調用帶有工具支持的 Agent 進行對話
+     * 讓 midModel 判斷並執行工具
      *
-     * @param prompt 提示詞
-     * @return 模型返回的 JSON 字符串，如果失敗則返回 null
+     * @param userInput 用戶輸入
+     * @param ragContext 本地知識庫檢索結果
+     * @return 工具執行的結果總結，如果不需要工具則返回 null
      */
-    public String chatWithTools(String prompt) {
+    public String executeToolsIfNecessary(String userInput, String ragContext) {
         try {
-            log.info("正在調用 LunaToolAgent (包含工具支持)...");
-            LunaAgentConfig.LunaToolAgent agent = toolAgentProvider.getIfAvailable();
-            if (agent == null) {
-                log.error("LunaToolAgent 未初始化或不可用");
+            log.info("正在調用 LunaToolRouter 判斷是否需要執行工具...");
+            LunaAgentConfig.LunaToolRouter router = toolRouterProvider.getIfAvailable();
+            if (router == null) {
+                log.error("LunaToolRouter 未初始化或不可用");
                 return null;
             }
-            // 直接傳入 String，LunaToolAgent 接口已通過註解確保安全轉義
-            return agent.chat(prompt);
+            
+            String result = router.route(userInput, ragContext != null && !ragContext.isBlank() ? ragContext : "无");
+            
+            if (result == null || result.trim().contains("NO_ACTION_NEEDED")) {
+                log.info("LunaToolRouter 判斷：無需調用工具");
+                return null;
+            }
+            log.info("LunaToolRouter 工具執行完畢，獲取到背景數據: {}", result);
+            return result;
         } catch (Exception e) {
-            log.error("LunaToolAgent 調用異常: {}", e.getMessage(), e);
+            log.error("LunaToolRouter 調用異常: {}", e.getMessage(), e);
             return null;
         }
     }
 
     /**
-     * 统一的模型生成入口 (無工具支持，用於簡單生成或修復)
+     * 统一的模型生成入口 (無工具支持，用於主腦生成或修復)
      */
     public LlmResponse generate(LlmRequest request) {
         if (request.getModelType() == ModelType.OPENAI_COMPATIBLE) {
