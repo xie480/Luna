@@ -1,12 +1,12 @@
 <template>
   <div class="app-root">
 
-    <!-- 頂部提示框 (設定模式時顯示) -->
+    <!-- 顶部提示框 (设定模式时显示) -->
     <div v-if="isSetupMode" class="top-banner" @mouseenter="uiEnter" @mouseleave="uiLeave">
-      正在進行初始位置設定，請調整模型位置和大小。
+      正在进行初始位置设定，请调整模型位置和大小。
     </div>
     <div v-if="isTrackingSetupMode" class="top-banner" @mouseenter="uiEnter" @mouseleave="uiLeave">
-      正在進行滑鼠追蹤設定，請點擊模型對應的位置設置為跟蹤點。
+      正在进行滑鼠追蹤設定，請點擊模型對應的位置設置為跟蹤點。
     </div>
 
     <!-- ===== 登錄幕布 ===== -->
@@ -338,7 +338,7 @@ const expressionCache = new Map();
 
 /* ================= 氣泡 ================= */
 const dummyBoxRef = ref(null);
-// 【修復 Bug 1】: 傳入 ref(false) 替代 showChat，防止氣泡因為輸入框打開而被強制隱藏
+// 傳入 ref(false) 替代 showChat，防止氣泡因為輸入框打開而被強制隱藏
 const alwaysShowBubbles = ref(false);
 const { chatBubbles, bubbleAnchor, registerBubble, sendReplyAsBubbles } = useBubble(dummyBoxRef, alwaysShowBubbles);
 
@@ -371,7 +371,7 @@ async function handleModelReply(res) {
   console.log("[Luna] 模型已返回內容", res);
   if (!res) return;
   
-  // 【修復 Bug 1】: 增強文本提取邏輯，兼容純字符串和對象
+  // 增強文本提取邏輯，兼容純字符串和對象
   let replyText = "";
   let em = "";
 
@@ -624,7 +624,7 @@ function onPointerUp() {
   dragging = false;
 }
 
-/* ================= 滾輪縮放 ================= */
+/* ================= 滚轮缩放 ================= */
 function onWheel(ev) {
   if (!model || !app) return;
   if (!overModel) return; 
@@ -642,7 +642,7 @@ function onWheel(ev) {
   container.position.y += globalPoint.y - newGlobal.y;
 }
 
-/* ================= 視線追蹤 ================= */
+/* ================= 视线追踪 ================= */
 const PARAM_CONFIG = {
   HEAD_X: { param: "ParamAngleX",   range: [-30, 30] },
   HEAD_Y: { param: "ParamAngleY",   range: [-30, 30] },
@@ -666,7 +666,7 @@ function applyLookAt(dx, dy) {
     core.setParameterValueById(PARAM_CONFIG.EYE_Y.param,  mapRange(ny, PARAM_CONFIG.EYE_Y.range));
     core.setParameterValueById(PARAM_CONFIG.HEAD_X.param, mapRange(nx, PARAM_CONFIG.HEAD_X.range));
     core.setParameterValueById(PARAM_CONFIG.HEAD_Y.param, mapRange(ny, PARAM_CONFIG.HEAD_Y.range));
-  } catch (e) { console.warn("[Luna] applyLookAt 失敗", e); }
+  } catch (e) { console.warn("[Luna] applyLookAt 失败", e); }
 }
 
 function onGlobalPointerMove(ev) {
@@ -677,7 +677,7 @@ function onGlobalPointerMove(ev) {
   applyLookAt(local.x, local.y);
 }
 
-/* ================= 呼吸動畫 ================= */
+/* ================= 呼吸动画 ================= */
 let breathTickerFn = null;
 function startBreath() {
   const breathStart = performance.now() / 1000;
@@ -686,7 +686,7 @@ function startBreath() {
     if (!core) return;
     const t   = performance.now() / 1000 - breathStart;
     const val = 0.5 + Math.sin(t * 0.9 * Math.PI * 2) * 0.15;
-    try { core.setParameterValueById(PARAM_CONFIG.BREATH.param, val); } catch (e) { console.warn("[Luna] 呼吸參數失敗", e); }
+    try { core.setParameterValueById(PARAM_CONFIG.BREATH.param, val); } catch (e) { console.warn("[Luna] 呼吸参数失败", e); }
   };
   app.ticker.add(breathTickerFn);
 }
@@ -710,7 +710,7 @@ async function resetToSolemn() {
     try {
       core.setParameterValueById(id, typeof currentEmotionMeta[id] === "number" ? currentEmotionMeta[id] : 0);
     } catch (e) {
-      console.warn("[Luna] resetToSolemn 恢復失敗:", id, e);
+      console.warn("[Luna] resetToSolemn 恢复失败:", id, e);
     }
   }
   currentEmotionMeta = {};
@@ -762,7 +762,7 @@ async function applyEmotionExpressions(emotion) {
   await appearance.applyAllEnabled(getCoreModel());
 }
 
-/* ================= 預加載表情文件 ================= */
+/* ================= 预加载表情文件 ================= */
 async function preloadExpressions() {
   const allFiles = [
     "眼-生气", "脸红2隐藏", "脸黑", "眼-哭哭", "眼-泪眼汪汪",
@@ -782,13 +782,13 @@ async function preloadExpressions() {
         
         expressionCache.set(name, JSON.parse(text));
       } catch (e) {
-        console.warn(`[Live2D] 表情文件加載跳過: ${name} - ${e.message}`);
+        console.warn(`[Live2D] 表情文件加载跳过: ${name} - ${e.message}`);
       }
     })
   );
 }
 
-/* ================= 重置模型狀態 ================= */
+/* ================= 重置模型状态 ================= */
 async function resetModelState() {
   const core = getCoreModel();
   if (!core) return;
@@ -800,7 +800,7 @@ async function resetModelState() {
   appearance.showAppearanceHint("模型表情已重置");
 }
 
-/* ================= 打開設置面板 ================= */
+/* ================= 打开设置面板 ================= */
 function openSettings() {
   showSettings.value = true;
 }
@@ -822,7 +822,7 @@ function waitForModelReady(timeout = 10000) {
   });
 }
 
-/* ================= 啟動序列 ================= */
+/* ================= 启动序列 ================= */
 async function startBootSequence() {
   lunaIntroVisible.value = true;
 
@@ -936,8 +936,8 @@ onMounted(async () => {
     await applyEmotionExpressions(INITIAL_EMOTION);
 
   } catch (e) {
-    console.error("[Live2D] 模型加載失敗", e);
-    appearance.showAppearanceHint("模型加載失敗，請檢查文件路徑");
+    console.error("[Live2D] 模型加载失败", e);
+    appearance.showAppearanceHint("模型加载失败，请检查文件路径");
   }
 
   await preloadExpressions();
@@ -952,10 +952,21 @@ onBeforeUnmount(() => {
 });
 </script>
 
+<style>
+/* 全局重置，防止出现滚动条 */
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+</style>
+
 <style scoped>
 .app-root {
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   position: relative;
   overflow: hidden;
   font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
