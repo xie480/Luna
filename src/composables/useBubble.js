@@ -18,12 +18,12 @@ export function useBubble(messageBoxRef, showMessageBox) {
       const rect = messageBoxRef.value.getBoundingClientRect();
       return {
         x: rect.left + rect.width / 2 + 1000,
-        y: rect.top - 12,
+        y: rect.top - 30, // 增加與輸入框的間距
       };
     }
     return {
       x: window.innerWidth / 2,
-      y: window.innerHeight - 140,
+      y: window.innerHeight - 180, // 增加底部間距，避免與輸入框重疊
     };
   }
 
