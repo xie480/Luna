@@ -105,7 +105,9 @@
     <transition name="fade">
       <ChatInput 
         v-if="showChat" 
-        :loading="isLoading"
+        :loading="isConnecting"
+        :streaming="isStreaming"
+        :streamText="streamText"
         :currentEmotion="currentEmotion"
         :statusText="lunaStatus"
         @send="onSend" 
@@ -336,7 +338,7 @@ const expressionCache = new Map();
 
 /* ================= 氣泡 ================= */
 const dummyBoxRef = ref(null);
-// 【修復 Bug 1】: 傳入 ref(false) 替代 showChat，防止氣泡因為輸入框打開而被強制隱藏
+// 傳入 ref(false) 替代 showChat，防止氣泡因為輸入框打開而被強制隱藏
 const alwaysShowBubbles = ref(false);
 const { chatBubbles, bubbleAnchor, registerBubble, sendReplyAsBubbles } = useBubble(dummyBoxRef, alwaysShowBubbles);
 
@@ -348,11 +350,13 @@ const rhythm = useRhythm();
 
 function getCoreModel() { return model?.internalModel?.coreModel ?? null; }
 
-/* ================= 聊天輸入 ================= */
-const sending   = ref(false);
-const lastReply = ref({ loading: false, text: "" });
-
-const isLoading = computed(() => sending.value || lastReply.value.loading);
+/* ================= 聊天輸入狀態 ================= */
+// isConnecting: 發送請求後，等待服務器響應的階段 (按鈕轉圈)
+const isConnecting = ref(false);
+// isStreaming: 收到第一個字節後，正在接收/處理數據的階段 (輸入框特效)
+const isStreaming  = ref(false);
+// streamText: 顯示在輸入框特效層的文字
+const streamText   = ref("");
 
 /* ================= 響應處理 ================= */
 function normalizeResponse(res) {
@@ -367,7 +371,6 @@ async function handleModelReply(res) {
   console.log("[Luna] 模型已返回內容", res);
   if (!res) return;
   
-  // 【修復 Bug 1】: 增強文本提取邏輯，兼容純字符串和對象
   let replyText = "";
   let em = "";
 
@@ -397,22 +400,22 @@ async function handleModelReply(res) {
   }
 
   console.log("[Luna] 準備渲染氣泡:", replyText);
-  // 觸發氣泡動畫
+  // 觸發氣泡動畫 (await 確保流式狀態持續到氣泡打字完成)
   await sendReplyAsBubbles(replyText, { interval: 1000, duration: 5000 });
-  lastReply.value.text = replyText;
 }
 
 function handleNetworkError() {
   appearance.showAppearanceHint("網絡請求失敗");
 }
 
-/* ================= 發送消息 ================= */
+/* ================= 發送消息 (核心邏輯修復) ================= */
 async function onSend(text) {
-  if (sending.value) return;
+  if (isConnecting.value || isStreaming.value) return;
   if (!text) return;
   
-  sending.value = true;
-  lastReply.value.loading = true;
+  // 1. 進入連接狀態 (按鈕轉圈)
+  isConnecting.value = true;
+  streamText.value = ""; 
 
   if (showHistory.value && historyPanelRef.value) {
     historyPanelRef.value.pushMessage({
@@ -425,43 +428,52 @@ async function onSend(text) {
   try {
     const res = await chatApi({ userInput: text }, authToken.value);
     
-    // 【修復 Bug 2】: 收到網絡響應後，立即關閉加載動畫，不要等待氣泡渲染完畢
-    sending.value = false;
-    lastReply.value.loading = false;
+    // 2. 收到響應，結束連接狀態，進入流式處理狀態 (輸入框特效)
+    isConnecting.value = false;
+    isStreaming.value = true;
+    
+    // 設置特效文字
+    streamText.value = "LUNA_CORE: DECRYPTING_DATA...";
 
-    // 異步處理氣泡和表情，不阻塞 UI 狀態
-    handleModelReply(normalizeResponse(res));
+    // 異步處理氣泡和表情
+    // 使用 await 確保在氣泡顯示期間保持 isStreaming 狀態 (可選，如果希望氣泡出完再恢復按鈕)
+    await handleModelReply(normalizeResponse(res));
+    
+    // 3. 處理完畢，關閉流式狀態
+    isStreaming.value = false;
+    streamText.value = "";
+
   } catch (e) {
     console.error("[Luna] 發送失敗", e);
-    sending.value = false;
-    lastReply.value.loading = false;
+    isConnecting.value = false;
+    isStreaming.value = false;
     handleNetworkError();
   }
 }
 
 /* ================= 啟動 / 關閉 ================= */
 async function callStartup() {
-  lastReply.value.loading = true;
+  isConnecting.value = true;
   try {
     const res = await startupApi({}, authToken.value);
-    lastReply.value.loading = false; // 立即關閉加載
+    isConnecting.value = false;
     handleModelReply(normalizeResponse(res));
   } catch (e) {
     console.error("[Luna] 啟動失敗", e);
-    lastReply.value.loading = false;
+    isConnecting.value = false;
     handleNetworkError();
   }
 }
 
 async function callShutdown() {
-  lastReply.value.loading = true;
+  isConnecting.value = true;
   try {
     const res = await shutdownApi({}, authToken.value);
-    lastReply.value.loading = false; // 立即關閉加載
+    isConnecting.value = false;
     handleModelReply(normalizeResponse(res));
   } catch (e) {
     console.error("[Luna] 關閉失敗", e);
-    lastReply.value.loading = false;
+    isConnecting.value = false;
   }
 }
 
