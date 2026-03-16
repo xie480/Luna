@@ -3,10 +3,10 @@
 
     <!-- 頂部提示框 (設定模式時顯示) -->
     <div v-if="isSetupMode" class="top-banner" @mouseenter="uiEnter" @mouseleave="uiLeave">
-      正在進行初始位置設定，請調整模型位置和大小。
+      正在进行初始位置设定，请调整模型位置和大小。
     </div>
     <div v-if="isTrackingSetupMode" class="top-banner" @mouseenter="uiEnter" @mouseleave="uiLeave">
-      正在進行滑鼠追蹤設定，請點擊模型對應的位置設置為跟蹤點。
+      正在进行滑鼠追蹤設定，請點擊模型對應的位置設置為跟蹤點。
     </div>
 
     <!-- ===== 登錄幕布 ===== -->
@@ -538,6 +538,7 @@ function uiEnter() {
 
 function uiLeave() {
   clearTimeout(uiLeaveTimer);
+  // 延長到 350ms，確保 Vue 的 300ms 退出動畫完全結束且 DOM 被移除後再檢測
   uiLeaveTimer = setTimeout(() => {
     const hovered = document.querySelector('.chat-bar-wrapper:hover, .settings-panel:hover, .login-terminal:hover, .history-panel:hover, .top-banner:hover');
     if (hovered) {
@@ -546,7 +547,7 @@ function uiLeave() {
       overUI = false;
     }
     updatePetState();
-  }, 150);
+  }, 350);
 }
 
 let modelLeaveTimer = null;
@@ -1216,6 +1217,9 @@ onBeforeUnmount(() => {
 .login-fade-leave-active {
   transition: opacity 0.35s ease;
 }
+.login-fade-leave-active {
+  pointer-events: none; /* 防止退出動畫期間殘留 hover 狀態 */
+}
 .login-fade-enter-from,
 .login-fade-leave-to {
   opacity: 0;
@@ -1467,13 +1471,16 @@ onBeforeUnmount(() => {
 
 /* 過渡動畫 */
 .luna-intro-enter-active { transition: opacity 0.4s ease; }
-.luna-intro-leave-active { transition: opacity 0.8s ease; }
+.luna-intro-leave-active { transition: opacity 0.8s ease; pointer-events: none; }
 .luna-intro-enter-from   { opacity: 0; }
 .luna-intro-leave-to     { opacity: 0; }
 
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.fade-leave-active {
+  pointer-events: none; /* 防止退出動畫期間殘留 hover 狀態導致穿透失效 */
 }
 .fade-enter-from,
 .fade-leave-to {
