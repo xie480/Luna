@@ -20,13 +20,13 @@ public class ChatController {
 
     @Operation(description = "普通对话")
     @PostMapping("/message")
-    public ResponseEntity<String> chat(@RequestBody ChatRequest chatRequest){
+    public ResponseEntity<Object> chat(@RequestBody ChatRequest chatRequest){
         return chatService.chat(chatRequest);
     }
 
     @Operation(description = "开机")
     @PostMapping("/startup")
-    public ResponseEntity<String> startup(){
+    public ResponseEntity<Object> startup(){
         return chatService.startup();
     }
 

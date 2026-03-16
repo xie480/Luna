@@ -6,9 +6,9 @@ import org.yilena.luna.entity.ChatRequest;
 import java.util.List;
 
 public interface ChatService {
-    ResponseEntity<String> chat(ChatRequest chatRequest);
+    ResponseEntity<Object> chat(ChatRequest chatRequest);
 
-    ResponseEntity<String> startup();
+    ResponseEntity<Object> startup();
 
     void shutdown();
 
