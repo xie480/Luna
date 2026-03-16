@@ -43,9 +43,10 @@
           <div class="scan-line"></div>
         </div>
       </transition>
-
-      <div class="emotion-indicator" :style="emotionStyle"></div>
     </div>
+
+    <!-- 獨立的呼吸燈 (移出 input-container 避免被掃描特效遮擋) -->
+    <div class="emotion-indicator" :style="emotionStyle" :title="'當前情緒: ' + (currentEmotion || 'neutral')"></div>
 
     <!-- 發送按鈕 (狀態機) -->
     <button 
@@ -108,27 +109,31 @@ const overlayText = computed(() => {
   return props.statusText || '';
 });
 
+// 統一使用小寫鍵名，避免大小寫不匹配導致顏色不生效
 const EMOTION_MAP = {
-  Angry: { color: '#ff2a2a', speed: '0.8s', intensity: '0 0 15px' },
-  Annoyed: { color: '#ff5500', speed: '1.2s', intensity: '0 0 10px' },
-  Irritated: { color: '#ff5500', speed: '1.0s', intensity: '0 0 10px' },
-  Tsundere: { color: '#ff0055', speed: '1.5s', intensity: '0 0 12px' },
-  Sad: { color: '#4a90e2', speed: '3s', intensity: '0 0 8px' },
-  Lonely: { color: '#5065a5', speed: '3.5s', intensity: '0 0 6px' },
-  Despair: { color: '#2c3e50', speed: '4s', intensity: '0 0 5px' },
-  Broken: { color: '#000000', speed: '5s', intensity: '0 0 2px' },
-  Smile: { color: '#ffd700', speed: '2s', intensity: '0 0 12px' },
-  Happy: { color: '#ffaa00', speed: '1.5s', intensity: '0 0 14px' },
-  Affectionate: { color: '#ff69b4', speed: '2s', intensity: '0 0 15px' },
-  Hopeful: { color: '#00ffc8', speed: '2.5s', intensity: '0 0 12px' },
-  Fearful: { color: '#8e44ad', speed: '0.5s', intensity: '0 0 8px' },
-  Anxious: { color: '#9b59b6', speed: '0.6s', intensity: '0 0 8px' },
-  Uneasy: { color: '#a569bd', speed: '1s', intensity: '0 0 8px' },
+  angry: { color: '#ff2a2a', speed: '0.8s', intensity: '0 0 15px' },
+  annoyed: { color: '#ff5500', speed: '1.2s', intensity: '0 0 10px' },
+  irritated: { color: '#ff5500', speed: '1.0s', intensity: '0 0 10px' },
+  tsundere: { color: '#ff0055', speed: '1.5s', intensity: '0 0 12px' },
+  sad: { color: '#4a90e2', speed: '3s', intensity: '0 0 8px' },
+  lonely: { color: '#5065a5', speed: '3.5s', intensity: '0 0 6px' },
+  despair: { color: '#2c3e50', speed: '4s', intensity: '0 0 5px' },
+  broken: { color: '#000000', speed: '5s', intensity: '0 0 2px' },
+  smile: { color: '#ffd700', speed: '2s', intensity: '0 0 12px' },
+  happy: { color: '#ffaa00', speed: '1.5s', intensity: '0 0 14px' },
+  affectionate: { color: '#ff69b4', speed: '2s', intensity: '0 0 15px' },
+  hopeful: { color: '#00ffc8', speed: '2.5s', intensity: '0 0 12px' },
+  fearful: { color: '#8e44ad', speed: '0.5s', intensity: '0 0 8px' },
+  anxious: { color: '#9b59b6', speed: '0.6s', intensity: '0 0 8px' },
+  uneasy: { color: '#a569bd', speed: '1s', intensity: '0 0 8px' },
+  neutral: { color: '#00ffc8', speed: '3s', intensity: '0 0 8px' },
   default: { color: '#00ffc8', speed: '3s', intensity: '0 0 8px' }
 };
 
 const emotionStyle = computed(() => {
-  const em = EMOTION_MAP[props.currentEmotion] || EMOTION_MAP.default;
+  // 將傳入的情緒轉為小寫進行匹配
+  const key = (props.currentEmotion || 'neutral').toLowerCase();
+  const em = EMOTION_MAP[key] || EMOTION_MAP.default;
   return {
     backgroundColor: em.color,
     boxShadow: em.intensity + ' ' + em.color,
@@ -262,12 +267,13 @@ input.hidden-text {
   animation: scan 2s linear infinite;
 }
 
+/* 獨立的呼吸燈樣式 */
 .emotion-indicator {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  margin-left: 12px;
   z-index: 11; 
+  flex-shrink: 0;
   animation: breathe infinite ease-in-out;
   transition: background-color 0.8s ease, box-shadow 0.8s ease, animation-duration 0.8s ease;
 }
