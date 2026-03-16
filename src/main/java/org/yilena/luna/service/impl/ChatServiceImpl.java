@@ -61,12 +61,7 @@ public class ChatServiceImpl implements ChatService {
     private final StringRedisTemplate stringRedisTemplate;
     private final GeminiProperty geminiProperty;
     private final LlmClientUtil llmClientUtil;
-    private final KnowledgeBaseService**Implementing the ToolAgent**
-
-I'm now integrating the `ToolAgent` into `ChatServiceImpl` and preparing for testing. The agent will use the configured `midModel`, injecting all necessary tool dependencies. The base URL and API key will be taken from `application.yaml`. I am now running tests to ensure the JSON output format and agent's function calls are working as required.
-
-
- knowledgeBaseService;
+    private final KnowledgeBaseService knowledgeBaseService;
     private final LunaStatusPublisher statusPublisher;
 
     // 注入所有的 Tools
@@ -102,7 +97,7 @@ I'm now integrating the `ToolAgent` into `ChatServiceImpl` and preparing for tes
                 .baseUrl(baseUrl)
                 .apiKey(geminiProperty.getApi())
                 .modelName(geminiProperty.getMidModelName()) // 采用 midModel
-                .timeout(Duration.ofSeconds(120)) // 工具调用可能耗时较长，增加超时时间
+                .timeout(Duration.ofSeconds(1200)) // 工具调用可能耗时较长，增加超时时间
                 .build();
 
         // 构建 AiServices 代理，并注册所有工具
