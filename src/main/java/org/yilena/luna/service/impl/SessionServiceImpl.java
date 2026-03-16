@@ -27,10 +27,8 @@ public class SessionServiceImpl implements SessionService {
     private final StringRedisTemplate redis;
     private final ObjectMapper mapper;
 
-    // 每次会话最多保留最近50条信息
-    private static final int MAX_MESSAGES = 50;
-    // 单日会话最大字数
-    private static final int MAX_CHARACTERS = 10000;
+    // 单日会话最大字数限制 (适配 Gemini Pro 的大上下文窗口，提升至 10万字)
+    private static final int MAX_CHARACTERS = 100000;
 
     @Override
     public void appendMessage(String keyPrefix, ChatMessage msg) {
@@ -50,7 +48,7 @@ public class SessionServiceImpl implements SessionService {
     @Override
     public List<ChatMessage> getRecentMessages(String keyPrefix, boolean isOld) {
         String key = String.format(RedisKeyConstant.CONTEXT_KEY_PREFIX, keyPrefix);
-        // 获取最近N条
+        // 获取所有历史记录
         List<String> jsons = redis.opsForList().range(key, 0, -1);
         if (jsons == null){
             return Collections.emptyList();
@@ -67,8 +65,11 @@ public class SessionServiceImpl implements SessionService {
                 log.error("解析数据失败: {}", s, ex);
             }
         }
-        if (!isOld && (len > MAX_CHARACTERS || out.size() > MAX_MESSAGES)) {
+        
+        // 仅根据字数长度来判断是否需要触发上下文压缩
+        if (!isOld && len > MAX_CHARACTERS) {
             // 通知chatService应该要压缩了
+            log.info("当前会话字数已达 {}，触发上下文压缩标志", len);
             ServiceCommunicateUtil.addSymbol(SymbolConstant.CONTEXT_SUMMARY_FLAG, 1);
         }
         return out;
