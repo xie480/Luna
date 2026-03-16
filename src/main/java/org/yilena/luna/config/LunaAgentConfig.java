@@ -1,5 +1,6 @@
 package org.yilena.luna.config;
 
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.service.AiServices;
@@ -33,9 +34,10 @@ public class LunaAgentConfig {
 
     /**
      * 定義 LangChain4j Agent 接口
+     * 使用 UserMessage 作為參數，避免 LangChain4j 將其誤認為 PromptTemplate 進行變量解析
      */
     public interface LunaToolAgent {
-        String chat(String prompt);
+        String chat(UserMessage message);
     }
 
     @Bean

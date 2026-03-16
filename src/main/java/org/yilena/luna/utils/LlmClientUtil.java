@@ -58,7 +58,8 @@ public class LlmClientUtil {
                 log.error("LunaToolAgent 未初始化或不可用");
                 return null;
             }
-            return agent.chat(prompt);
+            // 將 String 包裝為 UserMessage，防止 LangChain4j 觸發 PromptTemplate 的變量解析
+            return agent.chat(UserMessage.from(prompt));
         } catch (Exception e) {
             log.error("LunaToolAgent 調用異常: {}", e.getMessage(), e);
             return null;
