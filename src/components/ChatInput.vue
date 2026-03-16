@@ -21,7 +21,6 @@
 
     <!-- 輸入框容器 -->
     <div class="input-container">
-      <!-- 真實輸入框 -->
       <input 
         ref="inputRef"
         v-model="inputText" 
@@ -32,12 +31,10 @@
         :class="{ 'hidden-text': streaming }"
       />
       
-      <!-- 狀態顯示層 (當有狀態文本且輸入框為空時顯示) -->
       <div v-if="statusText && !inputText && !streaming" class="status-overlay-text">
         <span class="status-text">{{ statusText }}</span>
       </div>
 
-      <!-- SSE 流式傳輸特效層 (覆蓋在輸入框上) -->
       <transition name="fade-overlay">
         <div v-if="streaming" class="stream-overlay">
           <div class="glitch-container">
@@ -50,33 +47,33 @@
         </div>
       </transition>
 
-      <!-- 呼吸燈情緒指示器 -->
       <div class="emotion-indicator" :style="emotionStyle"></div>
     </div>
 
     <!-- 發送按鈕 (狀態機) -->
     <button 
       class="send-btn" 
-      :class="{ 'is-loading': loading, 'is-streaming': streaming }"
+      :class="{ 'is-active': loading || streaming }"
       @click="sendMessage" 
       :disabled="loading || streaming || !inputText"
     >
-      <!-- 狀態 1: 正常發送圖標 -->
-      <span v-if="!loading && !streaming" class="btn-content">SEND</span>
+      <transition name="icon-scale" mode="out-in">
+        <!-- 狀態 1: 正常發送 -->
+        <span v-if="!loading && !streaming" key="idle" class="btn-text">SEND</span>
 
-      <!-- 狀態 2: 科技感加載動畫 (等待響應) -->
-      <div v-else-if="loading" class="tech-loader">
-        <div class="orbit-ring outer"></div>
-        <div class="orbit-ring inner"></div>
-        <div class="core-dot"></div>
-      </div>
+        <!-- 狀態 2: 賽博加載 (等待響應) -->
+        <div v-else-if="loading" key="loading" class="cyber-loader">
+          <div class="cyber-ring"></div>
+          <div class="cyber-core"></div>
+        </div>
 
-      <!-- 狀態 3: 傳輸中 (鎖定/波形) -->
-      <div v-else-if="streaming" class="streaming-icon">
-        <div class="wave-bar"></div>
-        <div class="wave-bar"></div>
-        <div class="wave-bar"></div>
-      </div>
+        <!-- 狀態 3: 數據流 (接收中) -->
+        <div v-else-if="streaming" key="streaming" class="streaming-icon">
+          <div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+        </div>
+      </transition>
     </button>
   </div>
 </template>
@@ -84,9 +81,6 @@
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue';
 
-// loading: 連接中 (按鈕轉圈)
-// streaming: 接收數據中 (輸入框顯示特效)
-// streamText: 特效層顯示的文字
 const props = defineProps(['loading', 'streaming', 'streamText', 'currentEmotion', 'statusText']);
 const emit = defineEmits(['send', 'open-settings', 'toggle-history', 'mouseenter', 'mouseleave', 'close']);
 
@@ -105,7 +99,6 @@ function sendMessage() {
   inputText.value = "";
 }
 
-// Emotion 映射表
 const EMOTION_MAP = {
   Angry: { color: '#ff2a2a', speed: '0.8s', intensity: '0 0 15px' },
   Annoyed: { color: '#ff5500', speed: '1.2s', intensity: '0 0 10px' },
@@ -180,7 +173,7 @@ const emotionStyle = computed(() => {
   position: relative;
   display: flex;
   align-items: center;
-  overflow: hidden; /* 確保掃描線不溢出 */
+  overflow: hidden;
   border-radius: 20px;
 }
 
@@ -202,12 +195,10 @@ input:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
-/* 當處於流式傳輸時，隱藏輸入框原本的文字，避免重疊 */
 input.hidden-text {
   color: transparent; 
 }
 
-/* 狀態顯示層 (靜態文本) */
 .status-overlay-text {
   position: absolute;
   left: 16px;
@@ -225,21 +216,21 @@ input.hidden-text {
   animation: fadeIn 0.3s ease;
 }
 
-/* ===== SSE 流式傳輸特效層 ===== */
+/* SSE 流式傳輸特效層 */
 .stream-overlay {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0, 0, 0, 0.85); /* 深色背景遮擋 */
+  background: rgba(0, 0, 0, 0.85);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   padding-left: 16px;
   z-index: 10;
   border-radius: 20px;
-  pointer-events: none; /* 確保不可點擊 */
+  pointer-events: none;
 }
 
 .glitch-container {
@@ -267,7 +258,6 @@ input.hidden-text {
   animation: blink 1s step-end infinite;
 }
 
-/* 掃描線動畫 */
 .scan-line {
   position: absolute;
   top: 0;
@@ -280,76 +270,70 @@ input.hidden-text {
   animation: scan 2s linear infinite;
 }
 
-/* 呼吸燈 */
 .emotion-indicator {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   margin-left: 12px;
-  /* 確保在 overlay 之上顯示，或者被 overlay 遮擋視需求而定，這裡設為 z-index 11 讓它浮在特效上 */
   z-index: 11; 
   animation: breathe infinite ease-in-out;
   transition: background-color 0.8s ease, box-shadow 0.8s ease, animation-duration 0.8s ease;
 }
 
 /* =========================================
-   高級發送按鈕樣式 (核心修改部分)
+   高級發送按鈕樣式 (重構版)
    ========================================= */
 .send-btn {
   position: relative;
   background: var(--primary, #00ffc8);
   color: #000;
   border: none;
-  padding: 0; /* 移除 padding，改用寬高控制 */
-  border-radius: 20px;
-  font-weight: bold;
-  font-size: 12px;
+  padding: 0;
+  border-radius: 20px; /* 初始圓角 */
   cursor: pointer;
   
-  /* 關鍵：使用 transition 實現形狀和顏色的平滑過渡 */
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  /* 形態變換過渡 */
+  transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
   
   /* 初始狀態 (Idle) */
-  width: 60px;
+  width: 64px;
   height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  box-shadow: 0 0 0 rgba(0,255,200,0);
 }
 
 .send-btn:hover:not(:disabled) {
   filter: brightness(1.1);
   transform: translateY(-1px);
-  box-shadow: 0 0 15px var(--primary-dim);
+  box-shadow: 0 4px 12px var(--hover);
 }
 
 .send-btn:disabled {
   cursor: not-allowed;
 }
 
-/* 狀態 2: Loading (變形為圓形，背景變透明以顯示光環) */
-.send-btn.is-loading {
-  width: 34px; /* 收縮為正圓 */
-  height: 34px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.3); /* 深色背景 */
-  border: 1px solid var(--primary-dim);
-  box-shadow: 0 0 10px var(--primary-dim);
-}
-
-/* 狀態 3: Streaming (保持圓形，低調處理) */
-.send-btn.is-streaming {
+/* 激活狀態 (Loading / Streaming) - 變為正圓 */
+.send-btn.is-active {
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  background: var(--bg-sidebar);
-  border: 1px solid var(--border);
-  opacity: 0.8;
+  background: rgba(0, 0, 0, 0.6); /* 深色背景突顯光效 */
+  border: 1px solid var(--primary-dim);
+  box-shadow: 0 0 15px var(--primary-dim);
+  transform: scale(1.05);
 }
 
-/* ===== 科技感加載動畫 (Tech Loader) ===== */
-.tech-loader {
+.btn-text {
+  font-weight: bold;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+}
+
+/* ===== 賽博加載器 (Cyber Loader) ===== */
+.cyber-loader {
   position: relative;
   width: 20px;
   height: 20px;
@@ -358,123 +342,86 @@ input.hidden-text {
   justify-content: center;
 }
 
-/* 軌道環 */
-.orbit-ring {
+/* 外部光環 - 高速旋轉的斷裂環 */
+.cyber-ring {
   position: absolute;
-  border-radius: 50%;
-  border: 2px solid transparent;
-}
-
-/* 外環：主色，順時針快轉 */
-.orbit-ring.outer {
   width: 100%;
   height: 100%;
+  border: 2px solid transparent;
   border-top-color: var(--primary);
   border-right-color: var(--primary);
-  opacity: 0.9;
-  animation: tech-spin 0.8s linear infinite;
-  box-shadow: 0 0 5px var(--primary-dim);
-}
-
-/* 內環：強調色，逆時針慢轉 */
-.orbit-ring.inner {
-  width: 60%;
-  height: 60%;
-  border-bottom-color: var(--accent);
-  border-left-color: var(--accent);
-  opacity: 0.7;
-  animation: tech-spin 1.2s linear infinite reverse;
-}
-
-/* 核心點：呼吸 */
-.core-dot {
-  width: 4px;
-  height: 4px;
-  background: var(--primary);
   border-radius: 50%;
-  box-shadow: 0 0 6px var(--primary);
-  animation: core-pulse 1s ease-in-out infinite;
+  animation: cyber-spin 0.8s linear infinite;
+  filter: drop-shadow(0 0 2px var(--primary));
 }
 
-/* ===== 傳輸中動畫 (Streaming Icon) ===== */
+/* 內部核心 - 呼吸的神經元 */
+.cyber-core {
+  width: 6px;
+  height: 6px;
+  background: var(--accent, #fff);
+  border-radius: 50%;
+  box-shadow: 0 0 8px var(--primary);
+  animation: core-pulse 1.5s ease-in-out infinite;
+}
+
+/* ===== 數據流圖標 (Streaming Icon) ===== */
 .streaming-icon {
   display: flex;
-  gap: 2px;
+  gap: 3px;
   align-items: center;
   justify-content: center;
-  height: 12px;
+  height: 14px;
 }
 
 .wave-bar {
   width: 3px;
   background: var(--primary);
   border-radius: 2px;
-  animation: wave 1s ease-in-out infinite;
+  animation: wave-sharp 0.8s ease-in-out infinite;
+  box-shadow: 0 0 5px var(--primary);
 }
 .wave-bar:nth-child(1) { height: 6px; animation-delay: 0s; }
-.wave-bar:nth-child(2) { height: 10px; animation-delay: 0.1s; }
-.wave-bar:nth-child(3) { height: 6px; animation-delay: 0.2s; }
+.wave-bar:nth-child(2) { height: 12px; animation-delay: 0.15s; }
+.wave-bar:nth-child(3) { height: 6px; animation-delay: 0.3s; }
 
-/* 動畫關鍵幀 */
-@keyframes tech-spin {
+/* ===== 動畫關鍵幀 ===== */
+@keyframes cyber-spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
 
 @keyframes core-pulse {
-  0%, 100% { opacity: 0.5; transform: scale(0.8); }
-  50% { opacity: 1; transform: scale(1.2); }
+  0%, 100% { opacity: 0.6; transform: scale(0.8); box-shadow: 0 0 4px var(--primary); }
+  50% { opacity: 1; transform: scale(1.2); box-shadow: 0 0 10px var(--primary); }
 }
 
-@keyframes wave {
-  0%, 100% { height: 4px; opacity: 0.5; }
-  50% { height: 12px; opacity: 1; }
+@keyframes wave-sharp {
+  0%, 100% { height: 4px; opacity: 0.6; }
+  50% { height: 14px; opacity: 1; filter: brightness(1.3); }
 }
 
-@keyframes scan {
-  0% { top: 0%; opacity: 0; }
-  10% { opacity: 1; }
-  90% { opacity: 1; }
-  100% { top: 100%; opacity: 0; }
+/* ===== Vue Transition: Icon Scale ===== */
+/* 實現圖標切換時的縮放淡入淡出 */
+.icon-scale-enter-active,
+.icon-scale-leave-active {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-
-@keyframes text-flicker {
-  0% { opacity: 0.1; }
-  2% { opacity: 1; }
-  8% { opacity: 0.1; }
-  9% { opacity: 1; }
-  12% { opacity: 0.1; }
-  20% { opacity: 1; }
-  25% { opacity: 1; }
-  30% { opacity: 0.3; }
-  70% { opacity: 0.9; text-shadow: 2px 0 var(--accent, #fff); }
-  72% { opacity: 0.2; }
-  77% { opacity: 0.9; }
-  100% { opacity: 0.9; }
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(2px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes breathe {
-  0%, 100% { opacity: 0.3; transform: scale(0.8); }
-  50% { opacity: 1; transform: scale(1.2); }
-}
-
-/* Vue Transition */
-.fade-overlay-enter-active,
-.fade-overlay-leave-active {
-  transition: opacity 0.3s ease;
-}
-.fade-overlay-enter-from,
-.fade-overlay-leave-to {
+.icon-scale-enter-from {
   opacity: 0;
+  transform: scale(0.5) rotate(-90deg);
 }
+.icon-scale-leave-to {
+  opacity: 0;
+  transform: scale(0.5) rotate(90deg);
+}
+
+/* 其他原有動畫保持不變 */
+@keyframes scan { 0% { top: 0%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+@keyframes text-flicker { 0% { opacity: 0.1; } 2% { opacity: 1; } 8% { opacity: 0.1; } 9% { opacity: 1; } 12% { opacity: 0.1; } 20% { opacity: 1; } 25% { opacity: 1; } 30% { opacity: 0.3; } 70% { opacity: 0.9; text-shadow: 2px 0 var(--accent, #fff); } 72% { opacity: 0.2; } 77% { opacity: 0.9; } 100% { opacity: 0.9; } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes breathe { 0%, 100% { opacity: 0.3; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.2); } }
+.fade-overlay-enter-active, .fade-overlay-leave-active { transition: opacity 0.3s ease; }
+.fade-overlay-enter-from, .fade-overlay-leave-to { opacity: 0; }
 </style>
