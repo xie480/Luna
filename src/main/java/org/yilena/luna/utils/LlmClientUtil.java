@@ -6,7 +6,7 @@ import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.output.Response;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.Lazy;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.config.LunaAgentConfig;
 import org.yilena.luna.enums.ModelType;
@@ -37,9 +37,9 @@ public class LlmClientUtil {
     private final GeminiProperty geminiProperty;
     private final EmbeddingProperty embeddingProperty;
 
-    // 使用 @Lazy 注入 Agent，防止因 Tool 依賴 Service 而 Service 依賴 LlmClientUtil 導致的循環依賴
-    @Lazy
-    private final LunaAgentConfig.LunaToolAgent toolAgent;
+    // 使用 ObjectProvider 延迟获取 Agent，解决循环依赖问题
+    // LunaAgentConfig -> Tools -> Service -> LlmClientUtil -> LunaAgentConfig
+    private final ObjectProvider<LunaAgentConfig.LunaToolAgent> toolAgentProvider;
 
     // 缓存解压后的临时脚本路径，避免每次请求都重复解压
     private static volatile String cachedScriptPath;
@@ -53,7 +53,12 @@ public class LlmClientUtil {
     public String chatWithTools(String prompt) {
         try {
             log.info("正在調用 LunaToolAgent (包含工具支持)...");
-            return toolAgent.chat(prompt);
+            LunaAgentConfig.LunaToolAgent agent = toolAgentProvider.getIfAvailable();
+            if (agent == null) {
+                log.error("LunaToolAgent 未初始化或不可用");
+                return null;
+            }
+            return agent.chat(prompt);
         } catch (Exception e) {
             log.error("LunaToolAgent 調用異常: {}", e.getMessage(), e);
             return null;
