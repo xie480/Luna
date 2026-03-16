@@ -25,7 +25,7 @@
         ref="inputRef"
         v-model="inputText" 
         type="text" 
-        :placeholder="streaming ? '' : (statusText ? '' : 'Type a message...')" 
+        :placeholder="streaming ? '' : (statusText ? '' : '')" 
         @keydown.enter="sendMessage"
         :disabled="loading || streaming"
         :class="{ 'hidden-text': streaming }"
@@ -132,7 +132,7 @@ const emotionStyle = computed(() => {
 /* 基礎容器樣式 */
 .chat-bar-wrapper {
   position: fixed;
-  bottom: 80px;
+  bottom: 70px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
