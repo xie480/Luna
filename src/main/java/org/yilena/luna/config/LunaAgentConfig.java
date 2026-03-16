@@ -1,9 +1,10 @@
 package org.yilena.luna.config;
 
-import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.service.AiServices;
+import dev.langchain4j.service.UserMessage;
+import dev.langchain4j.service.V;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
@@ -34,10 +35,12 @@ public class LunaAgentConfig {
 
     /**
      * 定義 LangChain4j Agent 接口
-     * 使用 UserMessage 作為參數，避免 LangChain4j 將其誤認為 PromptTemplate 進行變量解析
+     * 使用 @UserMessage 和 @V 註解，確保傳入的 prompt 被當作純文本變量安全注入，
+     * 徹底避免 LangChain4j 解析 prompt 內部的 {{...}} 導致變量缺失異常。
      */
     public interface LunaToolAgent {
-        String chat(UserMessage message);
+        @UserMessage("{{prompt}}")
+        String chat(@V("prompt") String prompt);
     }
 
     @Bean
