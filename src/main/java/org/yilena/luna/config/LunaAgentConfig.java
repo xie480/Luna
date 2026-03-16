@@ -56,7 +56,10 @@ public class LunaAgentConfig {
                 .baseUrl(baseUrl)
                 .apiKey(geminiProperty.getApi())
                 .modelName(geminiProperty.getMidModelName()) // 采用 midModel
-                .timeout(Duration.ofSeconds(1200)) // 工具调用可能耗时较长，增加超时时间
+                .timeout(Duration.ofSeconds(120)) // 縮短超時時間，防止被反向代理(如Nginx/Cloudflare)強制掐斷連接
+                .maxRetries(3) // 增加重試機制應對網絡抖動
+                .logRequests(true) // 開啟請求日誌，方便排查網絡問題
+                .logResponses(true) // 開啟響應日誌
                 .build();
 
         // 构建 AiServices 代理，并注册所有工具

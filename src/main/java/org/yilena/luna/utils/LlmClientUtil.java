@@ -115,7 +115,10 @@ public class LlmClientUtil {
                     .apiKey(geminiProperty.getApi())
                     .modelName(request.getModelName())
                     .temperature(request.getTemperature() != null ? request.getTemperature() : 0.7)
-                    .timeout(Duration.ofSeconds(600))
+                    .timeout(Duration.ofSeconds(120)) // 縮短超時時間
+                    .maxRetries(3) // 增加重試
+                    .logRequests(true) // 開啟日誌
+                    .logResponses(true)
                     .build();
 
             Response<AiMessage> response = chatModel.generate(messages);
