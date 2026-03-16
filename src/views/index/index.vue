@@ -367,23 +367,53 @@ function normalizeResponse(res) {
   return data;
 }
 
+/**
+ * 模擬流式解碼特效
+ * 將完整文本快速逐字顯示在輸入框的特效層上
+ */
+async function playDecryptionEffect(text) {
+  streamText.value = "";
+  // 限制顯示長度，避免過長文本導致特效層溢出太嚴重
+  // 這裡只展示前 60 個字符作為「預覽流」
+  const displayLen = Math.min(text.length, 60);
+  
+  for (let i = 0; i < displayLen; i++) {
+    streamText.value += text[i];
+    // 隨機延遲，模擬黑客解碼的不穩定感 (20ms - 50ms)
+    await new Promise(r => setTimeout(r, 20 + Math.random() * 30));
+  }
+  
+  if (text.length > 60) {
+    streamText.value += "...";
+  }
+  
+  // 稍微停頓一下，讓用戶看清最後的解碼結果
+  await new Promise(r => setTimeout(r, 300));
+}
+
 async function handleModelReply(res) {
-  console.log("[Luna] 模型已返回內容", res);
-  if (!res) return;
+  console.log("[Luna] 模型已返回內容 (Raw):", res);
+  if (!res) throw new Error("Empty response");
   
   let replyText = "";
   let em = "";
 
+  // 增強的文本提取邏輯，兼容更多後端格式
   if (typeof res === 'string') {
     replyText = res;
   } else {
-    replyText = res.reply || res.text || res.message || res.data || "";
+    replyText = res.reply || res.text || res.message || res.content || res.answer || res.data || "";
     em = res.emotion || "";
+    
+    if (!replyText && typeof res === 'object') {
+      console.warn("[Luna] 未找到標準文本字段，嘗試顯示原始對象");
+      replyText = JSON.stringify(res);
+    }
   }
 
   if (!replyText) {
-    console.warn("[Luna] 無法從響應中提取文本:", res);
-    return;
+    console.warn("[Luna] 無法從響應中提取任何文本");
+    throw new Error("No text content found in response");
   }
 
   if (em) {
@@ -399,8 +429,12 @@ async function handleModelReply(res) {
     });
   }
 
+  // 1. 先在輸入框播放「數據解碼」特效
+  // 這時 isStreaming 為 true，輸入框顯示故障文字
+  await playDecryptionEffect(replyText);
+
   console.log("[Luna] 準備渲染氣泡:", replyText);
-  // 觸發氣泡動畫 (await 確保流式狀態持續到氣泡打字完成)
+  // 2. 觸發氣泡動畫 (await 確保流式狀態持續到氣泡打字完成)
   await sendReplyAsBubbles(replyText, { interval: 1000, duration: 5000 });
 }
 
@@ -426,28 +460,35 @@ async function onSend(text) {
   }
 
   try {
-    const res = await chatApi({ userInput: text }, authToken.value);
+    // 強制最小加載時間 800ms，防止按鈕動畫閃爍
+    const minLoadTime = new Promise(resolve => setTimeout(resolve, 800));
+    
+    // 並行執行請求和最小等待
+    const [res] = await Promise.all([
+      chatApi({ userInput: text }, authToken.value),
+      minLoadTime
+    ]);
     
     // 2. 收到響應，結束連接狀態，進入流式處理狀態 (輸入框特效)
+    // 注意：這裡狀態切換是同步的，確保按鈕不會中間變回普通狀態
     isConnecting.value = false;
     isStreaming.value = true;
     
-    // 設置特效文字
-    streamText.value = "LUNA_CORE: DECRYPTING_DATA...";
+    // 這裡不再設置靜態文字，而是等待 handleModelReply 中的 playDecryptionEffect 來填充
+    streamText.value = ""; 
 
     // 異步處理氣泡和表情
-    // 使用 await 確保在氣泡顯示期間保持 isStreaming 狀態 (可選，如果希望氣泡出完再恢復按鈕)
+    // 使用 await 確保在氣泡顯示期間保持 isStreaming 狀態，這樣輸入框會一直禁用
     await handleModelReply(normalizeResponse(res));
     
-    // 3. 處理完畢，關閉流式狀態
-    isStreaming.value = false;
-    streamText.value = "";
-
   } catch (e) {
     console.error("[Luna] 發送失敗", e);
+    handleNetworkError();
+  } finally {
+    // 3. 無論成功失敗，最後才關閉流式狀態，恢復輸入框
     isConnecting.value = false;
     isStreaming.value = false;
-    handleNetworkError();
+    streamText.value = "";
   }
 }
 
