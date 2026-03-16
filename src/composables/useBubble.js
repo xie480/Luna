@@ -17,7 +17,7 @@ export function useBubble(messageBoxRef, showMessageBox) {
     if (showMessageBox.value && messageBoxRef.value) {
       const rect = messageBoxRef.value.getBoundingClientRect();
       return {
-        x: rect.left + rect.width / 2,
+        x: rect.left + rect.width / 2 + 1000,
         y: rect.top - 12,
       };
     }
