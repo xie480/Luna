@@ -25,21 +25,18 @@
         ref="inputRef"
         v-model="inputText" 
         type="text" 
-        :placeholder="streaming ? '' : (statusText ? '' : '')" 
+        :placeholder="showOverlay ? '' : 'Type a message...'" 
         @keydown.enter="sendMessage"
         :disabled="loading || streaming"
-        :class="{ 'hidden-text': streaming }"
+        :class="{ 'hidden-text': showOverlay }"
       />
       
-      <div v-if="statusText && !inputText && !streaming" class="status-overlay-text">
-        <span class="status-text">{{ statusText }}</span>
-      </div>
-
+      <!-- 統一的特效層：同時處理 SSE 狀態 (loading) 和 最終解碼 (streaming) -->
       <transition name="fade-overlay">
-        <div v-if="streaming" class="stream-overlay">
+        <div v-if="showOverlay" class="stream-overlay">
           <div class="glitch-container">
-            <span class="glitch-text" :data-text="streamText || 'LUNA_CORE: PROCESSING...'">
-              {{ streamText || 'LUNA_CORE: PROCESSING...' }}
+            <span class="glitch-text" :data-text="overlayText">
+              {{ overlayText }}
             </span>
             <span class="cursor-blink">_</span>
           </div>
@@ -98,6 +95,18 @@ function sendMessage() {
   emit('send', inputText.value);
   inputText.value = "";
 }
+
+// 計算是否顯示特效層：正在流式輸出、正在加載(等待響應)、或者有背景狀態且未輸入文字時
+const showOverlay = computed(() => {
+  return props.streaming || props.loading || (props.statusText && !inputText.value);
+});
+
+// 計算特效層顯示的文字：優先顯示流式解碼文字，其次是加載時的 SSE 狀態，最後是普通狀態
+const overlayText = computed(() => {
+  if (props.streaming) return props.streamText || 'LUNA_CORE: DECRYPTING...';
+  if (props.loading) return props.statusText || 'LUNA_CORE: PROCESSING...';
+  return props.statusText || '';
+});
 
 const EMOTION_MAP = {
   Angry: { color: '#ff2a2a', speed: '0.8s', intensity: '0 0 15px' },
@@ -199,24 +208,7 @@ input.hidden-text {
   color: transparent; 
 }
 
-.status-overlay-text {
-  position: absolute;
-  left: 16px;
-  right: 30px;
-  top: 0;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  pointer-events: none;
-  color: var(--primary, #00ffc8);
-  font-size: 12px;
-  font-weight: bold;
-  letter-spacing: 0.5px;
-  text-shadow: 0 0 5px rgba(0, 255, 200, 0.5);
-  animation: fadeIn 0.3s ease;
-}
-
-/* SSE 流式傳輸特效層 */
+/* SSE 流式傳輸特效層 (統一處理狀態與解碼) */
 .stream-overlay {
   position: absolute;
   top: 0;
