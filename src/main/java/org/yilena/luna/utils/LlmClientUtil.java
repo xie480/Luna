@@ -67,17 +67,30 @@ public class LlmClientUtil {
             );
             
             // 【新增日志】打印 Router 的原始返回，用于排查是返回了 NO_ACTION_NEEDED 还是幻觉文本
-            log.info("LunaToolRouter 原始路由结果: {}", result);
+            log.info("LunaToolRouter 原始路由结果: [{}]", result);
             
-            if (result == null || result.trim().contains("NO_ACTION_NEEDED")) {
+            // 1. 明确的无需操作
+            if (result != null && result.trim().contains("NO_ACTION_NEEDED")) {
                 log.info("LunaToolRouter 判斷：無需調用工具");
                 return null;
             }
+
+            // 2. 异常情况：结果为空白 (Empty String)
+            // 这通常意味着 Router 尝试调用了工具但失败了，或者模型输出了空内容。
+            // 此时必须返回明确的错误信息给 BigModel，否则 BigModel 会以为没有工具被调用。
+            if (result == null || result.isBlank()) {
+                log.warn("LunaToolRouter 返回了空内容，判定为工具调用失败或无响应。");
+                return "【系统警告】工具路由层已执行，但未返回任何有效数据。这可能是因为：\n1. 工具调用超时或网络错误。\n2. 工具执行后未产生文本输出。\n请告知用户刚才的尝试失败了，并建议稍后重试。";
+            }
+
+            // 3. 正常情况
             log.info("LunaToolRouter 工具執行完畢，獲取到背景數據: {}", result);
             return result;
+
         } catch (Exception e) {
             log.error("LunaToolRouter 調用異常: {}", e.getMessage(), e);
-            return null;
+            // 发生异常时，也要告诉 BigModel，而不是返回 null 让它瞎猜
+            return "【系统错误】工具路由层发生未捕获异常：" + e.getMessage();
         }
     }
 
