@@ -168,6 +168,9 @@ public class LlmClientUtil {
         if (geminiProperty.getBig() != null && modelName.equals(geminiProperty.getBig().getModelName())) {
             return geminiProperty.getBig();
         }
+        if (geminiProperty.getFlash() != null && modelName.equals(geminiProperty.getFlash().getModelName())) {
+            return geminiProperty.getFlash();
+        }
         
         // 如果找不到匹配的，默认使用 Big Model 的配置（或者根据策略调整）
         log.warn("请求的模型 [{}] 未在配置中找到精确匹配，将默认使用 Big Model 的 URL 和 Key", modelName);

@@ -55,6 +55,10 @@ gemini:
     url: https://catiecli.sukaka.top/v1/chat/completions
     api-key: sk-ant-bdd5aa945da3ceb5771d2300066a0390bb27b8abc02d725b
     model-name: gcli-gemini-3-pro-preview
+  flash:
+    url: https://catiecli.sukaka.top/v1/chat/completions
+    api-key: sk-ant-bdd5aa945da3ceb5771d2300066a0390bb27b8abc02d725b
+    model-name: gcli-gemini-3-flash-preview
 
 springdoc:
   swagger-ui:

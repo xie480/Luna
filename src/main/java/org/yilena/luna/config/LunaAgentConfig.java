@@ -55,20 +55,20 @@ public class LunaAgentConfig {
 
     @Bean
     public LunaToolRouter lunaToolRouter() {
-        // 获取 mid 模型的配置
-        GeminiProperty.ModelConfig midConfig = geminiProperty.getMid();
+        // 获取 flash 模型的配置 (Flash 模型通常响应更快且支持多模态，适合做 Router)
+        GeminiProperty.ModelConfig toolConfig = geminiProperty.getFlash();
         
         // 提取 baseUrl，LangChain4j 的 OpenAiChatModel 期望的 baseUrl 是到 /v1 為止
-        String baseUrl = midConfig.getUrl();
+        String baseUrl = toolConfig.getUrl();
         if (baseUrl != null && baseUrl.endsWith("/chat/completions")) {
             baseUrl = baseUrl.substring(0, baseUrl.length() - "/chat/completions".length());
         }
 
-        // 使用 yaml 中的 midModel 初始化支持 Tool Calling 的 ChatLanguageModel
+        // 使用 yaml 中的 flashModel 初始化支持 Tool Calling 的 ChatLanguageModel
         ChatLanguageModel chatModel = OpenAiChatModel.builder()
                 .baseUrl(baseUrl)
-                .apiKey(midConfig.getApiKey())
-                .modelName(midConfig.getModelName()) // 采用 midModel 處理工具
+                .apiKey(toolConfig.getApiKey())
+                .modelName(toolConfig.getModelName()) // 采用 flashModel 處理工具
                 .timeout(Duration.ofSeconds(120)) // 縮短超時時間，防止被反向代理強制掐斷連接
                 .maxRetries(3) // 增加重試機制應對網絡抖動
                 .logRequests(true) // 開啟請求日誌，方便排查網絡問題
@@ -81,7 +81,7 @@ public class LunaAgentConfig {
                 .tools(searchTools, knowledgeBaseTools, memoryTools, scheduleTools, logTools, preferenceTools)
                 .build();
 
-        log.info("LunaToolRouter 初始化完成，已註冊工具並使用模型: {}", midConfig.getModelName());
+        log.info("LunaToolRouter 初始化完成，已註冊工具並使用模型: {}", toolConfig.getModelName());
         return router;
     }
 }

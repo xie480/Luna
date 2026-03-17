@@ -12,6 +12,7 @@ public class GeminiProperty {
     private ModelConfig small;
     private ModelConfig mid;
     private ModelConfig big;
+    private ModelConfig flash;
 
     @Data
     public static class ModelConfig {
