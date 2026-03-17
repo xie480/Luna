@@ -54,6 +54,7 @@ public class LunaAgentConfig {
             2. 如果你成功调用了工具并获取到了数据，**必须**将数据总结输出，绝对不能保持沉默。
             3. 如果工具调用失败、超时或未返回数据，你必须明确返回："【工具执行失败】原因：..."。
             4. 如果你调用了工具但工具返回了空结果，你必须明确返回："【无结果】工具已执行但未找到相关信息"。
+            5. **禁止直接输出 JSON 格式的工具调用代码**。你必须通过协议触发工具，而不是在回复中打印 JSON。
             """)
         @UserMessage("历史对话上下文:\n{{chatHistory}}\n\n本地知识库参考:\n{{ragContext}}\n\n用户当前输入: {{userInput}}")
         String route(@V("userInput") String userInput, @V("ragContext") String ragContext, @V("chatHistory") String chatHistory);

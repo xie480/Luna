@@ -76,14 +76,20 @@ public class LlmClientUtil {
             }
 
             // 2. 异常情况：结果为空白 (Empty String)
-            // 这通常意味着 Router 尝试调用了工具但失败了，或者模型输出了空内容。
-            // 此时必须返回明确的错误信息给 BigModel，否则 BigModel 会以为没有工具被调用。
             if (result == null || result.isBlank()) {
                 log.warn("LunaToolRouter 返回了空内容，判定为工具调用失败或无响应。");
                 return "【系统警告】工具路由层已执行，但未返回任何有效数据。这可能是因为：\n1. 工具调用超时或网络错误。\n2. 工具执行后未产生文本输出。\n请告知用户刚才的尝试失败了，并建议稍后重试。";
             }
 
-            // 3. 正常情况
+            // 3. 严重异常情况：模型直接输出了原始 JSON 代码 (Leakage)
+            // 这说明模型没有正确触发 Function Calling 协议，而是把 JSON 当作文本输出了。
+            // 这种情况下，工具实际上并没有被执行。
+            if (result.trim().startsWith("[{\"type\":\"function\"") || result.trim().contains("\"function\":{\"name\":")) {
+                log.error("【严重错误】模型输出了原始工具调用 JSON，但未触发框架执行。这通常是模型兼容性问题。");
+                return "【系统错误】路由模型输出了原始 JSON 代码，但未触发工具执行。原因：当前使用的模型不支持标准的 Function Calling 协议，或者将指令误判为文本生成。请建议用户联系管理员更换兼容性更好的模型（如 GPT-4o 或原生支持工具的模型）。";
+            }
+
+            // 4. 正常情况
             log.info("LunaToolRouter 工具執行完畢，獲取到背景數據: {}", result);
             return result;
 

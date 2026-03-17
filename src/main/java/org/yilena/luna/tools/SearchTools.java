@@ -58,7 +58,6 @@ public class SearchTools extends BaseTool {
             try (Response response = client.newCall(request).execute()) {
                 if (response.isSuccessful() && response.body() != null) {
                     String responseString = response.body().string();
-                    // 【关键排查点】打印出 Serper 实际返回的原始数据，证明工具确实被执行且拿到了数据
                     log.info("【Tool Debug】Serper API 成功返回数据，长度: {} 字符", responseString.length());
                     log.debug("【Tool Debug】Serper API 原始返回内容: {}", responseString);
                     
@@ -76,11 +75,12 @@ public class SearchTools extends BaseTool {
         }
     }
 
+    // 【修改点】将方法名改为下划线风格 (web_search)，以匹配模型的训练直觉，防止模型幻觉出错误的工具名
     @LunaState(value = LunaStateConstant.VALUE_SEARCH_WEB, status = LunaStateConstant.STATUS_SEARCHING)
     @Tool("通用网页搜索工具。当用户明确要求'搜索'、'查询'，或者问题超出知识范围时，必须调用此工具。")
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.SEARCH_WEB, type = LogType.TOOL_CALL, content = "执行网页搜索")
-    public String searchWeb(@P("需要搜索的关键词或短语") String query) {
-        log.info("【Tool Debug】大模型触发了 searchWeb 工具，关键词: {}", query);
+    public String web_search(@P("需要搜索的关键词或短语") String query) {
+        log.info("【Tool Debug】大模型触发了 web_search 工具，关键词: {}", query);
         Map<String, Object> payload = new HashMap<>();
         payload.put("q", query);
         payload.put("gl", "cn");
@@ -91,8 +91,8 @@ public class SearchTools extends BaseTool {
     @LunaState(value = LunaStateConstant.VALUE_SEARCH_IMAGES, status = LunaStateConstant.STATUS_SEARCHING)
     @Tool("图片搜索工具。当用户明确要求'找图'、'看图'、'搜索图片'时调用。")
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.SEARCH_IMAGES, type = LogType.TOOL_CALL, content = "执行图片搜索")
-    public String searchImages(@P("需要搜索的图片关键词") String query) {
-        log.info("【Tool Debug】大模型触发了 searchImages 工具，关键词: {}", query);
+    public String image_search(@P("需要搜索的图片关键词") String query) {
+        log.info("【Tool Debug】大模型触发了 image_search 工具，关键词: {}", query);
         Map<String, Object> payload = new HashMap<>();
         payload.put("q", query);
         payload.put("gl", "cn");
@@ -103,8 +103,8 @@ public class SearchTools extends BaseTool {
     @LunaState(value = LunaStateConstant.VALUE_SEARCH_NEWS, status = LunaStateConstant.STATUS_SEARCHING)
     @Tool("新闻搜索工具。当用户询问'新闻'、'热点'、'发生什么事'或明确要求搜索新闻时，必须优先调用此工具。")
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.SEARCH_NEWS, type = LogType.TOOL_CALL, content = "执行新闻搜索")
-    public String searchNews(@P("需要搜索的新闻关键词或主题") String query) {
-        log.info("【Tool Debug】大模型触发了 searchNews 工具，关键词: {}", query);
+    public String news_search(@P("需要搜索的新闻关键词或主题") String query) {
+        log.info("【Tool Debug】大模型触发了 news_search 工具，关键词: {}", query);
         Map<String, Object> payload = new HashMap<>();
         payload.put("q", query);
         payload.put("gl", "cn");
@@ -115,8 +115,8 @@ public class SearchTools extends BaseTool {
     @LunaState(value = LunaStateConstant.VALUE_SEARCH_LENS, status = LunaStateConstant.STATUS_SEARCHING)
     @Tool("以图搜图工具。仅当用户提供图片URL并要求搜索相关信息时调用。")
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.SEARCH_LENS, type = LogType.TOOL_CALL, content = "执行以图搜图")
-    public String searchLens(@P("需要进行以图搜图的图片完整URL地址") String url) {
-        log.info("【Tool Debug】大模型触发了 searchLens 工具，URL: {}", url);
+    public String lens_search(@P("需要进行以图搜图的图片完整URL地址") String url) {
+        log.info("【Tool Debug】大模型触发了 lens_search 工具，URL: {}", url);
         Map<String, Object> payload = new HashMap<>();
         payload.put("url", url);
         payload.put("gl", "cn");
@@ -127,8 +127,8 @@ public class SearchTools extends BaseTool {
     @LunaState(value = LunaStateConstant.VALUE_SCRAPE_WEB, status = LunaStateConstant.STATUS_SCRAPING)
     @Tool("网页抓取工具。仅当用户提供具体URL并要求读取/总结该网页内容时调用。")
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.SCRAPE_WEB, type = LogType.TOOL_CALL, content = "抓取网页内容")
-    public String scrapeWeb(@P("需要抓取内容的网页完整URL地址") String url) {
-        log.info("【Tool Debug】大模型触发了 scrapeWeb 工具，URL: {}", url);
+    public String web_scrape(@P("需要抓取内容的网页完整URL地址") String url) {
+        log.info("【Tool Debug】大模型触发了 web_scrape 工具，URL: {}", url);
         Map<String, Object> payload = new HashMap<>();
         payload.put("url", url);
         return executeSerperRequest("scrape", payload);
