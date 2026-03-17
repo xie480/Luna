@@ -50,9 +50,10 @@ public class LunaAgentConfig {
             5. **重要**：请务必结合【历史对话上下文】来理解用户当前输入的真实意图（例如代词指代、省略句）。如果用户说“试一下”、“继续”等，请根据上文判断具体要执行什么操作。
             
             【异常处理强制规则】
-            1. **严禁返回空内容**。
-            2. 如果工具调用失败、超时或未返回数据，你必须明确返回："【工具执行失败】原因：..."。
-            3. 如果你调用了工具但工具返回了空结果，你必须明确返回："【无结果】工具已执行但未找到相关信息"。
+            1. **绝对严禁返回空内容**。无论发生什么情况，你都必须输出文字。
+            2. 如果你成功调用了工具并获取到了数据，**必须**将数据总结输出，绝对不能保持沉默。
+            3. 如果工具调用失败、超时或未返回数据，你必须明确返回："【工具执行失败】原因：..."。
+            4. 如果你调用了工具但工具返回了空结果，你必须明确返回："【无结果】工具已执行但未找到相关信息"。
             """)
         @UserMessage("历史对话上下文:\n{{chatHistory}}\n\n本地知识库参考:\n{{ragContext}}\n\n用户当前输入: {{userInput}}")
         String route(@V("userInput") String userInput, @V("ragContext") String ragContext, @V("chatHistory") String chatHistory);
@@ -75,7 +76,7 @@ public class LunaAgentConfig {
                 .apiKey(toolConfig.getApiKey())
                 .modelName(toolConfig.getModelName()) // 采用 flashModel 處理工具
                 .timeout(Duration.ofSeconds(120)) // 縮短超時時間，防止被反向代理強制掐斷連接
-                .maxRetries(3) // 增加重試機制應對網絡抖動
+                .maxRetries(3) // 增加重試机制應對網絡抖動
                 .logRequests(true) // 開啟請求日誌，方便排查網絡問題
                 .logResponses(true) // 開啟響應日誌
                 .build();
