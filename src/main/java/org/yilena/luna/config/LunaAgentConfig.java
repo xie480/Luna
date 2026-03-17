@@ -47,9 +47,10 @@ public class LunaAgentConfig {
             2. 绝对不要自己编造答案，必须通过工具获取真实数据。
             3. 如果用户的输入只是纯粹的闲聊、打招呼，且完全不需要调用任何工具，请直接且仅回复："NO_ACTION_NEEDED"。
             4. 当工具调用成功并返回数据后，请将数据总结成一段客观、简练的纯文本返回。
+            5. **重要**：请务必结合【历史对话上下文】来理解用户当前输入的真实意图（例如代词指代、省略句）。如果用户说“试一下”、“继续”等，请根据上文判断具体要执行什么操作。
             """)
-        @UserMessage("用户输入: {{userInput}}\n本地知识库参考: {{ragContext}}")
-        String route(@V("userInput") String userInput, @V("ragContext") String ragContext);
+        @UserMessage("历史对话上下文:\n{{chatHistory}}\n\n本地知识库参考:\n{{ragContext}}\n\n用户当前输入: {{userInput}}")
+        String route(@V("userInput") String userInput, @V("ragContext") String ragContext, @V("chatHistory") String chatHistory);
     }
 
     @Bean

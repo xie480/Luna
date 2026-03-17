@@ -174,7 +174,8 @@ public class ChatServiceImpl implements ChatService {
 
         // 【新增】：调用 midModel (Router) 判断并执行工具
         String ragMerged = knowledgeSnippets != null ? String.join("\n", knowledgeSnippets) : "";
-        String toolContext = llmClientUtil.executeToolsIfNecessary(input, ragMerged);
+        String historyMerged = memorySnippets != null ? String.join("\n", memorySnippets) : "";
+        String toolContext = llmClientUtil.executeToolsIfNecessary(input, ragMerged, historyMerged);
 
         // 组装最终提示词 (包含 RAG 和 Tool 结果)
         String prompt = promptAssembler.assembleFinalPrompt(memorySnippets, knowledgeSnippets, toolContext, input);

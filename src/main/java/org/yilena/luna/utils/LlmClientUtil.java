@@ -48,9 +48,10 @@ public class LlmClientUtil {
      *
      * @param userInput 用戶輸入
      * @param ragContext 本地知識庫檢索結果
+     * @param chatHistory 歷史對話上下文（用於指代消解）
      * @return 工具執行的結果總結，如果不需要工具則返回 null
      */
-    public String executeToolsIfNecessary(String userInput, String ragContext) {
+    public String executeToolsIfNecessary(String userInput, String ragContext, String chatHistory) {
         try {
             log.info("正在調用 LunaToolRouter 判斷是否需要執行工具...");
             LunaAgentConfig.LunaToolRouter router = toolRouterProvider.getIfAvailable();
@@ -59,7 +60,11 @@ public class LlmClientUtil {
                 return null;
             }
             
-            String result = router.route(userInput, ragContext != null && !ragContext.isBlank() ? ragContext : "无");
+            String result = router.route(
+                    userInput, 
+                    ragContext != null && !ragContext.isBlank() ? ragContext : "无",
+                    chatHistory != null && !chatHistory.isBlank() ? chatHistory : "无"
+            );
             
             if (result == null || result.trim().contains("NO_ACTION_NEEDED")) {
                 log.info("LunaToolRouter 判斷：無需調用工具");
@@ -180,7 +185,12 @@ public class LlmClientUtil {
 
         if (exitCode != 0) {
             String errorMsg = errorOutput.toString();
-            log.error("Python Embedding 脚本执行失败 (ExitCode: {}). Stderr: {}", exitCode, errorMsg);
+            log.error("Python Embedding 脚本执行失败 (ExitCode: {}). Stderr: {}", exitCode,**Integrating Conversation History**
+
+I've successfully updated the `LunaToolRouter` interface, incorporating the `chatHistory` parameter and refining the system and user prompts to include this context. I've also completed the refactoring of `executeToolsIfNecessary` within `LlmClientUtil.java` to accept and pass the conversation history to the router. My next step involves modifying the `ChatServiceImpl.java` to integrate the history string, specifically, preparing the `historyMerged` variable to be passed along.
+
+
+ errorMsg);
             throw new RuntimeException("Python脚本执行异常: " + errorMsg);
         }
 
