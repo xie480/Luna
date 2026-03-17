@@ -185,12 +185,7 @@ public class LlmClientUtil {
 
         if (exitCode != 0) {
             String errorMsg = errorOutput.toString();
-            log.error("Python Embedding 脚本执行失败 (ExitCode: {}). Stderr: {}", exitCode,**Integrating Conversation History**
-
-I've successfully updated the `LunaToolRouter` interface, incorporating the `chatHistory` parameter and refining the system and user prompts to include this context. I've also completed the refactoring of `executeToolsIfNecessary` within `LlmClientUtil.java` to accept and pass the conversation history to the router. My next step involves modifying the `ChatServiceImpl.java` to integrate the history string, specifically, preparing the `historyMerged` variable to be passed along.
-
-
- errorMsg);
+            log.error("Python Embedding 脚本执行失败 (ExitCode: {}). Stderr: {}", exitCode, errorMsg);
             throw new RuntimeException("Python脚本执行异常: " + errorMsg);
         }
 
