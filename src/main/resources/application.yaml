@@ -49,21 +49,21 @@ qwen:
 
 gemini:
   small:
-    url: https://catiecli.sukaka.top/v1/chat/completions
-    api-key: sk-ant-bdd5aa945da3ceb5771d2300066a0390bb27b8abc02d725b
-    model-name: gcli-gemini-3-flash-preview
+    url: https://api.wataruu.me/v1/chat/completions
+    api-key: sk-BOIfaNR9CVuERB57c
+    model-name: gpt-5.2-codex
   mid:
-    url: https://catiecli.sukaka.top/v1/chat/completions
-    api-key: sk-ant-bdd5aa945da3ceb5771d2300066a0390bb27b8abc02d725b
-    model-name: gcli-gemini-3-flash-preview
+    url: https://api.wataruu.me/v1/chat/completions
+    api-key: sk-BOIfaNR9CVuERB57c
+    model-name: gpt-5.2-codex
   big:
     url: https://catiecli.sukaka.top/v1/chat/completions
     api-key: sk-ant-bdd5aa945da3ceb5771d2300066a0390bb27b8abc02d725b
     model-name: gcli-gemini-3-pro-preview
   flash:
-    url: https://catiecli.sukaka.top/v1/chat/completions
-    api-key: sk-ant-bdd5aa945da3ceb5771d2300066a0390bb27b8abc02d725b
-    model-name: gcli-gemini-3-flash-preview
+    url: https://api.wataruu.me/v1/chat/completions
+    api-key: sk-BOIfaNR9CVuERB57c
+    model-name: gpt-5.2-codex
 
 springdoc:
   swagger-ui:

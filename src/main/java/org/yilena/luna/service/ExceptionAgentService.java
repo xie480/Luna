@@ -43,7 +43,7 @@ public class ExceptionAgentService {
 
             LlmRequest request = LlmRequest.builder()
                     .modelType(ModelType.OPENAI_COMPATIBLE)
-                    .modelName(geminiProperty.getBigModelName())
+                    .modelName(geminiProperty.getBig().getModelName())
                     .messages(List.of(LlmMessage.user(prompt)))
                     .build();
 
@@ -82,7 +82,7 @@ public class ExceptionAgentService {
             String repairPrompt = String.format(PromptTemplates.EXCEPTION_JSON_REPAIR_PROMPT, invalidJson);
             LlmRequest repairReq = LlmRequest.builder()
                     .modelType(ModelType.OPENAI_COMPATIBLE)
-                    .modelName(geminiProperty.getBigModelName())
+                    .modelName(geminiProperty.getBig().getModelName())
                     .messages(List.of(LlmMessage.user(repairPrompt)))
                     .build();
 
