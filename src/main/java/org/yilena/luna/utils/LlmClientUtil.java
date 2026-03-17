@@ -66,6 +66,9 @@ public class LlmClientUtil {
                     chatHistory != null && !chatHistory.isBlank() ? chatHistory : "无"
             );
             
+            // 【新增日志】打印 Router 的原始返回，用于排查是返回了 NO_ACTION_NEEDED 还是幻觉文本
+            log.info("LunaToolRouter 原始路由结果: {}", result);
+            
             if (result == null || result.trim().contains("NO_ACTION_NEEDED")) {
                 log.info("LunaToolRouter 判斷：無需調用工具");
                 return null;

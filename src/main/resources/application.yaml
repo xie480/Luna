@@ -1,6 +1,11 @@
 server:
   port: 8001
 
+logging:
+  level:
+    dev.langchain4j: DEBUG
+    org.yilena.luna: DEBUG
+
 spring:
   application:
     name: runa
