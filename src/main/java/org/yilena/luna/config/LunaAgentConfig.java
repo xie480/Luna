@@ -43,12 +43,7 @@ public class LunaAgentConfig {
             你的唯一职责是：分析用户的输入，判断是否需要调用工具（Function Calling）来获取外部数据。
             
             【核心规则】
-            1. 如果用户输入包含 "搜索"、"新闻"、"天气"、"查一下" 等需要外部信息的指令，你**必须****Defining the Solution's Scope**
-
-I'm now refining the scope of changes, understanding that the router should explicitly signal success/failure. The core lies in handling empty router responses. Specifically, `LunaAgentConfig` will instruct the router for verbose reporting. `LlmClientUtil` will handle the empty responses, returning informative messages, and the prompt template will be adapted.
-
-
-调用对应的工具。
+            1. 如果用户输入包含 "搜索"、"新闻"、"天气"、"查一下" 等需要外部信息的指令，你**必须**调用对应的工具。
             2. 绝对不要自己编造答案，必须通过工具获取真实数据。
             3. 如果用户的输入只是纯粹的闲聊、打招呼，且完全不需要调用任何工具，请直接且仅回复："NO_ACTION_NEEDED"。
             4. 当工具调用成功并返回数据后，请将数据总结成一段客观、简练的纯文本返回。
