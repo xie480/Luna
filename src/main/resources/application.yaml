@@ -43,11 +43,18 @@ qwen:
   summary-id: a427e617960545ab878de348075015f9
 
 gemini:
-  url: https://catiecli.sukaka.top/v1/chat/completions
-  api: sk-ant-bdd5aa945da3ceb5771d2300066a0390bb27b8abc02d725b
-  small-model-name: gcli-gemini-3-flash-preview
-  mid-model-name: gcli-gemini-3-flash-preview
-  big-model-name: gcli-gemini-3-pro-preview
+  small:
+    url: https://catiecli.sukaka.top/v1/chat/completions
+    api-key: sk-ant-bdd5aa945da3ceb5771d2300066a0390bb27b8abc02d725b
+    model-name: gcli-gemini-3-flash-preview
+  mid:
+    url: https://catiecli.sukaka.top/v1/chat/completions
+    api-key: sk-ant-bdd5aa945da3ceb5771d2300066a0390bb27b8abc02d725b
+    model-name: gcli-gemini-3-flash-preview
+  big:
+    url: https://catiecli.sukaka.top/v1/chat/completions
+    api-key: sk-ant-bdd5aa945da3ceb5771d2300066a0390bb27b8abc02d725b
+    model-name: gcli-gemini-3-pro-preview
 
 springdoc:
   swagger-ui:

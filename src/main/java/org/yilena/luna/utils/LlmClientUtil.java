@@ -117,15 +117,26 @@ public class LlmClientUtil {
                 }
             }
 
-            String baseUrl = geminiProperty.getUrl()
-                    .replace("/chat/completions", "")
-                    .replace("/embeddings", "");
+            // 根据请求的模型名称匹配对应的配置（URL 和 API Key）
+            String requestModelName = request.getModelName();
+            GeminiProperty.ModelConfig config = getModelConfig(requestModelName);
+            
+            if (config == null) {
+                log.error("未找到模型名称 [{}] 对应的配置信息，请检查 application.yaml", requestModelName);
+                return null;
+            }
+
+            String baseUrl = config.getUrl();
+            if (baseUrl != null) {
+                baseUrl = baseUrl.replace("/chat/completions", "")
+                        .replace("/embeddings", "");
+            }
 
             // 动态构建 ChatModel，以便支持每次请求不同的 temperature 和 modelName
             ChatLanguageModel chatModel = OpenAiChatModel.builder()
                     .baseUrl(baseUrl)
-                    .apiKey(geminiProperty.getApi())
-                    .modelName(request.getModelName())
+                    .apiKey(config.getApiKey())
+                    .modelName(requestModelName)
                     .temperature(request.getTemperature() != null ? request.getTemperature() : 0.7)
                     .timeout(Duration.ofSeconds(120)) // 縮短超時時間
                     .maxRetries(3) // 增加重試
@@ -140,6 +151,27 @@ public class LlmClientUtil {
             log.error("调用模型异常，model={}: {}", request.getModelName(), e.getMessage(), e);
             return null;
         }
+    }
+
+    /**
+     * 根据模型名称查找对应的配置
+     */
+    private GeminiProperty.ModelConfig getModelConfig(String modelName) {
+        if (modelName == null) return geminiProperty.getBig();
+        
+        if (geminiProperty.getSmall() != null && modelName.equals(geminiProperty.getSmall().getModelName())) {
+            return geminiProperty.getSmall();
+        }
+        if (geminiProperty.getMid() != null && modelName.equals(geminiProperty.getMid().getModelName())) {
+            return geminiProperty.getMid();
+        }
+        if (geminiProperty.getBig() != null && modelName.equals(geminiProperty.getBig().getModelName())) {
+            return geminiProperty.getBig();
+        }
+        
+        // 如果找不到匹配的，默认使用 Big Model 的配置（或者根据策略调整）
+        log.warn("请求的模型 [{}] 未在配置中找到精确匹配，将默认使用 Big Model 的 URL 和 Key", modelName);
+        return geminiProperty.getBig();
     }
 
     /**

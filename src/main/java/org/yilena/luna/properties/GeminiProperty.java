@@ -8,9 +8,15 @@ import org.springframework.context.annotation.Configuration;
 @ConfigurationProperties(prefix = "gemini")
 @Data
 public class GeminiProperty {
-    private String url;
-    private String api;
-    private String bigModelName;
-    private String midModelName;
-    private String smallModelName;
+    
+    private ModelConfig small;
+    private ModelConfig mid;
+    private ModelConfig big;
+
+    @Data
+    public static class ModelConfig {
+        private String url;
+        private String apiKey;
+        private String modelName;
+    }
 }

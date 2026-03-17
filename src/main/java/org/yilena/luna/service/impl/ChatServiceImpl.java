@@ -292,7 +292,7 @@ public class ChatServiceImpl implements ChatService {
     private SendToLuna getSendToSummaryModel(String prompt) {
         LlmRequest request = LlmRequest.builder()
                 .modelType(ModelType.OPENAI_COMPATIBLE)
-                .modelName(geminiProperty.getMidModelName())
+                .modelName(geminiProperty.getMid().getModelName())
                 .messages(List.of(LlmMessage.user(prompt)))
                 .build();
 
@@ -314,7 +314,7 @@ public class ChatServiceImpl implements ChatService {
         // 直接使用 llmClientUtil.generate 调用 bigModel
         LlmRequest request = LlmRequest.builder()
                 .modelType(ModelType.OPENAI_COMPATIBLE)
-                .modelName(geminiProperty.getBigModelName()) // 强制使用 bigModel
+                .modelName(geminiProperty.getBig().getModelName()) // 强制使用 bigModel
                 .messages(List.of(LlmMessage.user(prompt)))
                 .build();
 
@@ -346,7 +346,7 @@ public class ChatServiceImpl implements ChatService {
                 // 修复不需要工具，可以直接用 llmClientUtil.generate
                 LlmRequest repairReq = LlmRequest.builder()
                         .modelType(ModelType.OPENAI_COMPATIBLE)
-                        .modelName(geminiProperty.getBigModelName())
+                        .modelName(geminiProperty.getBig().getModelName())
                         .messages(List.of(LlmMessage.user(repairPrompt)))
                         .build();
 
