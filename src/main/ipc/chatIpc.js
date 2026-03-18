@@ -20,11 +20,11 @@ async function connectSSE(sender, isFirstAttempt = false) {
     currentStream = null;
   }
 
-  console.log(`[ChatIPC] ${isFirstAttempt ? 'Starting' : 'Reconnecting'} stream connection to /api/status/stream...`);
+  console.log(`[ChatIPC] ${isFirstAttempt ? 'Starting' : 'Reconnecting'} stream connection to /api/luna/status/stream...`);
 
   try {
-    // [Fix] 修正路徑為 /api/status/stream，移除多餘的 /luna 前綴
-    const responseOrStream = await http.get("/api/status/stream", {
+    // [Fix] 修正路徑為 /api/luna/status/stream，根據後端標準接口路徑
+    const responseOrStream = await http.get("/api/luna/status/stream", {
       headers: {
         'Accept': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -154,8 +154,8 @@ export async function stopSSE() {
     currentStream = null;
   }
   try {
-    // [Fix] 修正路徑為 /api/status/disconnect，移除多餘的 /luna 前綴
-    await http.get("/api/status/disconnect");
+    // [Fix] 修正路徑為 /api/luna/status/disconnect，根據後端標準接口路徑
+    await http.get("/api/luna/status/disconnect");
   } catch (e) {
     console.error("[ChatIPC] Disconnect error:", e.message);
   }
