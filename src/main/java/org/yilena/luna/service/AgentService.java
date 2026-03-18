@@ -18,7 +18,7 @@ import java.util.stream.Collectors;
 
 /**
  * Agent 編排核心
- * 實現完整的 MCP 調用閉環
+ * 專注於 MCP Tool Calling 的決策、參數生成與執行閉環
  */
 @Slf4j
 @Service
@@ -33,28 +33,29 @@ public class AgentService {
     private final ObjectMapper objectMapper;
 
     /**
-     * 處理用戶輸入
+     * 處理工具調用流程 (替換原有的 executeToolsIfNecessary)
      * @param input 用戶自然語言輸入
-     * @return 最終回復
+     * @return 工具執行的結果上下文，如果不需要調用工具則返回 null
      */
-    public String handleUserInput(String input) {
-        log.info("Agent 開始處理輸入: {}", input);
+    public String processToolCalling(String input) {
+        log.info("Agent 開始進行工具決策分析: {}", input);
 
         // 1. 獲取候選工具
         List<Resource> candidates = toolRouter.findCandidates(input);
         if (candidates.isEmpty()) {
-            return llmAdapter.generate(input);
+            log.info("未檢索到相關工具，跳過 Tool Calling");
+            return null;
         }
 
         // 2. 決策階段 (調用 LLM 判斷是否需要工具)
         String decisionPrompt = buildDecisionPrompt(input, candidates);
         String decisionJson = llmAdapter.generate(decisionPrompt);
-        log.info("決策結果: {}", decisionJson);
+        log.info("Agent 決策結果: {}", decisionJson);
 
         String toolName = parseToolName(decisionJson);
         if (toolName == null || "null".equalsIgnoreCase(toolName) || "none".equalsIgnoreCase(toolName)) {
-            // 不需要工具，直接對話
-            return llmAdapter.generate(input);
+            log.info("Agent 判斷：無需調用工具");
+            return null;
         }
 
         Resource targetResource = candidates.stream()
@@ -64,13 +65,13 @@ public class AgentService {
 
         if (targetResource == null) {
             log.warn("決策出的工具 [{}] 不在候選列表中", toolName);
-            return llmAdapter.generate(input);
+            return null;
         }
 
         // 3. 參數生成階段
         String argsPrompt = buildArgsPrompt(input, targetResource);
         String argsJson = llmAdapter.generate(argsPrompt);
-        log.info("生成參數: {}", argsJson);
+        log.info("Agent 生成參數: {}", argsJson);
 
         // 4. JSON Schema 校驗與修復
         if (!JsonSchemaValidator.validate(targetResource.getInputSchema(), argsJson)) {
@@ -84,7 +85,7 @@ public class AgentService {
         try {
             executionGate.check(targetResource);
         } catch (Exception e) {
-            return "{\"error\": \"" + e.getMessage() + "\"}";
+            return "【系統警告】工具執行被攔截: " + e.getMessage();
         }
 
         // 6. 執行工具或技能
@@ -94,11 +95,9 @@ public class AgentService {
         } else {
             executionResult = toolExecutor.execute(targetResource, argsJson);
         }
-        log.info("執行結果: {}", executionResult);
-
-        // 7. 結果回填生成最終回復
-        String finalPrompt = buildFinalPrompt(input, executionResult);
-        return llmAdapter.generate(finalPrompt);
+        
+        log.info("Agent 工具執行完畢，結果: {}", executionResult);
+        return executionResult;
     }
 
     // --- Prompt 構建輔助方法 ---
@@ -135,16 +134,8 @@ public class AgentService {
                 """, tool.getName(), input, tool.getDescription(), tool.getInputSchema());
     }
 
-    private String buildFinalPrompt(String input, String toolResult) {
-        return String.format("""
-                用戶輸入: %s
-                工具執行結果: %s
-                
-                請根據工具執行結果回答用戶的問題。
-                """, input, toolResult);
-    }
-
     private String parseToolName(String json) {
+        if (json == null) return null;
         try {
             // 簡單清洗
             String clean = json.trim().replace("```json", "").replace("```", "");
@@ -153,7 +144,7 @@ public class AgentService {
                 return node.get("tool_name").asText();
             }
         } catch (Exception e) {
-            log.error("解析決策 JSON 失敗", e);
+            log.error("解析決策 JSON 失敗: {}", json, e);
         }
         return null;
     }

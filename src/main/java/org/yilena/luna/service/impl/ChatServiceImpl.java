@@ -26,6 +26,7 @@ import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.prompt.PromptAssembler;
 import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.properties.GeminiProperty;
+import org.yilena.luna.service.AgentService;
 import org.yilena.luna.service.ChatService;
 import org.yilena.luna.service.KnowledgeBaseService;
 import org.yilena.luna.service.SessionService;
@@ -52,6 +53,7 @@ public class ChatServiceImpl implements ChatService {
     private final LlmClientUtil llmClientUtil;
     private final KnowledgeBaseService knowledgeBaseService;
     private final LunaStatusPublisher statusPublisher;
+    private final AgentService agentService; // 引入 MCP Agent 編排服務
 
     // ObjectMapper 用于解析模型返回的 JSON 结果
     private final ObjectMapper mapper = new ObjectMapper();
@@ -137,7 +139,7 @@ public class ChatServiceImpl implements ChatService {
                         log.error("上下文压缩失败：模型返回为空，sessionKey={}", keyPrefix);
                     }
                 } catch (Exception ex) {
-                    log.error("上下文压缩线程发生异常，sessionKey={}, 错误信息={}", keyPrefix, ex.getMessage(), ex);
+                    log.error("上下文压缩线程发生异常，sessionKey={}, 错误信息={}", ex.getMessage(), ex);
                 }
             });
 
@@ -172,10 +174,8 @@ public class ChatServiceImpl implements ChatService {
         knowledgeSnippets = pruned.getKnowledgeBase();
         // -----------------
 
-        // 【新增】：调用 midModel (Router) 判断并执行工具
-        String ragMerged = knowledgeSnippets != null ? String.join("\n", knowledgeSnippets) : "";
-        String historyMerged = memorySnippets != null ? String.join("\n", memorySnippets) : "";
-        String toolContext = llmClientUtil.executeToolsIfNecessary(input, ragMerged, historyMerged);
+        // 【MCP 架構升級】：調用 AgentService 進行 Tool Calling 決策與執行
+        String toolContext = agentService.processToolCalling(input);
 
         // 组装最终提示词 (包含 RAG 和 Tool 结果)
         String prompt = promptAssembler.assembleFinalPrompt(memorySnippets, knowledgeSnippets, toolContext, input);

@@ -1,20 +1,19 @@
 package org.yilena.luna.service.impl;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.langchain4j.agent.tool.Tool;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.entity.Resource;
 import org.yilena.luna.exception.LunaExceptionContext;
+import org.yilena.luna.executor.ReflectionToolExecutor;
 import org.yilena.luna.service.ExceptionAgentService;
 import org.yilena.luna.service.ExceptionRetryService;
+import org.yilena.luna.service.McpService;
 import org.yilena.luna.sse.LunaStatusPublisher;
 
-import java.lang.reflect.Method;
-import java.lang.reflect.Parameter;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -24,8 +23,8 @@ import java.util.UUID;
 public class ExceptionRetryServiceImpl implements ExceptionRetryService {
 
     private final ExceptionAgentService exceptionAgentService;
-    private final ApplicationContext applicationContext;
-    private final ObjectMapper objectMapper;
+    private final McpService mcpService;
+    private final ReflectionToolExecutor toolExecutor;
     private final LunaStatusPublisher statusPublisher;
 
     @Override
@@ -62,14 +61,24 @@ public class ExceptionRetryServiceImpl implements ExceptionRetryService {
         if (canFix) {
             String toolName = aiDecision.get("tool").asText();
             JsonNode params = aiDecision.get("params");
-            log.info("AI 判定可修复，尝试调用工具: {}", toolName);
+            log.info("AI 判定可修复，尝试调用 MCP 工具: {}", toolName);
             
             // 推送状态：正在尝试修复
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "FIXING", "Luna 正在尝试调用工具自我修复...");
 
             try {
-                // 3. 动态调用 MCP Tool
-                Object toolResult = executeTool(toolName, params);
+                // 3. 动态调用 MCP Tool (替代原有的 @Tool 掃描)
+                List<Resource> resources = mcpService.searchResources(toolName);
+                Resource targetResource = resources.stream()
+                        .filter(r -> r.getName().equals(toolName))
+                        .findFirst()
+                        .orElse(null);
+
+                if (targetResource == null) {
+                    throw new RuntimeException("MCP 註冊中心未找到工具: " + toolName);
+                }
+
+                String toolResult = toolExecutor.execute(targetResource, params.toString());
                 
                 // 4. 修复成功，返回提示
                 result.put("success", true);
@@ -93,44 +102,5 @@ public class ExceptionRetryServiceImpl implements ExceptionRetryService {
         // 恢复空闲状态
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "IDLE", "");
         return result;
-    }
-
-    /**
-     * 反射查找并执行 Tool 方法
-     */
-    private Object executeTool(String toolName, JsonNode params) throws Exception {
-        // 扫描所有 Bean 查找 @Tool 方法
-        // 注意：生产环境建议在启动时缓存 Tool Map，避免每次遍历
-        String[] beanNames = applicationContext.getBeanDefinitionNames();
-        for (String beanName : beanNames) {
-            Object bean = applicationContext.getBean(beanName);
-            // 避免处理代理对象导致的问题，简单场景直接反射
-            for (Method method : bean.getClass().getMethods()) {
-                // 匹配 @Tool 注解且方法名一致
-                if (method.isAnnotationPresent(Tool.class) && method.getName().equals(toolName)) {
-                    return invokeMethod(bean, method, params);
-                }
-            }
-        }
-        throw new RuntimeException("未找到工具: " + toolName);
-    }
-
-    private Object invokeMethod(Object bean, Method method, JsonNode params) throws Exception {
-        Parameter[] parameters = method.getParameters();
-        Object[] args = new Object[parameters.length];
-
-        for (int i = 0; i < parameters.length; i++) {
-            Parameter parameter = parameters[i];
-            String paramName = parameter.getName(); 
-            // 尝试从 JSON 中获取参数
-            if (params != null && params.has(paramName)) {
-                JsonNode paramValue = params.get(paramName);
-                // 使用 ObjectMapper 将 JSON 节点转换为参数对应的类型
-                args[i] = objectMapper.treeToValue(paramValue, parameter.getType());
-            } else {
-                args[i] = null; // 参数缺失则传 null
-            }
-        }
-        return method.invoke(bean, args);
     }
 }

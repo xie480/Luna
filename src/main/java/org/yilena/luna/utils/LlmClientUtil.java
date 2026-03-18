@@ -6,9 +6,7 @@ import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.output.Response;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
-import org.yilena.luna.config.LunaAgentConfig;
 import org.yilena.luna.enums.ModelType;
 import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
@@ -27,7 +25,7 @@ import java.util.List;
 /**
  * LLM 模型调用工具类
  * 已重构为基于 LangChain4j 实现，支持多模态及更优雅的 API 调用
- * 包含 Tool Router 的调用封装
+ * 【v2.0】已移除舊的 Tool Router 依賴，專注於純粹的模型生成與 Embedding
  */
 @Slf4j
 @Component
@@ -37,68 +35,8 @@ public class LlmClientUtil {
     private final GeminiProperty geminiProperty;
     private final EmbeddingProperty embeddingProperty;
 
-    // 使用 ObjectProvider 延迟获取 Router，解决循环依赖问题
-    private final ObjectProvider<LunaAgentConfig.LunaToolRouter> toolRouterProvider;
-
     // 缓存解压后的临时脚本路径，避免每次请求都重复解压
     private static volatile String cachedScriptPath;
-
-    /**
-     * 讓 midModel 判斷並執行工具
-     *
-     * @param userInput 用戶輸入
-     * @param ragContext 本地知識庫檢索結果
-     * @param chatHistory 歷史對話上下文（用於指代消解）
-     * @return 工具執行的結果總結，如果不需要工具則返回 null
-     */
-    public String executeToolsIfNecessary(String userInput, String ragContext, String chatHistory) {
-        try {
-            log.info("正在調用 LunaToolRouter 判斷是否需要執行工具...");
-            LunaAgentConfig.LunaToolRouter router = toolRouterProvider.getIfAvailable();
-            if (router == null) {
-                log.error("LunaToolRouter 未初始化或不可用");
-                return null;
-            }
-            
-            String result = router.route(
-                    userInput, 
-                    ragContext != null && !ragContext.isBlank() ? ragContext : "无",
-                    chatHistory != null && !chatHistory.isBlank() ? chatHistory : "无"
-            );
-            
-            // 【新增日志】打印 Router 的原始返回，用于排查是返回了 NO_ACTION_NEEDED 还是幻觉文本
-            log.info("LunaToolRouter 原始路由结果: [{}]", result);
-            
-            // 1. 明确的无需操作
-            if (result != null && result.trim().contains("NO_ACTION_NEEDED")) {
-                log.info("LunaToolRouter 判斷：無需調用工具");
-                return null;
-            }
-
-            // 2. 异常情况：结果为空白 (Empty String)
-            if (result == null || result.isBlank()) {
-                log.warn("LunaToolRouter 返回了空内容，判定为工具调用失败或无响应。");
-                return "【系统警告】工具路由层已执行，但未返回任何有效数据。这可能是因为：\n1. 工具调用超时或网络错误。\n2. 工具执行后未产生文本输出。\n请告知用户刚才的尝试失败了，并建议稍后重试。";
-            }
-
-            // 3. 严重异常情况：模型直接输出了原始 JSON 代码 (Leakage)
-            // 这说明模型没有正确触发 Function Calling 协议，而是把 JSON 当作文本输出了。
-            // 这种情况下，工具实际上并没有被执行。
-            if (result.trim().startsWith("[{\"type\":\"function\"") || result.trim().contains("\"function\":{\"name\":")) {
-                log.error("【严重错误】模型输出了原始工具调用 JSON，但未触发框架执行。这通常是模型兼容性问题。");
-                return "【系统错误】路由模型输出了原始 JSON 代码，但未触发工具执行。原因：当前使用的模型不支持标准的 Function Calling 协议，或者将指令误判为文本生成。请建议用户联系管理员更换兼容性更好的模型（如 GPT-4o 或原生支持工具的模型）。";
-            }
-
-            // 4. 正常情况
-            log.info("LunaToolRouter 工具執行完畢，獲取到背景數據: {}", result);
-            return result;
-
-        } catch (Exception e) {
-            log.error("LunaToolRouter 調用異常: {}", e.getMessage(), e);
-            // 发生异常时，也要告诉 BigModel，而不是返回 null 让它瞎猜
-            return "【系统错误】工具路由层发生未捕获异常：" + e.getMessage();
-        }
-    }
 
     /**
      * 统一的模型生成入口 (無工具支持，用於主腦生成或修復)
