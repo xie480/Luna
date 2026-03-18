@@ -1,6 +1,8 @@
 package org.yilena.luna.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -25,9 +27,10 @@ public class ScheduleTask implements Serializable {
     private static final long serialVersionUID = 1L;
 
     /**
-     * 主键 ID
+     * 主键 ID (雪花算法)
      */
-    @TableId(value = "id", type = IdType.AUTO)
+    @JsonSerialize(using = ToStringSerializer.class)
+    @TableId(value = "id", type = IdType.ASSIGN_ID)
     private Long id;
 
     /**

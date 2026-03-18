@@ -13,6 +13,7 @@ import java.io.Serializable;
 /**
  * MCP 资源 DTO (Data Transfer Object)
  * 用于 Agent 层统一处理 Tool 和 Skill，不直接对应数据库表
+ * 注意：为了兼容前端和 LLM 交互，DTO 中的 ID 保持 String 类型
  */
 @Data
 @Builder
@@ -23,7 +24,7 @@ public class Resource implements Serializable {
     private static final long serialVersionUID = 1L;
 
     /**
-     * 资源唯一 ID
+     * 资源唯一 ID (String 格式的雪花 ID)
      */
     private String id;
 

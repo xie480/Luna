@@ -1,6 +1,8 @@
 package org.yilena.luna.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -23,10 +25,12 @@ public class McpTool implements Serializable {
     private static final long serialVersionUID = 1L;
 
     /**
-     * 主键 ID (UUID)
+     * 主键 ID (雪花算法)
+     * 使用 ToStringSerializer 防止前端 JS 精度丢失
      */
-    @TableId(value = "id", type = IdType.ASSIGN_UUID)
-    private String id;
+    @JsonSerialize(using = ToStringSerializer.class)
+    @TableId(value = "id", type = IdType.ASSIGN_ID)
+    private Long id;
 
     /**
      * 工具名称 (需唯一，供 LLM 决策时输出此名称)

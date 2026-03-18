@@ -74,7 +74,7 @@ public class McpServiceImpl implements McpService {
     }
 
     @Override
-    public void deleteTool(String id) {
+    public void deleteTool(Long id) {
         toolMapper.deleteById(id);
     }
 
@@ -126,7 +126,7 @@ public class McpServiceImpl implements McpService {
     }
 
     @Override
-    public void deleteSkill(String id) {
+    public void deleteSkill(Long id) {
         skillMapper.deleteById(id);
     }
 
@@ -174,7 +174,7 @@ public class McpServiceImpl implements McpService {
     }
 
     @Override
-    public Resource getResourceById(String id) {
+    public Resource getResourceById(Long id) {
         // 先查 Tool
         McpTool tool = toolMapper.selectById(id);
         if (tool != null) {
@@ -223,7 +223,7 @@ public class McpServiceImpl implements McpService {
 
     private Resource toResource(McpTool tool) {
         return Resource.builder()
-                .id(tool.getId())
+                .id(String.valueOf(tool.getId())) // 轉換為 String
                 .type(ResourceType.TOOL)
                 .name(tool.getName())
                 .description(tool.getDescription())
@@ -242,7 +242,7 @@ public class McpServiceImpl implements McpService {
 
     private Resource toResource(McpSkill skill) {
         return Resource.builder()
-                .id(skill.getId())
+                .id(String.valueOf(skill.getId())) // 轉換為 String
                 .type(ResourceType.SKILL)
                 .name(skill.getName())
                 .description(skill.getDescription())

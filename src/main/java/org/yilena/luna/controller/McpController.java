@@ -39,7 +39,7 @@ public class McpController {
 
     @DeleteMapping("/tools/{id}")
     @Operation(summary = "刪除原子工具", description = "根據 ID 刪除原子工具")
-    public ResponseEntity<Void> deleteTool(@PathVariable String id) {
+    public ResponseEntity<Void> deleteTool(@PathVariable Long id) {
         mcpService.deleteTool(id);
         return ResponseEntity.ok().build();
     }
@@ -58,7 +58,7 @@ public class McpController {
 
     @DeleteMapping("/skills/{id}")
     @Operation(summary = "刪除複合技能", description = "根據 ID 刪除複合技能")
-    public ResponseEntity<Void> deleteSkill(@PathVariable String id) {
+    public ResponseEntity<Void> deleteSkill(@PathVariable Long id) {
         mcpService.deleteSkill(id);
         return ResponseEntity.ok().build();
     }
@@ -71,7 +71,7 @@ public class McpController {
 
     @GetMapping("/resources/{id}")
     @Operation(summary = "根據 ID 獲取資源詳情", description = "根據資源的唯一標識 ID 獲取工具或技能的詳細信息")
-    public ResponseEntity<Resource> getById(@PathVariable String id) {
+    public ResponseEntity<Resource> getById(@PathVariable Long id) {
         return ResponseEntity.ok(mcpService.getResourceById(id));
     }
 
