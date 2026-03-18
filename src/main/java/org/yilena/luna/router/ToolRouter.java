@@ -1,11 +1,10 @@
 package org.yilena.luna.router;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.entity.Resource;
-import org.yilena.luna.mapper.ResourceMapper;
+import org.yilena.luna.service.McpService;
 
 import java.util.List;
 
@@ -18,7 +17,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ToolRouter {
 
-    private final ResourceMapper resourceMapper;
+    private final McpService mcpService;
 
     /**
      * 查找候選工具
@@ -30,11 +29,13 @@ public class ToolRouter {
         // 生產環境應對接向量數據庫進行語義檢索
         log.info("正在為 Query [{}] 檢索工具...", query);
         
-        LambdaQueryWrapper<Resource> wrapper = new LambdaQueryWrapper<>();
-        // 這裡簡單地返回所有工具，讓 LLM 自己挑選
-        // 如果工具很多，這裡必須加過濾邏輯
-        wrapper.last("LIMIT 10"); 
+        // 使用 McpService 統一檢索 Tool 和 Skill
+        List<Resource> candidates = mcpService.searchResources(query);
         
-        return resourceMapper.selectList(wrapper);
+        // 如果工具很多，這裡必須加過濾邏輯 (例如只取 Top 10)
+        if (candidates.size() > 10) {
+            return candidates.subList(0, 10);
+        }
+        return candidates;
     }
 }

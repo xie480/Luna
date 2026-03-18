@@ -1,18 +1,39 @@
 package org.yilena.luna.service;
 
-import com.baomidou.mybatisplus.extension.service.IService;
+import org.yilena.luna.entity.McpSkill;
+import org.yilena.luna.entity.McpTool;
 import org.yilena.luna.entity.Resource;
 
 import java.util.List;
 
-public interface McpService extends IService<Resource> {
+/**
+ * MCP 服務接口
+ * 負責聚合管理 Tool 和 Skill
+ */
+public interface McpService {
+    
     /**
-     * 註冊資源
+     * 註冊工具
      */
-    Resource registerResource(Resource resource);
+    McpTool registerTool(McpTool tool);
 
     /**
-     * 搜索資源
+     * 註冊技能
+     */
+    McpSkill registerSkill(McpSkill skill);
+
+    /**
+     * 獲取所有資源 (Tool + Skill)
+     */
+    List<Resource> listAll();
+
+    /**
+     * 根據 ID 獲取資源
+     */
+    Resource getResourceById(String id);
+
+    /**
+     * 搜索資源 (同時搜索 Tool 和 Skill)
      */
     List<Resource> searchResources(String query);
 }
