@@ -20,11 +20,11 @@ async function connectSSE(sender, isFirstAttempt = false) {
     currentStream = null;
   }
 
-  console.log(`[ChatIPC] ${isFirstAttempt ? 'Starting' : 'Reconnecting'} stream connection to /api/luna/status/stream...`);
+  console.log(`[ChatIPC] ${isFirstAttempt ? 'Starting' : 'Reconnecting'} stream connection to /luna/api/status/stream...`);
 
   try {
-    // 根據新接口：GET /api/luna/status/stream
-    const responseOrStream = await http.get("/api/luna/status/stream", {
+    // [Fix] 修正路徑為 /luna/api/status/stream 以保持一致性
+    const responseOrStream = await http.get("/luna/api/status/stream", {
       headers: {
         'Accept': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -33,7 +33,7 @@ async function connectSSE(sender, isFirstAttempt = false) {
       },
       responseType: 'stream',
       adapter: 'http', // 強制使用 Node.js HTTP 適配器
-      timeout: 0 // ⚠️ 關鍵修復：SSE 是長連接，必須禁用超時，否則會被全局的 10s timeout 切斷
+      timeout: 0 // ⚠️ 關鍵修復：SSE 是長連接，必須禁用超時，否則會被全局的 timeout 切斷
     });
 
     // 兼容性處理：判斷返回的是完整的 response 對象還是已經被攔截器解包的 stream
@@ -57,7 +57,7 @@ async function connectSSE(sender, isFirstAttempt = false) {
     // 監聽數據流
     stream.on('data', (chunk) => {
       const chunkStr = chunk.toString();
-      console.log(`[ChatIPC] DATA CHUNK:`, JSON.stringify(chunkStr));
+      // console.log(`[ChatIPC] DATA CHUNK:`, JSON.stringify(chunkStr)); // 減少日誌噪音
       
       buffer += chunkStr;
       
@@ -75,12 +75,13 @@ async function connectSSE(sender, isFirstAttempt = false) {
           if (line.startsWith('event:')) {
             eventName = line.substring(6).trim();
           } else if (line.startsWith('data:')) {
-            dataStr += line.substring(5).trim();
+            // [Fix] 使用 replace 而不是 trim()，避免破壞數據內部的空格
+            dataStr += line.replace(/^data:\s?/, "");
           }
         });
 
         if (dataStr) {
-          console.log(`[ChatIPC] Parsed Event: ${eventName || 'default'}, Data: ${dataStr}`);
+          console.log(`[ChatIPC] Parsed Event: ${eventName || 'default'}, Data Length: ${dataStr.length}`);
           try {
             const data = JSON.parse(dataStr);
             sender.send('luna:status-update', data);
@@ -153,7 +154,8 @@ export async function stopSSE() {
     currentStream = null;
   }
   try {
-    await http.get("/api/luna/status/disconnect");
+    // [Fix] 修正路徑為 /luna/api/status/disconnect
+    await http.get("/luna/api/status/disconnect");
   } catch (e) {
     console.error("[ChatIPC] Disconnect error:", e.message);
   }
@@ -171,7 +173,6 @@ export function registerChatIpc() {
     await startSSE(event.sender, false);
 
     // 2. 請求后端 Chat Startup 接口 (获取问候语/初始化会话)
-    // 這是修復的關鍵：之前遺漏了這個調用，導致後端認為 startup 未被觸發
     try {
       console.log("[ChatIPC] Calling backend chat startup endpoint...");
       const response = await http.post("/luna/api/chat/startup");

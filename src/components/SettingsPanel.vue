@@ -184,8 +184,11 @@ function startDrag(e) {
 
 function onDrag(e) {
   if (!isDragging) return;
-  x.value = e.clientX - dragOffset.x;
-  y.value = e.clientY - dragOffset.y;
+  // [Fix] 增加邊界檢查，防止拖出屏幕
+  const maxX = window.innerWidth - 50;
+  const maxY = window.innerHeight - 50;
+  x.value = Math.min(Math.max(e.clientX - dragOffset.x, -500), maxX);
+  y.value = Math.min(Math.max(e.clientY - dragOffset.y, -350), maxY);
 }
 
 function stopDrag() {

@@ -81,6 +81,15 @@
             </div>
 
             <div class="form-group">
+              <label>输出参数结构 (Output Schema JSON)</label>
+              <textarea 
+                v-model="form.outputSchema" 
+                class="code-editor" 
+                placeholder='{"type":"string"}'
+              ></textarea>
+            </div>
+
+            <div class="form-group">
               <label>版本号 (Version)</label>
               <input v-model="form.version" placeholder="例如: 1.0.0" />
             </div>
@@ -140,6 +149,7 @@ const form = reactive({
   beanName: '',
   methodName: '',
   inputSchema: '',
+  outputSchema: '',
   version: '',
   owner: ''
 });
@@ -175,10 +185,15 @@ function openCreateModal() {
 function openEditModal(tool) {
   isEdit.value = true;
   Object.assign(form, tool);
-  // 确保 inputSchema 是字符串显示
+  
+  // 确保 Schema 是字符串显示
   if (typeof form.inputSchema === 'object') {
     form.inputSchema = JSON.stringify(form.inputSchema, null, 2);
   }
+  if (typeof form.outputSchema === 'object') {
+    form.outputSchema = JSON.stringify(form.outputSchema, null, 2);
+  }
+  
   // 居中显示
   modalX.value = window.innerWidth / 2 - 250;
   modalY.value = window.innerHeight / 2 - 300;
@@ -196,6 +211,7 @@ function resetForm() {
   form.beanName = '';
   form.methodName = '';
   form.inputSchema = '{\n  "type": "object",\n  "properties": {}\n}';
+  form.outputSchema = '';
   form.version = '';
   form.owner = '';
 }
@@ -212,6 +228,15 @@ async function handleSave() {
   } catch (e) {
     alert("Input Schema 必须是有效的 JSON 格式");
     return;
+  }
+
+  if (form.outputSchema) {
+    try {
+      JSON.parse(form.outputSchema);
+    } catch (e) {
+      alert("Output Schema 必须是有效的 JSON 格式");
+      return;
+    }
   }
 
   try {

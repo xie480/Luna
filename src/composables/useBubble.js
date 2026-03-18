@@ -17,7 +17,7 @@ export function useBubble(messageBoxRef, showMessageBox) {
     if (showMessageBox.value && messageBoxRef.value) {
       const rect = messageBoxRef.value.getBoundingClientRect();
       return {
-        x: rect.left + rect.width / 2 + 1000,
+        x: rect.left + rect.width / 2, // [Fix] 移除了錯誤的 + 1000 偏移
         y: rect.top - 30, // 增加與輸入框的間距
       };
     }
