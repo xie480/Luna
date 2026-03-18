@@ -1,0 +1,24 @@
+package org.yilena.luna.enums;
+
+import com.baomidou.mybatisplus.annotation.EnumValue;
+import com.fasterxml.jackson.annotation.JsonValue;
+import lombok.Getter;
+
+/**
+ * MCP 资源类型枚举
+ */
+@Getter
+public enum ResourceType {
+    TOOL("TOOL", "原子工具"),
+    SKILL("SKILL", "复合技能");
+
+    @EnumValue
+    @JsonValue
+    private final String value;
+    private final String desc;
+
+    ResourceType(String value, String desc) {
+        this.value = value;
+        this.desc = desc;
+    }
+}

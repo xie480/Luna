@@ -3,6 +3,7 @@ package org.yilena.luna.executor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.entity.Resource;
+import org.yilena.luna.enums.RunMode;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -33,7 +34,7 @@ public class SkillExecutor {
         }
 
         // 2. 處理異步邏輯
-        if ("ASYNC".equalsIgnoreCase(skill.getRunMode())) {
+        if (RunMode.ASYNC.equals(skill.getRunMode())) {
             String taskId = UUID.randomUUID().toString();
             log.info("提交異步任務，TaskId: {}", taskId);
             

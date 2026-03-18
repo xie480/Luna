@@ -3,6 +3,7 @@ package org.yilena.luna.gate;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.entity.Resource;
+import org.yilena.luna.enums.Sensitivity;
 
 /**
  * 執行網關
@@ -21,7 +22,7 @@ public class ExecutionGate {
         log.info("正在進行安全檢查: {}", resource.getName());
 
         // 1. 敏感度檢查
-        if ("HIGH".equalsIgnoreCase(resource.getSensitivity())) {
+        if (Sensitivity.HIGH.equals(resource.getSensitivity())) {
             log.error("拒絕執行高敏感度工具: {}", resource.getName());
             throw new RuntimeException("權限不足：拒絕執行高敏感度工具 [" + resource.getName() + "]");
         }

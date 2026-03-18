@@ -4,6 +4,9 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.yilena.luna.enums.ResourceType;
+import org.yilena.luna.enums.RunMode;
+import org.yilena.luna.enums.Sensitivity;
 
 import java.io.Serializable;
 
@@ -22,9 +25,9 @@ public class Resource implements Serializable {
     private String id;
 
     /**
-     * 類型: "TOOL" 或 "SKILL"
+     * 類型: TOOL 或 SKILL
      */
-    private String type;
+    private ResourceType type;
 
     private String name;
     private String description;
@@ -38,7 +41,7 @@ public class Resource implements Serializable {
     private String outputSchema;
 
     // Skill 特有字段 (Tool 默認為 SYNC/FALSE/LOW)
-    private String runMode;
+    private RunMode runMode;
     private Boolean requiresApproval;
-    private String sensitivity;
+    private Sensitivity sensitivity;
 }

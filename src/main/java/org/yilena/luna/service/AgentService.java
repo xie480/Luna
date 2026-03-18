@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.yilena.luna.adapter.LlmAdapter;
 import org.yilena.luna.common.utils.JsonSchemaValidator;
 import org.yilena.luna.entity.Resource;
+import org.yilena.luna.enums.ResourceType;
 import org.yilena.luna.executor.ReflectionToolExecutor;
 import org.yilena.luna.executor.SkillExecutor;
 import org.yilena.luna.gate.ExecutionGate;
@@ -76,7 +77,7 @@ public class AgentService {
         // 4. JSON Schema 校驗與修復
         if (!JsonSchemaValidator.validate(targetResource.getInputSchema(), argsJson)) {
             log.warn("參數校驗失敗，嘗試自動修復...");
-            String repairPrompt = String.format("參數不符合 Schema，請修復。\nSchema: %s\n無效參數: %s", 
+            String repairPrompt = String.format("參數不符合 Schema，請修復。\nSchema: %s\n無效参数: %s", 
                     targetResource.getInputSchema(), argsJson);
             argsJson = llmAdapter.generate(repairPrompt);
         }
@@ -90,7 +91,7 @@ public class AgentService {
 
         // 6. 執行工具或技能
         String executionResult;
-        if ("SKILL".equalsIgnoreCase(targetResource.getType())) {
+        if (ResourceType.SKILL.equals(targetResource.getType())) {
             executionResult = skillExecutor.execute(targetResource, argsJson);
         } else {
             executionResult = toolExecutor.execute(targetResource, argsJson);

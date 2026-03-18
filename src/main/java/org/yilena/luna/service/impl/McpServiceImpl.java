@@ -6,6 +6,9 @@ import org.springframework.stereotype.Service;
 import org.yilena.luna.entity.McpSkill;
 import org.yilena.luna.entity.McpTool;
 import org.yilena.luna.entity.Resource;
+import org.yilena.luna.enums.ResourceType;
+import org.yilena.luna.enums.RunMode;
+import org.yilena.luna.enums.Sensitivity;
 import org.yilena.luna.mapper.McpSkillMapper;
 import org.yilena.luna.mapper.McpToolMapper;
 import org.yilena.luna.service.McpService;
@@ -153,7 +156,7 @@ public class McpServiceImpl implements McpService {
     private Resource toResource(McpTool tool) {
         return Resource.builder()
                 .id(tool.getId())
-                .type("TOOL")
+                .type(ResourceType.TOOL)
                 .name(tool.getName())
                 .description(tool.getDescription())
                 .version(tool.getVersion())
@@ -163,16 +166,16 @@ public class McpServiceImpl implements McpService {
                 .inputSchema(tool.getInputSchema())
                 .outputSchema(tool.getOutputSchema())
                 // Tool 默認屬性
-                .runMode("SYNC")
+                .runMode(RunMode.SYNC)
                 .requiresApproval(false)
-                .sensitivity("LOW")
+                .sensitivity(Sensitivity.LOW)
                 .build();
     }
 
     private Resource toResource(McpSkill skill) {
         return Resource.builder()
                 .id(skill.getId())
-                .type("SKILL")
+                .type(ResourceType.SKILL)
                 .name(skill.getName())
                 .description(skill.getDescription())
                 .version(skill.getVersion())
@@ -182,9 +185,9 @@ public class McpServiceImpl implements McpService {
                 .inputSchema(skill.getInputSchema())
                 .outputSchema(skill.getOutputSchema())
                 // Skill 特有屬性
-                .runMode(skill.getRunMode())
-                .requiresApproval(skill.getRequiresApproval())
-                .sensitivity(skill.getSensitivity())
+                .runMode(skill.getRunMode() != null ? skill.getRunMode() : RunMode.SYNC)
+                .requiresApproval(skill.getRequiresApproval() != null ? skill.getRequiresApproval() : false)
+                .sensitivity(skill.getSensitivity() != null ? skill.getSensitivity() : Sensitivity.LOW)
                 .build();
     }
 }

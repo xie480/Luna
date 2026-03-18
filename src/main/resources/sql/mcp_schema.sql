@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS mcp_tools (
     input_schema TEXT,
     output_schema TEXT,
     
-    embedding TEXT, -- 新增：用於存儲向量數據
+    embedding TEXT, -- 用於存儲向量數據
     
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS mcp_skills (
     requires_approval BOOLEAN DEFAULT FALSE,
     sensitivity VARCHAR(20) DEFAULT 'LOW',
     
-    embedding TEXT, -- 新增：用於存儲向量數據
+    embedding TEXT, -- 用於存儲向量數據
     
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

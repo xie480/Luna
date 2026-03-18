@@ -5,6 +5,8 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.yilena.luna.enums.RunMode;
+import org.yilena.luna.enums.Sensitivity;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -50,13 +52,13 @@ public class McpSkill implements Serializable {
     private String outputSchema;
 
     @TableField("run_mode")
-    private String runMode;
+    private RunMode runMode;
 
     @TableField("requires_approval")
     private Boolean requiresApproval;
 
     @TableField("sensitivity")
-    private String sensitivity;
+    private Sensitivity sensitivity;
 
     /**
      * 文本的向量表示 (PGVector)
