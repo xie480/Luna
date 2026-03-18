@@ -31,10 +31,36 @@ public class McpController {
         return ResponseEntity.ok(mcpService.registerTool(tool));
     }
 
+    @PutMapping("/tools")
+    @Operation(summary = "更新原子工具", description = "更新已存在的原子工具信息")
+    public ResponseEntity<McpTool> updateTool(@RequestBody McpTool tool) {
+        return ResponseEntity.ok(mcpService.updateTool(tool));
+    }
+
+    @DeleteMapping("/tools/{id}")
+    @Operation(summary = "刪除原子工具", description = "根據 ID 刪除原子工具")
+    public ResponseEntity<Void> deleteTool(@PathVariable String id) {
+        mcpService.deleteTool(id);
+        return ResponseEntity.ok().build();
+    }
+
     @PostMapping("/skills")
     @Operation(summary = "註冊複合技能", description = "註冊一個新的支持異步、審批、權限控制的複合技能 (Skill)")
     public ResponseEntity<McpSkill> registerSkill(@RequestBody McpSkill skill) {
         return ResponseEntity.ok(mcpService.registerSkill(skill));
+    }
+
+    @PutMapping("/skills")
+    @Operation(summary = "更新複合技能", description = "更新已存在的複合技能信息")
+    public ResponseEntity<McpSkill> updateSkill(@RequestBody McpSkill skill) {
+        return ResponseEntity.ok(mcpService.updateSkill(skill));
+    }
+
+    @DeleteMapping("/skills/{id}")
+    @Operation(summary = "刪除複合技能", description = "根據 ID 刪除複合技能")
+    public ResponseEntity<Void> deleteSkill(@PathVariable String id) {
+        mcpService.deleteSkill(id);
+        return ResponseEntity.ok().build();
     }
 
     @GetMapping("/resources")

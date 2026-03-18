@@ -45,6 +45,40 @@ public class McpServiceImpl implements McpService {
     }
 
     @Override
+    public McpTool updateTool(McpTool tool) {
+        if (tool.getId() == null) {
+            throw new IllegalArgumentException("更新工具必須提供 ID");
+        }
+        // 如果名稱或描述變更，重新生成向量
+        McpTool existing = toolMapper.selectById(tool.getId());
+        if (existing != null) {
+            boolean needReEmbedding = false;
+            if (tool.getName() != null && !tool.getName().equals(existing.getName())) {
+                needReEmbedding = true;
+            }
+            if (tool.getDescription() != null && !tool.getDescription().equals(existing.getDescription())) {
+                needReEmbedding = true;
+            }
+            
+            if (needReEmbedding) {
+                generateToolEmbedding(tool);
+            } else {
+                // 保持原有的 embedding
+                tool.setEmbedding(existing.getEmbedding());
+            }
+            toolMapper.updateById(tool);
+            return toolMapper.selectById(tool.getId());
+        } else {
+            throw new IllegalArgumentException("未找到 ID 為 " + tool.getId() + " 的工具");
+        }
+    }
+
+    @Override
+    public void deleteTool(String id) {
+        toolMapper.deleteById(id);
+    }
+
+    @Override
     public McpSkill registerSkill(McpSkill skill) {
         // 註冊時自動生成向量
         generateSkillEmbedding(skill);
@@ -60,6 +94,40 @@ public class McpServiceImpl implements McpService {
             }
         }
         return skill;
+    }
+
+    @Override
+    public McpSkill updateSkill(McpSkill skill) {
+        if (skill.getId() == null) {
+            throw new IllegalArgumentException("更新技能必須提供 ID");
+        }
+        // 如果名稱或描述變更，重新生成向量
+        McpSkill existing = skillMapper.selectById(skill.getId());
+        if (existing != null) {
+            boolean needReEmbedding = false;
+            if (skill.getName() != null && !skill.getName().equals(existing.getName())) {
+                needReEmbedding = true;
+            }
+            if (skill.getDescription() != null && !skill.getDescription().equals(existing.getDescription())) {
+                needReEmbedding = true;
+            }
+            
+            if (needReEmbedding) {
+                generateSkillEmbedding(skill);
+            } else {
+                // 保持原有的 embedding
+                skill.setEmbedding(existing.getEmbedding());
+            }
+            skillMapper.updateById(skill);
+            return skillMapper.selectById(skill.getId());
+        } else {
+            throw new IllegalArgumentException("未找到 ID 為 " + skill.getId() + " 的技能");
+        }
+    }
+
+    @Override
+    public void deleteSkill(String id) {
+        skillMapper.deleteById(id);
     }
 
     private void generateToolEmbedding(McpTool tool) {

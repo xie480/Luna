@@ -18,9 +18,29 @@ public interface McpService {
     McpTool registerTool(McpTool tool);
 
     /**
+     * 更新工具
+     */
+    McpTool updateTool(McpTool tool);
+
+    /**
+     * 刪除工具
+     */
+    void deleteTool(String id);
+
+    /**
      * 註冊技能
      */
     McpSkill registerSkill(McpSkill skill);
+
+    /**
+     * 更新技能
+     */
+    McpSkill updateSkill(McpSkill skill);
+
+    /**
+     * 刪除技能
+     */
+    void deleteSkill(String id);
 
     /**
      * 獲取所有資源 (Tool + Skill)
