@@ -10,8 +10,8 @@ import java.io.Serializable;
 import java.time.LocalDateTime;
 
 /**
- * MCP 工具實體 (對應 mcp_tools 表)
- * 原子能力，無狀態，同步執行
+ * MCP 工具实体 (对应 mcp_tools 表)
+ * 原子能力，无状态，同步执行
  */
 @Data
 @Builder
@@ -22,42 +22,75 @@ public class McpTool implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
+    /**
+     * 主键 ID (UUID)
+     */
     @TableId(value = "id", type = IdType.ASSIGN_UUID)
     private String id;
 
+    /**
+     * 工具名称 (需唯一，供 LLM 决策时输出此名称)
+     */
     @TableField("name")
     private String name;
 
+    /**
+     * 工具描述 (用于向 LLM 解释工具的具体用途和调用时机)
+     */
     @TableField("description")
     private String description;
 
+    /**
+     * 版本号 (如 "1.0.0")
+     */
     @TableField("version")
     private String version;
 
+    /**
+     * 负责人/所有者
+     */
     @TableField("owner")
     private String owner;
 
+    /**
+     * 对应的 Spring Bean 名称 (如 "searchTools")
+     */
     @TableField("bean_name")
     private String beanName;
 
+    /**
+     * 对应的执行方法名称 (如 "web_search")
+     */
     @TableField("method_name")
     private String methodName;
 
+    /**
+     * 输入参数的 JSON Schema 定义 (用于严格校验 LLM 生成的参数)
+     */
     @TableField("input_schema")
     private String inputSchema;
 
+    /**
+     * 输出结果的 JSON Schema 定义
+     */
     @TableField("output_schema")
     private String outputSchema;
 
     /**
-     * 文本的向量表示 (PGVector)
+     * 文本的向量表示 (PGVector)，用于语义检索
      */
     @TableField("embedding")
     private String embedding;
 
+    /**
+     * 创建时间
+     */
     @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
+    /**
+     * 更新时间
+     */
     @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
 }

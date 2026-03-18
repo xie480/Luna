@@ -10,8 +10,8 @@ import java.io.Serializable;
 import java.time.LocalDateTime;
 
 /**
- * 用戶畫像/偏好表
- * 用於存儲用戶的關鍵設定，通常會常駐 System Prompt
+ * 用户画像/偏好表
+ * 用于存储用户的关键设定，通常会常驻 System Prompt
  */
 @Data
 @Builder
@@ -22,11 +22,14 @@ public class UserPreference implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
+    /**
+     * 主键 ID
+     */
     @TableId(value = "id", type = IdType.AUTO)
     private Long id;
 
     /**
-     * 偏好鍵 (如: nickname, birthday, job)
+     * 偏好键 (如: nickname, birthday, job)
      */
     @TableField("pref_key")
     private String prefKey;
@@ -38,19 +41,25 @@ public class UserPreference implements Serializable {
     private String prefValue;
 
     /**
-     * 描述/備註 (用於輔助模型理解該設定的上下文)
+     * 描述/备注 (用于辅助模型理解该设定的上下文)
      */
     @TableField("description")
     private String description;
 
+    /**
+     * 创建时间
+     */
     @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
+    /**
+     * 更新时间
+     */
     @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
 
     /**
-     * 邏輯刪除標記 (0: 未刪除, 1: 已刪除)
+     * 逻辑删除标记 (0: 未删除, 1: 已删除)
      */
     @TableLogic
     @TableField("deleted")

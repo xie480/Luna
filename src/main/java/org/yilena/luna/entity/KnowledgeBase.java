@@ -11,8 +11,8 @@ import java.io.Serializable;
 import java.time.LocalDateTime;
 
 /**
- * 本地知識庫表
- * 存儲文件解析內容或聯網搜索結果，用於 RAG 檢索
+ * 本地知识库表
+ * 存储文件解析内容或联网搜索结果，用于 RAG 检索
  */
 @Data
 @Builder
@@ -23,35 +23,38 @@ public class KnowledgeBase implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
+    /**
+     * 主键 ID
+     */
     @TableId(value = "id", type = IdType.AUTO)
     private Long id;
 
     /**
-     * 標題/文件名/網頁標題
+     * 标题/文件名/网页标题
      */
     @TableField("title")
     private String title;
 
     /**
-     * 原始文本內容 (分片後的內容)
+     * 原始文本内容 (分片后的内容)
      */
     @TableField("content")
     private String content;
 
     /**
-     * 來源類型: FILE, WEB_SEARCH, MANUAL_INPUT
+     * 来源类型: FILE, WEB_SEARCH, MANUAL_INPUT
      */
     @TableField("source_type")
     private SourceType sourceType;
 
     /**
-     * 來源標識 (如文件路徑、URL)
+     * 来源标识 (如文件路径、URL)
      */
     @TableField("source_path")
     private String sourcePath;
 
     /**
-     * 向量數據庫中的 ID (用於關聯 Vector DB)
+     * 向量数据库中的 ID (用于关联外部 Vector DB，若使用 PGVector 则可选)
      */
     @TableField("vector_id")
     private String vectorId;
@@ -63,9 +66,15 @@ public class KnowledgeBase implements Serializable {
     @TableField("embedding")
     private String embedding;
 
+    /**
+     * 创建时间
+     */
     @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
+    /**
+     * 更新时间
+     */
     @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
 }

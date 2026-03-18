@@ -11,8 +11,8 @@ import java.io.Serializable;
 import java.time.LocalDateTime;
 
 /**
- * 長期記憶實體類
- * 對應數據庫表：luna_memory
+ * 长期记忆实体类
+ * 对应数据库表：luna_memory
  */
 @Data
 @Builder
@@ -24,49 +24,49 @@ public class Memory implements Serializable {
     private static final long serialVersionUID = 1L;
 
     /**
-     * 主鍵 ID
+     * 主键 ID
      */
     @TableId(value = "id", type = IdType.AUTO)
     private Long id;
 
     /**
-     * 會話 ID 或日期標識（例如：2023:10:27）
-     * 用於關聯記憶與特定的時間段或會話
+     * 会话 ID 或日期标识（例如：2023:10:27）
+     * 用于关联记忆与特定的时间段或会话
      */
     @TableField("session_id")
     private String sessionId;
 
     /**
-     * 記憶類型
-     * 例如：FACT (事實), PREFERENCE (偏好), SUMMARY (摘要), REFLECTION (反思)
+     * 记忆类型
+     * 例如：FACT (事实), PREFERENCE (偏好), SUMMARY (摘要), REFLECTION (反思)
      */
     @TableField("memory_type")
     private MemoryType memoryType;
 
     /**
-     * 記憶內容
-     * 存儲具體的文本信息
+     * 记忆内容
+     * 存储具体的文本信息
      */
     @TableField("content")
     private String content;
 
     /**
-     * 權重
-     * 用於標識記憶的重要性，默認為 1
+     * 权重
+     * 用于标识记忆的重要性，默认为 1
      */
     @TableField("weight")
     private Integer weight;
 
     /**
-     * 創建時間
-     * 插入時自動填充
+     * 创建时间
+     * 插入时自动填充
      */
     @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
     /**
-     * 更新時間
-     * 插入和更新時自動填充
+     * 更新时间
+     * 插入和更新时自动填充
      */
     @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;

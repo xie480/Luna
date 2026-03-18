@@ -12,8 +12,8 @@ import java.io.Serializable;
 import java.time.LocalDateTime;
 
 /**
- * 日程與待辦事項表
- * 用於 Luna 主動提醒或執行任務
+ * 日程与待办事项表
+ * 用于 Luna 主动提醒或执行任务
  */
 @Data
 @Builder
@@ -24,41 +24,50 @@ public class ScheduleTask implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
+    /**
+     * 主键 ID
+     */
     @TableId(value = "id", type = IdType.AUTO)
     private Long id;
 
     /**
-     * 任務內容
+     * 任务内容
      */
     @TableField("content")
     private String content;
 
     /**
-     * 觸發時間 (如果是提醒類任務)
+     * 触发时间 (如果是提醒类任务)
      */
     @TableField("trigger_time")
     private LocalDateTime triggerTime;
 
     /**
-     * 狀態: 0-待處理, 1-已完成, 2-已取消, 3-已過期
+     * 状态: 0-待处理, 1-已完成, 2-已取消, 3-已过期
      */
     @TableField("status")
     private TaskStatus status;
 
     /**
-     * 任務類型: REMINDER(提醒), ACTION(執行操作), TODO(待辦)
+     * 任务类型: REMINDER(提醒), ACTION(执行操作), TODO(待办)
      */
     @TableField("task_type")
     private TaskType taskType;
 
+    /**
+     * 创建时间
+     */
     @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
+    /**
+     * 更新时间
+     */
     @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
 
     /**
-     * 邏輯刪除標記 (0: 未刪除, 1: 已刪除)
+     * 逻辑删除标记 (0: 未删除, 1: 已删除)
      */
     @TableLogic
     @TableField("deleted")
