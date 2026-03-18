@@ -3,7 +3,6 @@ package org.yilena.luna.tools;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.toolkit.SqlRunner;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.langchain4j.agent.tool.Tool;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
@@ -28,24 +27,6 @@ public class MemoryTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_MEMORY, status = LunaStateConstant.STATUS_MEMORY)
-    @Tool("""
-    【长期记忆(Memory) CRUD 工具】
-    目标实体类定义 (Schema):
-    - id: Long (自动生成, 插入时不填)
-    - sessionId: String (选填, 会话ID或日期标识, 如 "2023:10:27")
-    - memoryType: String (必填, 枚举: FACT, PREFERENCE, SUMMARY, REFLECTION)
-    - content: String (必填, 记忆内容)
-    - weight: Integer (选填, 权重, 默认 1)
-    - createdAt: DateTime (自动生成)
-    - updatedAt: DateTime (自动生成)
-
-    参数说明:
-    - action: 必填。可选值: "INSERT", "UPDATE", "DELETE", "QUERY"
-    - id: UPDATE 和 DELETE 时必填。
-    - mode: UPDATE 时必填。可选值: "PATCH", "PUT"
-    - hardDelete: DELETE 时选填。true 为物理删除，false 为逻辑删除(默认)。
-    - sessionId, memoryType, content, weight: 根据 action 和 mode 提供。
-    """)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_MEMORY, type = LogType.TOOL_CALL, content = "管理长期记忆")
     public String manageMemory(String action, Long id, String mode, String sessionId, String memoryType, String content, Integer weight, Boolean hardDelete) {
         try {

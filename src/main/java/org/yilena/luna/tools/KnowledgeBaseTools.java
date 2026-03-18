@@ -1,7 +1,6 @@
 package org.yilena.luna.tools;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.langchain4j.agent.tool.Tool;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
@@ -25,20 +24,6 @@ public class KnowledgeBaseTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_KNOWLEDGE_BASE, status = LunaStateConstant.STATUS_KNOWLEDGE_BASE)
-    @Tool("""
-    【知识库(KnowledgeBase) CRUD 工具】
-    目标实体类定义 (Schema):
-    - id: Long (自动生成)
-    - title: String (必填, 标题)
-    - content: String (必填, 内容)
-    - sourceType: String (必填, 来源类型, 如 TEXT, WEB, FILE)
-    - sourcePath: String (选填, 来源路径)
-
-    参数说明:
-    - action: 必填。可选值: "INSERT", "QUERY" (注: 知识库涉及向量化，暂不支持直接 UPDATE/DELETE，请通过重新 INSERT 覆盖)
-    - title, content, sourceType, sourcePath: INSERT 时提供。
-    - query: QUERY 时提供的搜索词。
-    """)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_KNOWLEDGE, type = LogType.TOOL_CALL, content = "管理知识库")
     public String manageKnowledgeBase(String action, String title, String content, String sourceType, String sourcePath, String query) {
         try {

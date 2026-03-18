@@ -3,7 +3,6 @@ package org.yilena.luna.tools;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.toolkit.SqlRunner;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.langchain4j.agent.tool.Tool;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
@@ -33,25 +32,6 @@ public class ScheduleTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_SCHEDULE, status = LunaStateConstant.STATUS_SCHEDULE)
-    @Tool("""
-    【日程任务(ScheduleTask) CRUD 工具】
-    目标实体类定义 (Schema):
-    - id: Long (自动生成, 插入时不填)
-    - content: String (必填, 任务内容)
-    - triggerTime: String (必填, 格式: yyyy-MM-dd HH:mm:ss)
-    - status: String (必填, 枚举: PENDING, COMPLETED, CANCELLED, EXPIRED)
-    - taskType: String (必填, 枚举: REMINDER, ACTION, TODO)
-    - createdAt: DateTime (自动生成)
-    - updatedAt: DateTime (自动生成)
-    - deleted: Integer (自动生成, 逻辑删除标记)
-
-    参数说明:
-    - action: 必填。可选值: "INSERT", "UPDATE", "DELETE", "QUERY"
-    - id: UPDATE 和 DELETE 时必填。
-    - mode: UPDATE 时必填。可选值: "PATCH", "PUT"
-    - hardDelete: DELETE 时选填。true 为物理删除，false 为逻辑删除(默认)。
-    - content, triggerTime, status, taskType: 根据 action 和 mode 提供。
-    """)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_SCHEDULE, type = LogType.TOOL_CALL, content = "管理日程任务")
     public String manageScheduleTask(String action, Long id, String mode, String content, String triggerTime, String status, String taskType, Boolean hardDelete) {
         try {

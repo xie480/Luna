@@ -3,7 +3,6 @@ package org.yilena.luna.tools;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.toolkit.SqlRunner;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.langchain4j.agent.tool.Tool;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
@@ -25,30 +24,6 @@ public class PreferenceTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_PREFERENCE, status = LunaStateConstant.STATUS_PREFERENCE)
-    @Tool("""
-    【用户偏好(UserPreference) CRUD 工具】
-    目标实体类定义 (Schema):
-    - id: Long (自动生成, 插入时不填)
-    - prefKey: String (必填, 偏好键, 如 "theme", "nickname")
-    - prefValue: String (必填, 偏好值)
-    - description: String (选填, 描述/备注)
-    - createdAt: DateTime (自动生成)
-    - updatedAt: DateTime (自动生成)
-    - deleted: Integer (自动生成, 逻辑删除标记)
-
-    业务流程约束: 当偏好变更时，必须先调用 QUERY 查出旧偏好，再决定是 UPDATE 还是 DELETE 后重新 INSERT。
-
-    参数说明:
-    - action: 必填。可选值: "INSERT", "UPDATE", "DELETE", "QUERY"
-    - id: UPDATE 和 DELETE 时必填。
-    - mode: UPDATE 时必填。可选值: "PATCH" (部分更新，忽略空值), "PUT" (全量替换，空值将覆盖原值)
-    - hardDelete: DELETE 时选填。true 为物理删除，false 为逻辑删除(默认)。
-    - prefKey, prefValue, description: 根据 action 和 mode 提供。
-
-    返回格式示例:
-    - 成功: {"status":"success", "data": {"id":1, "prefKey":"theme", "prefValue":"dark", ...}}
-    - 失败: {"status":"error", "message":"INSERT 操作必须提供 prefKey 和 prefValue"}
-    """)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_PREFERENCE, type = LogType.TOOL_CALL, content = "管理用户偏好设置")
     public String manageUserPreference(String action, Long id, String mode, String prefKey, String prefValue, String description, Boolean hardDelete) {
         try {

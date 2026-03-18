@@ -2,7 +2,6 @@ package org.yilena.luna.tools;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.langchain4j.agent.tool.Tool;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
@@ -28,21 +27,6 @@ public class LogTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_LOG, status = LunaStateConstant.STATUS_LOG)
-    @Tool("""
-    【系统日志(LunaLog) 管理工具】
-    用于查询、插入或删除系统日志。
-    
-    参数说明:
-    - action: 必填。可选值: "INSERT", "QUERY", "DELETE"
-    - logType: INSERT/QUERY 时选填。枚举: LUNA_OUTPUT, TOOL_CALL, ERROR, SELF_UPDATE, SYSTEM_EVENT, API_CALL
-    - module: INSERT/QUERY 时选填。
-    - content: INSERT 时选填。
-    - startTime: QUERY/DELETE 时选填。格式: yyyy-MM-dd HH:mm:ss
-    - endTime: QUERY 时选填。格式: yyyy-MM-dd HH:mm:ss
-    - limit: QUERY 时选填，默认 10。
-    - id: DELETE 时必填 (除非使用 beforeTime)。
-    - beforeTime: DELETE 时选填，删除此时间之前的日志。
-    """)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "管理系统日志")
     public String manageLog(String action, String logType, String module, String content, String startTime, String endTime, Integer limit, Long id, String beforeTime) {
         try {
