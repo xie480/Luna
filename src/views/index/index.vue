@@ -431,13 +431,13 @@ async function handleModelReply(res) {
     });
   }
 
-  // 1. 先在輸入框播放「數據解碼」特效
-  // 這時 isStreaming 為 true，輸入框顯示故障文字
-  await playDecryptionEffect(replyText);
-
   console.log("[Luna] 準備渲染氣泡:", replyText);
-  // 2. 觸發氣泡動畫 (await 確保流式狀態持續到氣泡打字完成)
-  await sendReplyAsBubbles(replyText, { interval: 1000, duration: 5000 });
+  
+  // [Fix] 並行執行特效和氣泡渲染，避免 playDecryptionEffect 阻塞氣泡的出現
+  const effectPromise = playDecryptionEffect(replyText);
+  const bubblePromise = sendReplyAsBubbles(replyText, { interval: 1000, duration: 5000 });
+
+  await Promise.all([effectPromise, bubblePromise]);
 }
 
 function handleNetworkError() {
@@ -1267,7 +1267,7 @@ onBeforeUnmount(() => {
   gap: 10px;
   transform: translate(-50%, -100%);
   pointer-events: none;
-  z-index: 1002;
+  z-index: 99999; /* [Fix] 確保氣泡在最上層，不被其他 UI 遮擋 */
 }
 .css-chat-bubble {
   max-width: 280px;

@@ -7,7 +7,7 @@ import { gsap } from "gsap";
  */
 export function useBubble(messageBoxRef, showMessageBox) {
   const chatBubbles = ref([]);
-  const bubbleAnchor = ref({ x: 0, y: 0 });
+  const bubbleAnchor = ref({ x: window.innerWidth / 2, y: window.innerHeight - 180 });
   const bubbleEls = new Map(); // id -> DOM element
   let bubbleId = 0;
 
@@ -15,15 +15,17 @@ export function useBubble(messageBoxRef, showMessageBox) {
   // 僅在 messageBoxRef 或 showMessageBox 變化時重新計算，避免每次讀取 DOM
   function getBubbleAnchor() {
     if (showMessageBox.value && messageBoxRef.value) {
-      const rect = messageBoxRef.value.getBoundingClientRect();
-      return {
-        x: rect.left + rect.width / 2, // [Fix] 移除了錯誤的 + 1000 偏移
-        y: rect.top - 30, // 增加與輸入框的間距
-      };
+      try {
+        const rect = messageBoxRef.value.getBoundingClientRect();
+        return {
+          x: rect.left + rect.width / 2,
+          y: rect.top - 30, // 增加與輸入框的間距
+        };
+      } catch (e) {}
     }
     return {
-      x: window.innerWidth / 2,
-      y: window.innerHeight - 180, // 增加底部間距，避免與輸入框重疊
+      x: (window.innerWidth || 800) / 2,
+      y: (window.innerHeight || 600) - 180, // 增加底部間距，避免與輸入框重疊
     };
   }
 
@@ -60,7 +62,9 @@ export function useBubble(messageBoxRef, showMessageBox) {
     const prevPositions = recordBubblePositions();
 
     const id = bubbleId++;
-    chatBubbles.value.push({ id, text, leaving: false });
+    
+    // [Fix] 使用展開運算符重新賦值，確保 Vue 100% 觸發響應式更新
+    chatBubbles.value = [...chatBubbles.value, { id, text, leaving: false }];
 
     // 等待 DOM 更新
     await nextTick();
@@ -68,9 +72,13 @@ export function useBubble(messageBoxRef, showMessageBox) {
     // 對舊氣泡執行 FLIP 位移動畫
     for (const [bid, el] of bubbleEls.entries()) {
       if (!prevPositions.has(bid)) continue;
-      const dy = prevPositions.get(bid) - el.getBoundingClientRect().top;
-      if (Math.abs(dy) > 0.5) {
-        gsap.fromTo(el, { y: dy }, { y: 0, duration: 0.22, ease: "power2.out" });
+      try {
+        const dy = prevPositions.get(bid) - el.getBoundingClientRect().top;
+        if (Math.abs(dy) > 0.5) {
+          gsap.fromTo(el, { y: dy }, { y: 0, duration: 0.22, ease: "power2.out" });
+        }
+      } catch (e) {
+        console.warn("Bubble FLIP error", e);
       }
     }
 
@@ -79,10 +87,14 @@ export function useBubble(messageBoxRef, showMessageBox) {
       const bubble = chatBubbles.value.find((b) => b.id === id);
       if (!bubble) return;
       bubble.leaving = true;
+      
+      // 觸發視圖更新以應用 leaving 動畫類
+      chatBubbles.value = [...chatBubbles.value];
+
       setTimeout(() => {
         bubbleEls.delete(id);
         chatBubbles.value = chatBubbles.value.filter((b) => b.id !== id);
-      }, 180);
+      }, 250); // 稍微大於 CSS 動畫時間 (0.2s)
     }, duration);
   }
 
