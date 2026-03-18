@@ -7,6 +7,8 @@ import { fileURLToPath } from "url";
 import http, { setAuthToken, getAuthToken } from "../src/main/httpClient.js";
 // 引入我們寫好的 chatIpc 以及暴露出來的 startSSE 和 stopSSE
 import { registerChatIpc, startSSE, stopSSE } from "../src/main/ipc/chatIpc.js";
+// 引入 MCP IPC
+import { registerMcpIpc } from "../src/main/ipc/mcpIpc.js";
 
 /* ===== 修复 __dirname ===== */
 const __filename = fileURLToPath(import.meta.url);
@@ -14,6 +16,8 @@ const __dirname = path.dirname(__filename);
 
 // 註冊 chatIpc 中的監聽器 (Startup, Message, Shutdown, SSE)
 registerChatIpc();
+// 註冊 MCP 相關監聽器
+registerMcpIpc();
 
 /* ===== IPC handlers for History API ===== */
 ipcMain.handle("luna.api.chat.history.date", async (_event, yearMonth) => {

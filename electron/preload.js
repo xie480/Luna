@@ -14,6 +14,21 @@ contextBridge.exposeInMainWorld("desktopApi", {
   onStatusUpdate: (callback) => ipcRenderer.on('luna:status-update', (_event, value) => callback(value)),
 });
 
+contextBridge.exposeInMainWorld("mcpApi", {
+  // 資源列表
+  listResources: () => ipcRenderer.invoke("mcp.resource.list"),
+  
+  // Tool 管理
+  createTool: (payload) => ipcRenderer.invoke("mcp.tool.create", payload),
+  updateTool: (payload) => ipcRenderer.invoke("mcp.tool.update", payload),
+  deleteTool: (id)      => ipcRenderer.invoke("mcp.tool.delete", id),
+  
+  // Skill 管理 (預留)
+  createSkill: (payload) => ipcRenderer.invoke("mcp.skill.create", payload),
+  updateSkill: (payload) => ipcRenderer.invoke("mcp.skill.update", payload),
+  deleteSkill: (id)      => ipcRenderer.invoke("mcp.skill.delete", id),
+});
+
 contextBridge.exposeInMainWorld("pet", {
   enter: () => ipcRenderer.send("pet:mouse-enter"),
   leave: () => ipcRenderer.send("pet:mouse-leave"),
