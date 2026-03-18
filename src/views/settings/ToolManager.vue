@@ -31,65 +31,69 @@
       </div>
     </div>
 
-    <!-- 独立遮罩层 -->
-    <div v-if="showModal" class="modal-overlay" @click="closeModal"></div>
+    <!-- 使用 Teleport 将弹窗移动到 body，避免被父组件(SettingsPanel)的 overflow:hidden 裁剪 -->
+    <Teleport to="body">
+      <div v-if="showModal" class="mcp-modal-wrapper">
+        <!-- 独立遮罩层 -->
+        <div class="modal-overlay" @click="closeModal"></div>
 
-    <!-- 编辑/新增 弹窗 (可拖拽) -->
-    <div 
-      v-if="showModal" 
-      class="modal"
-      :style="{ left: modalX + 'px', top: modalY + 'px' }"
-    >
-      <!-- 弹窗头部 (拖拽区域) -->
-      <div class="modal-header" @mousedown="startDrag">
-        <h3>{{ isEdit ? '编辑工具' : '注册新工具' }}</h3>
-        <button class="close-btn" @click="closeModal">×</button>
-      </div>
-      
-      <!-- 弹窗内容 (可滚动) -->
-      <div class="modal-body">
-        <div class="form-group">
-          <label>工具名称 (Name)*</label>
-          <input v-model="form.name" placeholder="例如: web_search" />
-        </div>
-
-        <div class="form-group">
-          <label>工具描述 (Description)*</label>
-          <textarea v-model="form.description" placeholder="详细说明该工具的用途，供大模型理解..."></textarea>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label>Spring Bean 名称 (Bean Name)*</label>
-            <input v-model="form.beanName" placeholder="例如: searchTools" />
+        <!-- 编辑/新增 弹窗 (可拖拽) -->
+        <div 
+          class="modal"
+          :style="{ left: modalX + 'px', top: modalY + 'px' }"
+        >
+          <!-- 弹窗头部 (拖拽区域) -->
+          <div class="modal-header" @mousedown="startDrag">
+            <h3>{{ isEdit ? '编辑工具' : '注册新工具' }}</h3>
+            <button class="close-btn" @click="closeModal">×</button>
           </div>
-          <div class="form-group">
-            <label>方法名称 (Method Name)*</label>
-            <input v-model="form.methodName" placeholder="例如: executeSearch" />
+          
+          <!-- 弹窗内容 (可滚动) -->
+          <div class="modal-body">
+            <div class="form-group">
+              <label>工具名称 (Name)*</label>
+              <input v-model="form.name" placeholder="例如: web_search" />
+            </div>
+
+            <div class="form-group">
+              <label>工具描述 (Description)*</label>
+              <textarea v-model="form.description" placeholder="详细说明该工具的用途，供大模型理解..."></textarea>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label>Spring Bean 名称 (Bean Name)*</label>
+                <input v-model="form.beanName" placeholder="例如: searchTools" />
+              </div>
+              <div class="form-group">
+                <label>方法名称 (Method Name)*</label>
+                <input v-model="form.methodName" placeholder="例如: executeSearch" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>输入参数结构 (Input Schema JSON)*</label>
+              <textarea 
+                v-model="form.inputSchema" 
+                class="code-editor" 
+                placeholder='{"type":"object", "properties": {}}'
+              ></textarea>
+            </div>
+
+            <div class="form-group">
+              <label>版本号 (Version)</label>
+              <input v-model="form.version" placeholder="例如: 1.0.0" />
+            </div>
+          </div>
+
+          <!-- 弹窗底部操作区 -->
+          <div class="modal-actions">
+            <button class="btn-secondary" @click="closeModal">取消</button>
+            <button class="btn-primary" @click="handleSave">保存</button>
           </div>
         </div>
-
-        <div class="form-group">
-          <label>输入参数结构 (Input Schema JSON)*</label>
-          <textarea 
-            v-model="form.inputSchema" 
-            class="code-editor" 
-            placeholder='{"type":"object", "properties": {}}'
-          ></textarea>
-        </div>
-
-        <div class="form-group">
-          <label>版本号 (Version)</label>
-          <input v-model="form.version" placeholder="例如: 1.0.0" />
-        </div>
       </div>
-
-      <!-- 弹窗底部操作区 -->
-      <div class="modal-actions">
-        <button class="btn-secondary" @click="closeModal">取消</button>
-        <button class="btn-primary" @click="handleSave">保存</button>
-      </div>
-    </div>
+    </Teleport>
   </div>
 </template>
 
@@ -370,12 +374,19 @@ async function handleDelete(tool) {
 .btn-text:hover { text-decoration: underline; }
 .btn-text.delete { color: #fc8181; }
 
+/* Modal Wrapper (Teleported) */
+.mcp-modal-wrapper {
+  position: fixed;
+  inset: 0;
+  z-index: 10000; /* 确保高于 SettingsPanel 的 9500 */
+  pointer-events: auto;
+}
+
 /* Modal Overlay */
 .modal-overlay {
-  position: fixed;
+  position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
   background: rgba(0, 0, 0, 0.6);
-  z-index: 9998;
 }
 
 /* Draggable Modal */
@@ -389,7 +400,7 @@ async function handleDelete(tool) {
   flex-direction: column;
   border: 1px solid var(--border, #2d3748);
   box-shadow: 0 15px 40px rgba(0,0,0,0.8);
-  z-index: 10000; /* 确保高于 SettingsPanel 的 9500 */
+  /* z-index is handled by wrapper */
 }
 
 .modal-header {

@@ -153,6 +153,7 @@
     </transition>
 
     <!-- ===== PIXI Canvas ===== -->
+    <!-- 使用 absolute 定位確保覆蓋全屏，避免被其他流式元素擠壓 -->
     <div ref="wrapperRef" class="interactive-wrapper">
       <canvas ref="canvasRef" @contextmenu.prevent></canvas>
     </div>
@@ -1248,7 +1249,9 @@ onBeforeUnmount(() => {
 .interactive-wrapper {
   width: 100%;
   height: 100%;
-  position: relative;
+  position: absolute; /* 改為 absolute 確保覆蓋全屏 */
+  top: 0;
+  left: 0;
   z-index: 1;
   pointer-events: none;
 }
