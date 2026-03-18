@@ -35,6 +35,13 @@
         >
           系統狀態
         </div>
+        <div 
+          class="menu-item" 
+          :class="{ active: activeTab === 'tools' }"
+          @click="activeTab = 'tools'"
+        >
+          Tool管理
+        </div>
       </div>
 
       <!-- 右側內容 -->
@@ -135,6 +142,11 @@
           </div>
         </div>
 
+        <!-- Tool管理 -->
+        <div v-if="activeTab === 'tools'" class="tab-content">
+          <ToolManager />
+        </div>
+
       </div>
     </div>
   </div>
@@ -143,6 +155,7 @@
 <script setup>
 import { ref } from 'vue';
 import { useTheme } from '../composables/useTheme';
+import ToolManager from '../views/settings/ToolManager.vue';
 
 const props = defineProps([
   'core', 'model', 'appearance', 'rhythm', 

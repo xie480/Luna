@@ -1,7 +1,7 @@
 <template>
   <div class="tool-manager">
     <div class="header">
-      <h2>MCP 工具管理</h2>
+      <div class="section-title">MCP TOOLS / 工具管理</div>
       <button class="btn-primary" @click="openCreateModal">
         + 新增工具
       </button>
@@ -193,32 +193,35 @@ async function handleDelete(tool) {
 
 <style scoped>
 .tool-manager {
-  padding: 20px;
-  color: #eee;
-  height: 100%;
-  overflow-y: auto;
-  background: rgba(0, 0, 0, 0.4);
-  border-radius: 8px;
+  color: var(--text-main, #eee);
 }
 
 .header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 15px;
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   padding-bottom: 10px;
+}
+
+.section-title {
+  font-size: 11px;
+  color: var(--primary);
+  opacity: 0.8;
+  letter-spacing: 1px;
+  font-weight: bold;
 }
 
 .tool-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: 1fr;
   gap: 15px;
 }
 
 .tool-card {
   background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
   border-radius: 6px;
   padding: 15px;
   transition: transform 0.2s;
@@ -239,7 +242,7 @@ async function handleDelete(tool) {
 .tool-name {
   font-weight: bold;
   font-size: 1.1em;
-  color: #4fd1c5;
+  color: var(--primary, #4fd1c5);
 }
 
 .tool-version {
@@ -251,7 +254,7 @@ async function handleDelete(tool) {
 
 .desc {
   font-size: 0.9em;
-  color: #aaa;
+  color: var(--text-dim, #aaa);
   margin-bottom: 10px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -268,8 +271,8 @@ async function handleDelete(tool) {
 
 .tag {
   font-size: 0.75em;
-  background: rgba(79, 209, 197, 0.1);
-  color: #81e6d9;
+  background: var(--primary-dim, rgba(79, 209, 197, 0.1));
+  color: var(--primary, #81e6d9);
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -284,22 +287,25 @@ async function handleDelete(tool) {
 
 /* Buttons */
 .btn-primary {
-  background: #319795;
-  color: white;
+  background: var(--primary, #319795);
+  color: #000;
   border: none;
-  padding: 8px 16px;
+  padding: 6px 12px;
   border-radius: 4px;
   cursor: pointer;
+  font-size: 12px;
+  font-weight: bold;
 }
-.btn-primary:hover { background: #2c7a7b; }
+.btn-primary:hover { filter: brightness(1.1); }
 
 .btn-secondary {
   background: #4a5568;
   color: white;
   border: none;
-  padding: 8px 16px;
+  padding: 6px 12px;
   border-radius: 4px;
   cursor: pointer;
+  font-size: 12px;
 }
 
 .btn-text {
@@ -320,18 +326,19 @@ async function handleDelete(tool) {
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 1000;
+  z-index: 10000; /* 確保高於 SettingsPanel 的 9500 */
 }
 
 .modal {
-  background: #1a202c;
+  background: var(--bg-panel, #1a202c);
   padding: 25px;
   border-radius: 8px;
   width: 500px;
   max-width: 90%;
   max-height: 90vh;
   overflow-y: auto;
-  border: 1px solid #2d3748;
+  border: 1px solid var(--border, #2d3748);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.8);
 }
 
 .form-group {
@@ -348,22 +355,23 @@ label {
   display: block;
   margin-bottom: 5px;
   font-size: 0.9em;
-  color: #cbd5e0;
+  color: var(--text-dim, #cbd5e0);
 }
 
 input, textarea {
   width: 100%;
-  background: #2d3748;
-  border: 1px solid #4a5568;
+  background: rgba(0,0,0,0.3);
+  border: 1px solid var(--border, #4a5568);
   color: white;
   padding: 8px;
   border-radius: 4px;
   font-family: inherit;
+  box-sizing: border-box;
 }
 
 input:focus, textarea:focus {
   outline: none;
-  border-color: #4fd1c5;
+  border-color: var(--primary, #4fd1c5);
 }
 
 textarea {
