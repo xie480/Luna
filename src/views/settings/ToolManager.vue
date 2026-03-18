@@ -533,12 +533,12 @@ textarea::-webkit-scrollbar-track {
 .tool-list::-webkit-scrollbar-thumb,
 .modal-body::-webkit-scrollbar-thumb,
 textarea::-webkit-scrollbar-thumb {
-  background: rgba(0, 255, 200, 0.2);
+  background: var(--border); /* 使用主題變量 */
   border-radius: 3px;
 }
 .tool-list::-webkit-scrollbar-thumb:hover,
 .modal-body::-webkit-scrollbar-thumb:hover,
 textarea::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 255, 200, 0.4);
+  background: var(--primary); /* 使用主題變量 */
 }
 </style>

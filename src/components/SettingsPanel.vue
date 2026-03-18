@@ -422,11 +422,11 @@ select {
 }
 .content::-webkit-scrollbar-thumb,
 .appearance-list::-webkit-scrollbar-thumb {
-  background: rgba(0, 255, 200, 0.2);
+  background: var(--border); /* 使用主題變量 */
   border-radius: 3px;
 }
 .content::-webkit-scrollbar-thumb:hover,
 .appearance-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 255, 200, 0.4);
+  background: var(--primary); /* 使用主題變量 */
 }
 </style>

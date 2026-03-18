@@ -409,8 +409,8 @@ defineExpose({
 /* 滾動條美化 */
 .chat-list::-webkit-scrollbar { width: 6px; }
 .chat-list::-webkit-scrollbar-track { background: transparent; }
-.chat-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
-.chat-list::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+.chat-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.chat-list::-webkit-scrollbar-thumb:hover { background: var(--primary); }
 
 /* 聊天行容器 */
 .chat-row {

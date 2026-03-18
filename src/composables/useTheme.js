@@ -32,6 +32,62 @@ const THEMES = {
       "--hover": "rgba(255,255,255,0.15)"
     }
   },
+  solar: {
+    name: "日光白 (亮色)",
+    colors: {
+      "--primary": "#ff9800",
+      "--primary-dim": "rgba(255,152,0,0.15)",
+      "--bg-panel": "rgba(245,245,245,0.95)",
+      "--bg-sidebar": "rgba(230,230,230,0.95)",
+      "--text-main": "#333333",
+      "--text-dim": "#666666",
+      "--border": "rgba(0,0,0,0.15)",
+      "--accent": "#ff5722",
+      "--hover": "rgba(0,0,0,0.05)"
+    }
+  },
+  crimson: {
+    name: "猩紅月 (暗黑)",
+    colors: {
+      "--primary": "#ff0033",
+      "--primary-dim": "rgba(255,0,51,0.15)",
+      "--bg-panel": "rgba(20,0,5,0.95)",
+      "--bg-sidebar": "rgba(10,0,2,0.95)",
+      "--text-main": "#ffcccc",
+      "--text-dim": "#aa5555",
+      "--border": "rgba(255,0,51,0.4)",
+      "--accent": "#ff0000",
+      "--hover": "rgba(255,0,51,0.2)"
+    }
+  },
+  gold: {
+    name: "流金歲月 (奢華)",
+    colors: {
+      "--primary": "#ffd700",
+      "--primary-dim": "rgba(255,215,0,0.15)",
+      "--bg-panel": "rgba(30,25,10,0.95)",
+      "--bg-sidebar": "rgba(20,15,5,0.95)",
+      "--text-main": "#fff8e1",
+      "--text-dim": "#d4af37",
+      "--border": "rgba(255,215,0,0.4)",
+      "--accent": "#ffb300",
+      "--hover": "rgba(255,215,0,0.2)"
+    }
+  },
+  hacker: {
+    name: "矩陣終端 (復古)",
+    colors: {
+      "--primary": "#00ff00",
+      "--primary-dim": "rgba(0,255,0,0.15)",
+      "--bg-panel": "rgba(0,0,0,1)",
+      "--bg-sidebar": "rgba(0,20,0,1)",
+      "--text-main": "#00ff00",
+      "--text-dim": "#008800",
+      "--border": "rgba(0,255,0,0.8)",
+      "--accent": "#00ff00",
+      "--hover": "rgba(0,255,0,0.3)"
+    }
+  },
   sakura: {
     name: "櫻花粉 (柔和)",
     colors: {
