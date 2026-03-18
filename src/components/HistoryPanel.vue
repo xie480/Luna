@@ -171,10 +171,12 @@ async function selectDate(dateStr) {
     console.log("History raw:", res);
     // res 格式: ["TAG:Content:Time", ...]
     
-    messages.value = (res || []).reduce((acc, line) => {
-      // 解析正則: TAG:Content:Time
-      // 修改正則以支持帶底線的 TAG (如 CONTEXT_SUMMARY)
-      const match = line.match(/^([A-Z_]+):(.*):(\d{1,2}:\d{2}:\d{2})$/);
+    messages.value = (res || []).reduce((acc, rawLine) => {
+      if (!rawLine) return acc;
+      const line = typeof rawLine === 'string' ? rawLine : JSON.stringify(rawLine);
+
+      // [Fix] 使用 [\s\S]* 替代 .* 以支持多行文本（換行符），避免代碼塊或分段文本被丟棄
+      const match = line.match(/^([A-Z_]+):([\s\S]*):(\d{1,2}:\d{2}:\d{2}(?:\.\d+)?)$/);
       
       if (match) {
         const [_, tag, content, time] = match;
@@ -187,9 +189,32 @@ async function selectDate(dateStr) {
         
         acc.push({
           sender,
-          content,
+          content: content.trim(),
           time // 直接使用字符串時間
         });
+      } else {
+        // [Fix] 增加容錯處理：如果沒有時間後綴，嘗試只匹配 TAG:Content
+        const fallbackMatch = line.match(/^([A-Z_]+):([\s\S]*)$/);
+        if (fallbackMatch) {
+          const [_, tag, content] = fallbackMatch;
+          let sender = 'system';
+          if (tag === 'LUNA') sender = 'luna';
+          else if (tag === 'USER') sender = 'user';
+          
+          acc.push({
+            sender,
+            content: content.trim(),
+            time: ''
+          });
+        } else {
+          // [Fix] 如果完全不符合格式，作為系統消息顯示，防止任何信息遺漏
+          console.warn("[HistoryPanel] 無法解析的歷史記錄格式:", line);
+          acc.push({
+            sender: 'system',
+            content: line,
+            time: ''
+          });
+        }
       }
       return acc;
     }, []);
