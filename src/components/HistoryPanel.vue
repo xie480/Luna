@@ -158,6 +158,57 @@ async function fetchAvailableDates() {
   }
 }
 
+// 提取解析歷史記錄的邏輯，方便復用
+function parseHistory(res) {
+  return (res || []).reduce((acc, rawLine) => {
+    if (!rawLine) return acc;
+    const line = typeof rawLine === 'string' ? rawLine : JSON.stringify(rawLine);
+
+    // [Fix] 使用 [\s\S]* 替代 .* 以支持多行文本（換行符），避免代碼塊或分段文本被丟棄
+    const match = line.match(/^([A-Z_]+):([\s\S]*):(\d{1,2}:\d{2}:\d{2}(?:\.\d+)?)$/);
+    
+    if (match) {
+      const [_, tag, content, time] = match;
+      
+      let sender = 'system';
+      if (tag === 'LUNA') sender = 'luna';
+      else if (tag === 'USER') sender = 'user';
+      else if (tag === 'STARTUP') sender = 'system';
+      else if (tag === 'CONTEXT_SUMMARY') sender = 'system';
+      
+      acc.push({
+        sender,
+        content: content.trim(),
+        time // 直接使用字符串時間
+      });
+    } else {
+      // [Fix] 增加容錯處理：如果沒有時間後綴，嘗試只匹配 TAG:Content
+      const fallbackMatch = line.match(/^([A-Z_]+):([\s\S]*)$/);
+      if (fallbackMatch) {
+        const [_, tag, content] = fallbackMatch;
+        let sender = 'system';
+        if (tag === 'LUNA') sender = 'luna';
+        else if (tag === 'USER') sender = 'user';
+        
+        acc.push({
+          sender,
+          content: content.trim(),
+          time: ''
+        });
+      } else {
+        // [Fix] 如果完全不符合格式，作為系統消息顯示，防止任何信息遺漏
+        console.warn("[HistoryPanel] 無法解析的歷史記錄格式:", line);
+        acc.push({
+          sender: 'system',
+          content: line,
+          time: ''
+        });
+      }
+    }
+    return acc;
+  }, []);
+}
+
 async function selectDate(dateStr) {
   // 優化：如果該日期沒有數據，則不執行任何操作
   if (!availableDates.value.has(dateStr)) return;
@@ -169,55 +220,8 @@ async function selectDate(dateStr) {
     // dateStr 已經是 YYYY:MM:DD 格式
     const res = await window.desktopApi.history(dateStr);
     console.log("History raw:", res);
-    // res 格式: ["TAG:Content:Time", ...]
     
-    messages.value = (res || []).reduce((acc, rawLine) => {
-      if (!rawLine) return acc;
-      const line = typeof rawLine === 'string' ? rawLine : JSON.stringify(rawLine);
-
-      // [Fix] 使用 [\s\S]* 替代 .* 以支持多行文本（換行符），避免代碼塊或分段文本被丟棄
-      const match = line.match(/^([A-Z_]+):([\s\S]*):(\d{1,2}:\d{2}:\d{2}(?:\.\d+)?)$/);
-      
-      if (match) {
-        const [_, tag, content, time] = match;
-        
-        let sender = 'system';
-        if (tag === 'LUNA') sender = 'luna';
-        else if (tag === 'USER') sender = 'user';
-        else if (tag === 'STARTUP') sender = 'system';
-        else if (tag === 'CONTEXT_SUMMARY') sender = 'system';
-        
-        acc.push({
-          sender,
-          content: content.trim(),
-          time // 直接使用字符串時間
-        });
-      } else {
-        // [Fix] 增加容錯處理：如果沒有時間後綴，嘗試只匹配 TAG:Content
-        const fallbackMatch = line.match(/^([A-Z_]+):([\s\S]*)$/);
-        if (fallbackMatch) {
-          const [_, tag, content] = fallbackMatch;
-          let sender = 'system';
-          if (tag === 'LUNA') sender = 'luna';
-          else if (tag === 'USER') sender = 'user';
-          
-          acc.push({
-            sender,
-            content: content.trim(),
-            time: ''
-          });
-        } else {
-          // [Fix] 如果完全不符合格式，作為系統消息顯示，防止任何信息遺漏
-          console.warn("[HistoryPanel] 無法解析的歷史記錄格式:", line);
-          acc.push({
-            sender: 'system',
-            content: line,
-            time: ''
-          });
-        }
-      }
-      return acc;
-    }, []);
+    messages.value = parseHistory(res);
 
     await nextTick();
     scrollToBottom();
@@ -261,7 +265,7 @@ function getCurrentTimeStr() {
   return d.toLocaleTimeString('en-GB', { hour12: false });
 }
 
-// 暴露給父組件調用，用於實時插入新消息
+// 暴露給父組件調用，用於實時插入新消息或刷新
 defineExpose({
   pushMessage: (msg) => {
     if (selectedDate.value === formatDateStr(new Date())) {
@@ -272,6 +276,30 @@ defineExpose({
       };
       messages.value.push(msgWithTime);
       nextTick(scrollToBottom);
+    }
+  },
+  // [Fix] 新增 refresh 方法，用於重新獲取當天最新的歷史記錄
+  refresh: async () => {
+    const today = formatDateStr(new Date());
+    const now = new Date();
+    
+    // 如果當前不在本月，切換到本月並刷新可用日期
+    if (currentYear.value !== now.getFullYear() || currentMonth.value !== now.getMonth()) {
+      currentYear.value = now.getFullYear();
+      currentMonth.value = now.getMonth();
+      await fetchAvailableDates();
+    }
+    
+    availableDates.value.add(today);
+    selectedDate.value = today;
+    
+    try {
+      const res = await window.desktopApi.history(today);
+      messages.value = parseHistory(res);
+      await nextTick();
+      scrollToBottom();
+    } catch (e) {
+      console.error("Fetch history error", e);
     }
   }
 });

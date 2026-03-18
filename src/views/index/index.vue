@@ -1,7 +1,7 @@
 <template>
   <div class="app-root">
 
-    <!-- 頂部提示框 (設定模式時顯示) -->
+    <!-- 顶部提示框 (设定模式时显示) -->
     <div v-if="isSetupMode" class="top-banner" @mouseenter="uiEnter" @mouseleave="uiLeave">
       正在进行初始位置设定，请调整模型位置和大小。
     </div>
@@ -147,13 +147,13 @@
         @toggle-setup="toggleSetupMode"
         @toggle-tracking-setup="toggleTrackingSetupMode"
         @toggle-model="modelVisible = !modelVisible"
+        @logout="handleLogout"
         @mouseenter="uiEnter"
         @mouseleave="uiLeave"
       />
     </transition>
 
     <!-- ===== PIXI Canvas ===== -->
-    <!-- 使用 absolute 定位確保覆蓋全屏，避免被其他流式元素擠壓 -->
     <div ref="wrapperRef" class="interactive-wrapper">
       <canvas ref="canvasRef" @contextmenu.prevent></canvas>
     </div>
@@ -332,6 +332,41 @@ function onLoginSubmit() {
   if (!loginLoading.value) performLogin();
 }
 
+/* ================= 登出邏輯 ================= */
+async function handleLogout() {
+  try {
+    await logoutApi(authToken.value);
+  } catch (e) {
+    console.error("[Auth] 登出請求失敗", e);
+  } finally {
+    // 清除狀態
+    authToken.value = "";
+    loginSuccess.value = false;
+    loginVisible.value = true;
+    showSettings.value = false;
+    showChat.value = false;
+    showHistory.value = false;
+    
+    // 隱藏模型
+    if (model) {
+      gsap.to(model, {
+        alpha: 0,
+        y: (app?.renderer?.height || window.innerHeight) + 60,
+        duration: 0.8,
+        ease: "power2.in"
+      });
+    }
+    
+    // 重置登錄面板日誌
+    loginLogLines.value = [
+      "會話已終止。",
+      "請重新輸入憑證以建立連接。"
+    ];
+    loginError.value = "";
+    loginForm.value.password = ""; // 清空密碼，保留用戶名
+  }
+}
+
 let app       = null;
 let container = null;
 let model     = null; 
@@ -343,8 +378,7 @@ const dummyBoxRef = ref(null);
 const alwaysShowBubbles = ref(false);
 const { chatBubbles, bubbleAnchor, registerBubble, sendReplyAsBubbles } = useBubble(dummyBoxRef, alwaysShowBubbles);
 
-// 增加初始的氣泡高度間距，避免與輸入框重疊
-bubbleAnchor.value = { x: window.innerWidth / 2, y: window.innerHeight - 180 };
+bubbleAnchor.value = { x: window.innerWidth / 2, y: window.innerHeight - 150 };
 
 /* ================= 外貌 & 律動 ================= */
 const appearance = useAppearance();
@@ -352,7 +386,7 @@ const rhythm = useRhythm();
 
 function getCoreModel() { return model?.internalModel?.coreModel ?? null; }
 
-/* ================= 聊天輸入狀態 ================= */
+/* ================= 聊天輸入 ================= */
 // isConnecting: 發送請求後，等待服務器響應的階段 (按鈕轉圈)
 const isConnecting = ref(false);
 // isStreaming: 收到第一個字節後，正在接收/處理數據的階段 (輸入框特效)
@@ -424,11 +458,8 @@ async function handleModelReply(res) {
   }
   
   if (showHistory.value && historyPanelRef.value) {
-    historyPanelRef.value.pushMessage({
-      sender: 'luna',
-      content: replyText,
-      timestamp: Date.now()
-    });
+    // [Fix] 收到回信後，重新獲取最新的聊天記錄
+    historyPanelRef.value.refresh();
   }
 
   console.log("[Luna] 準備渲染氣泡:", replyText);
@@ -444,7 +475,7 @@ function handleNetworkError() {
   appearance.showAppearanceHint("網絡請求失敗");
 }
 
-/* ================= 發送消息 (核心邏輯修復) ================= */
+/* ================= 發送消息 ================= */
 async function onSend(text) {
   if (isConnecting.value || isStreaming.value) return;
   if (!text) return;
@@ -454,11 +485,13 @@ async function onSend(text) {
   streamText.value = ""; 
 
   if (showHistory.value && historyPanelRef.value) {
+    // [Fix] 用戶發送信息時，先樂觀更新，然後重新獲取最新記錄
     historyPanelRef.value.pushMessage({
       sender: 'user',
       content: text,
       timestamp: Date.now()
     });
+    historyPanelRef.value.refresh();
   }
 
   try {
@@ -539,7 +572,6 @@ function uiEnter() {
 
 function uiLeave() {
   clearTimeout(uiLeaveTimer);
-  // 延長到 350ms，確保 Vue 的 300ms 退出動畫完全結束且 DOM 被移除後再檢測
   uiLeaveTimer = setTimeout(() => {
     const hovered = document.querySelector('.chat-bar-wrapper:hover, .settings-panel:hover, .login-terminal:hover, .history-panel:hover, .top-banner:hover');
     if (hovered) {
@@ -548,7 +580,7 @@ function uiLeave() {
       overUI = false;
     }
     updatePetState();
-  }, 350);
+  }, 150);
 }
 
 let modelLeaveTimer = null;
@@ -667,7 +699,7 @@ function onPointerUp() {
   dragging = false;
 }
 
-/* ================= 滾輪縮放 ================= */
+/* ================= 滚轮缩放 ================= */
 function onWheel(ev) {
   if (!model || !app) return;
   if (!overModel) return; 
@@ -685,7 +717,7 @@ function onWheel(ev) {
   container.position.y += globalPoint.y - newGlobal.y;
 }
 
-/* ================= 視線追蹤 ================= */
+/* ================= 视线追踪 ================= */
 const PARAM_CONFIG = {
   HEAD_X: { param: "ParamAngleX",   range: [-30, 30] },
   HEAD_Y: { param: "ParamAngleY",   range: [-30, 30] },
@@ -709,7 +741,7 @@ function applyLookAt(dx, dy) {
     core.setParameterValueById(PARAM_CONFIG.EYE_Y.param,  mapRange(ny, PARAM_CONFIG.EYE_Y.range));
     core.setParameterValueById(PARAM_CONFIG.HEAD_X.param, mapRange(nx, PARAM_CONFIG.HEAD_X.range));
     core.setParameterValueById(PARAM_CONFIG.HEAD_Y.param, mapRange(ny, PARAM_CONFIG.HEAD_Y.range));
-  } catch (e) { console.warn("[Luna] applyLookAt 失敗", e); }
+  } catch (e) { console.warn("[Luna] applyLookAt 失败", e); }
 }
 
 function onGlobalPointerMove(ev) {
@@ -720,7 +752,7 @@ function onGlobalPointerMove(ev) {
   applyLookAt(local.x, local.y);
 }
 
-/* ================= 呼吸動畫 ================= */
+/* ================= 呼吸动画 ================= */
 let breathTickerFn = null;
 function startBreath() {
   const breathStart = performance.now() / 1000;
@@ -729,7 +761,7 @@ function startBreath() {
     if (!core) return;
     const t   = performance.now() / 1000 - breathStart;
     const val = 0.5 + Math.sin(t * 0.9 * Math.PI * 2) * 0.15;
-    try { core.setParameterValueById(PARAM_CONFIG.BREATH.param, val); } catch (e) { console.warn("[Luna] 呼吸參數失敗", e); }
+    try { core.setParameterValueById(PARAM_CONFIG.BREATH.param, val); } catch (e) { console.warn("[Luna] 呼吸参数失败", e); }
   };
   app.ticker.add(breathTickerFn);
 }
@@ -753,7 +785,7 @@ async function resetToSolemn() {
     try {
       core.setParameterValueById(id, typeof currentEmotionMeta[id] === "number" ? currentEmotionMeta[id] : 0);
     } catch (e) {
-      console.warn("[Luna] resetToSolemn 恢復失敗:", id, e);
+      console.warn("[Luna] resetToSolemn 恢复失败:", id, e);
     }
   }
   currentEmotionMeta = {};
@@ -805,7 +837,7 @@ async function applyEmotionExpressions(emotion) {
   await appearance.applyAllEnabled(getCoreModel());
 }
 
-/* ================= 預加載表情文件 ================= */
+/* ================= 预加载表情文件 ================= */
 async function preloadExpressions() {
   const allFiles = [
     "眼-生气", "脸红2隐藏", "脸黑", "眼-哭哭", "眼-泪眼汪汪",
@@ -825,13 +857,13 @@ async function preloadExpressions() {
         
         expressionCache.set(name, JSON.parse(text));
       } catch (e) {
-        console.warn(`[Live2D] 表情文件加載跳過: ${name} - ${e.message}`);
+        console.warn(`[Live2D] 表情文件加载跳过: ${name} - ${e.message}`);
       }
     })
   );
 }
 
-/* ================= 重置模型狀態 ================= */
+/* ================= 重置模型状态 ================= */
 async function resetModelState() {
   const core = getCoreModel();
   if (!core) return;
@@ -843,7 +875,7 @@ async function resetModelState() {
   appearance.showAppearanceHint("模型表情已重置");
 }
 
-/* ================= 打開設置面板 ================= */
+/* ================= 打开设置面板 ================= */
 function openSettings() {
   showSettings.value = true;
 }
@@ -865,7 +897,7 @@ function waitForModelReady(timeout = 10000) {
   });
 }
 
-/* ================= 啟動序列 ================= */
+/* ================= 启动序列 ================= */
 async function startBootSequence() {
   lunaIntroVisible.value = true;
 
@@ -979,8 +1011,8 @@ onMounted(async () => {
     await applyEmotionExpressions(INITIAL_EMOTION);
 
   } catch (e) {
-    console.error("[Live2D] 模型加載失敗", e);
-    appearance.showAppearanceHint("模型加載失敗，請檢查文件路徑");
+    console.error("[Live2D] 模型加载失败", e);
+    appearance.showAppearanceHint("模型加载失败，请检查文件路径");
   }
 
   await preloadExpressions();
@@ -995,10 +1027,21 @@ onBeforeUnmount(() => {
 });
 </script>
 
+<style>
+/* 全局重置，防止出现滚动条 */
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+</style>
+
 <style scoped>
 .app-root {
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   position: relative;
   overflow: hidden;
   font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
