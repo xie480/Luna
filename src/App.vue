@@ -147,6 +147,7 @@
         @toggle-setup="toggleSetupMode"
         @toggle-tracking-setup="toggleTrackingSetupMode"
         @toggle-model="modelVisible = !modelVisible"
+        @logout="handleLogout"
         @mouseenter="uiEnter"
         @mouseleave="uiLeave"
       />
@@ -329,6 +330,41 @@ async function performLogin() {
 
 function onLoginSubmit() {
   if (!loginLoading.value) performLogin();
+}
+
+/* ================= 登出邏輯 ================= */
+async function handleLogout() {
+  try {
+    await logoutApi(authToken.value);
+  } catch (e) {
+    console.error("[Auth] 登出請求失敗", e);
+  } finally {
+    // 清除狀態
+    authToken.value = "";
+    loginSuccess.value = false;
+    loginVisible.value = true;
+    showSettings.value = false;
+    showChat.value = false;
+    showHistory.value = false;
+    
+    // 隱藏模型
+    if (model) {
+      gsap.to(model, {
+        alpha: 0,
+        y: (app?.renderer?.height || window.innerHeight) + 60,
+        duration: 0.8,
+        ease: "power2.in"
+      });
+    }
+    
+    // 重置登錄面板日誌
+    loginLogLines.value = [
+      "會話已終止。",
+      "請重新輸入憑證以建立連接。"
+    ];
+    loginError.value = "";
+    loginForm.value.password = ""; // 清空密碼，保留用戶名
+  }
 }
 
 let app       = null;

@@ -126,6 +126,8 @@
             <div class="status-row">
               <div class="status-indicator" :class="{ active: isLoggedIn }"></div>
               <span class="status-text">{{ isLoggedIn ? '已登錄 (Online)' : '未連接 (Offline)' }}</span>
+              <!-- 新增退出登錄按鈕 -->
+              <button v-if="isLoggedIn" class="logout-btn" @click="$emit('logout')">退出登錄</button>
             </div>
           </div>
 
@@ -164,7 +166,7 @@ const props = defineProps([
 ]);
 const emit = defineEmits([
   'close', 'reset-model', 'toggle-setup', 'toggle-tracking-setup', 
-  'mouseenter', 'mouseleave', 'toggle-model'
+  'mouseenter', 'mouseleave', 'toggle-model', 'logout'
 ]);
 
 // 拖拽邏輯
@@ -328,6 +330,22 @@ function quitApp() {
   box-shadow: 0 0 8px #00ff00;
 }
 .status-text { font-size: 12px; }
+
+/* 退出登錄按鈕 */
+.logout-btn {
+  margin-left: auto;
+  background: rgba(255, 50, 50, 0.15);
+  border: 1px solid rgba(255, 50, 50, 0.4);
+  color: #ffaaaa;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 11px;
+  border-radius: 4px;
+  transition: 0.2s;
+}
+.logout-btn:hover {
+  background: rgba(255, 50, 50, 0.3);
+}
 
 /* 主題控制 */
 .theme-control { display: flex; gap: 10px; }
