@@ -1,0 +1,201 @@
+你是一个资深后端架构师，请根据以下需求生成一个可运行的企业级项目骨架（Java + Spring Boot + Maven），实现一个「厂商级 Tool Calling + MCP Server + Skill 层」平台。
+
+要求：必须输出完整项目文件树 + 每个关键文件的代码（可直接复制运行）
+
+一、项目结构（必须生成）
+
+项目为多模块 Maven 工程：
+
+root
+├── mcp-server
+├── agent-orchestrator
+├── llm-adapter
+├── tool-executor
+├── skill-executor
+├── control-plane
+├── common (公共模块)
+
+三、核心功能（必须实现）
+
+1. MCP Server（工具/Skill 注册中心）
+
+实现以下接口：
+
+Tool/Skill 注册
+POST /mcp/resources
+
+查询
+GET /mcp/resources
+GET /mcp/resources/{id}
+
+搜索（简化版）
+POST /mcp/search
+
+Resource 实体类（必须生成）
+
+class Resource {
+String id;
+String type; // tool / skill
+String name;
+String description;
+String version;
+String owner;
+String inputSchema;   // JSON string
+String outputSchema;
+String endpoint;
+String runMode;       // sync / async
+Boolean requiresApproval;
+String sensitivity;
+}
+
+2. Agent Orchestrator（核心）
+
+实现完整调用流程：
+
+步骤：
+
+调用 MCP 获取候选 tools/skills
+
+调用 LLM（决策阶段）
+
+调用 LLM（参数阶段）
+
+JSON Schema 校验
+
+校验失败 → 自动修复（再调用 LLM）
+
+通过 Execution Gate（权限/审批模拟）
+
+调用 Tool 或 Skill
+
+返回结果
+
+必须实现类：
+
+AgentService
+
+public class AgentService {
+public String handleUserInput(String input);
+}
+
+ToolRouter
+
+List<Resource> findCandidates(String query);
+
+LlmAdapter（必须是接口 + Mock实现）
+
+public interface LlmAdapter {
+String generate(String prompt);
+}
+
+实现：
+
+public class MockLlmAdapter implements LlmAdapter
+
+Mock逻辑：
+
+如果 prompt 包含 "决策"，返回 tool/skill id
+
+如果 prompt 包含 "args"，返回 JSON 参数
+
+3. JSON Schema 校验（必须实现）
+
+工具类：
+
+public class JsonSchemaValidator {
+public static boolean validate(String schema, String json);
+}
+
+4. Tool Executor
+
+public class ToolExecutor {
+public String execute(Resource tool, String argsJson);
+}
+
+实现：
+
+模拟 HTTP 调用
+
+返回固定 JSON
+
+5. Skill Executor（重点）
+
+public class SkillExecutor {
+public String execute(Resource skill, String argsJson);
+}
+
+必须支持：
+
+requiresApproval = true 时：
+打印“等待审批”
+模拟审批通过
+
+async 模式：
+返回 taskId
+
+6. Execution Gate
+
+public class ExecutionGate {
+public void check(Resource resource);
+}
+
+逻辑：
+
+如果 sensitivity = high → 拒绝
+
+如果 requiresApproval = true → 标记需要审批
+
+四、数据库设计（必须生成 SQL）
+
+表：
+
+resources
+
+logs
+
+tasks
+
+五、完整调用流程（必须实现）
+
+用户输入
+→ AgentService
+→ ToolRouter
+→ LLM（决策）
+→ LLM（参数）
+→ JSON校验
+→ 修复（如失败）
+→ ExecutionGate
+→ ToolExecutor / SkillExecutor
+→ 返回结果
+
+十、输出格式要求（非常重要）
+
+必须按以下顺序输出：
+
+1. 项目完整文件树
+2. 每个文件完整代码（不要省略）
+
+十一、额外要求（必须满足）
+
+代码必须可以直接运行（不允许伪代码）
+
+每个类必须有注释说明作用
+
+所有 JSON 必须合法
+
+不允许省略关键实现
+
+Mock LLM 必须可用（不依赖外部 API）
+
+十二、目标
+
+生成一个可以：
+
+本地启动
+发送请求
+自动选择 tool / skill
+执行并返回结果
+
+的最小可运行系统
+
+现在开始生成完整项目。
