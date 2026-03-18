@@ -143,7 +143,7 @@
         </div>
 
         <!-- Tool管理 -->
-        <div v-if="activeTab === 'tools'" class="tab-content">
+        <div v-if="activeTab === 'tools'" class="tab-content" style="height: 100%;">
           <ToolManager />
         </div>
 
@@ -406,4 +406,24 @@ select {
   border-radius: 4px;
 }
 .quit-btn:hover { background: rgba(255, 50, 50, 0.3); }
+
+/* 全局滾動條美化 (針對 SettingsPanel 內部) */
+.content::-webkit-scrollbar,
+.appearance-list::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.content::-webkit-scrollbar-track,
+.appearance-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.content::-webkit-scrollbar-thumb,
+.appearance-list::-webkit-scrollbar-thumb {
+  background: rgba(0, 255, 200, 0.2);
+  border-radius: 3px;
+}
+.content::-webkit-scrollbar-thumb:hover,
+.appearance-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 255, 200, 0.4);
+}
 </style>
