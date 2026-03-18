@@ -12,21 +12,19 @@ import java.util.List;
 public interface KnowledgeBaseService extends IService<KnowledgeBase> {
 
     /**
-     * 將文本內容分片、向量化並存入知識庫
-     *
-     * @param title      標題或文件名
-     * @param content    完整的文本內容
+     * 添加知識到知識庫 (包含分片和向量化)
+     * @param title 標題
+     * @param content 內容
      * @param sourceType 來源類型
-     * @param sourcePath 來源路徑或標識
+     * @param sourcePath 來源路徑
      */
     void addKnowledge(String title, String content, SourceType sourceType, String sourcePath);
 
     /**
-     * 根據用戶問題進行向量檢索，獲取最相關的知識片段
-     *
-     * @param query 用戶問題
-     * @param topK  返回的最大片段數量
-     * @return 相關的知識庫記錄列表
+     * 向量檢索知識庫
+     * @param query 查詢語句
+     * @param topK 返回數量
+     * @return 匹配的知識列表
      */
     List<KnowledgeBase> searchKnowledge(String query, int topK);
 }

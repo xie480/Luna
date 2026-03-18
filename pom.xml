@@ -50,6 +50,13 @@
             <version>${langchain4j.version}</version>
         </dependency>
 
+        <!-- JSON Schema Validator (新增：用于 MCP 参数严格校验) -->
+        <dependency>
+            <groupId>com.networknt</groupId>
+            <artifactId>json-schema-validator</artifactId>
+            <version>1.0.86</version>
+        </dependency>
+
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
@@ -310,6 +317,8 @@
                 <configuration>
                     <release>25</release>
                     <encoding>UTF-8</encoding>
+                    <!-- 关键配置：保留方法参数名称，确保反射工具能正确映射参数 -->
+                    <parameters>true</parameters>
                     <annotationProcessorPaths>
                         <path>
                             <groupId>org.projectlombok</groupId>
