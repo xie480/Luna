@@ -19,12 +19,7 @@ import java.util.Map;
 @Data
 @Builder
 @NoArgsConstructor
-@All**Commenting Entities**
-
-I've now fully commented all the entity classes, ensuring thorough Javadoc for each field. This includes `LunaLog.java`, `McpTool.java`, `McpSkill.java`, and `Resource.java`, with detailed descriptions for every attribute. Then, I reviewed `KnowledgeBase.java`, `ScheduleTask.java`, `UserPreference.java`, and `Memory.java` and enhanced comments for consistency.
-
-
-ArgsConstructor
+@AllArgsConstructor
 @TableName(value = "luna_log", autoResultMap = true)
 public class LunaLog implements Serializable {
     

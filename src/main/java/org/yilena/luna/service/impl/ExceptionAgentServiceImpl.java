@@ -26,9 +26,9 @@ public class ExceptionAgentServiceImpl implements ExceptionAgentService {
         try {
             // 1. 構建分析 Prompt
             String prompt = String.format(PromptTemplates.EXCEPTION_ANALYSIS_PROMPT,
-                    context.getException().getMessage(),
-                    context.getException().getClass().getSimpleName(),
-                    context.getRequestPath(),
+                    context.getErrorMessage(),
+                    context.getErrorType(),
+                    context.getRequestUri(),
                     context.getRequestParams(),
                     context.getUserInput()
             );
