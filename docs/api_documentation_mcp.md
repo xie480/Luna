@@ -34,7 +34,7 @@
 
 ```json
 {
-  "id": "tool_123456789",
+  "id": "1717823456789012345",
   "name": "web_search",
   "description": "通用網頁搜索工具...",
   "beanName": "searchTools",
@@ -59,7 +59,7 @@
 
 | 字段名 | 類型 | 必填 | 說明 |
 | :--- | :--- | :--- | :--- |
-| `id` | string | 是 | 工具 ID |
+| `id` | string (Long) | 是 | 工具 ID (雪花算法生成的 Long，前端需作為字符串傳遞) |
 | `name` | string | 否 | 新名稱 |
 | `description` | string | 否 | 新描述 |
 | ... | ... | ... | 其他可更新字段同註冊接口 |
@@ -80,7 +80,7 @@
 
 | 字段名 | 類型 | 必填 | 說明 |
 | :--- | :--- | :--- | :--- |
-| `id` | string | 是 | 工具 ID |
+| `id` | string (Long) | 是 | 工具 ID |
 
 **響應示例:**
 
@@ -113,7 +113,7 @@ HTTP 200 OK (無 Body)
 
 ```json
 {
-  "id": "skill_987654321",
+  "id": "1717823456789012346",
   "name": "export_data",
   "runMode": "ASYNC",
   "requiresApproval": true,
@@ -132,7 +132,7 @@ HTTP 200 OK (無 Body)
 
 **請求參數 (Body):**
 
-需包含 `id` 及其他待更新字段。
+需包含 `id` (string/Long) 及其他待更新字段。
 
 ---
 
@@ -154,13 +154,13 @@ HTTP 200 OK (無 Body)
 ```json
 [
   {
-    "id": "tool_1",
+    "id": "1717823456789012345",
     "type": "TOOL",
     "name": "web_search",
     ...
   },
   {
-    "id": "skill_1",
+    "id": "1717823456789012346",
     "type": "SKILL",
     "name": "export_data",
     ...
@@ -196,7 +196,7 @@ HTTP 200 OK (無 Body)
 ```json
 [
   {
-    "id": "tool_weather",
+    "id": "1717823456789012347",
     "name": "weather_query",
     "description": "查詢天氣信息...",
     "type": "TOOL"
