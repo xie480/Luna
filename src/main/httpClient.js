@@ -2,7 +2,7 @@ import axios from "axios";
 
 const http = axios.create({
   baseURL: "http://localhost:8001", // ⚠️ 改成你的 Spring Boot 地址
-  timeout: 10_000
+  timeout: 10_000_000
 });
 
 // 統一管理 Token
