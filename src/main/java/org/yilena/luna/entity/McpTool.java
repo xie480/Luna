@@ -49,6 +49,12 @@ public class McpTool implements Serializable {
     @TableField("output_schema")
     private String outputSchema;
 
+    /**
+     * 文本的向量表示 (PGVector)
+     */
+    @TableField("embedding")
+    private String embedding;
+
     @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 

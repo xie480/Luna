@@ -58,6 +58,12 @@ public class McpSkill implements Serializable {
     @TableField("sensitivity")
     private String sensitivity;
 
+    /**
+     * 文本的向量表示 (PGVector)
+     */
+    @TableField("embedding")
+    private String embedding;
+
     @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 

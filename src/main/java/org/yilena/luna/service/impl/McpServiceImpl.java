@@ -1,7 +1,7 @@
 package org.yilena.luna.service.impl;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.entity.McpSkill;
 import org.yilena.luna.entity.McpTool;
@@ -9,20 +9,25 @@ import org.yilena.luna.entity.Resource;
 import org.yilena.luna.mapper.McpSkillMapper;
 import org.yilena.luna.mapper.McpToolMapper;
 import org.yilena.luna.service.McpService;
+import org.yilena.luna.utils.LlmClientUtil;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class McpServiceImpl implements McpService {
 
     private final McpToolMapper toolMapper;
     private final McpSkillMapper skillMapper;
+    private final LlmClientUtil llmClientUtil;
 
     @Override
     public McpTool registerTool(McpTool tool) {
+        // 註冊時自動生成向量
+        generateToolEmbedding(tool);
+        
         if (tool.getId() == null) {
             toolMapper.insert(tool);
         } else {
@@ -38,6 +43,9 @@ public class McpServiceImpl implements McpService {
 
     @Override
     public McpSkill registerSkill(McpSkill skill) {
+        // 註冊時自動生成向量
+        generateSkillEmbedding(skill);
+        
         if (skill.getId() == null) {
             skillMapper.insert(skill);
         } else {
@@ -49,6 +57,34 @@ public class McpServiceImpl implements McpService {
             }
         }
         return skill;
+    }
+
+    private void generateToolEmbedding(McpTool tool) {
+        try {
+            // 將工具名稱和描述拼接作為語義特徵
+            String text = tool.getName() + " " + (tool.getDescription() != null ? tool.getDescription() : "");
+            String vector = llmClientUtil.getEmbedding(text);
+            if (vector != null && !vector.trim().isEmpty() && !vector.trim().equals("[]")) {
+                tool.setEmbedding(vector);
+                log.info("成功生成 Tool 向量: {}", tool.getName());
+            }
+        } catch (Exception e) {
+            log.error("生成 Tool 向量失敗: {}", tool.getName(), e);
+        }
+    }
+
+    private void generateSkillEmbedding(McpSkill skill) {
+        try {
+            // 將技能名稱和描述拼接作為語義特徵
+            String text = skill.getName() + " " + (skill.getDescription() != null ? skill.getDescription() : "");
+            String vector = llmClientUtil.getEmbedding(text);
+            if (vector != null && !vector.trim().isEmpty() && !vector.trim().equals("[]")) {
+                skill.setEmbedding(vector);
+                log.info("成功生成 Skill 向量: {}", skill.getName());
+            }
+        } catch (Exception e) {
+            log.error("生成 Skill 向量失敗: {}", skill.getName(), e);
+        }
     }
 
     @Override
@@ -84,26 +120,30 @@ public class McpServiceImpl implements McpService {
     @Override
     public List<Resource> searchResources(String query) {
         List<Resource> resources = new ArrayList<>();
-        
-        // 搜索 Tools
-        LambdaQueryWrapper<McpTool> toolWrapper = new LambdaQueryWrapper<>();
-        if (query != null && !query.isBlank()) {
-            toolWrapper.like(McpTool::getName, query)
-                    .or()
-                    .like(McpTool::getDescription, query);
+        if (query == null || query.isBlank()) {
+            return resources;
         }
-        List<McpTool> tools = toolMapper.selectList(toolWrapper);
-        resources.addAll(tools.stream().map(this::toResource).toList());
 
-        // 搜索 Skills
-        LambdaQueryWrapper<McpSkill> skillWrapper = new LambdaQueryWrapper<>();
-        if (query != null && !query.isBlank()) {
-            skillWrapper.like(McpSkill::getName, query)
-                    .or()
-                    .like(McpSkill::getDescription, query);
+        try {
+            // 1. 將用戶的查詢語句向量化
+            String queryVectorStr = llmClientUtil.getEmbedding(query);
+
+            if (queryVectorStr != null && !queryVectorStr.trim().isEmpty() && !queryVectorStr.trim().equals("[]")) {
+                // 2. 向量檢索 Tools (取 Top 5)
+                List<McpTool> tools = toolMapper.searchByVector(queryVectorStr, 5);
+                resources.addAll(tools.stream().map(this::toResource).toList());
+
+                // 3. 向量檢索 Skills (取 Top 5)
+                List<McpSkill> skills = skillMapper.searchByVector(queryVectorStr, 5);
+                resources.addAll(skills.stream().map(this::toResource).toList());
+                
+                log.info("向量檢索完成，Query: [{}], 命中 Tool 數量: {}, 命中 Skill 數量: {}", query, tools.size(), skills.size());
+            } else {
+                log.warn("查詢語句向量化失敗，無法進行檢索: {}", query);
+            }
+        } catch (Exception e) {
+            log.error("向量檢索資源異常: {}", e.getMessage(), e);
         }
-        List<McpSkill> skills = skillMapper.selectList(skillWrapper);
-        resources.addAll(skills.stream().map(this::toResource).toList());
 
         return resources;
     }

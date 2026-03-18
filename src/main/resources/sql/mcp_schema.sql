@@ -1,3 +1,6 @@
+-- 啟用 pgvector 擴展 (如果尚未啟用)
+CREATE EXTENSION IF NOT EXISTS vector;
+
 -- 刪除舊表 (如果存在)
 DROP TABLE IF EXISTS resources;
 DROP TABLE IF EXISTS mcp_tools;
@@ -19,6 +22,8 @@ CREATE TABLE IF NOT EXISTS mcp_tools (
     input_schema TEXT,
     output_schema TEXT,
     
+    embedding TEXT, -- 新增：用於存儲向量數據
+    
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -30,6 +35,7 @@ COMMENT ON COLUMN mcp_tools.bean_name IS 'Spring Bean 名稱';
 COMMENT ON COLUMN mcp_tools.method_name IS '執行方法名稱';
 COMMENT ON COLUMN mcp_tools.input_schema IS '參數 JSON Schema';
 COMMENT ON COLUMN mcp_tools.output_schema IS '輸出 JSON Schema';
+COMMENT ON COLUMN mcp_tools.embedding IS '工具語義向量';
 
 -- 2. MCP 技能表 (Composite Skills)
 -- 存儲複合技能，支持異步、審批、高敏感權限控制
@@ -50,6 +56,8 @@ CREATE TABLE IF NOT EXISTS mcp_skills (
     requires_approval BOOLEAN DEFAULT FALSE,
     sensitivity VARCHAR(20) DEFAULT 'LOW',
     
+    embedding TEXT, -- 新增：用於存儲向量數據
+    
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -64,6 +72,7 @@ COMMENT ON COLUMN mcp_skills.output_schema IS '輸出 JSON Schema';
 COMMENT ON COLUMN mcp_skills.run_mode IS 'SYNC 或 ASYNC';
 COMMENT ON COLUMN mcp_skills.requires_approval IS '是否需要審批';
 COMMENT ON COLUMN mcp_skills.sensitivity IS 'LOW, MEDIUM, HIGH';
+COMMENT ON COLUMN mcp_skills.embedding IS '技能語義向量';
 
 -- 3. 任務表 (保持不變)
 CREATE TABLE IF NOT EXISTS tasks (
@@ -81,48 +90,6 @@ COMMENT ON COLUMN tasks.status IS 'PENDING, RUNNING, COMPLETED, REJECTED, PENDIN
 COMMENT ON COLUMN tasks.input_args IS '執行參數';
 COMMENT ON COLUMN tasks.result IS '執行結果';
 
--- 初始化數據：工具 (插入 mcp_tools)
-INSERT INTO mcp_tools (id, name, description, bean_name, method_name, input_schema)
-VALUES 
-(
-    'tool_web_search', 'web_search', 
-    '通用网页搜索工具。当用户明确要求搜索、查询，或者问题超出知识范围时调用。', 
-    'searchTools', 'web_search', 
-    '{"type":"object","properties":{"query":{"type":"string","description":"搜索关键词"}},"required":["query"]}'
-),
-(
-    'tool_image_search', 'image_search', 
-    '图片搜索工具。当用户明确要求找图、看图时调用。', 
-    'searchTools', 'image_search', 
-    '{"type":"object","properties":{"query":{"type":"string","description":"图片关键词"}},"required":["query"]}'
-),
-(
-    'tool_news_search', 'news_search', 
-    '新闻搜索工具。当用户询问新闻、热点时调用。', 
-    'searchTools', 'news_search', 
-    '{"type":"object","properties":{"query":{"type":"string","description":"新闻关键词"}},"required":["query"]}'
-),
-(
-    'tool_manage_memory', 'manage_memory', 
-    '长期记忆管理工具。用于增删改查用户的长期记忆。', 
-    'memoryTools', 'manageMemory', 
-    '{"type":"object","properties":{"action":{"type":"string","enum":["INSERT","UPDATE","DELETE","QUERY"]},"content":{"type":"string"},"memoryType":{"type":"string"}},"required":["action"]}'
-),
-(
-    'tool_manage_schedule', 'manage_schedule', 
-    '日程任务管理工具。用于设置提醒或待办事项。', 
-    'scheduleTools', 'manageScheduleTask', 
-    '{"type":"object","properties":{"action":{"type":"string","enum":["INSERT","UPDATE","DELETE","QUERY"]},"content":{"type":"string"},"triggerTime":{"type":"string"}},"required":["action"]}'
-) ON CONFLICT (name) DO NOTHING;
-
--- 初始化數據：技能 (插入 mcp_skills)
--- 示例：一個高敏感度的數據導出技能
-INSERT INTO mcp_skills (id, name, description, bean_name, method_name, input_schema, run_mode, requires_approval, sensitivity)
-VALUES 
-(
-    'skill_export_data', 'export_user_data',
-    '导出用户所有数据。这是一个高风险操作，需要审批。',
-    'dataExportSkill', 'execute',
-    '{"type":"object","properties":{"userId":{"type":"string"}},"required":["userId"]}',
-    'ASYNC', TRUE, 'HIGH'
-) ON CONFLICT (name) DO NOTHING;
+-- 注意：由於現在改為向量搜索，手動 INSERT 的數據將沒有 embedding。
+-- 建議在系統啟動後，通過調用 POST /mcp/tools 接口重新註冊這些工具，
+-- 系統會自動調用 Python 腳本生成 embedding 並存入數據庫。
