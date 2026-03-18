@@ -1,13 +1,13 @@
-# Luna 2.0：企业级 MCP 平台架构设计方案
+# Luna v2.0 架構設計方案：企業級 MCP 平台
 
-## 1. 项目背景与目标
+## 1. 項目背景與目標
 
-当前 `Luna` 项目是一个基于 Spring Boot 的单体应用，具备基础的 LLM 对话、RAG（文本切片、Embedding）、SSE 流式输出以及多模型配置（Ollama, Qwen）功能。
+當前 Luna 項目是一個基於 Spring Boot 的單體應用，具備基礎的 LLM 對話、RAG 檢索及硬編碼的工具調用能力（如搜索、記憶、日程）。
 
-**本次升级目标**：
-根据 `need.txt` 的需求，将项目重构为**多模块 Maven 工程**，引入 **MCP (Model Context Protocol)** 标准，实现「厂商级 Tool Calling + Skill 编排 + 权限管控」平台。
+**v2.0 升級目標**：
+根據 `need.txt` 需求，將項目重構為**多模組 Maven 工程**，引入 **MCP (Model Context Protocol)** 標準，實現「廠商級 Tool Calling + Skill 編排 + 權限管控」平台。核心在於將「工具的定義」與「工具的執行」解耦，並引入標準化的註冊、發現與審批機制。
 
-## 2. 项目结构重构 (Maven Multi-Module)
+## 2. 項目工程結構 (Maven Multi-Module)
 
-我们将现有的 `src/main/java/org/yilena/luna/*` 代码拆分并迁移至以下模块结构：
+項目將拆分為以下 7 個核心模組：
 
