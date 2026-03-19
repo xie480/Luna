@@ -1,6 +1,6 @@
 {
   "name": "image_search",
-  "description": "搜索互聯網上的圖片資源。",
+  "description": "执行互联网图片搜索。当用户明确要求寻找某种图片、照片、插图，或者需要视觉参考资料时调用。输入描述性的关键词，返回相关图片的 URL 和标题。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "searchTools",
@@ -10,7 +10,7 @@
     "properties": {
       "query": {
         "type": "string",
-        "description": "圖片搜索關鍵詞"
+        "description": "图片搜索关键词"
       }
     },
     "required": ["query"]
@@ -18,7 +18,7 @@
   "outputSchema": {
     "type": "object",
     "properties": {
-      "images": { "type": "array", "description": "圖片結果列表，包含 URL 和標題" }
+      "images": { "type": "array", "description": "图片结果列表，包含 URL 和标题" }
     }
   }
 }

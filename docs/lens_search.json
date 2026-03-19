@@ -1,6 +1,6 @@
 {
   "name": "lens_search",
-  "description": "通過圖片 URL 進行以圖搜圖 (Google Lens)。",
+  "description": "执行以图搜图 (Google Lens) 功能。当用户提供了一个图片 URL 并要求识别图片内容、寻找相似图片、或者获取图片中物品的相关信息时调用。必须提供有效的图片 URL。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "searchTools",
@@ -10,13 +10,13 @@
     "properties": {
       "url": {
         "type": "string",
-        "description": "圖片的 URL 地址"
+        "description": "图片的 URL 地址"
       }
     },
     "required": ["url"]
   },
   "outputSchema": {
     "type": "object",
-    "description": "Google Lens 識別結果"
+    "description": "Google Lens 识别结果"
   }
 }

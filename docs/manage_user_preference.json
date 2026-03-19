@@ -1,6 +1,6 @@
 {
   "name": "manage_user_preference",
-  "description": "管理用戶偏好設置，支持 INSERT(新增), QUERY(查詢), UPDATE(修改), DELETE(刪除) 操作。",
+  "description": "用于管理和持久化用户的个性化偏好设置。当用户明确要求记住某些习惯（如语言、主题、特定格式要求）或你需要查询用户之前的设置时调用。支持 INSERT(新增偏好), QUERY(按键名查询), UPDATE(修改现有偏好), DELETE(删除偏好)。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "preferenceTools",
@@ -11,32 +11,32 @@
       "action": {
         "type": "string",
         "enum": ["INSERT", "QUERY", "UPDATE", "DELETE"],
-        "description": "操作類型"
+        "description": "操作类型"
       },
       "id": {
         "type": "integer",
-        "description": "記錄ID (UPDATE/DELETE 操作必須)"
+        "description": "记录ID (UPDATE/DELETE 操作必须)"
       },
       "mode": {
         "type": "string",
         "enum": ["PUT", "PATCH"],
-        "description": "更新模式 (PUT:全量替換, PATCH:部分更新)"
+        "description": "更新模式 (PUT:全量替换, PATCH:部分更新)"
       },
       "prefKey": {
         "type": "string",
-        "description": "偏好設置的鍵名 (Key)"
+        "description": "偏好设置的键名 (Key)"
       },
       "prefValue": {
         "type": "string",
-        "description": "偏好設置的值 (Value)"
+        "description": "偏好设置的值 (Value)"
       },
       "description": {
         "type": "string",
-        "description": "備註描述"
+        "description": "备注描述"
       },
       "hardDelete": {
         "type": "boolean",
-        "description": "是否物理刪除 (僅 DELETE 操作有效)"
+        "description": "是否物理删除 (仅 DELETE 操作有效)"
       }
     },
     "required": ["action"]
@@ -45,7 +45,7 @@
     "type": "object",
     "properties": {
       "status": { "type": "string", "description": "success 或 error" },
-      "data": { "type": "object", "description": "UserPreference 對象或列表" }
+      "data": { "type": "object", "description": "UserPreference 对象或列表" }
     }
   }
 }

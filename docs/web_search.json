@@ -1,6 +1,6 @@
 {
   "name": "web_search",
-  "description": "執行互聯網網頁搜索，獲取最新的信息和數據。",
+  "description": "执行通用互联网网页搜索。当你需要获取最新资讯、实时数据、或者你自身知识库中缺乏的外部事实时调用此工具。输入精准的搜索关键词，返回相关的网页链接和摘要片段。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "searchTools",
@@ -10,7 +10,7 @@
     "properties": {
       "query": {
         "type": "string",
-        "description": "搜索關鍵詞"
+        "description": "搜索关键词"
       }
     },
     "required": ["query"]
@@ -18,8 +18,8 @@
   "outputSchema": {
     "type": "object",
     "properties": {
-      "organic": { "type": "array", "description": "搜索結果列表" },
-      "peopleAlsoAsk": { "type": "array", "description": "相關問題" }
+      "organic": { "type": "array", "description": "搜索结果列表" },
+      "peopleAlsoAsk": { "type": "array", "description": "相关问题" }
     }
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "manage_memory",
-  "description": "管理 AI 的長期記憶，包括存儲、查詢、更新和刪除記憶片段。",
+  "description": "用于管理 AI 与用户对话的长期记忆。当需要记住用户的个人画像(USER_PROFILE)、对话总结(CONVERSATION_SUMMARY)或关键事实(FACT)以便未来对话使用时调用。这有助于保持跨会话的上下文连贯性。支持增删改查操作。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "memoryTools",
@@ -11,11 +11,11 @@
       "action": {
         "type": "string",
         "enum": ["INSERT", "QUERY", "UPDATE", "DELETE"],
-        "description": "操作類型"
+        "description": "操作类型"
       },
       "id": {
         "type": "integer",
-        "description": "記憶ID (UPDATE/DELETE 必須)"
+        "description": "记忆ID (UPDATE/DELETE 必须)"
       },
       "mode": {
         "type": "string",
@@ -24,24 +24,24 @@
       },
       "sessionId": {
         "type": "string",
-        "description": "會話標識 ID"
+        "description": "会话标识 ID"
       },
       "memoryType": {
         "type": "string",
         "enum": ["USER_PROFILE", "CONVERSATION_SUMMARY", "FACT", "PREFERENCE"],
-        "description": "記憶類型"
+        "description": "记忆类型"
       },
       "content": {
         "type": "string",
-        "description": "記憶內容"
+        "description": "记忆内容"
       },
       "weight": {
         "type": "integer",
-        "description": "記憶權重 (默認1)"
+        "description": "记忆权重 (默认1)"
       },
       "hardDelete": {
         "type": "boolean",
-        "description": "是否物理刪除"
+        "description": "是否物理删除"
       }
     },
     "required": ["action"]
@@ -50,7 +50,7 @@
     "type": "object",
     "properties": {
       "status": { "type": "string" },
-      "data": { "type": "object", "description": "Memory 對象或列表" }
+      "data": { "type": "object", "description": "Memory 对象或列表" }
     }
   }
 }

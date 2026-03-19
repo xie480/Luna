@@ -1,6 +1,6 @@
 {
   "name": "news_search",
-  "description": "搜索最新的新聞報道和時事資訊。",
+  "description": "执行互联网新闻搜索。当用户询问最近发生的事件、时事热点、行业动态或特定主题的最新报道时调用。返回包含标题、来源和发布时间的新闻列表。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "searchTools",
@@ -10,7 +10,7 @@
     "properties": {
       "query": {
         "type": "string",
-        "description": "新聞搜索關鍵詞"
+        "description": "新闻搜索关键词"
       }
     },
     "required": ["query"]
@@ -18,7 +18,7 @@
   "outputSchema": {
     "type": "object",
     "properties": {
-      "news": { "type": "array", "description": "新聞結果列表，包含標題、來源、時間" }
+      "news": { "type": "array", "description": "新闻结果列表，包含标题、来源、时间" }
     }
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "manage_schedule_task",
-  "description": "管理日程和定時任務，支持創建、查詢、修改和刪除任務。",
+  "description": "用于管理用户的日程安排和定时任务。当用户要求设置提醒、安排会议、创建定时执行的任务，或者查询/修改现有日程时调用。支持 INSERT(创建任务), QUERY(查询任务), UPDATE(修改状态或时间), DELETE(取消任务)。需严格遵守 yyyy-MM-dd HH:mm:ss 的时间格式。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "scheduleTools",
@@ -11,11 +11,11 @@
       "action": {
         "type": "string",
         "enum": ["INSERT", "QUERY", "UPDATE", "DELETE"],
-        "description": "操作類型"
+        "description": "操作类型"
       },
       "id": {
         "type": "integer",
-        "description": "任務ID (UPDATE/DELETE 操作必須)"
+        "description": "任务ID (UPDATE/DELETE 操作必须)"
       },
       "mode": {
         "type": "string",
@@ -24,25 +24,25 @@
       },
       "content": {
         "type": "string",
-        "description": "任務內容"
+        "description": "任务内容"
       },
       "triggerTime": {
         "type": "string",
-        "description": "觸發時間，格式: yyyy-MM-dd HH:mm:ss"
+        "description": "触发时间，格式: yyyy-MM-dd HH:mm:ss"
       },
       "status": {
         "type": "string",
         "enum": ["PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"],
-        "description": "任務狀態"
+        "description": "任务状态"
       },
       "taskType": {
         "type": "string",
         "enum": ["ONCE", "CRON", "INTERVAL"],
-        "description": "任務類型"
+        "description": "任务类型"
       },
       "hardDelete": {
         "type": "boolean",
-        "description": "是否物理刪除"
+        "description": "是否物理删除"
       }
     },
     "required": ["action"]
@@ -51,7 +51,7 @@
     "type": "object",
     "properties": {
       "status": { "type": "string" },
-      "data": { "type": "object", "description": "ScheduleTask 對象或列表" }
+      "data": { "type": "object", "description": "ScheduleTask 对象或列表" }
     }
   }
 }

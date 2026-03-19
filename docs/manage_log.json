@@ -1,6 +1,6 @@
 {
   "name": "manage_log",
-  "description": "查詢或管理系統運行日誌，支持按時間、模塊、類型篩選。",
+  "description": "用于查询和管理系统的运行日志。当需要排查错误、审计系统行为、查看工具调用历史或用户操作记录时调用。支持按日志类型、模块、时间段进行 QUERY 查询，也支持 INSERT 写入自定义日志或 DELETE 清理过期日志。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "logTools",
@@ -11,40 +11,40 @@
       "action": {
         "type": "string",
         "enum": ["INSERT", "QUERY", "DELETE"],
-        "description": "操作類型"
+        "description": "操作类型"
       },
       "logType": {
         "type": "string",
         "enum": ["SYSTEM_EVENT", "USER_ACTION", "ERROR", "TOOL_CALL"],
-        "description": "日誌類型"
+        "description": "日志类型"
       },
       "module": {
         "type": "string",
-        "description": "所屬模塊"
+        "description": "所属模块"
       },
       "content": {
         "type": "string",
-        "description": "日誌內容 (INSERT 用)"
+        "description": "日志内容 (INSERT 用)"
       },
       "startTime": {
         "type": "string",
-        "description": "查詢開始時間 (yyyy-MM-dd HH:mm:ss)"
+        "description": "查询开始时间 (yyyy-MM-dd HH:mm:ss)"
       },
       "endTime": {
         "type": "string",
-        "description": "查詢結束時間 (yyyy-MM-dd HH:mm:ss)"
+        "description": "查询结束时间 (yyyy-MM-dd HH:mm:ss)"
       },
       "limit": {
         "type": "integer",
-        "description": "返回條數限制 (默認10)"
+        "description": "返回条数限制 (默认10)"
       },
       "id": {
         "type": "integer",
-        "description": "日誌ID (DELETE 用)"
+        "description": "日志ID (DELETE 用)"
       },
       "beforeTime": {
         "type": "string",
-        "description": "刪除此時間之前的日誌 (DELETE 用)"
+        "description": "删除此时间之前的日志 (DELETE 用)"
       }
     },
     "required": ["action"]
@@ -53,7 +53,7 @@
     "type": "object",
     "properties": {
       "status": { "type": "string" },
-      "data": { "type": "object", "description": "LunaLog 對象列表或操作消息" }
+      "data": { "type": "object", "description": "LunaLog 对象列表或操作消息" }
     }
   }
 }
