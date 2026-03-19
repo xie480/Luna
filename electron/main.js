@@ -10,6 +10,9 @@ import { registerChatIpc, startSSE, stopSSE } from "../src/main/ipc/chatIpc.js";
 // 引入 MCP IPC
 import { registerMcpIpc } from "../src/main/ipc/mcpIpc.js";
 
+// [Fix] 禁用硬件加速，解決透明窗口下 WebGL/Canvas 渲染問題 (模型不可見的關鍵修復)
+app.disableHardwareAcceleration();
+
 /* ===== 修复 __dirname ===== */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,7 +24,12 @@ registerMcpIpc();
 
 /* ===== IPC handlers for History API ===== */
 ipcMain.handle("luna.api.chat.history.date", async (_event, yearMonth) => {
-  console.log('[History] fetching available dates for', yearMonth);
+  console.log('[History] fetching available**Reorganizing Core Components**
+
+I'm now implementing the core changes required by the user. I'll be editing `electron/main.js` to disable hardware acceleration to fix rendering issues. Simultaneously, I am restructuring `src/App.vue` to simply house the router view, as per the user's directive to remove render logic and leverage `index.vue`.
+
+
+ dates for', yearMonth);
 
   if (typeof yearMonth !== 'string') {
     throw new TypeError('yearMonth must be string');
