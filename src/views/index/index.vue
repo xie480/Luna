@@ -684,7 +684,7 @@ function resetModelTransform() {
     model.visible = true;
     model.x = app.renderer.width / 2;
     model.y = app.renderer.height || window.innerHeight;
-    model.scale.set(0.1); 
+    model.scale.set(0.2); // [Fix] 默認縮放改為 0.2，防止 0.1 太小導致不可見
     
     console.log("[Debug] 强制重置执行完毕。当前模型状态:", {
       alpha: model.alpha,
@@ -1043,15 +1043,16 @@ onMounted(async () => {
   }
 
   try {
-    // [Fix] 使用新的英文文件名加载模型
-    model = await Live2DModel.from("/models/luna/jk_salt.model3.json", {
+    // [Fix] 使用 encodeURIComponent 對文件名進行編碼，解決中文路徑導致的 NetworkError
+    model = await Live2DModel.from("/models/luna/" + encodeURIComponent("jk盐.model3.json"), {
       autoInteract: false,
-      ticker:       PIXI.Ticker.shared,
+      autoUpdate: true,
+      ticker: app.ticker, // 強制使用當前 PIXI 應用的 Ticker
     });
 
-    console.log("[Live2D] 🎉 模型文件加载成功！", model);
+    console.log("[Live2D] 🎉 模型文件加载成功！尺寸:", model.width, "x", model.height);
 
-    model.scale.set(0.1);
+    model.scale.set(0.2); // [Fix] 默認縮放改為 0.2，防止 0.1 太小導致不可見
     model.anchor.set(0.5, 1);
     model.x           = app.renderer.width / 2;
     model.y           = app.renderer.height || window.innerHeight;
@@ -1095,6 +1096,15 @@ onMounted(async () => {
     appearance.showAppearanceHint("模型加载失败，请检查文件路径");
   }
 
+  // [Fix] 增加一個兜底檢查：如果模型加載完成且已經登錄，但透明度卡在 0，則強制恢復顯示
+  setTimeout(() => {
+    if (model && loginSuccess.value && !lunaIntroVisible.value && model.alpha === 0) {
+      console.warn("[Live2D] 发现模型透明度异常为0，强制恢复显示");
+      model.alpha = 1;
+      model.y = app.renderer.height || window.innerHeight;
+    }
+  }, 6000);
+
   await preloadExpressions();
   startBreath();
 });
@@ -1108,7 +1118,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style>
-/* 全局重置，防止出现滚动条 */
+/* 全局重置，防止出現滾動條 */
 html, body {
   margin: 0;
   padding: 0;
@@ -1141,10 +1151,10 @@ html, body {
   box-shadow: 0 2px 10px rgba(0,0,0,0.5);
 }
 
-/* ===== 全局轻提示 (Toast) 样式 ===== */
+/* ===== 全局輕提示 (Toast) 樣式 ===== */
 .toast-hint {
   position: fixed;
-  top: 60px; /* 避免和 top-banner 重叠 */
+  top: 60px; /* 避免和 top-banner 重疊 */
   left: 50%;
   transform: translateX(-50%);
   background: rgba(0, 0, 0, 0.85);
