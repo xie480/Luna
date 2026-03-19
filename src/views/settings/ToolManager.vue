@@ -2,7 +2,7 @@
   <div class="tool-manager">
     <div class="header">
       <div class="section-title">MCP TOOLS / 工具管理</div>
-      <button class="btn-primary" @click="openCreateModal">
+      <button class="btn-primary" @click="debouncedOpenCreateModal">
         + 新增工具
       </button>
     </div>
@@ -25,8 +25,8 @@
           </div>
         </div>
         <div class="card-footer">
-          <button class="btn-text" @click="openEditModal(tool)">编辑</button>
-          <button class="btn-text delete" @click="handleDelete(tool)">删除</button>
+          <button class="btn-text" @click="debouncedOpenEditModal(tool)">编辑</button>
+          <button class="btn-text delete" @click="debouncedHandleDelete(tool)">删除</button>
         </div>
       </div>
     </div>
@@ -47,29 +47,37 @@
           <!-- 弹窗头部 (拖拽区域) -->
           <div class="modal-header" @mousedown="startDrag">
             <h3>{{ isEdit ? '编辑工具' : '注册新工具' }}</h3>
-            <button class="close-btn" @click="closeModal">×</button>
+            <div class="header-actions">
+              <button v-if="!isEdit" class="btn-import" @click="debouncedTriggerFileUpload" title="从 JSON 导入" :disabled="isSaving">
+                <span>📂</span> 导入配置
+              </button>
+              <button class="close-btn" @click="debouncedCloseModal" :disabled="isSaving">×</button>
+            </div>
           </div>
           
           <!-- 弹窗内容 (可滚动) -->
           <div class="modal-body">
+            <!-- 隐藏的文件输入框 -->
+            <input type="file" ref="fileInput" accept=".json" style="display: none" @change="handleFileUpload" />
+
             <div class="form-group">
               <label>工具名称 (Name)*</label>
-              <input v-model="form.name" placeholder="例如: web_search" />
+              <input v-model="form.name" placeholder="例如: web_search" :disabled="isSaving" />
             </div>
 
             <div class="form-group">
               <label>工具描述 (Description)*</label>
-              <textarea v-model="form.description" placeholder="详细说明该工具的用途，供大模型理解..."></textarea>
+              <textarea v-model="form.description" placeholder="详细说明该工具的用途，供大模型理解..." :disabled="isSaving"></textarea>
             </div>
 
             <div class="form-row">
               <div class="form-group">
                 <label>Spring Bean 名称 (Bean Name)*</label>
-                <input v-model="form.beanName" placeholder="例如: searchTools" />
+                <input v-model="form.beanName" placeholder="例如: searchTools" :disabled="isSaving" />
               </div>
               <div class="form-group">
                 <label>方法名称 (Method Name)*</label>
-                <input v-model="form.methodName" placeholder="例如: executeSearch" />
+                <input v-model="form.methodName" placeholder="例如: executeSearch" :disabled="isSaving" />
               </div>
             </div>
 
@@ -79,6 +87,7 @@
                 v-model="form.inputSchema" 
                 class="code-editor" 
                 placeholder='{"type":"object", "properties": {}}'
+                :disabled="isSaving"
               ></textarea>
             </div>
 
@@ -88,19 +97,23 @@
                 v-model="form.outputSchema" 
                 class="code-editor" 
                 placeholder='{"type":"string"}'
+                :disabled="isSaving"
               ></textarea>
             </div>
 
             <div class="form-group">
               <label>版本号 (Version)</label>
-              <input v-model="form.version" placeholder="例如: 1.0.0" />
+              <input v-model="form.version" placeholder="例如: 1.0.0" :disabled="isSaving" />
             </div>
           </div>
 
           <!-- 弹窗底部操作区 -->
           <div class="modal-actions">
-            <button class="btn-secondary" @click="closeModal">取消</button>
-            <button class="btn-primary" @click="handleSave">保存</button>
+            <button class="btn-secondary" @click="debouncedCloseModal" :disabled="isSaving">取消</button>
+            <button class="btn-primary" @click="debouncedHandleSave" :disabled="isSaving">
+              <span v-if="isSaving" class="spinner"></span>
+              {{ isSaving ? '保存中...' : '保存' }}
+            </button>
           </div>
         </div>
       </div>
@@ -117,15 +130,28 @@ const tools = ref([]);
 const loading = ref(false);
 const showModal = ref(false);
 const isEdit = ref(false);
+const isSaving = ref(false); // 新增：保存狀態
+const fileInput = ref(null);
 
-// 弹窗拖拽逻辑
+// 簡單的防抖函數
+function debounce(func, wait) {
+  let timeout;
+  return function(...args) {
+    const context = this;
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func.apply(context, args), wait);
+  };
+}
+
+// 彈窗拖拽邏輯
 const modalX = ref(window.innerWidth / 2 - 250);
 const modalY = ref(window.innerHeight / 2 - 300);
 let isDragging = false;
 let dragOffset = { x: 0, y: 0 };
 
 function startDrag(e) {
-  if (e.target.closest('.close-btn')) return;
+  // 排除關閉按鈕和導入按鈕
+  if (e.target.closest('.close-btn') || e.target.closest('.btn-import')) return;
   isDragging = true;
   dragOffset.x = e.clientX - modalX.value;
   dragOffset.y = e.clientY - modalY.value;
@@ -145,7 +171,7 @@ function stopDrag() {
   window.removeEventListener('mouseup', stopDrag);
 }
 
-// 表单数据
+// 表單數據
 const form = reactive({
   id: '',
   name: '',
@@ -165,9 +191,9 @@ onMounted(() => {
 async function fetchTools() {
   loading.value = true;
   try {
-    // 调用后端获取所有资源
+    // 調用後端獲取所有資源
     const resources = await window.mcpApi.listResources();
-    // 过滤出类型为 TOOL 的资源
+    // 過濾出類型為 TOOL 的資源
     tools.value = resources.filter(r => r.type === 'TOOL');
   } catch (err) {
     console.error("Failed to fetch tools:", err);
@@ -180,17 +206,18 @@ async function fetchTools() {
 function openCreateModal() {
   isEdit.value = false;
   resetForm();
-  // 居中显示
+  // 居中顯示
   modalX.value = window.innerWidth / 2 - 250;
   modalY.value = window.innerHeight / 2 - 300;
   showModal.value = true;
 }
+const debouncedOpenCreateModal = debounce(openCreateModal, 300);
 
 function openEditModal(tool) {
   isEdit.value = true;
   Object.assign(form, tool);
   
-  // 确保 Schema 是字符串显示
+  // 確保 Schema 是字符串顯示
   if (typeof form.inputSchema === 'object') {
     form.inputSchema = JSON.stringify(form.inputSchema, null, 2);
   }
@@ -198,15 +225,18 @@ function openEditModal(tool) {
     form.outputSchema = JSON.stringify(form.outputSchema, null, 2);
   }
   
-  // 居中显示
+  // 居中顯示
   modalX.value = window.innerWidth / 2 - 250;
   modalY.value = window.innerHeight / 2 - 300;
   showModal.value = true;
 }
+const debouncedOpenEditModal = debounce(openEditModal, 300);
 
 function closeModal() {
+  if (isSaving.value) return; // 保存中不允許關閉
   showModal.value = false;
 }
+const debouncedCloseModal = debounce(closeModal, 300);
 
 function resetForm() {
   form.id = '';
@@ -220,13 +250,60 @@ function resetForm() {
   form.owner = '';
 }
 
+function triggerFileUpload() {
+  if (isSaving.value) return;
+  fileInput.value?.click();
+}
+const debouncedTriggerFileUpload = debounce(triggerFileUpload, 300);
+
+function handleFileUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const json = JSON.parse(e.target.result);
+      // 自動填充表單
+      if (json.name) form.name = json.name;
+      if (json.description) form.description = json.description;
+      if (json.beanName) form.beanName = json.beanName;
+      if (json.methodName) form.methodName = json.methodName;
+      if (json.version) form.version = json.version;
+      if (json.owner) form.owner = json.owner;
+      
+      // 處理 Schema，如果是對象則轉字符串
+      if (json.inputSchema) {
+        form.inputSchema = typeof json.inputSchema === 'object' 
+          ? JSON.stringify(json.inputSchema, null, 2) 
+          : json.inputSchema;
+      }
+      
+      if (json.outputSchema) {
+        form.outputSchema = typeof json.outputSchema === 'object' 
+          ? JSON.stringify(json.outputSchema, null, 2) 
+          : json.outputSchema;
+      }
+      
+      alert("JSON 解析成功，表单已自动填充");
+    } catch (err) {
+      console.error("JSON parse error:", err);
+      alert("JSON 解析失败: " + err.message);
+    } finally {
+      // 重置 input，以便下次可以選擇同一個文件
+      event.target.value = '';
+    }
+  };
+  reader.readAsText(file);
+}
+
 async function handleSave() {
   if (!form.name || !form.beanName || !form.methodName) {
     alert("请填写必填字段");
     return;
   }
 
-  // 验证 JSON 格式
+  // 驗證 JSON 格式
   try {
     JSON.parse(form.inputSchema);
   } catch (e) {
@@ -243,19 +320,25 @@ async function handleSave() {
     }
   }
 
+  isSaving.value = true; // 開啟加載動畫
   try {
     if (isEdit.value) {
       await window.mcpApi.updateTool({ ...form });
+      alert("工具更新成功！");
     } else {
       await window.mcpApi.createTool({ ...form });
+      alert("工具创建成功！");
     }
     closeModal();
     fetchTools();
   } catch (err) {
     console.error("Save failed:", err);
     alert("保存失败: " + err.message);
+  } finally {
+    isSaving.value = false; // 關閉加載動畫
   }
 }
+const debouncedHandleSave = debounce(handleSave, 300);
 
 async function handleDelete(tool) {
   if (!confirm(`确定要删除工具 "${tool.name}" 吗？`)) return;
@@ -268,6 +351,7 @@ async function handleDelete(tool) {
     alert("删除失败: " + err.message);
   }
 }
+const debouncedHandleDelete = debounce(handleDelete, 300);
 </script>
 
 <style scoped>
@@ -380,8 +464,12 @@ async function handleDelete(tool) {
   cursor: pointer;
   font-size: 12px;
   font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.btn-primary:hover { filter: brightness(1.1); }
+.btn-primary:hover:not(:disabled) { filter: brightness(1.1); }
+.btn-primary:disabled { opacity: 0.7; cursor: not-allowed; }
 
 .btn-secondary {
   background: #4a5568;
@@ -392,6 +480,7 @@ async function handleDelete(tool) {
   cursor: pointer;
   font-size: 12px;
 }
+.btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .btn-text {
   background: none;
@@ -407,12 +496,9 @@ async function handleDelete(tool) {
 .mcp-modal-wrapper {
   position: fixed;
   inset: 0;
-  z-index: 10000; /* 确保高于 SettingsPanel 的 9500 */
-  pointer-events: none; /* 允许点击穿透背景 */
+  z-index: 10000; /* 確保高于 SettingsPanel 的 9500 */
+  pointer-events: none; /* 允許點擊穿透背景 */
 }
-
-/* Modal Overlay - 已移除，实现完全穿透 */
-/* .modal-overlay { ... } */
 
 /* Draggable Modal */
 .modal {
@@ -425,7 +511,7 @@ async function handleDelete(tool) {
   flex-direction: column;
   border: 1px solid var(--border, #2d3748);
   box-shadow: 0 15px 40px rgba(0,0,0,0.8);
-  pointer-events: auto; /* 恢复弹窗本身的点击交互 */
+  pointer-events: auto; /* 恢復彈窗本身的點擊交互 */
 }
 
 .modal-header {
@@ -447,6 +533,35 @@ async function handleDelete(tool) {
   letter-spacing: 1px;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-import {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--primary, #4fd1c5);
+  color: var(--primary, #4fd1c5);
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+  font-weight: bold;
+}
+.btn-import:hover:not(:disabled) {
+  background: var(--primary, #4fd1c5);
+  color: #000;
+}
+.btn-import:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .close-btn {
   background: none;
   border: none;
@@ -456,7 +571,7 @@ async function handleDelete(tool) {
   padding: 0;
   line-height: 1;
 }
-.close-btn:hover { color: #fff; }
+.close-btn:hover:not(:disabled) { color: #fff; }
 
 .modal-body {
   padding: 20px;
@@ -496,6 +611,10 @@ input:focus, textarea:focus {
   outline: none;
   border-color: var(--primary, #4fd1c5);
 }
+input:disabled, textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 
 textarea {
   min-height: 80px;
@@ -516,6 +635,21 @@ textarea {
   gap: 10px;
   background: rgba(0, 0, 0, 0.2);
   border-radius: 0 0 8px 8px;
+}
+
+/* 加載動畫 Spinner */
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(0,0,0,0.3);
+  border-top-color: #000;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-right: 6px;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 /* 滚动条美化 */
