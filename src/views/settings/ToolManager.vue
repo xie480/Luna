@@ -34,8 +34,8 @@
     <!-- 使用 Teleport 将弹窗移动到 body，避免被父组件(SettingsPanel)的 overflow:hidden 裁剪 -->
     <Teleport to="body">
       <div v-if="showModal" class="mcp-modal-wrapper">
-        <!-- 独立遮罩层 -->
-        <div class="modal-overlay" @click="closeModal"></div>
+        <!-- 移除遮罩层，实现背景可穿透 -->
+        <!-- <div class="modal-overlay" @click="closeModal"></div> -->
 
         <!-- 编辑/新增 弹窗 (可拖拽) -->
         <div 
@@ -404,15 +404,11 @@ async function handleDelete(tool) {
   position: fixed;
   inset: 0;
   z-index: 10000; /* 确保高于 SettingsPanel 的 9500 */
-  pointer-events: auto;
+  pointer-events: none; /* 允许点击穿透背景 */
 }
 
-/* Modal Overlay */
-.modal-overlay {
-  position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
-}
+/* Modal Overlay - 已移除，实现完全穿透 */
+/* .modal-overlay { ... } */
 
 /* Draggable Modal */
 .modal {
@@ -425,7 +421,7 @@ async function handleDelete(tool) {
   flex-direction: column;
   border: 1px solid var(--border, #2d3748);
   box-shadow: 0 15px 40px rgba(0,0,0,0.8);
-  /* z-index is handled by wrapper */
+  pointer-events: auto; /* 恢复弹窗本身的点击交互 */
 }
 
 .modal-header {
