@@ -192,9 +192,14 @@
   </div>
 </template>
 
+<script>
+// [Fix] 獨立的 script 塊，確保 PIXI 在 Live2DModel 導入前掛載到 window
+import * as PIXI from "pixi.js";
+window.PIXI = PIXI;
+</script>
+
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
-import * as PIXI from "pixi.js";
 import { gsap } from "gsap";
 import {
   chat as chatApi,
@@ -940,12 +945,15 @@ async function startBootSequence() {
 onMounted(async () => {
   loadTheme();
 
-  window.PIXI = PIXI;
+  // [Fix] 確保 Ticker 被註冊，解決 Vite 模塊加載順序導致的 Live2D 動畫不更新問題
+  if (Live2DModel.registerTicker) {
+    Live2DModel.registerTicker(PIXI.Ticker);
+  }
 
   app = new PIXI.Application({
     view:            canvasRef.value,
     backgroundAlpha: 0,
-    resizeTo:        wrapperRef.value,
+    resizeTo:        window, // [Fix] 改為 window 確保全屏，避免 wrapper 尺寸為 0
     resolution:      window.devicePixelRatio || 1,
     autoDensity:     true,
   });
@@ -1312,8 +1320,7 @@ html, body {
 }
 .interactive-wrapper canvas {
   display: block;
-  width: 100%;
-  height: 100%;
+  /* [Fix] 移除 width: 100% 和 height: 100%，讓 PIXI.Application 的 resizeTo 來控制尺寸，避免衝突 */
   pointer-events: auto;
 }
 
