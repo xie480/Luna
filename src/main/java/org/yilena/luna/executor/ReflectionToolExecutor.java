@@ -74,6 +74,7 @@ public class ReflectionToolExecutor {
     }
 
     private Object[] resolveArgs(Method method, String argsJson) throws Exception {
+        log.info("解析參數: {}", argsJson);
         JsonNode jsonNode = objectMapper.readTree(argsJson);
         Parameter[] parameters = method.getParameters();
         Object[] args = new Object[parameters.length];
