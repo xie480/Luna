@@ -42,6 +42,13 @@
         >
           Tool管理
         </div>
+        <div 
+          class="menu-item" 
+          :class="{ active: activeTab === 'skills' }"
+          @click="activeTab = 'skills'"
+        >
+          Skill管理
+        </div>
       </div>
 
       <!-- 右側內容 -->
@@ -171,6 +178,11 @@
           <ToolManager @mouseenter="$emit('mouseenter')" @mouseleave="$emit('mouseleave')" />
         </div>
 
+        <!-- Skill管理 -->
+        <div v-if="activeTab === 'skills'" class="tab-content" style="height: 100%;">
+          <SkillManager @mouseenter="$emit('mouseenter')" @mouseleave="$emit('mouseleave')" />
+        </div>
+
       </div>
     </div>
 
@@ -184,6 +196,7 @@
 import { ref } from 'vue';
 import { useTheme } from '../composables/useTheme';
 import ToolManager from '../views/settings/ToolManager.vue';
+import SkillManager from '../views/settings/SkillManager.vue';
 
 const props = defineProps([
   'core', 'model', 'appearance', 'rhythm', 
