@@ -3,7 +3,7 @@ package org.yilena.luna.service.impl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.yilena.luna.exception.AuthException;
+import org.yilena.luna.exception.impl.AuthException;
 import org.yilena.luna.properties.AuthProperty;
 import org.yilena.luna.service.AuthService;
 

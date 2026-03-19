@@ -8,7 +8,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.entity.ApprovalTask;
 import org.yilena.luna.entity.Resource;
-import org.yilena.luna.exception.NeedApprovalException;
+import org.yilena.luna.exception.impl.NeedApprovalException;
 import org.yilena.luna.executor.ReflectionToolExecutor;
 
 import java.util.HashMap;

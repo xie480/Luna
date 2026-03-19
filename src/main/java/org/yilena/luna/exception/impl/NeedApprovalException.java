@@ -1,4 +1,4 @@
-package org.yilena.luna.exception;
+package org.yilena.luna.exception.impl;
 
 import lombok.Getter;
 import org.yilena.luna.entity.ApprovalTask;

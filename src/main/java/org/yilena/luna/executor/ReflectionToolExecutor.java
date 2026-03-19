@@ -12,6 +12,7 @@ import org.springframework.util.ReflectionUtils;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.yilena.luna.entity.McpSkill;
 import org.yilena.luna.entity.Resource;
+import org.yilena.luna.enums.ResourceType;
 import org.yilena.luna.enums.Sensitivity;
 import org.yilena.luna.service.ApprovalService;
 
@@ -45,9 +46,9 @@ public class ReflectionToolExecutor {
      */
     public String execute(String sessionId, Resource resource, String argsJson) {
         // ExecutionGate: 檢查敏感度
-        if (resource instanceof McpSkill skill) {
-            if (skill.getSensitivity() == Sensitivity.MEDIUM || skill.getSensitivity() == Sensitivity.HIGH) {
-                log.warn("觸發敏感操作攔截: {}, 等級: {}", skill.getName(), skill.getSensitivity());
+        if (resource.getType().equals(ResourceType.TOOL)) {
+            if (resource.getSensitivity() == Sensitivity.MEDIUM || resource.getSensitivity() == Sensitivity.HIGH) {
+                log.warn("觸發敏感操作攔截: {}, 等級: {}", resource.getName(), resource.getSensitivity());
                 // 創建審批任務並中斷執行
                 approvalService.createTaskAndInterrupt(sessionId, resource, argsJson);
             }
@@ -64,9 +65,9 @@ public class ReflectionToolExecutor {
     public String execute(Resource resource, String argsJson) {
         // 為了安全起見，如果沒有 sessionId 但遇到了敏感操作，我們應該報錯或者放行？
         // 這裡選擇放行但打印警告，或者您可以選擇拋出異常要求必須傳 sessionId
-        if (resource instanceof McpSkill skill) {
-            if (skill.getSensitivity() == Sensitivity.MEDIUM || skill.getSensitivity() == Sensitivity.HIGH) {
-                log.error("警告：調用了敏感操作 {} 但未提供 sessionId，無法發起審批！將直接執行（存在風險）。", skill.getName());
+        if (resource.getType().equals(ResourceType.TOOL)) {
+            if (resource.getSensitivity() == Sensitivity.MEDIUM || resource.getSensitivity() == Sensitivity.HIGH) {
+                log.error("警告：調用了敏感操作 {} 但未提供 sessionId，無法發起審批！將直接執行（存在風險）。", resource.getName());
             }
         }
         return executeInternal(resource.getBeanName(), resource.getMethodName(), argsJson);

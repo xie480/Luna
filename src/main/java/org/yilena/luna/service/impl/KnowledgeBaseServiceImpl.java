@@ -76,7 +76,9 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
 
         } catch (Exception e) {
             log.error("檢索知識庫異常: {}", e.getMessage());
-            return Collections.emptyList();
+            throw new RuntimeException(e);
+//            log.error("檢索知識庫異常: {}", e.getMessage());
+//            return Collections.emptyList();
         }
     }
 }

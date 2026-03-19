@@ -7,6 +7,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.util.ContentCachingRequestWrapper;
+import org.yilena.luna.exception.impl.AuthException;
+import org.yilena.luna.exception.impl.NeedApprovalException;
 import org.yilena.luna.service.ExceptionRetryService;
 
 import java.nio.charset.StandardCharsets;
@@ -28,6 +30,8 @@ public class GlobalExceptionHandler {
     public Map<String, Object> handleException(Exception e, HttpServletRequest request) {
         if(e instanceof AuthException){
             log.warn("用户认证失败: {}", e.getMessage());
+            throw new RuntimeException(e);
+        }else if(e instanceof NeedApprovalException){
             throw new RuntimeException(e);
         }
         log.error("捕获全局异常: {}", e.getMessage(), e);

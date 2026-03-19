@@ -29,7 +29,7 @@ public class RealLlmAdapter implements LlmAdapter {
     public String generate(String prompt) {
         LlmRequest request = LlmRequest.builder()
                 .modelType(ModelType.OPENAI_COMPATIBLE)
-                .modelName(geminiProperty.getBig().getModelName())
+                .modelName(geminiProperty.getMid().getModelName())
                 .messages(List.of(LlmMessage.user(prompt)))
                 .temperature(0.2) // 任務型調用溫度低一點
                 .build();
