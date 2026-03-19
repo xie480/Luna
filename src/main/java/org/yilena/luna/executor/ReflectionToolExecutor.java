@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
+import org.springframework.util.ReflectionUtils;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.yilena.luna.entity.Resource;
 
@@ -41,8 +43,7 @@ public class ReflectionToolExecutor {
             }
             Object bean = applicationContext.getBean(resource.getBeanName());
 
-            // 2. 獲取目標方法
-            // 這裡簡化處理，假設方法名唯一。如果支持重載，需要更複雜的匹配邏輯。
+            // 2. 獲取目標方法 (此時獲取到的可能是 AOP 代理類的方法)
             Method targetMethod = null;
             for (Method m : bean.getClass().getMethods()) {
                 if (m.getName().equals(resource.getMethodName())) {
@@ -56,9 +57,9 @@ public class ReflectionToolExecutor {
             }
 
             // 3. 參數綁定：將 JSON 字符串解析為方法所需的 Object[]
-            Object[] args = resolveArgs(targetMethod, argsJson);
+            Object[] args = resolveArgs(bean, targetMethod, argsJson);
 
-            // 4. 反射執行
+            // 4. 反射執行 (調用代理類的方法，確保 AOP 切面生效)
             Object result = targetMethod.invoke(bean, args);
 
             // 5. 處理返回結果
@@ -73,31 +74,38 @@ public class ReflectionToolExecutor {
         }
     }
 
-    private Object[] resolveArgs(Method method, String argsJson) throws Exception {
+    private Object[] resolveArgs(Object bean, Method proxyMethod, String argsJson) throws Exception {
         log.info("解析參數: {}", argsJson);
         JsonNode jsonNode = objectMapper.readTree(argsJson);
-        Parameter[] parameters = method.getParameters();
+        
+        // 獲取真實的目標類 (解決 Spring AOP 代理類丟失參數註解的問題)
+        Class<?> targetClass = AopUtils.getTargetClass(bean);
+        // 獲取真實類上的對應方法
+        Method realMethod = ReflectionUtils.findMethod(targetClass, proxyMethod.getName(), proxyMethod.getParameterTypes());
+        if (realMethod == null) {
+            realMethod = proxyMethod;
+        }
+
+        Parameter[] parameters = realMethod.getParameters();
         Object[] args = new Object[parameters.length];
 
         for (int i = 0; i < parameters.length; i++) {
             Parameter parameter = parameters[i];
             String paramName = parameter.getName(); // 默認使用參數名 (arg0 if not compiled with -parameters)
             
-            // 優先讀取 @RequestParam 註解定義的名稱，解決編譯後參數名丟失問題
+            // 優先讀取 @RequestParam 註解定義的名稱 (從真實類的方法參數上讀取)
             if (parameter.isAnnotationPresent(RequestParam.class)) {
                 RequestParam requestParam = parameter.getAnnotation(RequestParam.class);
                 if (requestParam.value() != null && !requestParam.value().isEmpty()) {
                     paramName = requestParam.value();
+                } else if (requestParam.name() != null && !requestParam.name().isEmpty()) {
+                    paramName = requestParam.name();
                 }
             }
             
             // 嘗試從 JSON 中獲取參數
-            // 支持兩種情況：
-            // 1. JSON 是一個對象，key 對應參數名
-            // 2. 只有一個參數且 JSON 是單個值（較少見，通常 LLM 輸出 Object）
-            
             if (jsonNode.has(paramName)) {
-                args[i] = objectMapper.treeToValue(jsonNode.get(paramName), parameter.getType());
+                args[i] = objectMapper.treeToValue(jsonNode.get(paramName), proxyMethod.getParameterTypes()[i]);
             } else {
                 // 如果 JSON 中沒有該參數，傳入 null
                 args[i] = null;
