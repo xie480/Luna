@@ -333,7 +333,7 @@ async function performLogin() {
     }, 450);
   } catch (e) {
     console.error("[Auth] 登錄請求失敗", e);
-    loginError.value = "無法連接鑒權服務，請檢查網絡或服務狀態";
+    loginError.value = "無法連接鑒權服務，請檢查網絡或服務状态";
     loginLogLines.value.push("網絡錯誤：無法連接到鑒權端點。");
   } finally {
     loginLoading.value = false;
@@ -1043,8 +1043,8 @@ onMounted(async () => {
   }
 
   try {
-    // [Fix] 使用新的英文文件名加载模型
-    model = await Live2DModel.from("/models/luna/jk_salt.model3.json", {
+    // [Fix] 恢复使用原始的中文文件名加载模型
+    model = await Live2DModel.from("/models/luna/jk盐.model3.json", {
       autoInteract: false,
       ticker:       PIXI.Ticker.shared,
     });
