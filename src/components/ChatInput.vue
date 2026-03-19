@@ -1,6 +1,23 @@
 <template>
-  <div class="chat-bar-wrapper" @mouseenter="$emit('mouseenter')" @mouseleave="$emit('mouseleave')">
+  <div 
+    class="chat-bar-wrapper" 
+    :style="wrapperStyle"
+    @mouseenter="$emit('mouseenter')" 
+    @mouseleave="$emit('mouseleave')"
+  >
     
+    <!-- 拖動手柄 (新增) -->
+    <div class="drag-handle" @mousedown="startDrag" title="長按拖動">
+      <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="9" cy="12" r="1" fill="currentColor"></circle>
+        <circle cx="15" cy="12" r="1" fill="currentColor"></circle>
+        <circle cx="9" cy="5" r="1" fill="currentColor"></circle>
+        <circle cx="15" cy="5" r="1" fill="currentColor"></circle>
+        <circle cx="9" cy="19" r="1" fill="currentColor"></circle>
+        <circle cx="15" cy="19" r="1" fill="currentColor"></circle>
+      </svg>
+    </div>
+
     <!-- 設置按鈕 -->
     <button class="icon-btn settings-btn" @click="$emit('open-settings')" title="設置">
       <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
@@ -77,7 +94,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue';
+import { ref, computed, onMounted, nextTick, reactive } from 'vue';
 
 const props = defineProps(['loading', 'streaming', 'streamText', 'currentEmotion', 'statusText']);
 const emit = defineEmits(['send', 'open-settings', 'toggle-history', 'mouseenter', 'mouseleave', 'close']);
@@ -85,10 +102,61 @@ const emit = defineEmits(['send', 'open-settings', 'toggle-history', 'mouseenter
 const inputText = ref("");
 const inputRef = ref(null);
 
+// 拖動相關狀態
+const pos = reactive({ x: 0, y: 0 });
+const isCustomPos = ref(false);
+let dragStart = { x: 0, y: 0 };
+let initialPos = { x: 0, y: 0 };
+
 onMounted(() => {
   nextTick(() => {
     inputRef.value?.focus();
   });
+});
+
+function startDrag(e) {
+  e.preventDefault();
+  
+  // 如果是第一次拖動，先獲取當前位置
+  if (!isCustomPos.value) {
+    const el = document.querySelector('.chat-bar-wrapper');
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      pos.x = rect.left;
+      pos.y = rect.top;
+      isCustomPos.value = true;
+    }
+  }
+  
+  dragStart = { x: e.clientX, y: e.clientY };
+  initialPos = { x: pos.x, y: pos.y };
+  
+  window.addEventListener('mousemove', onDrag);
+  window.addEventListener('mouseup', stopDrag);
+}
+
+function onDrag(e) {
+  const dx = e.clientX - dragStart.x;
+  const dy = e.clientY - dragStart.y;
+  pos.x = initialPos.x + dx;
+  pos.y = initialPos.y + dy;
+}
+
+function stopDrag() {
+  window.removeEventListener('mousemove', onDrag);
+  window.removeEventListener('mouseup', stopDrag);
+}
+
+const wrapperStyle = computed(() => {
+  if (isCustomPos.value) {
+    return {
+      left: pos.x + 'px',
+      top: pos.y + 'px',
+      bottom: 'auto',
+      transform: 'none'
+    };
+  }
+  return {};
 });
 
 function sendMessage() {
@@ -159,8 +227,21 @@ const emotionStyle = computed(() => {
   backdrop-filter: blur(12px);
   box-shadow: 0 10px 30px rgba(0,0,0,0.5);
   z-index: 9000;
-  transition: all 0.3s ease;
+  transition: box-shadow 0.3s ease; /* 移除 transform transition 以避免拖動延遲 */
 }
+
+/* 拖動手柄 */
+.drag-handle {
+  cursor: grab;
+  color: var(--primary);
+  opacity: 0.5;
+  display: flex;
+  align-items: center;
+  padding: 4px;
+  margin-right: -4px;
+}
+.drag-handle:hover { opacity: 1; }
+.drag-handle:active { cursor: grabbing; }
 
 /* 圖標按鈕 */
 .icon-btn {

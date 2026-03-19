@@ -1,7 +1,7 @@
 <template>
   <div 
     class="settings-panel" 
-    :style="{ left: x + 'px', top: y + 'px' }"
+    :style="{ left: x + 'px', top: y + 'px', width: width + 'px', height: height + 'px' }"
     @mouseenter="$emit('mouseenter')" 
     @mouseleave="$emit('mouseleave')"
   >
@@ -161,6 +161,10 @@
 
       </div>
     </div>
+
+    <!-- Resize Handles -->
+    <div class="resize-handle sw" @mousedown.stop="startResize($event, 'sw')"></div>
+    <div class="resize-handle se" @mousedown.stop="startResize($event, 'se')"></div>
   </div>
 </template>
 
@@ -186,6 +190,12 @@ const y = ref(window.innerHeight / 2 - 200);
 let isDragging = false;
 let dragOffset = { x: 0, y: 0 };
 
+// 尺寸邏輯
+const width = ref(550);
+const height = ref(400);
+const minWidth = 400;
+const minHeight = 300;
+
 function startDrag(e) {
   if (e.target.closest('.close-btn')) return;
   isDragging = true;
@@ -208,6 +218,44 @@ function stopDrag() {
   isDragging = false;
   window.removeEventListener('mousemove', onDrag);
   window.removeEventListener('mouseup', stopDrag);
+}
+
+// Resize logic
+let resizeStart = { x: 0, y: 0 };
+let initialSize = { w: 0, h: 0 };
+let initialPos = { x: 0, y: 0 };
+let resizeDir = '';
+
+function startResize(e, dir) {
+  e.preventDefault();
+  resizeDir = dir;
+  resizeStart = { x: e.clientX, y: e.clientY };
+  initialSize = { w: width.value, h: height.value };
+  initialPos = { x: x.value, y: y.value };
+  
+  window.addEventListener('mousemove', onResize);
+  window.addEventListener('mouseup', stopResize);
+}
+
+function onResize(e) {
+  const dx = e.clientX - resizeStart.x;
+  const dy = e.clientY - resizeStart.y;
+  
+  if (resizeDir === 'se') {
+    width.value = Math.max(minWidth, initialSize.w + dx);
+    height.value = Math.max(minHeight, initialSize.h + dy);
+  } else if (resizeDir === 'sw') {
+    const newWidth = Math.max(minWidth, initialSize.w - dx);
+    width.value = newWidth;
+    height.value = Math.max(minHeight, initialSize.h + dy);
+    // Adjust x to keep right edge stable
+    x.value = initialPos.x + (initialSize.w - newWidth);
+  }
+}
+
+function stopResize() {
+  window.removeEventListener('mousemove', onResize);
+  window.removeEventListener('mouseup', stopResize);
 }
 
 // 標籤頁邏輯
@@ -239,8 +287,7 @@ function quitApp() {
 <style scoped>
 .settings-panel {
   position: fixed;
-  width: 550px;
-  height: 400px;
+  /* width & height are now inline styles */
   background: var(--bg-panel, rgba(5,10,19,0.95));
   border: 1px solid var(--border, rgba(0,255,200,0.3));
   border-radius: 8px;
@@ -311,6 +358,9 @@ function quitApp() {
 
 .tab-content {
   animation: fadeIn 0.3s ease;
+  height: 100%; /* Ensure full height for tool manager */
+  display: flex;
+  flex-direction: column;
 }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
@@ -450,6 +500,26 @@ select {
   border-radius: 4px;
 }
 .quit-btn:hover { background: rgba(255, 50, 50, 0.3); }
+
+/* Resize Handles */
+.resize-handle {
+  position: absolute;
+  bottom: 0;
+  width: 15px;
+  height: 15px;
+  z-index: 10;
+}
+.resize-handle.sw {
+  left: 0;
+  cursor: sw-resize;
+}
+.resize-handle.se {
+  right: 0;
+  cursor: se-resize;
+}
+.resize-handle:hover {
+  background: rgba(0, 255, 200, 0.2);
+}
 
 /* 全局滾動條美化 (針對 SettingsPanel 內部) */
 .content::-webkit-scrollbar,
