@@ -1,10 +1,16 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Luna AI</title>
+    
+    <!-- [Fix] 必須放在 head 中，確保在 Vue 應用啟動前加載完畢 -->
+    <script src="/live2d/live2dcubismcore.min.js"></script>
+    <script src="/live2d/live2d.min.js"></script>
+  </head>
   <body>
     <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
-    <!-- 使用相对路径，兼容本地开发与 Electron 打包环境 -->
-    <script src="./live2d/live2dcubismcore.min.js"></script>
-    <script src="./live2d/live2d.min.js"></script>
   </body>
 </html>

@@ -525,7 +525,7 @@ async function onSend(text) {
     streamText.value = ""; 
 
     // 異步處理氣泡和表情
-    // 使用 await 確保在氣泡顯示期間保持 isStreaming 狀態，這樣輸入框會一直禁用
+    // 使用 await 確保在氣泡顯示期間保持 isStreaming 狀態，这样輸入框會一直禁用
     await handleModelReply(normalizeResponse(res));
     
   } catch (e) {
@@ -666,12 +666,40 @@ function loadModelTransform() {
 }
 
 function resetModelTransform() {
-  if (!container) return;
+  if (!container) {
+    appearance.showAppearanceHint("容器未初始化");
+    return;
+  }
+  
+  // 强制重置容器
   container.x = 0;
   container.y = 0;
   container.scale.set(1);
+  container.visible = true;
+  modelVisible.value = true;
+
+  // 强制重置模型本体
+  if (model && app) {
+    model.alpha = 1;
+    model.visible = true;
+    model.x = app.renderer.width / 2;
+    model.y = app.renderer.height || window.innerHeight;
+    model.scale.set(0.1); 
+    
+    console.log("[Debug] 强制重置执行完毕。当前模型状态:", {
+      alpha: model.alpha,
+      x: model.x,
+      y: model.y,
+      scale: model.scale.x,
+      width: model.width,
+      height: model.height
+    });
+  } else {
+    console.warn("[Debug] 模型对象不存在，无法重置模型本体！");
+  }
+
   saveModelTransform();
-  appearance.showAppearanceHint("模型位置已重置");
+  appearance.showAppearanceHint("模型状态已强制重置！");
 }
 
 function toggleTrackingSetupMode() {
@@ -1015,10 +1043,13 @@ onMounted(async () => {
   }
 
   try {
-    model = await Live2DModel.from("/models/luna/jk盐.model3.json", {
+    // [Fix] 使用新的英文文件名加载模型
+    model = await Live2DModel.from("/models/luna/jk_salt.model3.json", {
       autoInteract: false,
       ticker:       PIXI.Ticker.shared,
     });
+
+    console.log("[Live2D] 🎉 模型文件加载成功！", model);
 
     model.scale.set(0.1);
     model.anchor.set(0.5, 1);
