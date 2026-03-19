@@ -936,6 +936,8 @@ onMounted(async () => {
     view:            canvasRef.value,
     backgroundAlpha: 0,
     resizeTo:        wrapperRef.value,
+    resolution:      window.devicePixelRatio || 1,
+    autoDensity:     true,
   });
 
   container = new PIXI.Container();
@@ -1299,6 +1301,9 @@ html, body {
   pointer-events: none;
 }
 .interactive-wrapper canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
   pointer-events: auto;
 }
 
