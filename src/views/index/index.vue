@@ -9,6 +9,13 @@
       正在进行滑鼠追蹤設定，請點擊模型對應的位置設置為跟蹤點。
     </div>
 
+    <!-- ===== 全局轻提示 (Toast) ===== -->
+    <transition name="fade">
+      <div v-if="appearance.appearanceHint.value" class="toast-hint">
+        {{ appearance.appearanceHint.value }}
+      </div>
+    </transition>
+
     <!-- ===== 登錄幕布 ===== -->
     <transition name="login-fade">
       <div v-if="loginVisible" class="login-mask">
@@ -326,7 +333,7 @@ async function performLogin() {
     }, 450);
   } catch (e) {
     console.error("[Auth] 登錄請求失敗", e);
-    loginError.value = "無法連接鑒權服務，請檢查網絡或服務狀態";
+    loginError.value = "無法連接鑒權服務，請檢查網絡或服務状态";
     loginLogLines.value.push("網絡錯誤：無法連接到鑒權端點。");
   } finally {
     loginLoading.value = false;
@@ -540,7 +547,7 @@ async function callStartup() {
     isConnecting.value = false;
     handleModelReply(normalizeResponse(res));
   } catch (e) {
-    console.error("[Luna] 啟動失敗", e);
+    console.error("[Luna] 啟 মিডি失敗", e);
     isConnecting.value = false;
     handleNetworkError();
   }
@@ -1101,6 +1108,25 @@ html, body {
   font-weight: bold;
   z-index: 9999;
   box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+}
+
+/* ===== 全局轻提示 (Toast) 样式 ===== */
+.toast-hint {
+  position: fixed;
+  top: 60px; /* 避免和 top-banner 重叠 */
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.85);
+  color: var(--primary, #00ffc8);
+  padding: 10px 24px;
+  border-radius: 6px;
+  border: 1px solid var(--primary, #00ffc8);
+  z-index: 10000;
+  font-size: 13px;
+  font-weight: bold;
+  pointer-events: none;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.5), 0 0 10px rgba(0,255,200,0.2);
+  letter-spacing: 1px;
 }
 
 /* ===== 登錄幕布 (復用原有樣式) ===== */
