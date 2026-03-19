@@ -146,6 +146,8 @@
         @reset-model="resetModelState"
         @toggle-setup="toggleSetupMode"
         @toggle-tracking-setup="toggleTrackingSetupMode"
+        @reset-setup="resetModelTransform"
+        @reset-tracking-setup="resetTrackingOrigin"
         @toggle-model="modelVisible = !modelVisible"
         @logout="handleLogout"
         @mouseenter="uiEnter"
@@ -658,6 +660,15 @@ function loadModelTransform() {
   }
 }
 
+function resetModelTransform() {
+  if (!container) return;
+  container.x = 0;
+  container.y = 0;
+  container.scale.set(1);
+  saveModelTransform();
+  appearance.showAppearanceHint("模型位置已重置");
+}
+
 function toggleTrackingSetupMode() {
   if (isSetupMode.value) isSetupMode.value = false;
   isTrackingSetupMode.value = !isTrackingSetupMode.value;
@@ -667,6 +678,15 @@ function toggleTrackingSetupMode() {
     if (trackingMarker) trackingMarker.visible = false;
     localStorage.setItem(TRACKING_ORIGIN_KEY, JSON.stringify(trackingOriginOffset));
   }
+}
+
+function resetTrackingOrigin() {
+  trackingOriginOffset = { x: 0, y: 0 };
+  localStorage.setItem(TRACKING_ORIGIN_KEY, JSON.stringify(trackingOriginOffset));
+  if (isTrackingSetupMode.value) {
+    drawTrackingMarker();
+  }
+  appearance.showAppearanceHint("追蹤中心已重置");
 }
 
 function drawTrackingMarker() {

@@ -74,25 +74,35 @@
           <div class="section">
             <div class="section-title">INITIAL SETUP / 初始設定</div>
             <p class="desc">調整模型在屏幕上的初始位置和大小。</p>
-            <button 
-              class="action-btn" 
-              :class="{ 'active-red': isSetupMode }"
-              @click="toggleSetupMode"
-            >
-              {{ isSetupMode ? '設定完成' : '開始設定' }}
-            </button>
+            <div class="btn-group">
+              <button 
+                class="action-btn" 
+                :class="{ 'active-red': isSetupMode }"
+                @click="toggleSetupMode"
+              >
+                {{ isSetupMode ? '設定完成' : '開始設定' }}
+              </button>
+              <button class="action-btn secondary" @click="$emit('reset-setup')">
+                重置位置
+              </button>
+            </div>
           </div>
 
           <div class="section">
             <div class="section-title">TRACKING / 視線追蹤</div>
             <p class="desc">點擊模型表面設置視線追蹤的參考中心點。</p>
-            <button 
-              class="action-btn" 
-              :class="{ 'active-red': isTrackingSetupMode }"
-              @click="toggleTrackingSetup"
-            >
-              {{ isTrackingSetupMode ? '設定完成' : '開始設定' }}
-            </button>
+            <div class="btn-group">
+              <button 
+                class="action-btn" 
+                :class="{ 'active-red': isTrackingSetupMode }"
+                @click="toggleTrackingSetup"
+              >
+                {{ isTrackingSetupMode ? '設定完成' : '開始設定' }}
+              </button>
+              <button class="action-btn secondary" @click="$emit('reset-tracking-setup')">
+                重置中心
+              </button>
+            </div>
           </div>
 
           <!-- 退出按鈕移至通用設置底部右下角 -->
@@ -166,6 +176,7 @@ const props = defineProps([
 ]);
 const emit = defineEmits([
   'close', 'reset-model', 'toggle-setup', 'toggle-tracking-setup', 
+  'reset-setup', 'reset-tracking-setup',
   'mouseenter', 'mouseleave', 'toggle-model', 'logout'
 ]);
 
@@ -369,9 +380,15 @@ select {
   border-radius: 4px;
 }
 
-/* 綠色/紅色按鈕 */
+/* 按鈕組 */
+.btn-group {
+  display: flex;
+  gap: 10px;
+}
+
+/* 綠色/紅色/灰色按鈕 */
 .action-btn {
-  width: 100%;
+  flex: 1;
   padding: 8px;
   background: #28a745; /* 綠色 */
   color: white;
@@ -383,6 +400,12 @@ select {
 }
 .action-btn.active-red {
   background: #dc3545; /* 紅色 */
+}
+.action-btn.secondary {
+  background: #6c757d; /* 灰色 */
+}
+.action-btn.secondary:hover {
+  background: #5a6268;
 }
 
 /* 外貌列表 */
