@@ -3,6 +3,7 @@ package org.yilena.luna.tools;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
 import org.yilena.luna.constants.LogActionConstant;
@@ -28,7 +29,16 @@ public class LogTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_LOG, status = LunaStateConstant.STATUS_LOG)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "管理系统日志")
-    public String manageLog(String action, String logType, String module, String content, String startTime, String endTime, Integer limit, Long id, String beforeTime) {
+    public String manageLog(
+            @RequestParam("action") String action,
+            @RequestParam(value = "logType", required = false) String logType,
+            @RequestParam(value = "module", required = false) String module,
+            @RequestParam(value = "content", required = false) String content,
+            @RequestParam(value = "startTime", required = false) String startTime,
+            @RequestParam(value = "endTime", required = false) String endTime,
+            @RequestParam(value = "limit", required = false) Integer limit,
+            @RequestParam(value = "id", required = false) Long id,
+            @RequestParam(value = "beforeTime", required = false) String beforeTime) {
         try {
             if ("INSERT".equalsIgnoreCase(action)) {
                 LunaLog log = LunaLog.builder()

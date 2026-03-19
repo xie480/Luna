@@ -3,6 +3,7 @@ package org.yilena.luna.tools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
 import org.yilena.luna.constants.LogActionConstant;
@@ -27,7 +28,13 @@ public class KnowledgeBaseTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_KNOWLEDGE_BASE, status = LunaStateConstant.STATUS_KNOWLEDGE_BASE)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_KNOWLEDGE, type = LogType.TOOL_CALL, content = "管理知识库")
-    public String manageKnowledgeBase(String action, String title, String content, String sourceType, String sourcePath, String query) {
+    public String manageKnowledgeBase(
+            @RequestParam("action") String action,
+            @RequestParam(value = "title", required = false) String title,
+            @RequestParam(value = "content", required = false) String content,
+            @RequestParam(value = "sourceType", required = false) String sourceType,
+            @RequestParam(value = "sourcePath", required = false) String sourcePath,
+            @RequestParam(value = "query", required = false) String query) {
         try {
             if ("INSERT".equalsIgnoreCase(action)) {
                 if (title == null || content == null || sourceType == null) {

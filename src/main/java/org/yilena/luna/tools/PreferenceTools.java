@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.toolkit.SqlRunner;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
 import org.yilena.luna.constants.LogActionConstant;
@@ -25,7 +26,14 @@ public class PreferenceTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_PREFERENCE, status = LunaStateConstant.STATUS_PREFERENCE)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_PREFERENCE, type = LogType.TOOL_CALL, content = "管理用户偏好设置")
-    public String manageUserPreference(String action, Long id, String mode, String prefKey, String prefValue, String description, Boolean hardDelete) {
+    public String manageUserPreference(
+            @RequestParam("action") String action,
+            @RequestParam(value = "id", required = false) Long id,
+            @RequestParam(value = "mode", required = false) String mode,
+            @RequestParam(value = "prefKey", required = false) String prefKey,
+            @RequestParam(value = "prefValue", required = false) String prefValue,
+            @RequestParam(value = "description", required = false) String description,
+            @RequestParam(value = "hardDelete", required = false) Boolean hardDelete) {
         try {
             if ("INSERT".equalsIgnoreCase(action)) {
                 if (prefKey == null || prefValue == null) return error("INSERT 必须提供 prefKey 和 prefValue");

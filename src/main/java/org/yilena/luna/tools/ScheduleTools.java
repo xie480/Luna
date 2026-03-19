@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.toolkit.SqlRunner;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
 import org.yilena.luna.constants.LogActionConstant;
@@ -33,7 +34,15 @@ public class ScheduleTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_SCHEDULE, status = LunaStateConstant.STATUS_SCHEDULE)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_SCHEDULE, type = LogType.TOOL_CALL, content = "管理日程任务")
-    public String manageScheduleTask(String action, Long id, String mode, String content, String triggerTime, String status, String taskType, Boolean hardDelete) {
+    public String manageScheduleTask(
+            @RequestParam("action") String action,
+            @RequestParam(value = "id", required = false) Long id,
+            @RequestParam(value = "mode", required = false) String mode,
+            @RequestParam(value = "content", required = false) String content,
+            @RequestParam(value = "triggerTime", required = false) String triggerTime,
+            @RequestParam(value = "status", required = false) String status,
+            @RequestParam(value = "taskType", required = false) String taskType,
+            @RequestParam(value = "hardDelete", required = false) Boolean hardDelete) {
         try {
             if ("INSERT".equalsIgnoreCase(action)) {
                 if (content == null || triggerTime == null || status == null || taskType == null) {

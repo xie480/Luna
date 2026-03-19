@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
 import org.yilena.luna.constants.LogActionConstant;
@@ -75,7 +76,7 @@ public class SearchTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_SEARCH_WEB, status = LunaStateConstant.STATUS_SEARCHING)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.SEARCH_WEB, type = LogType.TOOL_CALL, content = "执行网页搜索")
-    public String web_search(String query) {
+    public String web_search(@RequestParam("query") String query) {
         log.info("【Tool Debug】大模型触发了 web_search 工具，关键词: {}", query);
         Map<String, Object> payload = new HashMap<>();
         payload.put("q", query);
@@ -86,7 +87,7 @@ public class SearchTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_SEARCH_IMAGES, status = LunaStateConstant.STATUS_SEARCHING)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.SEARCH_IMAGES, type = LogType.TOOL_CALL, content = "执行图片搜索")
-    public String image_search(String query) {
+    public String image_search(@RequestParam("query") String query) {
         log.info("【Tool Debug】大模型触发了 image_search 工具，关键词: {}", query);
         Map<String, Object> payload = new HashMap<>();
         payload.put("q", query);
@@ -97,7 +98,7 @@ public class SearchTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_SEARCH_NEWS, status = LunaStateConstant.STATUS_SEARCHING)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.SEARCH_NEWS, type = LogType.TOOL_CALL, content = "执行新闻搜索")
-    public String news_search(String query) {
+    public String news_search(@RequestParam("query") String query) {
         log.info("【Tool Debug】大模型触发了 news_search 工具，关键词: {}", query);
         Map<String, Object> payload = new HashMap<>();
         payload.put("q", query);
@@ -108,7 +109,7 @@ public class SearchTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_SEARCH_LENS, status = LunaStateConstant.STATUS_SEARCHING)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.SEARCH_LENS, type = LogType.TOOL_CALL, content = "执行以图搜图")
-    public String lens_search(String url) {
+    public String lens_search(@RequestParam("url") String url) {
         log.info("【Tool Debug】大模型触发了 lens_search 工具，URL: {}", url);
         Map<String, Object> payload = new HashMap<>();
         payload.put("url", url);
@@ -119,7 +120,7 @@ public class SearchTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_SCRAPE_WEB, status = LunaStateConstant.STATUS_SCRAPING)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.SCRAPE_WEB, type = LogType.TOOL_CALL, content = "抓取网页内容")
-    public String web_scrape(String url) {
+    public String web_scrape(@RequestParam("url") String url) {
         log.info("【Tool Debug】大模型触发了 web_scrape 工具，URL: {}", url);
         Map<String, Object> payload = new HashMap<>();
         payload.put("url", url);

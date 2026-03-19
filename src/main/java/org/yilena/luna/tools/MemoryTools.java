@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.toolkit.SqlRunner;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
 import org.yilena.luna.constants.LogActionConstant;
@@ -28,7 +29,15 @@ public class MemoryTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_MEMORY, status = LunaStateConstant.STATUS_MEMORY)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_MEMORY, type = LogType.TOOL_CALL, content = "管理长期记忆")
-    public String manageMemory(String action, Long id, String mode, String sessionId, String memoryType, String content, Integer weight, Boolean hardDelete) {
+    public String manageMemory(
+            @RequestParam("action") String action,
+            @RequestParam(value = "id", required = false) Long id,
+            @RequestParam(value = "mode", required = false) String mode,
+            @RequestParam(value = "sessionId", required = false) String sessionId,
+            @RequestParam(value = "memoryType", required = false) String memoryType,
+            @RequestParam(value = "content", required = false) String content,
+            @RequestParam(value = "weight", required = false) Integer weight,
+            @RequestParam(value = "hardDelete", required = false) Boolean hardDelete) {
         try {
             if ("INSERT".equalsIgnoreCase(action)) {
                 if (memoryType == null || content == null) return error("INSERT 必须提供 memoryType 和 content");
