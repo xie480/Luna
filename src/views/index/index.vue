@@ -388,7 +388,7 @@ const expressionCache = new Map();
 const dummyBoxRef = ref(null);
 // 傳入 ref(false) 替代 showChat，防止氣泡因為輸入框打開而被強制隱藏
 const alwaysShowBubbles = ref(false);
-const { chatBubbles, bubbleAnchor, registerBubble, sendReplyAsBubbles } = useBubble(dummyBoxRef, alwaysShowBubbles);
+const { chatBubbles, bubbleAnchor, registerBubble, sendReplyAsBubbles, splitReplyIntoChunks } = useBubble(dummyBoxRef, alwaysShowBubbles);
 
 bubbleAnchor.value = { x: window.innerWidth / 2, y: window.innerHeight - 150 };
 
@@ -476,8 +476,12 @@ async function handleModelReply(res) {
 
   console.log("[Luna] 準備渲染氣泡:", replyText);
   
+  // [Fix] 只顯示第一個氣泡的內容在輸入框特效中
+  const chunks = splitReplyIntoChunks(replyText);
+  const previewText = chunks.length > 0 ? chunks[0] : replyText;
+
   // [Fix] 並行執行特效和氣泡渲染，避免 playDecryptionEffect 阻塞氣泡的出現
-  const effectPromise = playDecryptionEffect(replyText);
+  const effectPromise = playDecryptionEffect(previewText);
   const bubblePromise = sendReplyAsBubbles(replyText, { interval: 1000, duration: 5000 });
 
   await Promise.all([effectPromise, bubblePromise]);
@@ -503,7 +507,8 @@ async function onSend(text) {
       content: text,
       timestamp: Date.now()
     });
-    historyPanelRef.value.refresh();
+    // [Fix] 移除這裡的 refresh()，防止在後端保存前覆蓋掉樂觀更新的消息
+    // historyPanelRef.value.refresh();
   }
 
   try {

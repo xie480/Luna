@@ -148,5 +148,6 @@ export function useBubble(messageBoxRef, showMessageBox) {
     registerBubble,
     showChatBubble,
     sendReplyAsBubbles,
+    splitReplyIntoChunks,
   };
 }
