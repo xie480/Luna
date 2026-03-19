@@ -194,15 +194,11 @@
   </div>
 </template>
 
-<script>
-// [Fix] 獨立的 script 塊，確保 PIXI 在 Live2DModel 導入前掛載到 window
-import * as PIXI from "pixi.js";
-window.PIXI = PIXI;
-</script>
-
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
 import { gsap } from "gsap";
+import * as PIXI from "pixi.js"; // 導入 PIXI
+
 import {
   chat as chatApi,
   startup as startupApi,
@@ -211,7 +207,9 @@ import {
   logout as logoutApi,
 } from "../../api/index.js";
 import { EMOTION_EXPRESSIONS } from "../../utils/emotion-expressions";
-import { Live2DModel } from "pixi-live2d-display/cubism4";
+
+// [Fix] 移除靜態導入，改為在 onMounted 中動態導入，確保 window.PIXI 已設置
+// import { Live2DModel } from "pixi-live2d-display/cubism4";
 
 import { useBubble }     from "../../composables/useBubble.js";
 import { useAppearance } from "../../composables/useAppearance.js";
@@ -965,6 +963,10 @@ async function startBootSequence() {
 onMounted(async () => {
   loadTheme();
 
+  // [Fix] 確保 window.PIXI 存在，並動態導入 Live2DModel
+  window.PIXI = PIXI;
+  const { Live2DModel } = await import("pixi-live2d-display/cubism4");
+
   // [Fix] 確保 Ticker 被註冊，解決 Vite 模塊加載順序導致的 Live2D 動畫不更新問題
   if (Live2DModel.registerTicker) {
     Live2DModel.registerTicker(PIXI.Ticker);
@@ -1340,7 +1342,9 @@ html, body {
 }
 .interactive-wrapper canvas {
   display: block;
-  /* [Fix] 移除 width: 100% 和 height: 100%，讓 PIXI.Application 的 resizeTo 來控制尺寸，避免衝突 */
+  /* [Fix] 確保 Canvas 佔滿屏幕，防止因尺寸為 0 而不可見 */
+  width: 100vw;
+  height: 100vh;
   pointer-events: auto;
 }
 
