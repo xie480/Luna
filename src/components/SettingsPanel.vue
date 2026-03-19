@@ -146,7 +146,7 @@
 
         <!-- Tool管理 -->
         <div v-if="activeTab === 'tools'" class="tab-content" style="height: 100%;">
-          <ToolManager />
+          <ToolManager @mouseenter="$emit('mouseenter')" @mouseleave="$emit('mouseleave')" />
         </div>
 
       </div>

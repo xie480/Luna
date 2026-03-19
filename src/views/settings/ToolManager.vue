@@ -41,6 +41,8 @@
         <div 
           class="modal"
           :style="{ left: modalX + 'px', top: modalY + 'px' }"
+          @mouseenter="$emit('mouseenter')"
+          @mouseleave="$emit('mouseleave')"
         >
           <!-- 弹窗头部 (拖拽区域) -->
           <div class="modal-header" @mousedown="startDrag">
@@ -108,6 +110,8 @@
 
 <script setup>
 import { ref, onMounted, reactive } from 'vue';
+
+const emit = defineEmits(['mouseenter', 'mouseleave']);
 
 const tools = ref([]);
 const loading = ref(false);

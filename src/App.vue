@@ -534,7 +534,8 @@ function uiEnter() {
 function uiLeave() {
   clearTimeout(uiLeaveTimer);
   uiLeaveTimer = setTimeout(() => {
-    const hovered = document.querySelector('.chat-bar-wrapper:hover, .settings-panel:hover, .login-terminal:hover, .history-panel:hover, .top-banner:hover');
+    // 加入 .modal:hover 檢測，防止彈窗被穿透
+    const hovered = document.querySelector('.chat-bar-wrapper:hover, .settings-panel:hover, .login-terminal:hover, .history-panel:hover, .top-banner:hover, .modal:hover');
     if (hovered) {
       overUI = true;
     } else {
