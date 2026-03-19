@@ -1,6 +1,7 @@
 package org.yilena.luna.tools;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
@@ -13,6 +14,7 @@ import org.yilena.luna.service.KnowledgeBaseService;
 
 import java.util.Arrays;
 
+@Slf4j
 @Component
 public class KnowledgeBaseTools extends BaseTool {
 
@@ -46,7 +48,8 @@ public class KnowledgeBaseTools extends BaseTool {
             }
             return error("未知的 action: " + action + "，知识库暂仅支持 INSERT 和 QUERY");
         } catch (Exception e) {
-            return error("操作异常: " + e.getMessage());
+            log.error("KnowledgeBaseTools 执行异常", e);
+            return error("操作异常: " + (e.getMessage() != null ? e.getMessage() : e.toString()));
         }
     }
 }
