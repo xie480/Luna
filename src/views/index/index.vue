@@ -525,7 +525,7 @@ async function onSend(text) {
     streamText.value = ""; 
 
     // 異步處理氣泡和表情
-    // 使用 await 確保在氣泡顯示期間保持 isStreaming 狀態，这样輸入框會一直禁用
+    // 使用 await 確保在氣泡顯示期間保持 isStreaming 狀態，這樣輸入框會一直禁用
     await handleModelReply(normalizeResponse(res));
     
   } catch (e) {
@@ -536,6 +536,7 @@ async function onSend(text) {
     isConnecting.value = false;
     isStreaming.value = false;
     streamText.value = "";
+    lunaStatus.value = ""; // [Fix] 請求結束後清除狀態文字，防止卡在輸入框上
   }
 }
 

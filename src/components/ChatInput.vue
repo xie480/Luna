@@ -44,6 +44,8 @@
         type="text" 
         :placeholder="showOverlay ? '' : 'Type a message...'" 
         @keydown.enter="sendMessage"
+        @focus="isFocused = true"
+        @blur="isFocused = false"
         :disabled="loading || streaming"
         :class="{ 'hidden-text': showOverlay }"
       />
@@ -101,6 +103,7 @@ const emit = defineEmits(['send', 'open-settings', 'toggle-history', 'mouseenter
 
 const inputText = ref("");
 const inputRef = ref(null);
+const isFocused = ref(false); // [Fix] 新增聚焦狀態
 
 // 拖動相關狀態
 const pos = reactive({ x: 0, y: 0 });
@@ -166,7 +169,9 @@ function sendMessage() {
 }
 
 // 計算是否顯示特效層：正在流式輸出、正在加載(等待響應)、或者有背景狀態且未輸入文字時
+// [Fix] 如果輸入框被聚焦，則隱藏特效層，以便用戶看到光標和輸入內容
 const showOverlay = computed(() => {
+  if (isFocused.value) return false;
   return props.streaming || props.loading || (props.statusText && !inputText.value);
 });
 
@@ -281,6 +286,7 @@ input {
   border-radius: 20px;
   outline: none;
   transition: 0.3s;
+  pointer-events: auto; /* [Fix] 確保輸入框可以接收點擊事件 */
 }
 input:focus {
   border-color: var(--primary);
