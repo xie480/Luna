@@ -573,7 +573,17 @@ function uiEnter() {
 function uiLeave() {
   clearTimeout(uiLeaveTimer);
   uiLeaveTimer = setTimeout(() => {
-    const hovered = document.querySelector('.chat-bar-wrapper:hover, .settings-panel:hover, .login-terminal:hover, .history-panel:hover, .top-banner:hover');
+    // [Fix] 排除正在執行退出動畫的元素，防止關閉面板時 overUI 卡在 true
+    const selector = [
+      '.chat-bar-wrapper:not(.fade-leave-active):hover',
+      '.settings-panel:not(.fade-leave-active):hover',
+      '.login-terminal:hover',
+      '.history-panel:not(.fade-leave-active):hover',
+      '.top-banner:hover',
+      '.modal:hover'
+    ].join(', ');
+
+    const hovered = document.querySelector(selector);
     if (hovered) {
       overUI = true;
     } else {

@@ -4,6 +4,11 @@
     <!-- 顶部提示框 (设定模式时显示) -->
     <div v-if="isSetupMode" class="top-banner" @mouseenter="uiEnter" @mouseleave="uiLeave">
       正在进行初始位置设定，请调整模型位置和大小。
+**Applying Click-Through Fixes**
+
+I've updated `src/App.vue` and `src/views/index/index.vue`, modifying the `uiLeave` function. This change ensures that the element selectors now correctly account for elements during closing transitions by excluding elements with the  `fade-leave-active`,  `login-fade-leave-active`, and `luna-intro-leave-active` classes. This fixes the reported click-through issue.
+
+
     </div>
     <div v-if="isTrackingSetupMode" class="top-banner" @mouseenter="uiEnter" @mouseleave="uiLeave">
       正在进行滑鼠追蹤設定，請點擊模型對應的位置設置為跟蹤點。
@@ -573,7 +578,17 @@ function uiEnter() {
 function uiLeave() {
   clearTimeout(uiLeaveTimer);
   uiLeaveTimer = setTimeout(() => {
-    const hovered = document.querySelector('.chat-bar-wrapper:hover, .settings-panel:hover, .login-terminal:hover, .history-panel:hover, .top-banner:hover');
+    // [Fix] 排除正在執行退出動畫的元素，防止關閉面板時 overUI 卡在 true
+    const selector = [
+      '.chat-bar-wrapper:not(.fade-leave-active):hover',
+      '.settings-panel:not(.fade-leave-active):hover',
+      '.login-terminal:hover',
+      '.history-panel:not(.fade-leave-active):hover',
+      '.top-banner:hover',
+      '.modal:hover'
+    ].join(', ');
+
+    const hovered = document.querySelector(selector);
     if (hovered) {
       overUI = true;
     } else {
