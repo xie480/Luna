@@ -24,12 +24,7 @@ registerMcpIpc();
 
 /* ===== IPC handlers for History API ===== */
 ipcMain.handle("luna.api.chat.history.date", async (_event, yearMonth) => {
-  console.log('[History] fetching available**Reorganizing Core Components**
-
-I'm now implementing the core changes required by the user. I'll be editing `electron/main.js` to disable hardware acceleration to fix rendering issues. Simultaneously, I am restructuring `src/App.vue` to simply house the router view, as per the user's directive to remove render logic and leverage `index.vue`.
-
-
- dates for', yearMonth);
+  console.log('[History] fetching available dates for', yearMonth);
 
   if (typeof yearMonth !== 'string') {
     throw new TypeError('yearMonth must be string');
