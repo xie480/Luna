@@ -1,0 +1,56 @@
+{
+  "name": "manage_memory",
+  "description": "管理 AI 的長期記憶，包括存儲、查詢、更新和刪除記憶片段。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "memoryTools",
+  "methodName": "manageMemory",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": ["INSERT", "QUERY", "UPDATE", "DELETE"],
+        "description": "操作類型"
+      },
+      "id": {
+        "type": "integer",
+        "description": "記憶ID (UPDATE/DELETE 必須)"
+      },
+      "mode": {
+        "type": "string",
+        "enum": ["PUT", "PATCH"],
+        "description": "更新模式"
+      },
+      "sessionId": {
+        "type": "string",
+        "description": "會話標識 ID"
+      },
+      "memoryType": {
+        "type": "string",
+        "enum": ["USER_PROFILE", "CONVERSATION_SUMMARY", "FACT", "PREFERENCE"],
+        "description": "記憶類型"
+      },
+      "content": {
+        "type": "string",
+        "description": "記憶內容"
+      },
+      "weight": {
+        "type": "integer",
+        "description": "記憶權重 (默認1)"
+      },
+      "hardDelete": {
+        "type": "boolean",
+        "description": "是否物理刪除"
+      }
+    },
+    "required": ["action"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object", "description": "Memory 對象或列表" }
+    }
+  }
+}

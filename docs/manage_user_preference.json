@@ -1,0 +1,51 @@
+{
+  "name": "manage_user_preference",
+  "description": "管理用戶偏好設置，支持 INSERT(新增), QUERY(查詢), UPDATE(修改), DELETE(刪除) 操作。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "preferenceTools",
+  "methodName": "manageUserPreference",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": ["INSERT", "QUERY", "UPDATE", "DELETE"],
+        "description": "操作類型"
+      },
+      "id": {
+        "type": "integer",
+        "description": "記錄ID (UPDATE/DELETE 操作必須)"
+      },
+      "mode": {
+        "type": "string",
+        "enum": ["PUT", "PATCH"],
+        "description": "更新模式 (PUT:全量替換, PATCH:部分更新)"
+      },
+      "prefKey": {
+        "type": "string",
+        "description": "偏好設置的鍵名 (Key)"
+      },
+      "prefValue": {
+        "type": "string",
+        "description": "偏好設置的值 (Value)"
+      },
+      "description": {
+        "type": "string",
+        "description": "備註描述"
+      },
+      "hardDelete": {
+        "type": "boolean",
+        "description": "是否物理刪除 (僅 DELETE 操作有效)"
+      }
+    },
+    "required": ["action"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string", "description": "success 或 error" },
+      "data": { "type": "object", "description": "UserPreference 對象或列表" }
+    }
+  }
+}

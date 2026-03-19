@@ -1,0 +1,59 @@
+{
+  "name": "manage_log",
+  "description": "查詢或管理系統運行日誌，支持按時間、模塊、類型篩選。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "logTools",
+  "methodName": "manageLog",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": ["INSERT", "QUERY", "DELETE"],
+        "description": "操作類型"
+      },
+      "logType": {
+        "type": "string",
+        "enum": ["SYSTEM_EVENT", "USER_ACTION", "ERROR", "TOOL_CALL"],
+        "description": "日誌類型"
+      },
+      "module": {
+        "type": "string",
+        "description": "所屬模塊"
+      },
+      "content": {
+        "type": "string",
+        "description": "日誌內容 (INSERT 用)"
+      },
+      "startTime": {
+        "type": "string",
+        "description": "查詢開始時間 (yyyy-MM-dd HH:mm:ss)"
+      },
+      "endTime": {
+        "type": "string",
+        "description": "查詢結束時間 (yyyy-MM-dd HH:mm:ss)"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "返回條數限制 (默認10)"
+      },
+      "id": {
+        "type": "integer",
+        "description": "日誌ID (DELETE 用)"
+      },
+      "beforeTime": {
+        "type": "string",
+        "description": "刪除此時間之前的日誌 (DELETE 用)"
+      }
+    },
+    "required": ["action"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object", "description": "LunaLog 對象列表或操作消息" }
+    }
+  }
+}

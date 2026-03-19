@@ -1,0 +1,25 @@
+{
+  "name": "web_scrape",
+  "description": "抓取並提取指定網頁 URL 的文本內容。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "searchTools",
+  "methodName": "web_scrape",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "url": {
+        "type": "string",
+        "description": "目標網頁 URL"
+      }
+    },
+    "required": ["url"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "text": { "type": "string", "description": "網頁純文本內容" },
+      "metadata": { "type": "object", "description": "網頁元數據" }
+    }
+  }
+}

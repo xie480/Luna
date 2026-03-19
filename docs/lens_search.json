@@ -1,0 +1,22 @@
+{
+  "name": "lens_search",
+  "description": "通過圖片 URL 進行以圖搜圖 (Google Lens)。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "searchTools",
+  "methodName": "lens_search",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "url": {
+        "type": "string",
+        "description": "圖片的 URL 地址"
+      }
+    },
+    "required": ["url"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "description": "Google Lens 識別結果"
+  }
+}

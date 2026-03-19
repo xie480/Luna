@@ -1,0 +1,57 @@
+{
+  "name": "manage_schedule_task",
+  "description": "管理日程和定時任務，支持創建、查詢、修改和刪除任務。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "scheduleTools",
+  "methodName": "manageScheduleTask",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": ["INSERT", "QUERY", "UPDATE", "DELETE"],
+        "description": "操作類型"
+      },
+      "id": {
+        "type": "integer",
+        "description": "任務ID (UPDATE/DELETE 操作必須)"
+      },
+      "mode": {
+        "type": "string",
+        "enum": ["PUT", "PATCH"],
+        "description": "更新模式"
+      },
+      "content": {
+        "type": "string",
+        "description": "任務內容"
+      },
+      "triggerTime": {
+        "type": "string",
+        "description": "觸發時間，格式: yyyy-MM-dd HH:mm:ss"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"],
+        "description": "任務狀態"
+      },
+      "taskType": {
+        "type": "string",
+        "enum": ["ONCE", "CRON", "INTERVAL"],
+        "description": "任務類型"
+      },
+      "hardDelete": {
+        "type": "boolean",
+        "description": "是否物理刪除"
+      }
+    },
+    "required": ["action"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object", "description": "ScheduleTask 對象或列表" }
+    }
+  }
+}

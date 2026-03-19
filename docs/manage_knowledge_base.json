@@ -1,0 +1,47 @@
+{
+  "name": "manage_knowledge_base",
+  "description": "管理知識庫，支持寫入新知識 (INSERT) 和語義檢索 (QUERY)。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "knowledgeBaseTools",
+  "methodName": "manageKnowledgeBase",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": ["INSERT", "QUERY"],
+        "description": "操作類型"
+      },
+      "title": {
+        "type": "string",
+        "description": "知識標題 (INSERT 必須)"
+      },
+      "content": {
+        "type": "string",
+        "description": "知識內容文本 (INSERT 必須)"
+      },
+      "sourceType": {
+        "type": "string",
+        "enum": ["TEXT", "FILE", "URL"],
+        "description": "來源類型"
+      },
+      "sourcePath": {
+        "type": "string",
+        "description": "來源路徑或鏈接"
+      },
+      "query": {
+        "type": "string",
+        "description": "檢索關鍵詞 (QUERY 必須)"
+      }
+    },
+    "required": ["action"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "array", "description": "檢索到的知識片段列表或操作結果消息" }
+    }
+  }
+}

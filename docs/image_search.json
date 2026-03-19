@@ -1,0 +1,24 @@
+{
+  "name": "image_search",
+  "description": "搜索互聯網上的圖片資源。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "searchTools",
+  "methodName": "image_search",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "圖片搜索關鍵詞"
+      }
+    },
+    "required": ["query"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "images": { "type": "array", "description": "圖片結果列表，包含 URL 和標題" }
+    }
+  }
+}

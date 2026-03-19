@@ -1,0 +1,25 @@
+{
+  "name": "web_search",
+  "description": "執行互聯網網頁搜索，獲取最新的信息和數據。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "searchTools",
+  "methodName": "web_search",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "搜索關鍵詞"
+      }
+    },
+    "required": ["query"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "organic": { "type": "array", "description": "搜索結果列表" },
+      "peopleAlsoAsk": { "type": "array", "description": "相關問題" }
+    }
+  }
+}

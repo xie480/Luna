@@ -1,0 +1,24 @@
+{
+  "name": "news_search",
+  "description": "搜索最新的新聞報道和時事資訊。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "searchTools",
+  "methodName": "news_search",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "新聞搜索關鍵詞"
+      }
+    },
+    "required": ["query"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "news": { "type": "array", "description": "新聞結果列表，包含標題、來源、時間" }
+    }
+  }
+}
