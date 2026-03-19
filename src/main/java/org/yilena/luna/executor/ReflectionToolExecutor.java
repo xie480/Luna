@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.yilena.luna.entity.Resource;
 
 import java.lang.reflect.Method;
@@ -79,7 +80,15 @@ public class ReflectionToolExecutor {
 
         for (int i = 0; i < parameters.length; i++) {
             Parameter parameter = parameters[i];
-            String paramName = parameter.getName(); // 需確保編譯時開啟了 -parameters 參數，或者在 Resource 中存儲參數名列表
+            String paramName = parameter.getName(); // 默認使用參數名 (arg0 if not compiled with -parameters)
+            
+            // 優先讀取 @RequestParam 註解定義的名稱，解決編譯後參數名丟失問題
+            if (parameter.isAnnotationPresent(RequestParam.class)) {
+                RequestParam requestParam = parameter.getAnnotation(RequestParam.class);
+                if (requestParam.value() != null && !requestParam.value().isEmpty()) {
+                    paramName = requestParam.value();
+                }
+            }
             
             // 嘗試從 JSON 中獲取參數
             // 支持兩種情況：
