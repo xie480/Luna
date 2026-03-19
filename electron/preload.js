@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("desktopApi", {
   login:       (payload) => ipcRenderer.invoke("auth.login", payload),
   logout:      (token)   => ipcRenderer.invoke("auth.logout", token),
   quit:        () => ipcRenderer.invoke("luna.app.quit"),
+  setAlwaysOnTop: (flag) => ipcRenderer.invoke("luna.window.setAlwaysOnTop", flag),
   
   // 監聽狀態更新
   onStatusUpdate: (callback) => ipcRenderer.on('luna:status-update', (_event, value) => callback(value)),

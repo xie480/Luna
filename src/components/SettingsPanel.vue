@@ -142,6 +142,18 @@
           </div>
 
           <div class="section">
+            <div class="section-title">WINDOW / 窗口設定</div>
+            <label class="app-item">
+              <input 
+                type="checkbox" 
+                v-model="isAlwaysOnTop"
+                @change="toggleAlwaysOnTop"
+              />
+              <span>窗口置頂 (Always On Top)</span>
+            </label>
+          </div>
+
+          <div class="section">
             <div class="section-title">RHYTHM / 律動</div>
             <label class="app-item">
               <input 
@@ -281,6 +293,13 @@ function toggleTrackingSetup() {
 
 function quitApp() {
   window.desktopApi?.quit?.();
+}
+
+// 窗口置頂邏輯
+const isAlwaysOnTop = ref(true);
+
+function toggleAlwaysOnTop() {
+  window.desktopApi.setAlwaysOnTop(isAlwaysOnTop.value);
 }
 </script>
 

@@ -82,6 +82,14 @@ ipcMain.handle("luna.app.quit", () => {
   app.quit();
 });
 
+// [New] 設置窗口置頂狀態
+ipcMain.handle("luna.window.setAlwaysOnTop", (event, flag) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win) {
+    win.setAlwaysOnTop(flag);
+  }
+});
+
 /* ===== pet enter/leave: 修复穿透问题 ===== */
 ipcMain.on("pet:mouse-enter", (event) => {
   try {
