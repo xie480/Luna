@@ -93,3 +93,18 @@ COMMENT ON COLUMN tasks.resource_id IS '關聯的資源 ID';
 COMMENT ON COLUMN tasks.status IS 'PENDING, RUNNING, COMPLETED, REJECTED, PENDING_APPROVAL';
 COMMENT ON COLUMN tasks.input_args IS '執行參數';
 COMMENT ON COLUMN tasks.result IS '執行結果';
+
+-- ==========================================
+-- 追加: 結構重構 (將敏感度從 Skill 遷移至 Tool)
+-- ==========================================
+
+-- 1. 為 mcp_tools 添加敏感度和審批字段
+ALTER TABLE mcp_tools ADD COLUMN IF NOT EXISTS requires_approval BOOLEAN DEFAULT FALSE;
+ALTER TABLE mcp_tools ADD COLUMN IF NOT EXISTS sensitivity VARCHAR(20) DEFAULT 'LOW';
+
+COMMENT ON COLUMN mcp_tools.requires_approval IS '是否需要審批';
+COMMENT ON COLUMN mcp_tools.sensitivity IS 'LOW, MEDIUM, HIGH';
+
+-- 2. 從 mcp_skills 移除敏感度和審批字段 (Skill 僅保留運行模式)
+ALTER TABLE mcp_skills DROP COLUMN IF EXISTS requires_approval;
+ALTER TABLE mcp_skills DROP COLUMN IF EXISTS sensitivity;

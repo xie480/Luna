@@ -233,10 +233,10 @@ public class McpServiceImpl implements McpService {
                 .methodName(tool.getMethodName())
                 .inputSchema(tool.getInputSchema())
                 .outputSchema(tool.getOutputSchema())
-                // Tool 默認屬性
+                // Tool 屬性 (讀取真實配置)
                 .runMode(RunMode.SYNC)
-                .requiresApproval(false)
-                .sensitivity(Sensitivity.LOW)
+                .requiresApproval(tool.getRequiresApproval() != null ? tool.getRequiresApproval() : false)
+                .sensitivity(tool.getSensitivity() != null ? tool.getSensitivity() : Sensitivity.LOW)
                 .build();
     }
 
@@ -252,10 +252,10 @@ public class McpServiceImpl implements McpService {
                 .methodName(skill.getMethodName())
                 .inputSchema(skill.getInputSchema())
                 .outputSchema(skill.getOutputSchema())
-                // Skill 特有屬性
+                // Skill 屬性 (不再包含敏感度，默認為 LOW)
                 .runMode(skill.getRunMode() != null ? skill.getRunMode() : RunMode.SYNC)
-                .requiresApproval(skill.getRequiresApproval() != null ? skill.getRequiresApproval() : false)
-                .sensitivity(skill.getSensitivity() != null ? skill.getSensitivity() : Sensitivity.LOW)
+                .requiresApproval(false)
+                .sensitivity(Sensitivity.LOW)
                 .build();
     }
 }

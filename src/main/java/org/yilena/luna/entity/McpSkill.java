@@ -8,14 +8,14 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.yilena.luna.enums.RunMode;
-import org.yilena.luna.enums.Sensitivity;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
 
 /**
  * MCP 技能实体 (对应 mcp_skills 表)
- * 复合能力，支持异步、审批、权限控制
+ * 复合能力，支持异步执行
+ * 【v2.1 重构】敏感度和审批字段已迁移至 McpTool
  */
 @Data
 @Builder
@@ -87,18 +87,6 @@ public class McpSkill implements Serializable {
      */
     @TableField("run_mode")
     private RunMode runMode;
-
-    /**
-     * 是否需要人工审批 (true: 需要审批 / false: 直接执行)
-     */
-    @TableField("requires_approval")
-    private Boolean requiresApproval;
-
-    /**
-     * 敏感度/权限等级 (LOW, MEDIUM, HIGH)
-     */
-    @TableField("sensitivity")
-    private Sensitivity sensitivity;
 
     /**
      * 文本的向量表示 (PGVector)，用于语义检索

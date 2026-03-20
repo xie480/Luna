@@ -7,6 +7,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.yilena.luna.enums.Sensitivity;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -14,6 +15,7 @@ import java.time.LocalDateTime;
 /**
  * MCP 工具实体 (对应 mcp_tools 表)
  * 原子能力，无状态，同步执行
+ * 【v2.1 重构】敏感度和审批字段迁移至此
  */
 @Data
 @Builder
@@ -79,6 +81,18 @@ public class McpTool implements Serializable {
      */
     @TableField("output_schema")
     private String outputSchema;
+
+    /**
+     * 是否需要人工审批 (true: 需要审批 / false: 直接执行)
+     */
+    @TableField("requires_approval")
+    private Boolean requiresApproval;
+
+    /**
+     * 敏感度/权限等级 (LOW, MEDIUM, HIGH)
+     */
+    @TableField("sensitivity")
+    private Sensitivity sensitivity;
 
     /**
      * 文本的向量表示 (PGVector)，用于语义检索
