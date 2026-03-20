@@ -100,5 +100,9 @@ embedding:
   script-path: ./python/embedding.py
   model-path: D:/AI_Models/bge-base-zh-v1.5-model
 
+rerank:
+  model-path: D:/AI_Models/bge-reranker-v2-m3
+  script-path: ./python/rerank.py
+
 serper:
   api-key: fe2bc5deb3372b8fc2823c2031e06a209e20bd75

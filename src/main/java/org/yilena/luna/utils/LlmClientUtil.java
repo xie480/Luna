@@ -1,11 +1,13 @@
 package org.yilena.luna.utils;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.output.Response;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.enums.ModelType;
 import org.yilena.luna.llm.LlmMessage;
@@ -20,7 +22,10 @@ import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * LLM 模型调用工具类
@@ -34,9 +39,17 @@ public class LlmClientUtil {
 
     private final GeminiProperty geminiProperty;
     private final EmbeddingProperty embeddingProperty;
+    private final ObjectMapper objectMapper;
+
+    @Value("${rerank.model-path:}")
+    private String rerankModelPath;
+
+    @Value("${rerank.script-path:./python/rerank.py}")
+    private String rerankScriptPath;
 
     // 缓存解压后的临时脚本路径，避免每次请求都重复解压
-    private static volatile String cachedScriptPath;
+    // Key: scriptName (e.g., "embedding.py"), Value: absolute path
+    private static final Map<String, String> scriptPathCache = new ConcurrentHashMap<>();
 
     /**
      * 统一的模型生成入口 (無工具支持，用於主腦生成或修復)
@@ -139,13 +152,11 @@ public class LlmClientUtil {
 
     /**
      * 获取文本 Embedding
-     * 改为实例方法以使用注入的配置
      */
     public String getEmbedding(String text) throws Exception {
-
         String pythonPath = embeddingProperty.getPythonPath();
-        // 自动解析脚本路径：如果配置路径不存在，则尝试从资源文件加载
-        String scriptPath = resolveScriptPath(embeddingProperty.getScriptPath());
+        // 自动解析脚本路径
+        String scriptPath = resolveScriptPath(embeddingProperty.getScriptPath(), "embedding.py");
         String modelPath = embeddingProperty.getModelPath();
 
         ProcessBuilder pb = new ProcessBuilder(
@@ -155,7 +166,6 @@ public class LlmClientUtil {
                 text       // 传递文本
         );
 
-        // 合并错误流到标准输出流，或者分别读取。这里选择分别读取以便区分错误。
         Process process = pb.start();
 
         // 读取标准输出 (stdout)
@@ -195,42 +205,124 @@ public class LlmClientUtil {
     }
 
     /**
+     * 执行 Rerank (重排序)
+     *
+     * @param query     查询语句
+     * @param documents 待排序的文档列表
+     * @return 文档对应的分数列表 (List<Double>)，顺序与输入 documents 一致
+     */
+    public List<Double> rerank(String query, List<String> documents) throws Exception {
+        if (documents == null || documents.isEmpty()) {
+            return new ArrayList<>();
+        }
+        if (rerankModelPath == null || rerankModelPath.isEmpty()) {
+            throw new IllegalStateException("Rerank 模型路径未配置 (rerank.model-path)");
+        }
+
+        // 复用 Embedding 的 Python 环境
+        String pythonPath = embeddingProperty.getPythonPath();
+        String scriptPath = resolveScriptPath(rerankScriptPath, "rerank.py");
+
+        ProcessBuilder pb = new ProcessBuilder(
+                pythonPath,
+                scriptPath,
+                rerankModelPath
+        );
+
+        Process process = pb.start();
+
+        // 通过 Stdin 发送 JSON 数据 (避免命令行参数过长)
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8))) {
+            Map<String, Object> inputPayload = new HashMap<>();
+            inputPayload.put("query", query);
+            inputPayload.put("documents", documents);
+
+            String jsonInput = objectMapper.writeValueAsString(inputPayload);
+            writer.write(jsonInput);
+            writer.flush();
+        }
+
+        // 读取标准输出 (stdout)
+        StringBuilder output = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line);
+            }
+        }
+
+        // 读取标准错误 (stderr)
+        StringBuilder errorOutput = new StringBuilder();
+        try (BufferedReader errorReader = new BufferedReader(new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = errorReader.readLine()) != null) {
+                errorOutput.append(line).append("\n");
+            }
+        }
+
+        int exitCode = process.waitFor();
+
+        if (exitCode != 0) {
+            String errorMsg = errorOutput.toString();
+            log.error("Python Rerank 脚本执行失败 (ExitCode: {}). Stderr: {}", exitCode, errorMsg);
+            throw new RuntimeException("Python Rerank 脚本执行异常: " + errorMsg);
+        }
+
+        String result = output.toString().trim();
+        if (result.isEmpty()) {
+            String errorMsg = errorOutput.toString();
+            log.error("Python Rerank 脚本返回为空. Stderr: {}", errorMsg);
+            throw new RuntimeException("Python Rerank 脚本返回为空. Stderr: " + errorMsg);
+        }
+
+        // 解析返回的 JSON 分数列表
+        return objectMapper.readValue(result, objectMapper.getTypeFactory().constructCollectionType(List.class, Double.class));
+    }
+
+    /**
      * 解析 Python 脚本路径
      * 1. 优先使用配置的绝对路径
-     * 2. 如果文件不存在，尝试从 Classpath (resources/python/embedding.py) 加载并复制到临时文件
+     * 2. 如果文件不存在，尝试从 Classpath (resources/python/{resourceName}) 加载并复制到临时文件
      * 3. 增加缓存机制，避免重复解压
      */
-    private String resolveScriptPath(String configuredPath) throws IOException {
+    private String resolveScriptPath(String configuredPath, String resourceName) throws IOException {
         // 1. 检查缓存
-        if (cachedScriptPath != null && new File(cachedScriptPath).exists()) {
-            return cachedScriptPath;
+        if (scriptPathCache.containsKey(resourceName)) {
+            String cachedPath = scriptPathCache.get(resourceName);
+            if (new File(cachedPath).exists()) {
+                return cachedPath;
+            }
         }
 
         // 2. 检查配置的物理路径
-        File file = new File(configuredPath);
-        if (file.exists()) {
-            cachedScriptPath = configuredPath;
-            return configuredPath;
+        if (configuredPath != null && !configuredPath.isEmpty()) {
+            File file = new File(configuredPath);
+            if (file.exists()) {
+                scriptPathCache.put(resourceName, configuredPath);
+                return configuredPath;
+            }
+            log.warn("配置的脚本路径不存在: {}，将尝试从 Classpath 加载", configuredPath);
         }
 
         // 3. 尝试从 Classpath 加载
-        // 注意：getResourceAsStream 的路径不需要以 / 开头，相对于 classpath 根目录
-        try (InputStream is = this.getClass().getClassLoader().getResourceAsStream("python/embedding.py")) {
+        String resourcePath = "python/" + resourceName;
+        try (InputStream is = this.getClass().getClassLoader().getResourceAsStream(resourcePath)) {
             if (is == null) {
-                log.warn("配置的脚本路径不存在: {}，且无法在 Classpath 中找到 python/embedding.py", configuredPath);
-                throw new FileNotFoundException("无法在磁盘或 Classpath 中找到 embedding.py。配置路径: " + configuredPath);
+                throw new FileNotFoundException("无法在磁盘或 Classpath 中找到 " + resourceName + "。配置路径: " + configuredPath);
             }
 
             // 创建临时文件
-            File tempFile = File.createTempFile("luna_embedding_", ".py");
+            String prefix = "luna_" + resourceName.replace(".py", "") + "_";
+            File tempFile = File.createTempFile(prefix, ".py");
             tempFile.deleteOnExit(); // 程序退出时自动删除
 
             // 将资源文件复制到临时文件
             Files.copy(is, tempFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
 
-            log.info("已从 Classpath 提取脚本到临时文件: {}", tempFile.getAbsolutePath());
-            cachedScriptPath = tempFile.getAbsolutePath();
-            return cachedScriptPath;
+            log.info("已从 Classpath 提取脚本 [{}] 到临时文件: {}", resourceName, tempFile.getAbsolutePath());
+            String tempPath = tempFile.getAbsolutePath();
+            scriptPathCache.put(resourceName, tempPath);
+            return tempPath;
         }
     }
 }
