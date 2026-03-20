@@ -121,6 +121,24 @@ public class ReflectionToolExecutor {
     private Object[] resolveArgs(Object bean, Method proxyMethod, String argsJson) throws Exception {
         log.info("解析參數: {}", argsJson);
         JsonNode jsonNode = objectMapper.readTree(argsJson);
+
+        // 动态业务校验：manageLog 的 QUERY 至少需要有一个过滤条件
+        if ("logTools".equalsIgnoreCase(bean.getClass().getSimpleName()) || "manageLog".equals(proxyMethod.getName())) {
+            String action = readText(jsonNode, "action");
+            if ("QUERY".equalsIgnoreCase(action)) {
+                boolean hasAnyFilter = hasNonNull(jsonNode, "logType")
+                        || hasNonNull(jsonNode, "module")
+                        || hasNonNull(jsonNode, "content")
+                        || hasNonNull(jsonNode, "startTime")
+                        || hasNonNull(jsonNode, "endTime")
+                        || hasNonNull(jsonNode, "id")
+                        || hasNonNull(jsonNode, "beforeTime")
+                        || hasNonNull(jsonNode, "limit");
+                if (!hasAnyFilter) {
+                    throw new IllegalArgumentException("manageLog QUERY 至少需要一个过滤参数（logType/module/content/startTime/endTime/id/beforeTime/limit）");
+                }
+            }
+        }
         
         // 獲取真實的目標類 (解決 Spring AOP 代理類丟失參數註解的問題)
         Class<?> targetClass = AopUtils.getTargetClass(bean);
@@ -163,6 +181,17 @@ public class ReflectionToolExecutor {
             }
         }
         return args;
+    }
+
+    private boolean hasNonNull(JsonNode node, String key) {
+        return node.has(key) && !node.get(key).isNull() && !node.get(key).asText("").isBlank();
+    }
+
+    private String readText(JsonNode node, String key) {
+        if (!node.has(key) || node.get(key).isNull()) {
+            return null;
+        }
+        return node.get(key).asText();
     }
 
     private String error(String message) {

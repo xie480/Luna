@@ -50,11 +50,21 @@ public class LogTools extends BaseTool {
                 lunaLogService.save(log);
                 return success("日志插入成功，ID: " + log.getId());
             } else if ("QUERY".equalsIgnoreCase(action)) {
+                // 业务校验：QUERY 至少提供一个过滤条件，避免误查全表
+                boolean hasAnyFilter = logType != null || module != null || content != null
+                        || startTime != null || endTime != null || id != null || beforeTime != null || limit != null;
+                if (!hasAnyFilter) {
+                    return error("QUERY 至少需要一个过滤参数（logType/module/content/startTime/endTime/id/beforeTime/limit）");
+                }
+
                 LambdaQueryWrapper<LunaLog> wrapper = new LambdaQueryWrapper<>();
+                if (id != null) wrapper.eq(LunaLog::getId, id);
                 if (logType != null) wrapper.eq(LunaLog::getLogType, LogType.valueOf(logType.toUpperCase()));
                 if (module != null) wrapper.eq(LunaLog::getModule, module);
+                if (content != null) wrapper.like(LunaLog::getContent, content);
                 if (startTime != null) wrapper.ge(LunaLog::getCreateAt, LocalDateTime.parse(startTime, DATE_TIME_FORMATTER));
                 if (endTime != null) wrapper.le(LunaLog::getCreateAt, LocalDateTime.parse(endTime, DATE_TIME_FORMATTER));
+                if (beforeTime != null) wrapper.le(LunaLog::getCreateAt, LocalDateTime.parse(beforeTime, DATE_TIME_FORMATTER));
                 wrapper.orderByDesc(LunaLog::getCreateAt);
                 wrapper.last("LIMIT " + (limit != null ? limit : 10));
                 return success(lunaLogService.list(wrapper));
