@@ -1,15 +1,15 @@
-# Embedding 与 Rerank 服务常驻化技术文档（gRPC 方案）
+# Embedding 与 Rerank 服务常驻化技术文档（HTTP 方案）
 
 ## 1. 文档目的
 
-本文档说明当前项目如何将原本“每次请求拉起 Python 进程”的 `embedding` / `rerank` 推理链路，改造为“模型常驻内存”的 gRPC 服务架构，并保留本地脚本回退能力，兼顾性能与稳定性。
+本文档说明当前项目如何将原本“每次请求拉起 Python 进程”的 `embedding` / `rerank` 推理链路，改造为“模型常驻内存”的本机 HTTP 服务架构，并保留本地脚本回退能力，兼顾性能与稳定性。
 
 目标：
 
 1. 降低单次请求延迟（减少进程启动和模型重复加载开销）
 2. 提升并发场景吞吐
 3. 保持现有 Java 业务代码改动最小化
-4. 支持故障降级（gRPC 不可用时可回退本地脚本）
+4. 支持故障降级（HTTP 推理服务不可用时回退本地脚本）
 
 ---
 
@@ -28,92 +28,30 @@
 2. 模型反复加载，CPU/内存抖动大
 3. 高并发时延迟放大明显
 
-## 2.2 改造后（gRPC 常驻模式）
-启动一个独立 Python 推理进程：
+## 2.2 改造后（本机 HTTP 常驻模式）
+启动两个独立 Python 推理进程：
 
-- 进程启动时加载 embedding 与 rerank 模型一次
-- Java 通过 gRPC 远程调用：
-  - `Embedding(text)`  
-  - `Rerank(query, documents)`
+- `embedding_service_http.py`：启动时加载 embedding 模型一次
+- `rerank_service_http.py`：启动时加载 rerank 模型一次
+- Java 通过 HTTP 调用：
+  - `POST /embedding`
+  - `POST /rerank`
 - 支持开关与回退：
-  - `inference.grpc.enabled=true` 时优先 gRPC
-  - `inference.grpc.fallback-local=true` 时失败回退本地脚本
+  - `inference.http.enabled=true` 时优先走 HTTP
+  - `inference.http.fallback-local=true` 时失败回退本地脚本
 
 优点：
 
 1. 模型加载一次复用多次
 2. 显著减少冷启动与重复加载
 3. 延迟更稳定、吞吐更高
+4. 规避 gRPC 依赖与生成代码带来的编译复杂度
 
 ---
 
 ## 3. 关键代码与文件变更点
 
-## 3.1 协议定义（Proto）
-
-文件：`src/main/proto/luna_inference.proto`
-
-定义统一服务：
-
-- `rpc Embedding(EmbeddingRequest) returns (EmbeddingResponse);`
-- `rpc Rerank(RerankRequest) returns (RerankResponse);`
-
-其中：
-
-- `EmbeddingResponse.vector_json` 返回向量 JSON 字符串（与现有数据库写入格式兼容）
-- `RerankResponse.scores` 返回分数列表
-
----
-
-## 3.2 Java 端 gRPC 依赖与代码生成
-
-文件：`pom.xml`
-
-新增：
-
-1. gRPC 依赖：
-   - `grpc-netty-shaded`
-   - `grpc-protobuf`
-   - `grpc-stub`
-   - `protobuf-java`
-2. `protobuf-maven-plugin` + `protoc-gen-grpc-java` 代码生成配置
-
-执行 `mvn clean compile` 后生成：
-
-- `org.yilena.luna.grpc.EmbeddingRequest`
-- `org.yilena.luna.grpc.EmbeddingResponse`
-- `org.yilena.luna.grpc.LunaInferenceServiceGrpc`
-- `org.yilena.luna.grpc.RerankRequest`
-- `org.yilena.luna.grpc.RerankResponse`
-
----
-
-## 3.3 Java 侧通道配置
-
-文件：`src/main/java/org/yilena/luna/config/GrpcInferenceConfig.java`
-
-功能：
-
-- 通过 Spring Bean 初始化 `ManagedChannel`
-- 默认连接 `127.0.0.1:50051`
-- `usePlaintext()`（本机内网通信）
-
----
-
-## 3.4 Java 侧 gRPC 客户端封装
-
-文件：`src/main/java/org/yilena/luna/client/InferenceGrpcClient.java`
-
-职责：
-
-1. 封装 Embedding 调用
-2. 封装 Rerank 调用
-3. 设置调用超时 `timeout-ms`
-4. 统一错误日志输出与异常抛出
-
----
-
-## 3.5 推理调用路由与回退策略
+## 3.1 Java 侧推理调用路由与回退策略
 
 文件：`src/main/java/org/yilena/luna/utils/LlmClientUtil.java`
 
@@ -122,92 +60,93 @@
 ## Embedding 调用链
 
 1. 命中 JVM 内存缓存 `embeddingCache` -> 直接返回
-2. 若启用 gRPC，调用 `InferenceGrpcClient.embedding(text)`
-3. gRPC 异常：
+2. 若启用 HTTP，调用 `embedding-url`（默认 `http://127.0.0.1:18080/embedding`）
+3. HTTP 异常：
    - 若 `fallback-local=true` -> 回退原 `embedding.py` 子进程
    - 否则直接抛出异常
 
 ## Rerank 调用链
 
-1. 若启用 gRPC，调用 `InferenceGrpcClient.rerank(query, documents)`
-2. gRPC 异常：
+1. 若启用 HTTP，调用 `rerank-url`（默认 `http://127.0.0.1:18081/rerank`）
+2. HTTP 异常：
    - 若 `fallback-local=true` -> 回退原 `rerank.py` 子进程
-   - 否则抛出异常
+   - 否则直接抛出异常
 
 这样实现了“优先常驻，失败回退”的平滑迁移机制。
 
 ---
 
-## 3.6 Python 常驻服务实现
+## 3.2 Python 常驻服务实现
 
-文件：`src/main/resources/python/luna_inference_grpc_server.py`
+### Embedding 服务
+文件：`src/main/resources/python/embedding_service_http.py`
 
-关键点：
+- 启动时加载 `SentenceTransformer` 模型
+- 接口：`POST /embedding`
+- 入参：`{"text":"..."}`
+- 返回：`{"vector_json":"[...]","success":true/false,"error_message":"..."}`
 
-1. 服务启动时加载模型：
-   - `SentenceTransformer`（embedding）
-   - `CrossEncoder`（rerank）
-2. 提供 gRPC 方法：
-   - `Embedding`
-   - `Rerank`
-3. 标准返回：
-   - `success`
-   - `error_message`
-4. 支持命令行参数：
-   - `--host`
-   - `--port`
-   - `--embedding-model-path`
-   - `--rerank-model-path`
+### Rerank 服务
+文件：`src/main/resources/python/rerank_service_http.py`
+
+- 启动时加载 `CrossEncoder` 模型
+- 接口：`POST /rerank`
+- 入参：`{"query":"...","documents":["...","..."]}`
+- 返回：`{"scores":[...],"success":true/false,"error_message":"..."}`
 
 ---
 
-## 3.7 运行配置
+## 3.3 运行配置
 
 文件：`src/main/resources/application.yaml`
 
-新增配置块：
+使用以下配置块：
 
 ```yaml
 inference:
-  grpc:
+  http:
     enabled: true
-    host: 127.0.0.1
-    port: 50051
+    embedding-url: http://127.0.0.1:18080/embedding
+    rerank-url: http://127.0.0.1:18081/rerank
     timeout-ms: 1500
     fallback-local: true
 ```
 
 字段说明：
 
-- `enabled`：是否启用 gRPC 常驻推理
-- `host/port`：本机服务地址
-- `timeout-ms`：单次 gRPC 超时
-- `fallback-local`：gRPC 失败后是否回退本地脚本
+- `enabled`：是否启用 HTTP 常驻推理
+- `embedding-url`：Embedding 服务地址
+- `rerank-url`：Rerank 服务地址
+- `timeout-ms`：单次 HTTP 调用超时
+- `fallback-local`：HTTP 失败后是否回退本地脚本
 
 ---
 
 ## 4. 启动与验证流程
 
-## 4.1 启动 Python gRPC 推理服务
+## 4.1 启动 Embedding 常驻服务
 
 示例：
 
 ```bash
-python luna_inference_grpc_server.py \
+python embedding_service_http.py \
   --host 127.0.0.1 \
-  --port 50051 \
-  --embedding-model-path D:/AI_Models/bge-base-zh-v1.5-model \
+  --port 18080 \
+  --embedding-model-path D:/AI_Models/bge-base-zh-v1.5-model
+```
+
+## 4.2 启动 Rerank 常驻服务
+
+示例：
+
+```bash
+python rerank_service_http.py \
+  --host 127.0.0.1 \
+  --port 18081 \
   --rerank-model-path D:/AI_Models/bge-reranker-v2-m3
 ```
 
-日志应出现：
-
-- 模型加载完成
-- gRPC 服务启动成功
-
-## 4.2 启动 Java 服务
-
-执行：
+## 4.3 启动 Java 服务
 
 ```bash
 mvn clean spring-boot:run
@@ -215,13 +154,13 @@ mvn clean spring-boot:run
 
 检查：
 
-1. 无 gRPC 类缺失编译错误
-2. 聊天请求触发 RAG 时可正常返回
-3. 日志出现 gRPC 成功或回退日志
+1. 聊天请求触发 RAG 时可正常返回
+2. 日志出现 HTTP 推理成功或回退日志
+3. 无 gRPC/protobuf 编译依赖错误
 
-## 4.3 故障演练（验证回退）
+## 4.4 故障演练（验证回退）
 
-1. 停掉 Python gRPC 服务
+1. 停掉一个或两个 HTTP 推理服务
 2. 保持 `fallback-local=true`
 3. 再发 chat 请求，确认仍可走本地脚本成功返回
 
@@ -240,26 +179,30 @@ mvn clean spring-boot:run
 - embedding 平均耗时
 - rerank 平均耗时
 - chat 总耗时 P50/P95/P99
-- gRPC 失败率与回退率
+- HTTP 推理失败率与回退率
 
 ---
 
 ## 6. 已知注意事项
 
-1. Proto 类找不到通常是“未执行 maven 代码生成”或 IDE 未标记 generated-sources
-2. gRPC 版本与 protobuf 插件版本需匹配
+1. 需要 Python 环境安装：
+   - `fastapi`
+   - `uvicorn`
+   - `sentence-transformers`
+2. 常驻服务默认本机 `127.0.0.1`，如跨机部署需调整 URL 与安全策略
 3. `vector_json` 为字符串格式，需保持与现有数据库 cast/vector 检索逻辑兼容
-4. 若服务跨机部署，需开启 TLS/鉴权；当前本机独立进程默认 plaintext
+4. 若模型较大，服务首次启动会有明显加载时间，属正常现象
 
 ---
 
 ## 7. 后续可演进方向
 
-1. 将 Python 常驻服务容器化（便于部署与扩容）
-2. 引入健康检查与自动拉起
-3. gRPC 增加批量 embedding 接口（进一步降 RPC 次数）
-4. 推理服务侧增加模型热更新机制
-5. 加入 Prometheus 指标（QPS、耗时、错误率）
+1. 将两个 HTTP 服务合并为单一推理进程（减少运维点位）
+2. 推理服务容器化（便于部署与扩容）
+3. 引入健康检查与自动拉起
+4. 增加批量 embedding 接口（减少 HTTP 次数）
+5. 推理服务侧增加模型热更新机制
+6. 加入 Prometheus 指标（QPS、耗时、错误率）
 
 ---
 
@@ -267,9 +210,9 @@ mvn clean spring-boot:run
 
 本次常驻化改造已实现：
 
-1. embedding/rerank 从“脚本进程级调用”升级为“模型常驻 gRPC 调用”
-2. Java 侧无侵入整合，保持原有业务语义不变
+1. embedding/rerank 从“脚本进程级调用”升级为“本机 HTTP 常驻调用”
+2. Java 侧低侵入整合，保持原有业务语义不变
 3. 支持开关与回退，降低迁移风险
-4. 为 chat 全链路性能优化打下基础
+4. 明显改善 chat 全链路时延稳定性，特别是 P95/P99
 
-在你当前并行 RAG 架构下，这个改造是最关键、最直接的性能提升点之一。
+在当前并行 RAG 架构下，HTTP 常驻化是兼顾性能、稳定性与工程复杂度的实用方案。
