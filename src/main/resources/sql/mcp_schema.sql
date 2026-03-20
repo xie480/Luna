@@ -100,7 +100,7 @@ COMMENT ON COLUMN tasks.result IS '執行結果';
 
 -- 1. 為 mcp_tools 添加敏感度和審批字段
 ALTER TABLE mcp_tools ADD COLUMN IF NOT EXISTS requires_approval BOOLEAN DEFAULT FALSE;
-ALTER TABLE mcp_tools ADD COLUMN IF NOT EXISTS sensitivity VARCHAR(20) DEFAULT 'LOW';
+ALTER TABLE mcp_tools ADD COLUMN IF NOT EXISTS sensitivity VARCHAR(50) DEFAULT 'LOW';
 
 COMMENT ON COLUMN mcp_tools.requires_approval IS '是否需要審批';
 COMMENT ON COLUMN mcp_tools.sensitivity IS 'LOW, MEDIUM, HIGH';
