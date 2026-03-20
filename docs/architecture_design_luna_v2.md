@@ -30,28 +30,30 @@ luna-root (父工程)
 ├── luna-skill-executor     # [技能執行] 負責複合技能編排 (審批流/異步任務)                                                                                                                              
 ├── luna-agent-orchestrator # [編排核心] 系統大腦，負責意圖分析、決策、參數生成與流程驅動                                                                                                                
 └── luna-control-plane      # [控制平面] (可選) 用於管理 MCP 資源的後台 UI 接口                                                                                                                          
-                                                                                                                                                                                                         
+```                                                                                                                                                                                                         
 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
+## 3. 核心模組詳細設計                                                                                                                                                                                      
 
-3. 核心模組詳細設計                                                                                                                                                                                      
-
-3.1 公共模組 (luna-common)                                                                                                                                                                               
+### 3.1 公共模組 (luna-common)                                                                                                                                                                               
 
 定義系統的「真理來源 (Source of Truth)」和通用契約。                                                                                                                                                     
 
 核心實體 Resource (MCP 資源定義):                                                                                                                                                                        
 
-                                                                                                                                                                                                         
+```java                                                                                                                                                                                                         
 package org.yilena.luna.common.entity;                                                                                                                                                                   
                                                                                                                                                                                                          
-import lombok.Data;                                                                                                                                                                                      
+import lombok.Data;
+import org.yilena.luna.enums.ResourceType;
+import org.yilena.luna.enums.RunMode;
+import org.yilena.luna.enums.Sensitivity;                                                                                                                                                                                      
                                                                                                                                                                                                          
 @Data                                                                                                                                                                                                    
 public class Resource {                                                                                                                                                                                  
     private String id;            // 唯一標識 (UUID)                                                                                                                                                     
-    private String type;          // 類型: "TOOL" (原子工具) 或 "SKILL" (複合技能)                                                                                                                       
+    private ResourceType type;    // 類型: TOOL (原子工具) 或 SKILL (複合技能)                                                                                                                       
     private String name;          // 工具名稱 (如 "web_search")，LLM 決策時輸出此名稱                                                                                                                    
     private String description;   // 用於 LLM 理解工具用途的詳細描述                                                                                                                                     
     private String version;       // 版本號 (如 "1.0.0")                                                                                                                                                 
@@ -66,15 +68,15 @@ public class Resource {
     private String outputSchema;  // 預期輸出結構的 JSON Schema                                                                                                                                          
                                                                                                                                                                                                          
     // 運行時控制                                                                                                                                                                                        
-    private String runMode;       // 運行模式: "SYNC" (同步) 或 "ASYNC" (異步)                                                                                                                           
+    private RunMode runMode;      // 運行模式: SYNC (同步) 或 ASYNC (異步)                                                                                                                           
     private Boolean requiresApproval; // 是否需要人工審批 (true/false)                                                                                                                                   
-    private String sensitivity;   // 權限/敏感等級: "LOW", "MEDIUM", "HIGH"                                                                                                                              
+    private Sensitivity sensitivity;  // 權限/敏感等級: LOW, MEDIUM, HIGH                                                                                                                              
 }                                                                                                                                                                                                        
-                                                                                                                                                                                                         
+```                                                                                                                                                                                                         
 
 JSON Schema 校驗器 JsonSchemaValidator: 用於在 LLM 生成參數後，執行前進行強制校驗，防止幻覺參數導致系統崩潰。                                                                                            
 
-                                                                                                                                                                                                         
+```java                                                                                                                                                                                                         
 package org.yilena.luna.common.utils;                                                                                                                                                                    
                                                                                                                                                                                                          
 public class JsonSchemaValidator {                                                                                                                                                                       
@@ -89,34 +91,34 @@ public class JsonSchemaValidator {
         return true;                                                                                                                                                                                     
     }                                                                                                                                                                                                    
 }                                                                                                                                                                                                        
-                                                                                                                                                                                                         
+```                                                                                                                                                                                                         
 
-3.2 MCP 註冊中心 (luna-mcp-server)                                                                                                                                                                       
+### 3.2 MCP 註冊中心 (luna-mcp-server)                                                                                                                                                                       
 
 負責管理 resources 表，提供工具的註冊與發現能力。                                                                                                                                                        
 
 核心接口:                                                                                                                                                                                                
 
- • POST /mcp/resources: 註冊新的工具或技能。                                                                                                                                                             
- • GET /mcp/resources/{id}: 獲取資源詳情。                                                                                                                                                               
- • POST /mcp/search: (核心) 根據用戶 Query 進行檢索。                                                                                                                                                    
-    • 實現邏輯：接收用戶輸入，通過向量數據庫（PGVector）或關鍵詞匹配，從 resources 表中檢索出最相關的 Top N 個工具，返回給 Orchestrator 構建 Prompt。                                                    
+ * POST `/mcp/resources`: 註冊新的工具或技能。                                                                                                                                                             
+ * GET `/mcp/resources/{id}`: 獲取資源詳情。                                                                                                                                                               
+ * POST `/mcp/search`: (核心) 根據用戶 Query 進行檢索。                                                                                                                                                    
+    * 實現邏輯：接收用戶輸入，通過向量數據庫（PGVector）或關鍵詞匹配，從 resources 表中檢索出最相關的 Top N 個工具，返回給 Orchestrator 構建 Prompt。                                                    
 
-3.3 模型適配層 (luna-llm-adapter)                                                                                                                                                                        
+### 3.3 模型適配層 (luna-llm-adapter)                                                                                                                                                                        
 
 隔離底層 LLM SDK，提供統一的生成接口。                                                                                                                                                                   
 
 接口定義:                                                                                                                                                                                                
 
-                                                                                                                                                                                                         
+```java                                                                                                                                                                                                         
 public interface LlmAdapter {                                                                                                                                                                            
     String generate(String prompt);                                                                                                                                                                      
 }                                                                                                                                                                                                        
-                                                                                                                                                                                                         
+```                                                                                                                                                                                                         
 
 Mock 實現 (用於本地無 Key 測試與調試):                                                                                                                                                                   
 
-                                                                                                                                                                                                         
+```java                                                                                                                                                                                                         
 @Service                                                                                                                                                                                                 
 public class MockLlmAdapter implements LlmAdapter {                                                                                                                                                      
     @Override                                                                                                                                                                                            
@@ -132,19 +134,19 @@ public class MockLlmAdapter implements LlmAdapter {
         return "{\"emotion\":\"Smile\",\"reply\":\"这是 Mock 模型的默认回复。\"}";                                                                                                                       
     }                                                                                                                                                                                                    
 }                                                                                                                                                                                                        
-                                                                                                                                                                                                         
+```                                                                                                                                                                                                         
 
-3.4 執行引擎層 (Executors & Gate)                                                                                                                                                                        
+### 3.4 執行引擎層 (Executors & Gate)                                                                                                                                                                        
 
-3.4.1 安全網關 (Execution Gate)                                                                                                                                                                          
+#### 3.4.1 安全網關 (Execution Gate)                                                                                                                                                                          
 
 所有工具/技能在執行前必須經過此網關。                                                                                                                                                                    
 
-                                                                                                                                                                                                         
+```java                                                                                                                                                                                                         
 @Component                                                                                                                                                                                               
 public class ExecutionGate {                                                                                                                                                                             
     public void check(Resource resource) {                                                                                                                                                               
-        if ("HIGH".equalsIgnoreCase(resource.getSensitivity())) {                                                                                                                                        
+        if (Sensitivity.HIGH.equals(resource.getSensitivity())) {                                                                                                                                        
             throw new SecurityException("权限不足：拒绝执行高敏感度工具 [" + resource.getName() + "]");                                                                                                  
         }                                                                                                                                                                                                
         if (Boolean.TRUE.equals(resource.getRequiresApproval())) {                                                                                                                                       
@@ -153,13 +155,13 @@ public class ExecutionGate {
         }                                                                                                                                                                                                
     }                                                                                                                                                                                                    
 }                                                                                                                                                                                                        
-                                                                                                                                                                                                         
+```                                                                                                                                                                                                         
 
-3.4.2 工具執行器 (Tool Executor) - 核心反射引擎                                                                                                                                                          
+#### 3.4.2 工具執行器 (Tool Executor) - 核心反射引擎                                                                                                                                                          
 
-取代原有的 @Tool 掃描，通過數據庫中的 beanName 和 methodName 動態調用。                                                                                                                                  
+取代原有的 `@Tool` 掃描，通過數據庫中的 `beanName` 和 `methodName` 動態調用。                                                                                                                                  
 
-                                                                                                                                                                                                         
+```java                                                                                                                                                                                                         
 @Component                                                                                                                                                                                               
 @RequiredArgsConstructor                                                                                                                                                                                 
 public class ToolExecutor {                                                                                                                                                                              
@@ -212,13 +214,13 @@ public class ToolExecutor {
         return args;                                                                                                                                                                                     
     }                                                                                                                                                                                                    
 }                                                                                                                                                                                                        
-                                                                                                                                                                                                         
+```                                                                                                                                                                                                         
 
-3.4.3 技能執行器 (Skill Executor)                                                                                                                                                                        
+#### 3.4.3 技能執行器 (Skill Executor)                                                                                                                                                                        
 
 處理複雜、異步或需要審批的流程。                                                                                                                                                                         
 
-                                                                                                                                                                                                         
+```java                                                                                                                                                                                                         
 @Component                                                                                                                                                                                               
 public class SkillExecutor {                                                                                                                                                                             
     public String execute(Resource skill, String argsJson) {                                                                                                                                             
@@ -230,7 +232,7 @@ public class SkillExecutor {
         }                                                                                                                                                                                                
                                                                                                                                                                                                          
         // 2. 處理異步邏輯                                                                                                                                                                               
-        if ("ASYNC".equalsIgnoreCase(skill.getRunMode())) {                                                                                                                                              
+        if (RunMode.ASYNC.equals(skill.getRunMode())) {                                                                                                                                              
             String taskId = UUID.randomUUID().toString();                                                                                                                                                
             // 提交到線程池或消息隊列 (RocketMQ)                                                                                                                                                         
             // ...                                                                                                                                                                                       
@@ -241,13 +243,13 @@ public class SkillExecutor {
         return "{\"status\":\"success\", \"data\":\"Skill 执行完毕\"}";                                                                                                                                  
     }                                                                                                                                                                                                    
 }                                                                                                                                                                                                        
-                                                                                                                                                                                                         
+```                                                                                                                                                                                                         
 
-3.5 編排核心 (luna-agent-orchestrator)                                                                                                                                                                   
+### 3.5 編排核心 (luna-agent-orchestrator)                                                                                                                                                                   
 
 系統的「大腦」，將上述組件串聯起來。                                                                                                                                                                     
 
-                                                                                                                                                                                                         
+```java                                                                                                                                                                                                         
 @Service                                                                                                                                                                                                 
 @RequiredArgsConstructor                                                                                                                                                                                 
 public class AgentService {                                                                                                                                                                              
@@ -290,7 +292,7 @@ public class AgentService {
                                                                                                                                                                                                          
             // 6. 執行工具                                                                                                                                                                               
             String toolResult;                                                                                                                                                                           
-            if ("SKILL".equals(targetResource.getType())) {                                                                                                                                              
+            if (ResourceType.SKILL.equals(targetResource.getType())) {                                                                                                                                              
                 toolResult = skillExecutor.execute(targetResource, argsJson);                                                                                                                            
             } else {                                                                                                                                                                                     
                 toolResult = toolExecutor.execute(targetResource, argsJson);                                                                                                                             
@@ -305,16 +307,15 @@ public class AgentService {
         return llmAdapter.generate(input);                                                                                                                                                               
     }                                                                                                                                                                                                    
 }                                                                                                                                                                                                        
-                                                                                                                                                                                                         
+```                                                                                                                                                                                                         
 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
+## 4. 數據庫設計 (DDL)                                                                                                                                                                                      
 
-4. 數據庫設計 (DDL)                                                                                                                                                                                      
+### 4.1 資源表 (resources)                                                                                                                                                                                   
 
-4.1 資源表 (resources)                                                                                                                                                                                   
-
-                                                                                                                                                                                                         
+```sql                                                                                                                                                                                                         
 CREATE TABLE resources (                                                                                                                                                                                 
     id VARCHAR(64) PRIMARY KEY,                                                                                                                                                                          
     type VARCHAR(20) NOT NULL COMMENT 'TOOL 或 SKILL',                                                                                                                                                   
@@ -336,11 +337,11 @@ CREATE TABLE resources (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,                                                                                                                                                      
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP                                                                                                                           
 );                                                                                                                                                                                                       
-                                                                                                                                                                                                         
+```                                                                                                                                                                                                         
 
-4.2 任務表 (tasks)                                                                                                                                                                                       
+### 4.2 任務表 (tasks)                                                                                                                                                                                       
 
-                                                                                                                                                                                                         
+```sql                                                                                                                                                                                                         
 CREATE TABLE tasks (                                                                                                                                                                                     
     task_id VARCHAR(64) PRIMARY KEY,                                                                                                                                                                     
     resource_id VARCHAR(64) NOT NULL,                                                                                                                                                                    
@@ -350,13 +351,13 @@ CREATE TABLE tasks (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,                                                                                                                                                      
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP                                                                                                                           
 );                                                                                                                                                                                                       
-                                                                                                                                                                                                         
+```                                                                                                                                                                                                         
 
-4.3 日誌表 (logs)                                                                                                                                                                                        
+### 4.3 日誌表 (logs)                                                                                                                                                                                        
 
-(沿用並優化現有的 luna_log 表)                                                                                                                                                                           
+(沿用並優化現有的 `luna_log` 表)                                                                                                                                                                           
 
-                                                                                                                                                                                                         
+```sql                                                                                                                                                                                                         
 CREATE TABLE logs (                                                                                                                                                                                      
     id BIGINT AUTO_INCREMENT PRIMARY KEY,                                                                                                                                                                
     log_type VARCHAR(50),                                                                                                                                                                                
@@ -368,51 +369,49 @@ CREATE TABLE logs (
     error_message TEXT,                                                                                                                                                                                  
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP                                                                                                                                                       
 );                                                                                                                                                                                                       
-                                                                                                                                                                                                         
+```                                                                                                                                                                                                         
 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
+## 5. 完整調用鏈路 (Sequence)                                                                                                                                                                               
 
-5. 完整調用鏈路 (Sequence)                                                                                                                                                                               
+1. User 發送消息 `ChatRequest`。                                                                                                                                                                          
+2. `AgentService` 接收請求，調用 `ToolRouter`。                                                                                                                                                             
+3. `ToolRouter` 查詢 MCP Server (數據庫)，返回候選 `Resource` 列表。                                                                                                                                        
+4. `AgentService` 構造 Prompt，調用 `LlmAdapter` 進行【決策】。                                                                                                                                             
+5. `LlmAdapter` 返回決定調用的 `tool_name`。                                                                                                                                                                
+6. `AgentService` 再次調用 `LlmAdapter` 生成【參數 JSON】。                                                                                                                                                 
+7. `AgentService` 調用 `JsonSchemaValidator` 校驗參數。                                                                                                                                                     
+   * 若失敗：觸發 LLM 修復。                                                                                                                                                                           
+8. `AgentService` 調用 `ExecutionGate` 檢查權限與審批。                                                                                                                                                     
+9. `AgentService` 將 `Resource` 和 `argsJson` 傳遞給 `ToolExecutor`。                                                                                                                                           
+10. `ToolExecutor` 通過反射調用具體的 Spring Bean (如 `SearchTools.web_search`)。                                                                                                                            
+11. `ToolExecutor` 返回 JSON 結果。                                                                                                                                                                        
+12. `AgentService` 將結果拼接進 Prompt，最後一次調用 `LlmAdapter` 生成最終回復。                                                                                                                             
+13. 返回結果給 User。                                                                                                                                                                                    
 
-  1 User 發送消息 ChatRequest。                                                                                                                                                                          
-  2 AgentService 接收請求，調用 ToolRouter。                                                                                                                                                             
-  3 ToolRouter 查詢 MCP Server (數據庫)，返回候選 Resource 列表。                                                                                                                                        
-  4 AgentService 構造 Prompt，調用 LlmAdapter 進行【決策】。                                                                                                                                             
-  5 LlmAdapter 返回決定調用的 tool_name。                                                                                                                                                                
-  6 AgentService 再次調用 LlmAdapter 生成【參數 JSON】。                                                                                                                                                 
-  7 AgentService 調用 JsonSchemaValidator 校驗參數。                                                                                                                                                     
-     • 若失敗：觸發 LLM 修復。                                                                                                                                                                           
-  8 AgentService 調用 ExecutionGate 檢查權限與審批。                                                                                                                                                     
-  9 AgentService 將 Resource 和 argsJson 傳遞給 ToolExecutor。                                                                                                                                           
- 10 ToolExecutor 通過反射調用具體的 Spring Bean (如 SearchTools.web_search)。                                                                                                                            
- 11 ToolExecutor 返回 JSON 結果。                                                                                                                                                                        
- 12 AgentService 將結果拼接進 Prompt，最後一次調用 LlmAdapter 生成最終回復。                                                                                                                             
- 13 返回結果給 User。                                                                                                                                                                                    
+---
 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## 6. 實施與遷移路徑                                                                                                                                                                                        
 
+**Phase 1: 基礎設施重構**                                                                                                                                                                                    
 
-6. 實施與遷移路徑                                                                                                                                                                                        
+* 創建 Maven 多模組結構。                                                                                                                                                                               
+* 將 `org.yilena.luna.entity` 遷移至 `luna-common`。                                                                                                                                                        
+* 執行 SQL 腳本創建 `resources` 和 `tasks` 表。                                                                                                                                                             
 
-Phase 1: 基礎設施重構                                                                                                                                                                                    
+**Phase 2: 數據驅動改造 (去除 @Tool)**                                                                                                                                                                       
 
- • 創建 Maven 多模組結構。                                                                                                                                                                               
- • 將 org.yilena.luna.entity 遷移至 luna-common。                                                                                                                                                        
- • 執行 SQL 腳本創建 resources 和 tasks 表。                                                                                                                                                             
+* 刪除 `SearchTools`, `MemoryTools`, `ScheduleTools` 等類中的 `@Tool` 註解。                                                                                                                                    
+* 編寫 SQL 初始化腳本，將這些工具的元數據（特別是 `input_schema`、`bean_name`、`method_name`）手動插入到 `resources` 表中。                                                                                     
 
-Phase 2: 數據驅動改造 (去除 @Tool)                                                                                                                                                                       
+**Phase 3: 核心引擎開發**                                                                                                                                                                                    
 
- • 刪除 SearchTools, MemoryTools, ScheduleTools 等類中的 @Tool 註解。                                                                                                                                    
- • 編寫 SQL 初始化腳本，將這些工具的元數據（特別是 input_schema、bean_name、method_name）手動插入到 resources 表中。                                                                                     
+* 實現 `luna-mcp-server` 的 CRUD 接口。                                                                                                                                                                   
+* 實現 `luna-tool-executor` 中的 `ReflectionToolExecutor`。                                                                                                                                                 
+* 實現 `luna-agent-orchestrator` 中的 `AgentService` 完整編排邏輯。                                                                                                                                         
 
-Phase 3: 核心引擎開發                                                                                                                                                                                    
+**Phase 4: 測試與切換**                                                                                                                                                                                      
 
- • 實現 luna-mcp-server 的 CRUD 接口。                                                                                                                                                                   
- • 實現 luna-tool-executor 中的 ReflectionToolExecutor。                                                                                                                                                 
- • 實現 luna-agent-orchestrator 中的 AgentService 完整編排邏輯。                                                                                                                                         
-
-Phase 4: 測試與切換                                                                                                                                                                                      
-
- • 使用 MockLlmAdapter 進行本地全鏈路測試，確保反射調用和參數綁定正確無誤。                                                                                                                              
- • 替換原有的 ChatServiceImpl 邏輯，正式上線 v2.0 架構。
+* 使用 `MockLlmAdapter` 進行本地全鏈路測試，確保反射調用和參數綁定正確無誤。                                                                                                                              
+* 替換原有的 `ChatServiceImpl` 邏輯，正式上線 v2.0 架構。
