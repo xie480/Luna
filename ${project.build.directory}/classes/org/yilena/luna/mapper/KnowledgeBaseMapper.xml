@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.yilena.luna.mapper.KnowledgeBaseMapper">
+
+    <resultMap id="BaseResultMap" type="org.yilena.luna.entity.KnowledgeBase">
+        <id column="id" property="id"/>
+        <result column="title" property="title"/>
+        <result column="content" property="content"/>
+        <result column="source_type" property="sourceType"/>
+        <result column="source_path" property="sourcePath"/>
+        <result column="vector_id" property="vectorId"/>
+        <result column="embedding" property="embedding"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <select id="searchByVector" resultMap="BaseResultMap">
+        SELECT
+            id, title, content, source_type, source_path, vector_id, embedding, created_at, updated_at
+        FROM knowledge_base
+        ORDER BY embedding &lt;=&gt; cast(#{vector} as vector)
+        LIMIT #{topK}
+    </select>
+
+</mapper>
