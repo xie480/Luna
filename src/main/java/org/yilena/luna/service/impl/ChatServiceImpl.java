@@ -66,9 +66,9 @@ public class ChatServiceImpl implements ChatService {
     @LunaLogRecord(module = LogModuleConstant.CHAT, action = LogActionConstant.CHAT, type = LogType.LUNA_OUTPUT, content = "用户对话交互")
     public ResponseEntity<Object> chat(ChatRequest chatRequest) {
         log.info("用户输入：{}", chatRequest.getUserInput());
-        
+
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_THINKING, LunaStateConstant.VALUE_THINKING);
-        
+
         LocalDateTime today = LocalDateTime.now();
         String keyPrefix = dateFormatter.format(today);
         String input = Optional.ofNullable(chatRequest.getUserInput())
@@ -112,7 +112,7 @@ public class ChatServiceImpl implements ChatService {
         if (ServiceCommunicateUtil.getSymbol(SymbolConstant.CONTEXT_SUMMARY_FLAG) == 1) {
             log.info("触发上下文压缩（MQ异步），sessionKey={}。", keyPrefix);
             ServiceCommunicateUtil.removeSymbol(SymbolConstant.CONTEXT_SUMMARY_FLAG);
-            
+
             // 發送 MQ 消息進行異步壓縮
             SummaryMessage msg = SummaryMessage.builder()
                     .sessionKey(keyPrefix)
@@ -150,15 +150,15 @@ public class ChatServiceImpl implements ChatService {
 
         String prompt = promptAssembler.assembleFinalPrompt(memorySnippets, knowledgeSnippets, toolContext, input);
 
-        SendToLuna result = getSendToLuna(prompt);
+        SendToLuna result = getSendToLuna(prompt, input);
         log.info("整理后模型输出：{}", result.valid());
 
         LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(result.raw());
 
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.LUNA, result.replyText(), LocalTime.now()));
-        
+
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
-        
+
         return ResponseEntity.ok(tryParseJsonNode(result.valid()));
     }
 
@@ -167,7 +167,7 @@ public class ChatServiceImpl implements ChatService {
     public ResponseEntity<Object> startup() {
         log.info("开始启动流程");
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_STARTING, LunaStateConstant.VALUE_STARTING);
-        
+
         LocalDateTime today = LocalDateTime.now();
         String keyPrefix = dateFormatter.format(today);
         List<ChatMessage> recent = null;
@@ -193,15 +193,15 @@ public class ChatServiceImpl implements ChatService {
                 .map(m -> m.getRole().name() + ": " + m.getContent() + ": " + m.getTime())
                 .toList();
         String prompt = promptAssembler.assembleStartupPrompt(memorySnippets);
-        SendToLuna result = getSendToLuna(prompt);
+        SendToLuna result = getSendToLuna(prompt, "startup");
         log.info("整理后模型输出：{}", result.valid());
 
         LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(result.raw());
 
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.LUNA, result.replyText(), LocalTime.now()));
-        
+
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
-        
+
         return ResponseEntity.ok(tryParseJsonNode(result.valid()));
     }
 
@@ -241,7 +241,7 @@ public class ChatServiceImpl implements ChatService {
                 .toList();
     }
 
-    private SendToLuna getSendToLuna(String prompt) {
+    private SendToLuna getSendToLuna(String prompt, String originalUserInput) {
         LlmRequest request = LlmRequest.builder()
                 .modelType(ModelType.OPENAI_COMPATIBLE)
                 .modelName(geminiProperty.getBig().getModelName())
@@ -269,7 +269,8 @@ public class ChatServiceImpl implements ChatService {
             }
 
             try {
-                String repairPrompt = PromptTemplates.REPAIR_PROMPT.formatted(valid);
+                String repairSeed = (originalUserInput != null && !originalUserInput.isBlank()) ? originalUserInput : valid;
+                String repairPrompt = PromptTemplates.REPAIR_PROMPT.formatted(repairSeed);
                 LlmRequest repairReq = LlmRequest.builder()
                         .modelType(ModelType.OPENAI_COMPATIBLE)
                         .modelName(geminiProperty.getBig().getModelName())

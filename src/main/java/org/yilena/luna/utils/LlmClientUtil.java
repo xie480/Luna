@@ -68,8 +68,8 @@ public class LlmClientUtil {
      */
     private LlmResponse callOpenAiCompatible(LlmRequest request) {
         try {
-            // 1. 提取最新的用户输入文本用于安全检测
-            String userLatestText = extractLatestUserText(request.getMessages());
+            // 1. 提取最新的用户输入文本用于安全检测（仅针对真实用户输入）
+            String userLatestText = extractLatestUserTextForSafetyCheck(request.getMessages());
 
             // 2. [策略4] 使用 Small Model 进行前置意图审查 (Prompt Injection Detection)
             if (userLatestText != null && !userLatestText.isEmpty()) {
@@ -118,7 +118,7 @@ public class LlmClientUtil {
             // 4. 获取目标模型配置
             String requestModelName = request.getModelName();
             GeminiProperty.ModelConfig config = getModelConfig(requestModelName);
-            
+
             if (config == null) {
                 log.error("未找到模型名称 [{}] 对应的配置信息，请检查 application.yaml", requestModelName);
                 return null;
@@ -151,10 +151,10 @@ public class LlmClientUtil {
             String detectionPrompt = String.format(PromptTemplates.PROMPT_INJECTION_DETECTION, userInput);
 
             List<ChatMessage> safetyMessages = List.of(UserMessage.from(detectionPrompt));
-            
+
             // 温度设为 0，确保结果确定性
             String result = executeChatCall(safetyMessages, smallConfig, 0.0);
-            
+
             if (result != null && result.trim().toUpperCase().contains("UNSAFE")) {
                 return false;
             }
@@ -192,18 +192,40 @@ public class LlmClientUtil {
     }
 
     /**
-     * 辅助：从消息列表中提取最新的 User 文本
+     * 仅提取需要进行安全检测的“真实用户输入”。
+     * 过滤系统内部拼装 prompt（如 SYSTEM/REPAIR/STARTUP 等），避免误判为注入攻击。
      */
-    private String extractLatestUserText(List<LlmMessage> messages) {
+    private String extractLatestUserTextForSafetyCheck(List<LlmMessage> messages) {
         if (messages == null || messages.isEmpty()) return null;
-        // 倒序查找最后一条 User 消息
         for (int i = messages.size() - 1; i >= 0; i--) {
             LlmMessage msg = messages.get(i);
-            if (!"system".equalsIgnoreCase(msg.getRole()) && !"assistant".equalsIgnoreCase(msg.getRole())) {
-                return msg.getText();
+            if ("system".equalsIgnoreCase(msg.getRole()) || "assistant".equalsIgnoreCase(msg.getRole())) {
+                continue;
             }
+            String text = msg.getText();
+            if (text == null || text.isBlank()) {
+                continue;
+            }
+            if (isLikelyInternalPrompt(text)) {
+                log.debug("检测到内部提示词消息，跳过安全检测。");
+                return null;
+            }
+            return text;
         }
         return null;
+    }
+
+    /**
+     * 判断是否是服务内部构造的指令性大 Prompt。
+     */
+    private boolean isLikelyInternalPrompt(String text) {
+        return text.contains("# LUNA 核心人格宪章")
+                || text.contains("# 输出修复指令")
+                || text.contains("# 系统唤醒指令")
+                || text.contains("# 运行时上下文层")
+                || text.contains("# 记忆上下文注入层")
+                || text.contains("仅输出修复后的单行合法JSON")
+                || text.contains("你是一个安全检测系统");
     }
 
     /**
@@ -211,7 +233,7 @@ public class LlmClientUtil {
      */
     private GeminiProperty.ModelConfig getModelConfig(String modelName) {
         if (modelName == null) return geminiProperty.getBig();
-        
+
         if (geminiProperty.getSmall() != null && modelName.equals(geminiProperty.getSmall().getModelName())) {
             return geminiProperty.getSmall();
         }
@@ -224,7 +246,7 @@ public class LlmClientUtil {
         if (geminiProperty.getFlash() != null && modelName.equals(geminiProperty.getFlash().getModelName())) {
             return geminiProperty.getFlash();
         }
-        
+
         log.warn("请求的模型 [{}] 未在配置中找到精确匹配，将默认使用 Big Model 的 URL 和 Key", modelName);
         return geminiProperty.getBig();
     }

@@ -9,6 +9,7 @@ import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
+import org.springframework.messaging.MessagingException;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.multipart.MultipartFile;
@@ -110,6 +111,14 @@ public class LunaLogAspect {
 
             rocketMQTemplate.convertAndSend(RocketMqConstant.TOPIC_LOG, msg);
 
+        } catch (MessagingException e) {
+            String msg = e.getMessage();
+            if (msg != null && msg.contains("No route info of this topic")) {
+                log.error("發送日誌 MQ 失敗：Topic 路由不存在或未就緒，topic={}", RocketMqConstant.TOPIC_LOG);
+            } else {
+                log.error("發送日誌 MQ 失敗", e);
+            }
+            LOG_RESPONSE_OVERRIDE.remove();
         } catch (Exception e) {
             log.error("發送日誌 MQ 失敗", e);
             LOG_RESPONSE_OVERRIDE.remove();
