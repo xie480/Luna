@@ -11,6 +11,8 @@ import org.yilena.luna.entity.Resource;
 import org.yilena.luna.exception.impl.NeedApprovalException;
 import org.yilena.luna.executor.ReflectionToolExecutor;
 import org.yilena.luna.service.ApprovalService;
+import org.yilena.luna.sse.LunaStatusPublisher;
+import org.yilena.luna.sse.SseSessionManager;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -27,6 +29,7 @@ public class ApprovalServiceImpl implements ApprovalService {
     private final RedisTemplate<String, Object> redisTemplate;
     private final ReflectionToolExecutor reflectionToolExecutor;
     private final ObjectMapper objectMapper;
+    private final SseSessionManager sseSessionManager;
 
     private static final String REDIS_PREFIX = "luna:approval:";
     private static final long EXPIRE_MINUTES = 10;
@@ -45,13 +48,17 @@ public class ApprovalServiceImpl implements ApprovalService {
                 .createTime(System.currentTimeMillis())
                 .build();
 
-        // 存入 Redis
+        // 1. 存入 Redis
         String key = REDIS_PREFIX + taskId;
         redisTemplate.opsForValue().set(key, task, EXPIRE_MINUTES, TimeUnit.MINUTES);
         
         log.info("已創建審批任務: {}, 等待用戶授權...", taskId);
+
+        // 2. 推送 SSE 事件通知前端
+        // 前端監聽 "APPROVAL_REQUEST" 事件
+        sseSessionManager.send(LunaStatusPublisher.DEFAULT_CLIENT_ID, "APPROVAL_REQUEST", task);
         
-        // 拋出異常中斷當前執行流
+        // 3. 拋出異常中斷當前執行流
         throw new NeedApprovalException(task);
     }
 

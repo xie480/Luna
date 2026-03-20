@@ -32,7 +32,10 @@ public class GlobalExceptionHandler {
             log.warn("用户认证失败: {}", e.getMessage());
             throw new RuntimeException(e);
         }else if(e instanceof NeedApprovalException){
-            throw new RuntimeException(e);
+            // 审批中断，正常返回，告知前端等待审批
+            // 前端通过 SSE 接收审批弹窗，此处的 HTTP 返回值主要用于结束当前请求
+            log.info("触发审批中断: {}", e.getMessage());
+            return Map.of("status", "pending_approval", "message", "操作需要审批，请在前端确认");
         }
         log.error("捕获全局异常: {}", e.getMessage(), e);
 

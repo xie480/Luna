@@ -22,12 +22,13 @@ public class ExecutionGate {
         log.info("正在進行安全檢查: {}", resource.getName());
 
         // 1. 敏感度檢查
+        // 【v2.1 修改】不再硬性攔截 HIGH 敏感度，而是記錄日誌，
+        // 讓後續的 ReflectionToolExecutor 有機會觸發審批流程 (NeedApprovalException)
         if (Sensitivity.HIGH.equals(resource.getSensitivity())) {
-            log.error("拒絕執行高敏感度工具: {}", resource.getName());
-            throw new RuntimeException("權限不足：拒絕執行高敏感度工具 [" + resource.getName() + "]");
+            log.info("檢測到高敏感度工具: {}，後續將觸發審批流程", resource.getName());
         }
 
-        // 2. 審批標記檢查 (此處僅做日誌，具體流程由 Executor 處理)
+        // 2. 審批標記檢查
         if (Boolean.TRUE.equals(resource.getRequiresApproval())) {
             log.info("工具 [{}] 需要人工審批，將進入審批流程", resource.getName());
         }
