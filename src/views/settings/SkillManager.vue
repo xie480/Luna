@@ -17,10 +17,6 @@
           <span class="skill-name">{{ skill.name }}</span>
           <div class="badges">
             <span class="badge mode">{{ skill.runMode || 'SYNC' }}</span>
-            <span class="badge sensitivity" :class="(skill.sensitivity || 'LOW').toLowerCase()">
-              {{ skill.sensitivity || 'LOW' }}
-            </span>
-            <span v-if="skill.requiresApproval" class="badge approval">需审批</span>
           </div>
         </div>
         <div class="card-body">
@@ -94,29 +90,12 @@
               ></textarea>
             </div>
 
-            <div class="form-row">
-              <div class="form-group">
-                <label>执行模式 (Run Mode)</label>
-                <select v-model="form.runMode" :disabled="isSaving">
-                  <option value="SYNC">同步 (SYNC)</option>
-                  <option value="ASYNC">异步 (ASYNC)</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label>敏感度 (Sensitivity)</label>
-                <select v-model="form.sensitivity" :disabled="isSaving">
-                  <option value="LOW">低 (LOW)</option>
-                  <option value="MEDIUM">中 (MEDIUM)</option>
-                  <option value="HIGH">高 (HIGH)</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="form-group checkbox-group">
-              <label class="checkbox-label">
-                <input type="checkbox" v-model="form.requiresApproval" :disabled="isSaving" />
-                <span>执行前需要审批 (Requires Approval)</span>
-              </label>
+            <div class="form-group">
+              <label>执行模式 (Run Mode)</label>
+              <select v-model="form.runMode" :disabled="isSaving">
+                <option value="SYNC">同步 (SYNC)</option>
+                <option value="ASYNC">异步 (ASYNC)</option>
+              </select>
             </div>
           </div>
 
@@ -191,9 +170,7 @@ const form = reactive({
   beanName: '',
   methodName: '',
   inputSchema: '',
-  runMode: 'SYNC',
-  requiresApproval: false,
-  sensitivity: 'LOW'
+  runMode: 'SYNC'
 });
 
 onMounted(() => {
@@ -251,8 +228,6 @@ function resetForm() {
   form.methodName = '';
   form.inputSchema = '{\n  "type": "object",\n  "properties": {}\n}';
   form.runMode = 'SYNC';
-  form.requiresApproval = false;
-  form.sensitivity = 'LOW';
 }
 
 function triggerFileUpload() {
@@ -274,8 +249,6 @@ function handleFileUpload(event) {
       if (json.beanName) form.beanName = json.beanName;
       if (json.methodName) form.methodName = json.methodName;
       if (json.runMode) form.runMode = json.runMode;
-      if (json.requiresApproval !== undefined) form.requiresApproval = json.requiresApproval;
-      if (json.sensitivity) form.sensitivity = json.sensitivity;
       
       if (json.inputSchema) {
         form.inputSchema = typeof json.inputSchema === 'object' 
@@ -413,10 +386,6 @@ const debouncedHandleDelete = debounce(handleDelete, 300);
   font-weight: bold;
 }
 .badge.mode { background: rgba(0, 150, 255, 0.2); color: #63b3ed; }
-.badge.approval { background: rgba(255, 150, 0, 0.2); color: #fbd38d; }
-.badge.sensitivity.low { background: rgba(0, 255, 0, 0.1); color: #9ae6b4; }
-.badge.sensitivity.medium { background: rgba(255, 200, 0, 0.2); color: #f6e05e; }
-.badge.sensitivity.high { background: rgba(255, 0, 0, 0.2); color: #fc8181; }
 
 .desc {
   font-size: 0.9em;
@@ -622,23 +591,6 @@ textarea {
   font-family: 'Consolas', 'Monaco', monospace;
   font-size: 0.9em;
   min-height: 120px;
-}
-
-.checkbox-group {
-  display: flex;
-  align-items: center;
-  margin-top: 10px;
-}
-.checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  color: var(--text-main);
-}
-.checkbox-label input {
-  width: auto;
-  cursor: pointer;
 }
 
 .modal-actions {

@@ -15,7 +15,13 @@
       <div v-else class="tool-card" v-for="tool in tools" :key="tool.id">
         <div class="card-header">
           <span class="tool-name">{{ tool.name }}</span>
-          <span class="tool-version" v-if="tool.version">v{{ tool.version }}</span>
+          <div class="badges">
+            <span class="tool-version" v-if="tool.version">v{{ tool.version }}</span>
+            <span class="badge sensitivity" :class="(tool.sensitivity || 'LOW').toLowerCase()">
+              {{ tool.sensitivity || 'LOW' }}
+            </span>
+            <span v-if="tool.requiresApproval" class="badge approval">需审批</span>
+          </div>
         </div>
         <div class="card-body">
           <p class="desc">{{ tool.description }}</p>
@@ -34,9 +40,6 @@
     <!-- 使用 Teleport 将弹窗移动到 body，避免被父组件(SettingsPanel)的 overflow:hidden 裁剪 -->
     <Teleport to="body">
       <div v-if="showModal" class="mcp-modal-wrapper">
-        <!-- 移除遮罩层，实现背景可穿透 -->
-        <!-- <div class="modal-overlay" @click="closeModal"></div> -->
-
         <!-- 编辑/新增 弹窗 (可拖拽) -->
         <div 
           class="modal"
@@ -101,9 +104,26 @@
               ></textarea>
             </div>
 
-            <div class="form-group">
-              <label>版本号 (Version)</label>
-              <input v-model="form.version" placeholder="例如: 1.0.0" :disabled="isSaving" />
+            <div class="form-row">
+              <div class="form-group">
+                <label>版本号 (Version)</label>
+                <input v-model="form.version" placeholder="例如: 1.0.0" :disabled="isSaving" />
+              </div>
+              <div class="form-group">
+                <label>敏感度 (Sensitivity)</label>
+                <select v-model="form.sensitivity" :disabled="isSaving">
+                  <option value="LOW">低 (LOW)</option>
+                  <option value="MEDIUM">中 (MEDIUM)</option>
+                  <option value="HIGH">高 (HIGH)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group checkbox-group">
+              <label class="checkbox-label">
+                <input type="checkbox" v-model="form.requiresApproval" :disabled="isSaving" />
+                <span>执行前需要审批 (Requires Approval)</span>
+              </label>
             </div>
           </div>
 
@@ -181,7 +201,9 @@ const form = reactive({
   inputSchema: '',
   outputSchema: '',
   version: '',
-  owner: ''
+  owner: '',
+  requiresApproval: false,
+  sensitivity: 'LOW'
 });
 
 onMounted(() => {
@@ -248,6 +270,8 @@ function resetForm() {
   form.outputSchema = '';
   form.version = '';
   form.owner = '';
+  form.requiresApproval = false;
+  form.sensitivity = 'LOW';
 }
 
 function triggerFileUpload() {
@@ -271,6 +295,8 @@ function handleFileUpload(event) {
       if (json.methodName) form.methodName = json.methodName;
       if (json.version) form.version = json.version;
       if (json.owner) form.owner = json.owner;
+      if (json.requiresApproval !== undefined) form.requiresApproval = json.requiresApproval;
+      if (json.sensitivity) form.sensitivity = json.sensitivity;
       
       // 處理 Schema，如果是對象則轉字符串
       if (json.inputSchema) {
@@ -414,12 +440,29 @@ const debouncedHandleDelete = debounce(handleDelete, 300);
   color: var(--primary, #4fd1c5);
 }
 
+.badges {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
 .tool-version {
   font-size: 0.8em;
   background: rgba(0, 0, 0, 0.3);
   padding: 2px 6px;
   border-radius: 4px;
 }
+
+.badge {
+  font-size: 0.75em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: bold;
+}
+.badge.approval { background: rgba(255, 150, 0, 0.2); color: #fbd38d; }
+.badge.sensitivity.low { background: rgba(0, 255, 0, 0.1); color: #9ae6b4; }
+.badge.sensitivity.medium { background: rgba(255, 200, 0, 0.2); color: #f6e05e; }
+.badge.sensitivity.high { background: rgba(255, 0, 0, 0.2); color: #fc8181; }
 
 .desc {
   font-size: 0.9em;
@@ -596,7 +639,7 @@ label {
   color: var(--text-dim, #cbd5e0);
 }
 
-input, textarea {
+input, textarea, select {
   width: 100%;
   background: rgba(0,0,0,0.3);
   border: 1px solid var(--border, #4a5568);
@@ -607,11 +650,11 @@ input, textarea {
   box-sizing: border-box;
 }
 
-input:focus, textarea:focus {
+input:focus, textarea:focus, select:focus {
   outline: none;
   border-color: var(--primary, #4fd1c5);
 }
-input:disabled, textarea:disabled {
+input:disabled, textarea:disabled, select:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
@@ -625,6 +668,23 @@ textarea {
   font-family: 'Consolas', 'Monaco', monospace;
   font-size: 0.9em;
   min-height: 120px;
+}
+
+.checkbox-group {
+  display: flex;
+  align-items: center;
+  margin-top: 10px;
+}
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text-main);
+}
+.checkbox-label input {
+  width: auto;
+  cursor: pointer;
 }
 
 .modal-actions {
