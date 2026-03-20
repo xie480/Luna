@@ -17,7 +17,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 @SpringBootApplication
 @EnableTransactionManagement
 public class RunaApplication {
-    static void main(String[] args) {
+    public static void main(String[] args) {
         SpringApplication.run(RunaApplication.class, args);
     }
 }

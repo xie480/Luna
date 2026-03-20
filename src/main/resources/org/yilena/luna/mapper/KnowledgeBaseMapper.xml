@@ -9,15 +9,16 @@
         <result column="source_type" property="sourceType"/>
         <result column="source_path" property="sourcePath"/>
         <result column="vector_id" property="vectorId"/>
+        <result column="embedding" property="embedding"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
     </resultMap>
 
     <select id="searchByVector" resultMap="BaseResultMap">
         SELECT
-            id, title, content, source_type, source_path, vector_id, created_at, updated_at
+            id, title, content, source_type, source_path, vector_id, embedding, created_at, updated_at
         FROM knowledge_base
-        ORDER BY embedding &lt;=&gt; cast(? as vector)
+        ORDER BY embedding &lt;=&gt; cast(#{vector} as vector)
         LIMIT #{topK}
     </select>
 

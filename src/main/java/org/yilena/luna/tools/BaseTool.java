@@ -28,6 +28,7 @@ public abstract class BaseTool {
         try {
             Map<String, Object> map = new HashMap<>();
             map.put("status", "error");
+            map.put("message", message);
             return objectMapper.writeValueAsString(map);
         } catch (Exception e) {
             return "{\"status\":\"error\", \"message\":\"" + message + "\"}";
