@@ -75,8 +75,10 @@ public class ChatServiceImpl implements ChatService {
     @Override
     @LunaLogRecord(module = LogModuleConstant.CHAT, action = LogActionConstant.CHAT, type = LogType.LUNA_OUTPUT, content = "用户对话交互")
     public ResponseEntity<Object> chat(ChatRequest chatRequest) {
+        // 入口日志：记录用户输入，便于排查链路问题
         log.info("用户输入：{}", chatRequest.getUserInput());
 
+        // 首次状态推送：进入思考态
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_THINKING, LunaStateConstant.VALUE_THINKING);
 
         LocalDateTime today = LocalDateTime.now();
@@ -96,35 +98,42 @@ public class ChatServiceImpl implements ChatService {
         List<String> longTermMemorySnippets = Collections.emptyList();
 
         // --- 并行 RAG 检索逻辑 (虚拟线程池 + rerank + 快速超时) ---
+        // 说明：
+        // 1) 并发执行向量化、知识库检索、偏好检索、长期记忆检索，减少串行等待
+        // 2) 各分支设置超时兜底，避免单一路径拖慢整体响应
+        // 3) 命中数量较少时跳过 rerank，减少 Python 进程调用开销
         try (ExecutorService vtp = Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("rag-vt-", 1).factory())) {
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_RETRIEVING, LunaStateConstant.VALUE_RETRIEVING);
 
             CompletableFuture<String> queryVectorFuture = CompletableFuture.supplyAsync(() -> {
                 try {
+                    log.debug("开始执行用户输入向量化");
                     return llmClientUtil.getEmbedding(input);
                 } catch (Exception e) {
                     log.error("用户输入向量化异常: {}", e.getMessage(), e);
                     return null;
                 }
-            }, vtp);
+            }, vtp).completeOnTimeout(null, RAG_TIMEOUT_MS, TimeUnit.MILLISECONDS);
 
             CompletableFuture<List<KnowledgeBase>> kbFuture = CompletableFuture.supplyAsync(() -> {
                 try {
                     List<KnowledgeBase> kbs = knowledgeBaseService.searchKnowledge(input, RAG_TOP_K_FETCH);
-                    if (kbs == null || kbs.isEmpty()) return Collections.emptyList();
+                    if (kbs == null || kbs.isEmpty()) {
+                        log.debug("RAG知识库检索无命中");
+                        return Collections.emptyList();
+                    }
 
                     List<String> docs = kbs.stream()
                             .map(kb -> String.format("标题: %s\n内容: %s", kb.getTitle(), kb.getContent()))
                             .toList();
 
-                    // 命中较少时跳过 rerank，减少一次 python 进程开销
                     if (docs.size() <= RAG_TOP_K_FINAL) {
+                        log.info("RAG知识库命中较少({})，跳过rerank", docs.size());
                         return kbs.stream().limit(RAG_TOP_K_FINAL).toList();
                     }
 
                     List<Double> scores = llmClientUtil.rerank(input, docs);
                     List<KnowledgeBase> reranked = llmClientUtil.rerankResources(kbs, scores, RAG_TOP_K_FINAL);
-
                     log.info("RAG知识库检索命中: {} 条，rerank后保留: {}", kbs.size(), reranked.size());
                     return reranked;
                 } catch (Exception e) {
@@ -135,21 +144,28 @@ public class ChatServiceImpl implements ChatService {
 
             CompletableFuture<List<UserPreference>> preferenceFuture = queryVectorFuture.thenApplyAsync(queryVector -> {
                 try {
-                    if (queryVector == null || queryVector.isBlank()) return Collections.emptyList();
+                    if (queryVector == null || queryVector.isBlank()) {
+                        log.debug("用户偏好检索跳过：queryVector为空");
+                        return Collections.emptyList();
+                    }
+
                     List<UserPreference> preferences = userPreferenceMapper.searchByVector(queryVector, RAG_TOP_K_FETCH);
-                    if (preferences == null || preferences.isEmpty()) return Collections.emptyList();
+                    if (preferences == null || preferences.isEmpty()) {
+                        log.debug("用户偏好检索无命中");
+                        return Collections.emptyList();
+                    }
 
                     List<String> docs = preferences.stream()
                             .map(p -> String.format("键: %s\n值: %s\n描述: %s", p.getPrefKey(), p.getPrefValue(), p.getDescription()))
                             .toList();
 
                     if (docs.size() <= RAG_TOP_K_FINAL) {
+                        log.info("用户偏好命中较少({})，跳过rerank", docs.size());
                         return preferences.stream().limit(RAG_TOP_K_FINAL).toList();
                     }
 
                     List<Double> scores = llmClientUtil.rerank(input, docs);
                     List<UserPreference> reranked = llmClientUtil.rerankResources(preferences, scores, RAG_TOP_K_FINAL);
-
                     log.info("用户偏好检索命中: {} 条，rerank后保留: {}", preferences.size(), reranked.size());
                     return reranked;
                 } catch (Exception e) {
@@ -160,21 +176,28 @@ public class ChatServiceImpl implements ChatService {
 
             CompletableFuture<List<Memory>> memoryFuture = queryVectorFuture.thenApplyAsync(queryVector -> {
                 try {
-                    if (queryVector == null || queryVector.isBlank()) return Collections.emptyList();
+                    if (queryVector == null || queryVector.isBlank()) {
+                        log.debug("长期记忆检索跳过：queryVector为空");
+                        return Collections.emptyList();
+                    }
+
                     List<Memory> memories = memoryMapper.searchByVector(queryVector, RAG_TOP_K_FETCH);
-                    if (memories == null || memories.isEmpty()) return Collections.emptyList();
+                    if (memories == null || memories.isEmpty()) {
+                        log.debug("长期记忆检索无命中");
+                        return Collections.emptyList();
+                    }
 
                     List<String> docs = memories.stream()
                             .map(m -> String.format("会话: %s\n类型: %s\n内容: %s", m.getSessionId(), m.getMemoryType(), m.getContent()))
                             .toList();
 
                     if (docs.size() <= RAG_TOP_K_FINAL) {
+                        log.info("长期记忆命中较少({})，跳过rerank", docs.size());
                         return memories.stream().limit(RAG_TOP_K_FINAL).toList();
                     }
 
                     List<Double> scores = llmClientUtil.rerank(input, docs);
                     List<Memory> reranked = llmClientUtil.rerankResources(memories, scores, RAG_TOP_K_FINAL);
-
                     log.info("长期记忆检索命中: {} 条，rerank后保留: {}", memories.size(), reranked.size());
                     return reranked;
                 } catch (Exception e) {
@@ -204,6 +227,9 @@ public class ChatServiceImpl implements ChatService {
                         .map(m -> String.format("会话: %s, 类型: %s, 内容: %s", m.getSessionId(), m.getMemoryType(), m.getContent()))
                         .toList();
             }
+
+            log.info("并行RAG完成：knowledge={}, preference={}, memory={}",
+                    knowledgeSnippets.size(), preferenceSnippets.size(), longTermMemorySnippets.size());
         } catch (Exception e) {
             log.error("并行RAG检索异常: {}", e.getMessage(), e);
         }
@@ -237,6 +263,7 @@ public class ChatServiceImpl implements ChatService {
             memorySnippets = refreshed.stream()
                     .map(m -> m.getRole().name() + ": " + m.getContent() + ": " + m.getTime())
                     .collect(Collectors.toList());
+            log.info("上下文压缩触发后重新加载历史，条数={}", memorySnippets.size());
         }
 
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.USER, input, LocalTime.now()));
@@ -262,6 +289,7 @@ public class ChatServiceImpl implements ChatService {
         SendToLuna result = getSendToLuna(prompt, input);
         log.info("整理后模型输出：{}", result.valid());
 
+        // 覆盖 AOP 默认返回日志，保存完整原始模型输出（含 thought）
         LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(result.raw());
 
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.LUNA, result.replyText(), LocalTime.now()));
@@ -350,6 +378,11 @@ public class ChatServiceImpl implements ChatService {
                 .toList();
     }
 
+    /**
+     * 调用主模型并做结构化修复兜底
+     * @param prompt 完整Prompt
+     * @param originalUserInput 原始用户输入，用于修复提示词种子
+     */
     private SendToLuna getSendToLuna(String prompt, String originalUserInput) {
         LlmRequest request = LlmRequest.builder()
                 .modelType(ModelType.OPENAI_COMPATIBLE)
@@ -455,6 +488,9 @@ public class ChatServiceImpl implements ChatService {
         return "";
     }
 
+    /**
+     * 对外返回时移除 thought，避免泄露内部推理文本
+     */
     private String removeThoughtFromJson(String json) {
         try {
             JsonNode node = tryParseJsonNode(json);
