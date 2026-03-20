@@ -106,3 +106,25 @@ rerank:
 
 serper:
   api-key: fe2bc5deb3372b8fc2823c2031e06a209e20bd75
+
+xxl-job:
+  access-token: Yilena
+  admin:
+    addresses: http://192.168.100.128:9001/xxl-job-admin
+  executor:
+    ip: 192.168.1.5
+    application-name: luna
+    port: 19999
+    log-retention-days: 30
+
+rocketmq:
+  # NameServer 地址
+  name-server: 192.168.100.128:9876
+  producer:
+    group: luna_group
+    # 发送超时时间（毫秒）
+    send-message-timeout: 2000
+    # 同步发送重试次数
+    retry-times-when-send-failed: 1
+    # 异步发送重试次数
+    retry-times-when-send-async-failed: 1
