@@ -261,6 +261,59 @@ const approvalTask     = ref(null);
 
 const { loadTheme } = useTheme();
 
+/* ================= SSE 狀態渲染隊列（最短顯示 1s） ================= */
+const STATUS_MIN_DISPLAY_MS = 1000;
+const statusQueue = [];
+let isConsumingStatusQueue = false;
+let statusLastEnqueued = "";
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeStatusPayload(data) {
+  if (!data) return "";
+  if (typeof data === "string") return data.trim();
+
+  if (typeof data === "object") {
+    if (typeof data.message === "string" && data.message.trim()) return data.message.trim();
+    if (typeof data.status === "string" && data.status.trim()) return data.status.trim();
+    return "";
+  }
+
+  return "";
+}
+
+function enqueueStatusMessage(msg) {
+  const text = normalizeStatusPayload(msg);
+  if (!text) return;
+
+  // 去重：避免同一文字連續入隊
+  if (text === statusLastEnqueued) return;
+  statusLastEnqueued = text;
+
+  statusQueue.push(text);
+
+  if (!isConsumingStatusQueue) {
+    consumeStatusQueue();
+  }
+}
+
+async function consumeStatusQueue() {
+  if (isConsumingStatusQueue) return;
+  isConsumingStatusQueue = true;
+
+  try {
+    while (statusQueue.length > 0) {
+      const nextStatus = statusQueue.shift();
+      lunaStatus.value = nextStatus;
+      await sleep(STATUS_MIN_DISPLAY_MS);
+    }
+  } finally {
+    isConsumingStatusQueue = false;
+  }
+}
+
 /* ================= 設定模式狀態 ================= */
 const isSetupMode = ref(false);
 const isTrackingSetupMode = ref(false);
@@ -1083,11 +1136,10 @@ onMounted(async () => {
         approvalTask.value = data.payload;
         showApproval.value = true;
         uiEnter(); // 觸發穿透狀態更新
-      } else if (data && data.message) {
-        lunaStatus.value = data.message;
-      } else {
-        lunaStatus.value = "";
+        return;
       }
+
+      enqueueStatusMessage(data);
     });
   }
 
@@ -1163,6 +1215,11 @@ onBeforeUnmount(() => {
   rhythm.dispose(getCoreModel(), trackingEnabled);
   app?.destroy(true);
   callShutdown();
+
+  // 清理狀態渲染隊列
+  statusQueue.length = 0;
+  isConsumingStatusQueue = false;
+  statusLastEnqueued = "";
 });
 </script>
 
