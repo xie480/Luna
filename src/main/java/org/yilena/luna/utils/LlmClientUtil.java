@@ -628,7 +628,8 @@ public class LlmClientUtil {
      * 解析脚本路径：
      * 1) 优先缓存路径（且文件仍存在）
      * 2) 其次配置路径（磁盘文件）
-     * 3) 最后 classpath 提取到临时文件
+     * 3) 再尝试源码资源路径（src/main/resources/python）
+     * 4) 最后 classpath 提取到临时文件
      */
     private String resolveScriptPath(String configuredPath, String resourceName) throws IOException {
         // 1) 命中缓存且文件存在
@@ -647,10 +648,19 @@ public class LlmClientUtil {
                 scriptPathCache.put(resourceName, configuredPath);
                 return configuredPath;
             }
-            log.warn("配置脚本路径不存在: {}，尝试从 classpath 加载", configuredPath);
         }
 
-        // 3) 从 classpath 提取到临时文件
+        // 3) 开发环境兜底：尝试 src/main/resources/python/<resourceName>
+        File devResourceFile = new File("src/main/resources/python/" + resourceName);
+        if (devResourceFile.exists()) {
+            String devPath = devResourceFile.getPath();
+            scriptPathCache.put(resourceName, devPath);
+            log.info("脚本路径自动探测成功（源码资源路径），resourceName={}, path={}", resourceName, devPath);
+            return devPath;
+        }
+
+        // 4) 从 classpath 提取到临时文件
+        log.warn("配置脚本路径不存在: {}，且源码资源路径未找到，尝试从 classpath 加载", configuredPath);
         String resourcePath = "python/" + resourceName;
         try (InputStream is = this.getClass().getClassLoader().getResourceAsStream(resourcePath)) {
             if (is == null) {
