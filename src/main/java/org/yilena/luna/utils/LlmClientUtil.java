@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.yilena.luna.client.InferenceGrpcClient;
 import org.yilena.luna.enums.ModelType;
 import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
@@ -34,6 +35,7 @@ public class LlmClientUtil {
     private final GeminiProperty geminiProperty;
     private final EmbeddingProperty embeddingProperty;
     private final ObjectMapper objectMapper;
+    private final InferenceGrpcClient inferenceGrpcClient;
 
     @Value("${rerank.model-path:}")
     private String rerankModelPath;
@@ -41,14 +43,15 @@ public class LlmClientUtil {
     @Value("${rerank.script-path:./python/rerank.py}")
     private String rerankScriptPath;
 
-    // 脚本路径缓存，避免反复解压 classpath python 脚本
+    @Value("${inference.grpc.enabled:true}")
+    private boolean grpcEnabled;
+
+    @Value("${inference.grpc.fallback-local:true}")
+    private boolean fallbackLocal;
+
     private static final Map<String, String> scriptPathCache = new ConcurrentHashMap<>();
-    // Embedding 缓存（进程内），减少重复向量化开销
     private static final Map<String, String> embeddingCache = new ConcurrentHashMap<>();
 
-    /**
-     * 统一模型调用入口
-     */
     public LlmResponse generate(LlmRequest request) {
         if (request.getModelType() == ModelType.OPENAI_COMPATIBLE) {
             return callOpenAiCompatible(request);
@@ -56,12 +59,8 @@ public class LlmClientUtil {
         throw new UnsupportedOperationException("暂不支持的模型类型: " + request.getModelType());
     }
 
-    /**
-     * 调用 OpenAI-Compatible 接口
-     */
     private LlmResponse callOpenAiCompatible(LlmRequest request) {
         try {
-            // 安全检测仅针对真实用户输入
             String userLatestText = extractLatestUserTextForSafetyCheck(request.getMessages());
             boolean enablePromptInjectionCheck = request.getEnablePromptInjectionCheck() == null || request.getEnablePromptInjectionCheck();
             if (enablePromptInjectionCheck && userLatestText != null && !userLatestText.isEmpty()) {
@@ -74,17 +73,14 @@ public class LlmClientUtil {
                 }
             }
 
-            // 构造消息
             List<ChatMessage> messages = new ArrayList<>();
             for (LlmMessage msg : request.getMessages()) {
                 if ("system".equalsIgnoreCase(msg.getRole())) {
-                    // 追加系统安全提示，避免用户输入劫持系统指令
                     String hardenedSystemPrompt = msg.getText() + PromptTemplates.SYSTEM_SECURITY_NOTICE;
                     messages.add(SystemMessage.from(hardenedSystemPrompt));
                 } else if ("assistant".equalsIgnoreCase(msg.getRole())) {
                     messages.add(AiMessage.from(msg.getText()));
                 } else {
-                    // User Role：用分隔标签包裹
                     String safeText = msg.getText() != null ? msg.getText() : "";
                     String wrappedText = "<user_input>\n" + safeText + "\n</user_input>";
 
@@ -103,7 +99,6 @@ public class LlmClientUtil {
                 }
             }
 
-            // 选择模型配置
             String requestModelName = request.getModelName();
             GeminiProperty.ModelConfig config = getModelConfig(requestModelName);
 
@@ -121,9 +116,6 @@ public class LlmClientUtil {
         }
     }
 
-    /**
-     * 小模型做注入检测
-     */
     private boolean isInputSafe(String userInput) {
         try {
             GeminiProperty.ModelConfig smallConfig = geminiProperty.getSmall();
@@ -138,15 +130,11 @@ public class LlmClientUtil {
 
             return result == null || !result.trim().toUpperCase().contains("UNSAFE");
         } catch (Exception e) {
-            // 安全检测失败时默认放行，避免误伤主流程
             log.warn("安全检测调用失败，默认放行: {}", e.getMessage());
             return true;
         }
     }
 
-    /**
-     * 实际执行 LangChain4j 调用
-     */
     private String executeChatCall(List<ChatMessage> messages, GeminiProperty.ModelConfig config, Double temperature) {
         String baseUrl = config.getUrl();
         if (baseUrl != null) {
@@ -169,9 +157,6 @@ public class LlmClientUtil {
         return response.content().text();
     }
 
-    /**
-     * 提取可用于注入检测的“真实用户文本”
-     */
     private String extractLatestUserTextForSafetyCheck(List<LlmMessage> messages) {
         if (messages == null || messages.isEmpty()) return null;
         for (int i = messages.size() - 1; i >= 0; i--) {
@@ -192,9 +177,6 @@ public class LlmClientUtil {
         return null;
     }
 
-    /**
-     * 判断是否内部构造的大段提示词，避免误拦
-     */
     private boolean isLikelyInternalPrompt(String text) {
         return text.contains("# LUNA 核心人格宪章")
                 || text.contains("# 输出修复指令")
@@ -205,9 +187,6 @@ public class LlmClientUtil {
                 || text.contains("你是一个安全检测系统");
     }
 
-    /**
-     * 根据模型名获取配置
-     */
     private GeminiProperty.ModelConfig getModelConfig(String modelName) {
         if (modelName == null) return geminiProperty.getBig();
 
@@ -228,21 +207,57 @@ public class LlmClientUtil {
         return geminiProperty.getBig();
     }
 
-    /**
-     * 获取文本 embedding
-     */
     public String getEmbedding(String text) throws Exception {
         if (text == null || text.isBlank()) {
             return null;
         }
 
-        // 先查缓存
         String cached = embeddingCache.get(text);
         if (cached != null && !cached.isBlank()) {
             log.debug("Embedding cache hit, textLength={}", text.length());
             return cached;
         }
 
+        if (grpcEnabled) {
+            try {
+                String vector = inferenceGrpcClient.embedding(text);
+                if (vector != null && !vector.isBlank()) {
+                    cacheEmbedding(text, vector);
+                    return vector;
+                }
+            } catch (Exception e) {
+                log.warn("gRPC embedding 失败，将根据配置决定是否本地回退: {}", e.getMessage());
+                if (!fallbackLocal) {
+                    throw e;
+                }
+            }
+        }
+
+        String vector = getEmbeddingByLocalProcess(text);
+        cacheEmbedding(text, vector);
+        return vector;
+    }
+
+    public List<Double> rerank(String query, List<String> documents) throws Exception {
+        if (documents == null || documents.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        if (grpcEnabled) {
+            try {
+                return inferenceGrpcClient.rerank(query, documents);
+            } catch (Exception e) {
+                log.warn("gRPC rerank 失败，将根据配置决定是否本地回退: {}", e.getMessage());
+                if (!fallbackLocal) {
+                    throw e;
+                }
+            }
+        }
+
+        return rerankByLocalProcess(query, documents);
+    }
+
+    private String getEmbeddingByLocalProcess(String text) throws Exception {
         String pythonPath = embeddingProperty.getPythonPath();
         String scriptPath = resolveScriptPath(embeddingProperty.getScriptPath(), "embedding.py");
         String modelPath = embeddingProperty.getModelPath();
@@ -287,22 +302,10 @@ public class LlmClientUtil {
             throw new RuntimeException("Python脚本返回为空. Stderr: " + errorMsg);
         }
 
-        // 简易容量控制
-        if (embeddingCache.size() > 2000) {
-            log.info("Embedding cache size={} 超过阈值，执行清空", embeddingCache.size());
-            embeddingCache.clear();
-        }
-        embeddingCache.put(text, result);
         return result;
     }
 
-    /**
-     * 执行 rerank
-     */
-    public List<Double> rerank(String query, List<String> documents) throws Exception {
-        if (documents == null || documents.isEmpty()) {
-            return new ArrayList<>();
-        }
+    private List<Double> rerankByLocalProcess(String query, List<String> documents) throws Exception {
         if (rerankModelPath == null || rerankModelPath.isEmpty()) {
             throw new IllegalStateException("Rerank 模型路径未配置 (rerank.model-path)");
         }
@@ -362,9 +365,17 @@ public class LlmClientUtil {
         return objectMapper.readValue(result, objectMapper.getTypeFactory().constructCollectionType(List.class, Double.class));
     }
 
-    /**
-     * 按 rerank 分数重排资源并截断
-     */
+    private void cacheEmbedding(String text, String vector) {
+        if (vector == null || vector.isBlank()) {
+            return;
+        }
+        if (embeddingCache.size() > 2000) {
+            log.info("Embedding cache size={} 超过阈值，执行清空", embeddingCache.size());
+            embeddingCache.clear();
+        }
+        embeddingCache.put(text, vector);
+    }
+
     public <T> List<T> rerankResources(List<T> resources, List<Double> scores, int topK) {
         if (resources == null || resources.isEmpty()) return Collections.emptyList();
         if (scores == null || scores.isEmpty()) {
@@ -380,9 +391,6 @@ public class LlmClientUtil {
                 .toList();
     }
 
-    /**
-     * 解析/提取 python 脚本路径
-     */
     private String resolveScriptPath(String configuredPath, String resourceName) throws IOException {
         if (scriptPathCache.containsKey(resourceName)) {
             String cachedPath = scriptPathCache.get(resourceName);

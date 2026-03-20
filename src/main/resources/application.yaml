@@ -106,6 +106,15 @@ rerank:
   model-path: D:/AI_Models/bge-reranker-v2-m3
   script-path: ./python/rerank.py
 
+# gRPC 常驻推理服务配置
+inference:
+  grpc:
+    enabled: true
+    host: 127.0.0.1
+    port: 50051
+    timeout-ms: 1500
+    fallback-local: true
+
 serper:
   api-key: fe2bc5deb3372b8fc2823c2031e06a209e20bd75
 
