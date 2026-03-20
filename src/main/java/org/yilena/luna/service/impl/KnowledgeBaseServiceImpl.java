@@ -3,11 +3,13 @@ package org.yilena.luna.service.impl;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.constants.RocketMqConstant;
 import org.yilena.luna.entity.KnowledgeBase;
 import org.yilena.luna.enums.SourceType;
 import org.yilena.luna.mapper.KnowledgeBaseMapper;
-import org.yilena.luna.rag.TextSplitter;
+import org.yilena.luna.mq.dto.KnowledgeBaseMessage;
 import org.yilena.luna.service.KnowledgeBaseService;
 import org.yilena.luna.utils.LlmClientUtil;
 
@@ -23,46 +25,26 @@ import java.util.List;
 public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, KnowledgeBase> implements KnowledgeBaseService {
 
     private final LlmClientUtil llmClientUtil;
+    private final RocketMQTemplate rocketMQTemplate;
 
     @Override
     public void addKnowledge(String title, String content, SourceType sourceType, String sourcePath) {
-        // 1. 文本分片 (每段 500 字，重疊 50 字)
-        List<String> chunks = TextSplitter.splitText(content, 500, 50);
-        log.info("開始處理知識庫寫入，標題: {}, 總分片數: {}", title, chunks.size());
+        // 將耗時的 Embedding 和寫入操作轉為異步 MQ 處理
+        KnowledgeBaseMessage msg = KnowledgeBaseMessage.builder()
+                .title(title)
+                .content(content)
+                .sourceType(sourceType.name())
+                .sourcePath(sourcePath)
+                .build();
 
-        int successCount = 0;
-        for (String chunk : chunks) {
-            try {
-                // 2. 調用大模型獲取 Embedding 向量 (直接接收 String)
-                String vectorStr = llmClientUtil.getEmbedding(chunk);
-
-                // 判斷返回的字符串是否有效 (Python 腳本報錯時會返回 "[]")
-                if (vectorStr != null && !vectorStr.trim().isEmpty() && !vectorStr.trim().equals("[]")) {
-                    // 3. 構建實體並保存到 PostgreSQL (PGVector)
-                    KnowledgeBase kb = KnowledgeBase.builder()
-                            .title(title)
-                            .content(chunk)
-                            .sourceType(sourceType)
-                            .sourcePath(sourcePath)
-                            .embedding(vectorStr) // 直接使用 JSON 字符串
-                            .build();
-
-                    this.save(kb);
-                    successCount++;
-                } else {
-                    log.warn("分片向量化失敗，跳過該分片。標題: {}", title);
-                }
-            } catch (Exception e) {
-                log.error("寫入知識庫分片異常: {}", e.getMessage());
-            }
-        }
-        log.info("知識庫寫入完成，成功寫入分片數: {}/{}", successCount, chunks.size());
+        rocketMQTemplate.convertAndSend(RocketMqConstant.TOPIC_KB_ADD, msg);
+        log.info("已發送知識庫寫入請求至 MQ, 標題: {}", title);
     }
 
     @Override
     public List<KnowledgeBase> searchKnowledge(String query, int topK) {
         try {
-            // 1. 將用戶的查詢問題向量化 (直接接收 String)
+            // 檢索操作需要實時返回，無法異步，仍保持同步調用
             String queryVectorStr = llmClientUtil.getEmbedding(query);
 
             if (queryVectorStr == null || queryVectorStr.trim().isEmpty() || queryVectorStr.trim().equals("[]")) {
@@ -70,15 +52,12 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
                 return Collections.emptyList();
             }
 
-            // 2. 調用自定義 Mapper 進行餘弦相似度檢索
             log.debug("開始向量檢索，TopK: {}", topK);
             return this.baseMapper.searchByVector(queryVectorStr, topK);
 
         } catch (Exception e) {
             log.error("檢索知識庫異常: {}", e.getMessage());
             throw new RuntimeException(e);
-//            log.error("檢索知識庫異常: {}", e.getMessage());
-//            return Collections.emptyList();
         }
     }
 }

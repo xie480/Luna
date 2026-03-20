@@ -11,7 +11,6 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import org.springframework.util.ReflectionUtils;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.yilena.luna.entity.McpSkill;
 import org.yilena.luna.entity.Resource;
 import org.yilena.luna.enums.ResourceType;
 import org.yilena.luna.enums.Sensitivity;
@@ -33,7 +32,9 @@ public class ReflectionToolExecutor {
     private final ApplicationContext applicationContext;
     private final ObjectMapper objectMapper;
     
-    // 使用 @Lazy 解決循環依賴 (ApprovalService -> Executor -> ApprovalService)
+    // 【修復循環依賴】
+    // 使用字段注入 + @Lazy，而不是構造器注入
+    // 因為 Lombok 的 @RequiredArgsConstructor 不會將 @Lazy 複製到構造參數上
     @Lazy
     @Autowired
     private ApprovalService approvalService;
@@ -62,11 +63,8 @@ public class ReflectionToolExecutor {
 
     /**
      * 兼容舊代碼的重載方法 (不帶 sessionId，無法進行審批攔截)
-     * 建議後續調用方都遷移到帶 sessionId 的版本
      */
     public String execute(Resource resource, String argsJson) {
-        // 為了安全起見，如果沒有 sessionId 但遇到了敏感操作，我們應該報錯或者放行？
-        // 這裡選擇放行但打印警告，或者您可以選擇拋出異常要求必須傳 sessionId
         if (resource.getType().equals(ResourceType.TOOL)) {
             if (resource.getSensitivity() == Sensitivity.MEDIUM || resource.getSensitivity() == Sensitivity.HIGH) {
                 log.error("警告：調用了敏感操作 {} 但未提供 sessionId，無法發起審批！將直接執行（存在風險）。", resource.getName());
@@ -106,7 +104,9 @@ public class ReflectionToolExecutor {
             Object[] args = resolveArgs(bean, targetMethod, argsJson);
 
             // 4. 反射執行 (調用代理類的方法，確保 AOP 切面生效)
-            Object result = targetMethod.invoke(bean, args);
+            Object result = targetMethod.invoke(bean, args
+
+);
 
             // 5. 處理返回結果
             if (result instanceof String) {

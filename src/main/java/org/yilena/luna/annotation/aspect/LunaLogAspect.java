@@ -4,6 +4,7 @@ import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -12,13 +13,12 @@ import org.springframework.stereotype.Component;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.multipart.MultipartFile;
 import org.yilena.luna.annotation.LunaLogRecord;
-import org.yilena.luna.entity.LunaLog;
+import org.yilena.luna.constants.RocketMqConstant;
 import org.yilena.luna.enums.LogType;
-import org.yilena.luna.service.LunaLogService;
+import org.yilena.luna.mq.dto.LogMessage;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -29,11 +29,10 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class LunaLogAspect {
 
-    private final LunaLogService lunaLogService;
+    private final RocketMQTemplate rocketMQTemplate;
 
     /**
      * 用于在业务逻辑中覆盖默认的返回值日志记录
-     * 例如：Controller返回给前端的是清洗后的数据，但日志希望记录原始数据
      */
     public static final ThreadLocal<Object> LOG_RESPONSE_OVERRIDE = new ThreadLocal<>();
 
@@ -51,11 +50,11 @@ public class LunaLogAspect {
             throw e;
         } finally {
             long costTime = System.currentTimeMillis() - startTime;
-            saveLog(point, lunaLogRecord, result, exception, costTime);
+            sendLogToMq(point, lunaLogRecord, result, exception, costTime);
         }
     }
 
-    private void saveLog(ProceedingJoinPoint point, LunaLogRecord annotation, Object result, Exception exception, long costTime) {
+    private void sendLogToMq(ProceedingJoinPoint point, LunaLogRecord annotation, Object result, Exception exception, long costTime) {
         try {
             MethodSignature signature = (MethodSignature) point.getSignature();
             String[] parameterNames = signature.getParameterNames();
@@ -65,7 +64,6 @@ public class LunaLogAspect {
             if (parameterNames != null && args != null) {
                 for (int i = 0; i < parameterNames.length && i < args.length; i++) {
                     Object arg = args[i];
-                    // 过滤掉无法序列化的对象 (如 Request, Response, 文件等)
                     if (arg != null && !isFilterObject(arg)) {
                         requestData.put(parameterNames[i], arg);
                     }
@@ -77,47 +75,47 @@ public class LunaLogAspect {
                 logType = LogType.ERROR;
             }
 
-            // 检查是否有覆盖的响应数据
             Object responseData = LOG_RESPONSE_OVERRIDE.get();
             if (responseData != null) {
-                // 使用完后立即清除，防止污染线程
                 LOG_RESPONSE_OVERRIDE.remove();
             } else {
                 responseData = result;
             }
 
-            LunaLog logEntity = LunaLog.builder()
+            String errorMessage = null;
+            String errorStack = null;
+
+            if (exception != null) {
+                errorMessage = exception.getMessage();
+                StringWriter sw = new StringWriter();
+                PrintWriter pw = new PrintWriter(sw);
+                exception.printStackTrace(pw);
+                errorStack = sw.toString();
+            }
+
+            // 構建 DTO 發送 MQ
+            LogMessage msg = LogMessage.builder()
                     .logType(logType)
                     .module(annotation.module())
                     .action(annotation.action())
                     .content(annotation.content())
                     .requestData(requestData)
-                    .responseData(responseData) // JacksonTypeHandler 会自动处理序列化
+                    .responseData(responseData)
+                    .errorMessage(errorMessage)
+                    .errorStack(errorStack)
                     .costTime(costTime)
-                    .createAt(LocalDateTime.now())
                     .traceId(UUID.randomUUID().toString())
+                    .createTime(System.currentTimeMillis())
                     .build();
 
-            if (exception != null) {
-                logEntity.setErrorMessage(exception.getMessage());
-                StringWriter sw = new StringWriter();
-                PrintWriter pw = new PrintWriter(sw);
-                exception.printStackTrace(pw);
-                logEntity.setErrorStack(sw.toString());
-            }
+            rocketMQTemplate.convertAndSend(RocketMqConstant.TOPIC_LOG, msg);
 
-            lunaLogService.save(logEntity);
         } catch (Exception e) {
-            log.error("记录系统日志失败", e);
-            // 确保异常时也能清理 ThreadLocal
+            log.error("發送日誌 MQ 失敗", e);
             LOG_RESPONSE_OVERRIDE.remove();
         }
     }
 
-    /**
-     * 判断是否为需要过滤的对象
-     * 过滤 ServletRequest, ServletResponse, MultipartFile, BindingResult 等无法直接序列化的对象
-     */
     private boolean isFilterObject(Object arg) {
         return arg instanceof ServletRequest ||
                arg instanceof ServletResponse ||
