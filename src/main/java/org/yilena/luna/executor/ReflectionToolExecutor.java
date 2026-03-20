@@ -104,9 +104,7 @@ public class ReflectionToolExecutor {
             Object[] args = resolveArgs(bean, targetMethod, argsJson);
 
             // 4. 反射執行 (調用代理類的方法，確保 AOP 切面生效)
-            Object result = targetMethod.invoke(bean, args
-
-);
+            Object result = targetMethod.invoke(bean, args);
 
             // 5. 處理返回結果
             if (result instanceof String) {
@@ -138,7 +136,8 @@ public class ReflectionToolExecutor {
         for (int i = 0; i < parameters.length; i++) {
             Parameter parameter = parameters[i];
             String paramName = parameter.getName(); // 默認使用參數名 (arg0 if not compiled with -parameters)
-            
+            boolean required = false;
+
             // 優先讀取 @RequestParam 註解定義的名稱 (從真實類的方法參數上讀取)
             if (parameter.isAnnotationPresent(RequestParam.class)) {
                 RequestParam requestParam = parameter.getAnnotation(RequestParam.class);
@@ -147,15 +146,20 @@ public class ReflectionToolExecutor {
                 } else if (requestParam.name() != null && !requestParam.name().isEmpty()) {
                     paramName = requestParam.name();
                 }
+                required = requestParam.required();
             }
             
             // 嘗試從 JSON 中獲取參數
-            if (jsonNode.has(paramName)) {
+            if (jsonNode.has(paramName) && !jsonNode.get(paramName).isNull()) {
                 args[i] = objectMapper.treeToValue(jsonNode.get(paramName), proxyMethod.getParameterTypes()[i]);
             } else {
                 // 如果 JSON 中沒有該參數，傳入 null
                 args[i] = null;
-                log.warn("參數 [{}] 在輸入 JSON 中缺失，將使用 null", paramName);
+                if (required) {
+                    log.warn("必填參數 [{}] 在輸入 JSON 中缺失，將使用 null（可能導致工具執行失敗）", paramName);
+                } else {
+                    log.debug("可選參數 [{}] 在輸入 JSON 中缺失，將使用 null", paramName);
+                }
             }
         }
         return args;
