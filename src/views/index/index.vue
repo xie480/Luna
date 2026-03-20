@@ -162,6 +162,18 @@
       />
     </transition>
 
+    <!-- 審批彈窗 -->
+    <transition name="fade">
+      <ApprovalModal
+        v-if="showApproval"
+        :task="approvalTask"
+        @approve="onApprove(true)"
+        @reject="onApprove(false)"
+        @mouseenter="uiEnter"
+        @mouseleave="uiLeave"
+      />
+    </transition>
+
     <!-- ===== PIXI Canvas ===== -->
     <div ref="wrapperRef" class="interactive-wrapper">
       <canvas ref="canvasRef" @contextmenu.prevent></canvas>
@@ -227,6 +239,7 @@ import { useTheme }      from "../../composables/useTheme.js";
 import ChatInput from "../../components/ChatInput.vue";
 import SettingsPanel from "../../components/SettingsPanel.vue";
 import HistoryPanel from "../../components/HistoryPanel.vue";
+import ApprovalModal from "../../components/ApprovalModal.vue";
 
 /* ================= DOM refs ================= */
 const canvasRef       = ref(null);
@@ -241,6 +254,10 @@ const historyPanelRef  = ref(null);
 const trackingEnabled  = ref(true);
 const lunaIntroVisible = ref(false);
 const lunaStatus       = ref(""); 
+
+// 審批狀態
+const showApproval     = ref(false);
+const approvalTask     = ref(null);
 
 const { loadTheme } = useTheme();
 
@@ -545,6 +562,26 @@ async function onSend(text) {
   }
 }
 
+/* ================= 審批處理 ================= */
+async function onApprove(approved) {
+  if (!approvalTask.value) return;
+  try {
+    const res = await window.mcpApi.approveSkill({
+      taskId: approvalTask.value.taskId,
+      approved
+    });
+    appearance.showAppearanceHint(approved ? "已同意操作" : "已拒絕操作");
+    console.log("[Approval] Result:", res);
+  } catch (e) {
+    console.error("[Approval] Failed:", e);
+    appearance.showAppearanceHint("審批提交失敗");
+  } finally {
+    showApproval.value = false;
+    approvalTask.value = null;
+    uiLeave();
+  }
+}
+
 /* ================= 啟動 / 關閉 ================= */
 async function callStartup() {
   isConnecting.value = true;
@@ -598,7 +635,8 @@ function uiLeave() {
       '.login-terminal:hover',
       '.history-panel:not(.fade-leave-active):hover',
       '.top-banner:hover',
-      '.modal:hover'
+      '.modal:hover',
+      '.approval-mask:hover' // 確保審批彈窗也被包含
     ].join(', ');
 
     const hovered = document.querySelector(selector);
@@ -630,6 +668,7 @@ function modelLeave() {
 watch(showChat, (val) => { if(!val) uiLeave(); else updatePetState(); });
 watch(showSettings, (val) => { if(!val) uiLeave(); else updatePetState(); });
 watch(showHistory, (val) => { if(!val) uiLeave(); else updatePetState(); });
+watch(showApproval, (val) => { if(!val) uiLeave(); else updatePetState(); });
 
 watch(modelVisible, (val) => {
   localStorage.setItem(LUNA_VISIBLE_KEY, val);
@@ -1040,7 +1079,11 @@ onMounted(async () => {
 
   if (window.desktopApi && window.desktopApi.onStatusUpdate) {
     window.desktopApi.onStatusUpdate((data) => {
-      if (data && data.message) {
+      if (data && data.type === 'APPROVAL_REQUEST') {
+        approvalTask.value = data.payload;
+        showApproval.value = true;
+        uiEnter(); // 觸發穿透狀態更新
+      } else if (data && data.message) {
         lunaStatus.value = data.message;
       } else {
         lunaStatus.value = "";

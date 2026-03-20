@@ -28,6 +28,9 @@ contextBridge.exposeInMainWorld("mcpApi", {
   createSkill: (payload) => ipcRenderer.invoke("mcp.skill.create", payload),
   updateSkill: (payload) => ipcRenderer.invoke("mcp.skill.update", payload),
   deleteSkill: (id)      => ipcRenderer.invoke("mcp.skill.delete", id),
+
+  // 審批管理
+  approveSkill: (payload) => ipcRenderer.invoke("mcp.skill.approve", payload),
 });
 
 contextBridge.exposeInMainWorld("pet", {

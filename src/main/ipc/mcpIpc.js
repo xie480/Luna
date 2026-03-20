@@ -39,4 +39,9 @@ export function registerMcpIpc() {
   ipcMain.handle("mcp.skill.delete", async (_, id) => {
     return http.delete(`/mcp/skills/${id}`);
   });
+
+  // === Approval (敏感操作審批) ===
+  ipcMain.handle("mcp.skill.approve", async (_, payload) => {
+    return http.post("/mcp/skills/approval", payload);
+  });
 }
