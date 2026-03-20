@@ -72,7 +72,8 @@ public class LlmClientUtil {
             String userLatestText = extractLatestUserTextForSafetyCheck(request.getMessages());
 
             // 2. [策略4] 使用 Small Model 进行前置意图审查 (Prompt Injection Detection)
-            if (userLatestText != null && !userLatestText.isEmpty()) {
+            boolean enablePromptInjectionCheck = request.getEnablePromptInjectionCheck() == null || request.getEnablePromptInjectionCheck();
+            if (enablePromptInjectionCheck && userLatestText != null && !userLatestText.isEmpty()) {
                 boolean isSafe = isInputSafe(userLatestText);
                 if (!isSafe) {
                     log.warn("检测到潜在的 Prompt Injection 攻击，已拦截。User Input: {}", userLatestText);

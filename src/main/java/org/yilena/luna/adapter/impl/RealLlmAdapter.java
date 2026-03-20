@@ -32,6 +32,7 @@ public class RealLlmAdapter implements LlmAdapter {
                 .modelName(geminiProperty.getMid().getModelName())
                 .messages(List.of(LlmMessage.user(prompt)))
                 .temperature(0.2) // 任務型調用溫度低一點
+                .enablePromptInjectionCheck(false) // 内部 Agent/任务调用，不做用户注入检测
                 .build();
 
         LlmResponse response = llmClientUtil.generate(request);

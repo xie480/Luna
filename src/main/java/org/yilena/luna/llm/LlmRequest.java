@@ -37,4 +37,11 @@ public class LlmRequest {
      */
     @Builder.Default
     private Double temperature = 0.7;
+
+    /**
+     * 是否启用 Prompt Injection 检测
+     * 仅建议用于真实用户输入（如 Chat 接口）
+     */
+    @Builder.Default
+    private Boolean enablePromptInjectionCheck = true;
 }
