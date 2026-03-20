@@ -276,6 +276,7 @@ function normalizeStatusPayload(data) {
   if (typeof data === "string") return data.trim();
 
   if (typeof data === "object") {
+    if (typeof data.msg === "string" && data.msg.trim()) return data.msg.trim();
     if (typeof data.message === "string" && data.message.trim()) return data.message.trim();
     if (typeof data.status === "string" && data.status.trim()) return data.status.trim();
     return "";
