@@ -120,7 +120,7 @@ public class ChatServiceImpl implements ChatService {
                     List<KnowledgeBase> kbs = knowledgeBaseService.searchKnowledge(input, RAG_TOP_K_FETCH);
                     if (kbs == null || kbs.isEmpty()) {
                         log.debug("RAG知识库检索无命中");
-                        return Collections.emptyList();
+                        return Collections.<KnowledgeBase>emptyList();
                     }
 
                     List<String> docs = kbs.stream()
@@ -138,21 +138,21 @@ public class ChatServiceImpl implements ChatService {
                     return reranked;
                 } catch (Exception e) {
                     log.error("RAG知识库检索异常: {}", e.getMessage(), e);
-                    return Collections.emptyList();
+                    return Collections.<KnowledgeBase>emptyList();
                 }
-            }, vtp).completeOnTimeout(Collections.emptyList(), RAG_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            }, vtp).completeOnTimeout(Collections.<KnowledgeBase>emptyList(), RAG_TIMEOUT_MS, TimeUnit.MILLISECONDS);
 
             CompletableFuture<List<UserPreference>> preferenceFuture = queryVectorFuture.thenApplyAsync(queryVector -> {
                 try {
                     if (queryVector == null || queryVector.isBlank()) {
                         log.debug("用户偏好检索跳过：queryVector为空");
-                        return Collections.emptyList();
+                        return Collections.<UserPreference>emptyList();
                     }
 
                     List<UserPreference> preferences = userPreferenceMapper.searchByVector(queryVector, RAG_TOP_K_FETCH);
                     if (preferences == null || preferences.isEmpty()) {
                         log.debug("用户偏好检索无命中");
-                        return Collections.emptyList();
+                        return Collections.<UserPreference>emptyList();
                     }
 
                     List<String> docs = preferences.stream()
@@ -170,21 +170,21 @@ public class ChatServiceImpl implements ChatService {
                     return reranked;
                 } catch (Exception e) {
                     log.error("用户偏好检索异常: {}", e.getMessage(), e);
-                    return Collections.emptyList();
+                    return Collections.<UserPreference>emptyList();
                 }
-            }, vtp).completeOnTimeout(Collections.emptyList(), RAG_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            }, vtp).completeOnTimeout(Collections.<UserPreference>emptyList(), RAG_TIMEOUT_MS, TimeUnit.MILLISECONDS);
 
             CompletableFuture<List<Memory>> memoryFuture = queryVectorFuture.thenApplyAsync(queryVector -> {
                 try {
                     if (queryVector == null || queryVector.isBlank()) {
                         log.debug("长期记忆检索跳过：queryVector为空");
-                        return Collections.emptyList();
+                        return Collections.<Memory>emptyList();
                     }
 
                     List<Memory> memories = memoryMapper.searchByVector(queryVector, RAG_TOP_K_FETCH);
                     if (memories == null || memories.isEmpty()) {
                         log.debug("长期记忆检索无命中");
-                        return Collections.emptyList();
+                        return Collections.<Memory>emptyList();
                     }
 
                     List<String> docs = memories.stream()
@@ -202,9 +202,9 @@ public class ChatServiceImpl implements ChatService {
                     return reranked;
                 } catch (Exception e) {
                     log.error("长期记忆检索异常: {}", e.getMessage(), e);
-                    return Collections.emptyList();
+                    return Collections.<Memory>emptyList();
                 }
-            }, vtp).completeOnTimeout(Collections.emptyList(), RAG_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            }, vtp).completeOnTimeout(Collections.<Memory>emptyList(), RAG_TIMEOUT_MS, TimeUnit.MILLISECONDS);
 
             List<KnowledgeBase> kbs = kbFuture.join();
             List<UserPreference> preferences = preferenceFuture.join();
