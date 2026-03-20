@@ -106,12 +106,12 @@ rerank:
   model-path: D:/AI_Models/bge-reranker-v2-m3
   script-path: ./python/rerank.py
 
-# gRPC 常驻推理服务配置
+# 方案A：本机常驻 HTTP 推理服务配置
 inference:
-  grpc:
+  http:
     enabled: true
-    host: 127.0.0.1
-    port: 50051
+    embedding-url: http://127.0.0.1:18080/embedding
+    rerank-url: http://127.0.0.1:18081/rerank
     timeout-ms: 1500
     fallback-local: true
 

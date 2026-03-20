@@ -1,5 +1,6 @@
 package org.yilena.luna.utils;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.ChatLanguageModel;
@@ -7,9 +8,9 @@ import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.output.Response;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import okhttp3.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import org.yilena.luna.client.InferenceGrpcClient;
 import org.yilena.luna.enums.ModelType;
 import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
@@ -35,7 +36,6 @@ public class LlmClientUtil {
     private final GeminiProperty geminiProperty;
     private final EmbeddingProperty embeddingProperty;
     private final ObjectMapper objectMapper;
-    private final InferenceGrpcClient inferenceGrpcClient;
 
     @Value("${rerank.model-path:}")
     private String rerankModelPath;
@@ -43,14 +43,32 @@ public class LlmClientUtil {
     @Value("${rerank.script-path:./python/rerank.py}")
     private String rerankScriptPath;
 
-    @Value("${inference.grpc.enabled:true}")
-    private boolean grpcEnabled;
+    /**
+     * 方案A：本机常驻 HTTP 推理服务配置
+     */
+    @Value("${inference.http.enabled:true}")
+    private boolean inferenceHttpEnabled;
 
-    @Value("${inference.grpc.fallback-local:true}")
+    @Value("${inference.http.embedding-url:http://127.0.0.1:18080/embedding}")
+    private String embeddingServiceUrl;
+
+    @Value("${inference.http.rerank-url:http://127.0.0.1:18081/rerank}")
+    private String rerankServiceUrl;
+
+    @Value("${inference.http.timeout-ms:1500}")
+    private long inferenceHttpTimeoutMs;
+
+    @Value("${inference.http.fallback-local:true}")
     private boolean fallbackLocal;
 
     private static final Map<String, String> scriptPathCache = new ConcurrentHashMap<>();
     private static final Map<String, String> embeddingCache = new ConcurrentHashMap<>();
+
+    private final OkHttpClient httpClient = new OkHttpClient.Builder()
+            .connectTimeout(Duration.ofMillis(1500))
+            .readTimeout(Duration.ofMillis(1500))
+            .writeTimeout(Duration.ofMillis(1500))
+            .build();
 
     public LlmResponse generate(LlmRequest request) {
         if (request.getModelType() == ModelType.OPENAI_COMPATIBLE) {
@@ -218,15 +236,15 @@ public class LlmClientUtil {
             return cached;
         }
 
-        if (grpcEnabled) {
+        if (inferenceHttpEnabled) {
             try {
-                String vector = inferenceGrpcClient.embedding(text);
+                String vector = callEmbeddingHttpService(text);
                 if (vector != null && !vector.isBlank()) {
                     cacheEmbedding(text, vector);
                     return vector;
                 }
             } catch (Exception e) {
-                log.warn("gRPC embedding 失败，将根据配置决定是否本地回退: {}", e.getMessage());
+                log.warn("HTTP embedding 服务调用失败，将根据配置决定是否本地回退: {}", e.getMessage());
                 if (!fallbackLocal) {
                     throw e;
                 }
@@ -243,11 +261,11 @@ public class LlmClientUtil {
             return new ArrayList<>();
         }
 
-        if (grpcEnabled) {
+        if (inferenceHttpEnabled) {
             try {
-                return inferenceGrpcClient.rerank(query, documents);
+                return callRerankHttpService(query, documents);
             } catch (Exception e) {
-                log.warn("gRPC rerank 失败，将根据配置决定是否本地回退: {}", e.getMessage());
+                log.warn("HTTP rerank 服务调用失败，将根据配置决定是否本地回退: {}", e.getMessage());
                 if (!fallbackLocal) {
                     throw e;
                 }
@@ -255,6 +273,68 @@ public class LlmClientUtil {
         }
 
         return rerankByLocalProcess(query, documents);
+    }
+
+    private String callEmbeddingHttpService(String text) throws Exception {
+        Map<String, Object> body = new HashMap<>();
+        body.put("text", text);
+        String json = objectMapper.writeValueAsString(body);
+
+        Request request = new Request.Builder()
+                .url(embeddingServiceUrl)
+                .post(RequestBody.create(json, MediaType.parse("application/json")))
+                .build();
+
+        try (Response response = httpClient.newBuilder()
+                .readTimeout(Duration.ofMillis(inferenceHttpTimeoutMs))
+                .build()
+                .newCall(request)
+                .execute()) {
+            if (!response.isSuccessful() || response.body() == null) {
+                throw new IOException("HTTP embedding 响应异常: " + response.code());
+            }
+            String respText = response.body().string();
+            JsonNode node = objectMapper.readTree(respText);
+            if (!node.path("success").asBoolean(false)) {
+                throw new RuntimeException("HTTP embedding 服务返回失败: " + node.path("error_message").asText(""));
+            }
+            return node.path("vector_json").asText();
+        }
+    }
+
+    private List<Double> callRerankHttpService(String query, List<String> documents) throws Exception {
+        Map<String, Object> body = new HashMap<>();
+        body.put("query", query);
+        body.put("documents", documents);
+        String json = objectMapper.writeValueAsString(body);
+
+        Request request = new Request.Builder()
+                .url(rerankServiceUrl)
+                .post(RequestBody.create(json, MediaType.parse("application/json")))
+                .build();
+
+        try (Response response = httpClient.newBuilder()
+                .readTimeout(Duration.ofMillis(inferenceHttpTimeoutMs))
+                .build()
+                .newCall(request)
+                .execute()) {
+            if (!response.isSuccessful() || response.body() == null) {
+                throw new IOException("HTTP rerank 响应异常: " + response.code());
+            }
+            String respText = response.body().string();
+            JsonNode node = objectMapper.readTree(respText);
+            if (!node.path("success").asBoolean(false)) {
+                throw new RuntimeException("HTTP rerank 服务返回失败: " + node.path("error_message").asText(""));
+            }
+            List<Double> scores = new ArrayList<>();
+            JsonNode scoreNode = node.path("scores");
+            if (scoreNode.isArray()) {
+                for (JsonNode n : scoreNode) {
+                    scores.add(n.asDouble());
+                }
+            }
+            return scores;
+        }
     }
 
     private String getEmbeddingByLocalProcess(String text) throws Exception {
