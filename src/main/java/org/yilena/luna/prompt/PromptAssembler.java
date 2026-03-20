@@ -37,7 +37,7 @@ public final class PromptAssembler {
         if (knowledgeSnippets != null && !knowledgeSnippets.isEmpty()) {
             String kbMerged = merge(knowledgeSnippets);
             if (!kbMerged.isEmpty()) {
-                String kbBlock = "【本地知识库检索结果】\n" + kbMerged + "\n\n请优先参考以上知识库内容回答用户的问题。如果知识库内容与问题无关，请按照你的正常逻辑回答。";
+                String kbBlock = String.format(PromptTemplates.KNOWLEDGE_BASE_PROMPT, kbMerged);
                 append(prompt, kbBlock);
             }
         }
