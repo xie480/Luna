@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.aop.support.AopUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -34,7 +35,8 @@ public class ReflectionToolExecutor {
     
     // 使用 @Lazy 解決循環依賴 (ApprovalService -> Executor -> ApprovalService)
     @Lazy
-    private final ApprovalService approvalService;
+    @Autowired
+    private ApprovalService approvalService;
 
     /**
      * 執行工具 (帶敏感度檢查)
