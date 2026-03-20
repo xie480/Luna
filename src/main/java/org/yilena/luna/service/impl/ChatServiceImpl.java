@@ -1,6 +1,5 @@
 package org.yilena.luna.service.impl;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -69,6 +68,9 @@ public class ChatServiceImpl implements ChatService {
     private final ObjectMapper mapper = new ObjectMapper();
 
     private static final DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy:MM:dd");
+    private static final int RAG_TOP_K_FETCH = 12;
+    private static final int RAG_TOP_K_FINAL = 5;
+    private static final long RAG_TIMEOUT_MS = 2500;
 
     @Override
     @LunaLogRecord(module = LogModuleConstant.CHAT, action = LogActionConstant.CHAT, type = LogType.LUNA_OUTPUT, content = "用户对话交互")
@@ -89,11 +91,11 @@ public class ChatServiceImpl implements ChatService {
             return ResponseEntity.badRequest().body("用户输入为空");
         }
 
-        List<String> knowledgeSnippets = null;
+        List<String> knowledgeSnippets = Collections.emptyList();
         List<String> preferenceSnippets = Collections.emptyList();
         List<String> longTermMemorySnippets = Collections.emptyList();
 
-        // --- 并行 RAG 检索逻辑 (虚拟线程池 + rerank) ---
+        // --- 并行 RAG 检索逻辑 (虚拟线程池 + rerank + 快速超时) ---
         try (ExecutorService vtp = Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("rag-vt-", 1).factory())) {
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_RETRIEVING, LunaStateConstant.VALUE_RETRIEVING);
 
@@ -108,15 +110,20 @@ public class ChatServiceImpl implements ChatService {
 
             CompletableFuture<List<KnowledgeBase>> kbFuture = CompletableFuture.supplyAsync(() -> {
                 try {
-                    List<KnowledgeBase> kbs = knowledgeBaseService.searchKnowledge(input, 10);
+                    List<KnowledgeBase> kbs = knowledgeBaseService.searchKnowledge(input, RAG_TOP_K_FETCH);
                     if (kbs == null || kbs.isEmpty()) return Collections.emptyList();
 
                     List<String> docs = kbs.stream()
                             .map(kb -> String.format("标题: %s\n内容: %s", kb.getTitle(), kb.getContent()))
                             .toList();
 
+                    // 命中较少时跳过 rerank，减少一次 python 进程开销
+                    if (docs.size() <= RAG_TOP_K_FINAL) {
+                        return kbs.stream().limit(RAG_TOP_K_FINAL).toList();
+                    }
+
                     List<Double> scores = llmClientUtil.rerank(input, docs);
-                    List<KnowledgeBase> reranked = llmClientUtil.rerankResources(kbs, scores, 5);
+                    List<KnowledgeBase> reranked = llmClientUtil.rerankResources(kbs, scores, RAG_TOP_K_FINAL);
 
                     log.info("RAG知识库检索命中: {} 条，rerank后保留: {}", kbs.size(), reranked.size());
                     return reranked;
@@ -124,20 +131,24 @@ public class ChatServiceImpl implements ChatService {
                     log.error("RAG知识库检索异常: {}", e.getMessage(), e);
                     return Collections.emptyList();
                 }
-            }, vtp);
+            }, vtp).completeOnTimeout(Collections.emptyList(), RAG_TIMEOUT_MS, TimeUnit.MILLISECONDS);
 
             CompletableFuture<List<UserPreference>> preferenceFuture = queryVectorFuture.thenApplyAsync(queryVector -> {
                 try {
                     if (queryVector == null || queryVector.isBlank()) return Collections.emptyList();
-                    List<UserPreference> preferences = userPreferenceMapper.searchByVector(queryVector, 10);
+                    List<UserPreference> preferences = userPreferenceMapper.searchByVector(queryVector, RAG_TOP_K_FETCH);
                     if (preferences == null || preferences.isEmpty()) return Collections.emptyList();
 
                     List<String> docs = preferences.stream()
                             .map(p -> String.format("键: %s\n值: %s\n描述: %s", p.getPrefKey(), p.getPrefValue(), p.getDescription()))
                             .toList();
 
+                    if (docs.size() <= RAG_TOP_K_FINAL) {
+                        return preferences.stream().limit(RAG_TOP_K_FINAL).toList();
+                    }
+
                     List<Double> scores = llmClientUtil.rerank(input, docs);
-                    List<UserPreference> reranked = llmClientUtil.rerankResources(preferences, scores, 5);
+                    List<UserPreference> reranked = llmClientUtil.rerankResources(preferences, scores, RAG_TOP_K_FINAL);
 
                     log.info("用户偏好检索命中: {} 条，rerank后保留: {}", preferences.size(), reranked.size());
                     return reranked;
@@ -145,20 +156,24 @@ public class ChatServiceImpl implements ChatService {
                     log.error("用户偏好检索异常: {}", e.getMessage(), e);
                     return Collections.emptyList();
                 }
-            }, vtp);
+            }, vtp).completeOnTimeout(Collections.emptyList(), RAG_TIMEOUT_MS, TimeUnit.MILLISECONDS);
 
             CompletableFuture<List<Memory>> memoryFuture = queryVectorFuture.thenApplyAsync(queryVector -> {
                 try {
                     if (queryVector == null || queryVector.isBlank()) return Collections.emptyList();
-                    List<Memory> memories = memoryMapper.searchByVector(queryVector, 10);
+                    List<Memory> memories = memoryMapper.searchByVector(queryVector, RAG_TOP_K_FETCH);
                     if (memories == null || memories.isEmpty()) return Collections.emptyList();
 
                     List<String> docs = memories.stream()
                             .map(m -> String.format("会话: %s\n类型: %s\n内容: %s", m.getSessionId(), m.getMemoryType(), m.getContent()))
                             .toList();
 
+                    if (docs.size() <= RAG_TOP_K_FINAL) {
+                        return memories.stream().limit(RAG_TOP_K_FINAL).toList();
+                    }
+
                     List<Double> scores = llmClientUtil.rerank(input, docs);
-                    List<Memory> reranked = llmClientUtil.rerankResources(memories, scores, 5);
+                    List<Memory> reranked = llmClientUtil.rerankResources(memories, scores, RAG_TOP_K_FINAL);
 
                     log.info("长期记忆检索命中: {} 条，rerank后保留: {}", memories.size(), reranked.size());
                     return reranked;
@@ -166,11 +181,11 @@ public class ChatServiceImpl implements ChatService {
                     log.error("长期记忆检索异常: {}", e.getMessage(), e);
                     return Collections.emptyList();
                 }
-            }, vtp);
+            }, vtp).completeOnTimeout(Collections.emptyList(), RAG_TIMEOUT_MS, TimeUnit.MILLISECONDS);
 
-            List<KnowledgeBase> kbs = kbFuture.get(8, TimeUnit.SECONDS);
-            List<UserPreference> preferences = preferenceFuture.get(8, TimeUnit.SECONDS);
-            List<Memory> memories = memoryFuture.get(8, TimeUnit.SECONDS);
+            List<KnowledgeBase> kbs = kbFuture.join();
+            List<UserPreference> preferences = preferenceFuture.join();
+            List<Memory> memories = memoryFuture.join();
 
             if (kbs != null && !kbs.isEmpty()) {
                 knowledgeSnippets = kbs.stream()
@@ -189,8 +204,6 @@ public class ChatServiceImpl implements ChatService {
                         .map(m -> String.format("会话: %s, 类型: %s, 内容: %s", m.getSessionId(), m.getMemoryType(), m.getContent()))
                         .toList();
             }
-        } catch (TimeoutException e) {
-            log.error("并行RAG检索超时: {}", e.getMessage(), e);
         } catch (Exception e) {
             log.error("并行RAG检索异常: {}", e.getMessage(), e);
         }
@@ -207,19 +220,16 @@ public class ChatServiceImpl implements ChatService {
                 .map(m -> m.getRole().name() + ": " + m.getContent() + ": " + m.getTime())
                 .collect(Collectors.toList());
 
-        // 判断是否需要压缩
         if (ServiceCommunicateUtil.getSymbol(SymbolConstant.CONTEXT_SUMMARY_FLAG) == 1) {
             log.info("触发上下文压缩（MQ异步），sessionKey={}。", keyPrefix);
             ServiceCommunicateUtil.removeSymbol(SymbolConstant.CONTEXT_SUMMARY_FLAG);
 
-            // 發送 MQ 消息進行異步壓縮
             SummaryMessage msg = SummaryMessage.builder()
                     .sessionKey(keyPrefix)
                     .memorySnippets(List.copyOf(memorySnippets))
                     .build();
             rocketMQTemplate.convertAndSend(RocketMqConstant.TOPIC_SUMMARY, msg);
 
-            // 重新加载上下文
             List<ChatMessage> refreshed = sessionService.getRecentMessages(keyPrefix, false);
             if (refreshed == null) {
                 refreshed = Collections.emptyList();

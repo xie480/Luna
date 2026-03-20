@@ -85,7 +85,7 @@ auth:
 mybatis-plus:
   type-aliases-package: org.yilena.luna.*.entity
   type-handlers-package: com.baomidou.mybatisplus.extension.handlers
-  mapper-locations: classpath:/mapper/*.xml
+  mapper-locations: classpath:/mapper/*.xml,classpath:/org/yilena/luna/mapper/*.xml
   global-config:
     db-config:
       id-type: auto
@@ -94,6 +94,8 @@ mybatis-plus:
   configuration:
     default-enum-type-handler: com.baomidou.mybatisplus.core.handlers.MybatisEnumTypeHandler
     map-underscore-to-camel-case: true
+    cache-enabled: false
+    local-cache-scope: statement
 
 embedding:
   python-path: D:/AI_Models/BGE-base-zh-v1.5/bge-env/Scripts/python.exe
@@ -118,13 +120,9 @@ xxl-job:
     log-retention-days: 30
 
 rocketmq:
-  # NameServer 地址
   name-server: 192.168.100.128:9876
   producer:
     group: luna_group
-    # 发送超时时间（毫秒）
     send-message-timeout: 2000
-    # 同步发送重试次数
     retry-times-when-send-failed: 1
-    # 异步发送重试次数
     retry-times-when-send-async-failed: 1

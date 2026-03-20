@@ -26,11 +26,6 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.IntStream;
 
-/**
- * LLM 模型调用工具类
- * 已重构为基于 LangChain4j 实现，支持多模态及更优雅的 API 调用
- * 【v2.1】增加 Prompt Injection 防禦機制 (角色分離、分隔符、提示詞加固、小模型檢測)
- */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -46,30 +41,20 @@ public class LlmClientUtil {
     @Value("${rerank.script-path:./python/rerank.py}")
     private String rerankScriptPath;
 
-    // 缓存解压后的临时脚本路径，避免每次请求都重复解压
-    // Key: scriptName (e.g., "embedding.py"), Value: absolute path
     private static final Map<String, String> scriptPathCache = new ConcurrentHashMap<>();
+    private static final Map<String, String> embeddingCache = new ConcurrentHashMap<>();
 
-    /**
-     * 统一的模型生成入口 (無工具支持，用於主腦生成或修復)
-     */
     public LlmResponse generate(LlmRequest request) {
         if (request.getModelType() == ModelType.OPENAI_COMPATIBLE) {
             return callOpenAiCompatible(request);
         }
-        // 未来可在此处扩展 QWEN, OLLAMA 等其他原生 SDK 的调用逻辑
         throw new UnsupportedOperationException("暂不支持的模型类型: " + request.getModelType());
     }
 
-    /**
-     * 调用兼容 OpenAI 格式的接口（支持多模态 + 安全增强）
-     */
     private LlmResponse callOpenAiCompatible(LlmRequest request) {
         try {
-            // 1. 提取最新的用户输入文本用于安全检测（仅针对真实用户输入）
             String userLatestText = extractLatestUserTextForSafetyCheck(request.getMessages());
 
-            // 2. [策略4] 使用 Small Model 进行前置意图审查 (Prompt Injection Detection)
             boolean enablePromptInjectionCheck = request.getEnablePromptInjectionCheck() == null || request.getEnablePromptInjectionCheck();
             if (enablePromptInjectionCheck && userLatestText != null && !userLatestText.isEmpty()) {
                 boolean isSafe = isInputSafe(userLatestText);
@@ -81,24 +66,17 @@ public class LlmClientUtil {
                 }
             }
 
-            // 3. 构建 LangChain4j 消息列表，并应用 [策略1, 2, 3] 进行加固
             List<ChatMessage> messages = new ArrayList<>();
             for (LlmMessage msg : request.getMessages()) {
                 if ("system".equalsIgnoreCase(msg.getRole())) {
-                    // [策略3] 系统提示词加固：在 System Prompt 末尾追加防御指令
                     String hardenedSystemPrompt = msg.getText() + PromptTemplates.SYSTEM_SECURITY_NOTICE;
                     messages.add(SystemMessage.from(hardenedSystemPrompt));
-
                 } else if ("assistant".equalsIgnoreCase(msg.getRole())) {
                     messages.add(AiMessage.from(msg.getText()));
-
                 } else {
-                    // User Role
-                    // [策略2] 使用分隔符：用 XML 标签包裹用户输入
                     String safeText = msg.getText() != null ? msg.getText() : "";
                     String wrappedText = "<user_input>\n" + safeText + "\n</user_input>";
 
-                    // 处理多模态（文本+图片）
                     if (msg.getImageUrls() != null && !msg.getImageUrls().isEmpty()) {
                         List<Content> contents = new ArrayList<>();
                         if (!safeText.isEmpty()) {
@@ -114,7 +92,6 @@ public class LlmClientUtil {
                 }
             }
 
-            // 4. 获取目标模型配置
             String requestModelName = request.getModelName();
             GeminiProperty.ModelConfig config = getModelConfig(requestModelName);
 
@@ -123,7 +100,6 @@ public class LlmClientUtil {
                 return null;
             }
 
-            // 5. 执行实际调用
             String responseText = executeChatCall(messages, config, request.getTemperature());
             return LlmResponse.builder().content(responseText).build();
 
@@ -133,41 +109,25 @@ public class LlmClientUtil {
         }
     }
 
-    /**
-     * [策略4] 使用 Small Model 检测输入是否安全
-     */
     private boolean isInputSafe(String userInput) {
         try {
-            // 使用 Small 模型进行检测，成本低且速度快
             GeminiProperty.ModelConfig smallConfig = geminiProperty.getSmall();
             if (smallConfig == null) {
-                // 如果没有配置 small 模型，降级为不做检测或使用默认策略
                 log.warn("未配置 Small Model，跳过 Prompt Injection 检测");
                 return true;
             }
 
-            // 构造检测 Prompt
             String detectionPrompt = String.format(PromptTemplates.PROMPT_INJECTION_DETECTION, userInput);
-
             List<ChatMessage> safetyMessages = List.of(UserMessage.from(detectionPrompt));
-
-            // 温度设为 0，确保结果确定性
             String result = executeChatCall(safetyMessages, smallConfig, 0.0);
 
-            if (result != null && result.trim().toUpperCase().contains("UNSAFE")) {
-                return false;
-            }
-            return true;
-
+            return result == null || !result.trim().toUpperCase().contains("UNSAFE");
         } catch (Exception e) {
             log.warn("安全检测调用失败，默认放行: {}", e.getMessage());
             return true;
         }
     }
 
-    /**
-     * 通用：执行 LangChain4j 调用
-     */
     private String executeChatCall(List<ChatMessage> messages, GeminiProperty.ModelConfig config, Double temperature) {
         String baseUrl = config.getUrl();
         if (baseUrl != null) {
@@ -190,10 +150,6 @@ public class LlmClientUtil {
         return response.content().text();
     }
 
-    /**
-     * 仅提取需要进行安全检测的“真实用户输入”。
-     * 过滤系统内部拼装 prompt（如 SYSTEM/REPAIR/STARTUP 等），避免误判为注入攻击。
-     */
     private String extractLatestUserTextForSafetyCheck(List<LlmMessage> messages) {
         if (messages == null || messages.isEmpty()) return null;
         for (int i = messages.size() - 1; i >= 0; i--) {
@@ -214,9 +170,6 @@ public class LlmClientUtil {
         return null;
     }
 
-    /**
-     * 判断是否是服务内部构造的指令性大 Prompt。
-     */
     private boolean isLikelyInternalPrompt(String text) {
         return text.contains("# LUNA 核心人格宪章")
                 || text.contains("# 输出修复指令")
@@ -227,9 +180,6 @@ public class LlmClientUtil {
                 || text.contains("你是一个安全检测系统");
     }
 
-    /**
-     * 根据模型名称查找对应的配置
-     */
     private GeminiProperty.ModelConfig getModelConfig(String modelName) {
         if (modelName == null) return geminiProperty.getBig();
 
@@ -250,10 +200,15 @@ public class LlmClientUtil {
         return geminiProperty.getBig();
     }
 
-    /**
-     * 获取文本 Embedding
-     */
     public String getEmbedding(String text) throws Exception {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        String cached = embeddingCache.get(text);
+        if (cached != null && !cached.isBlank()) {
+            return cached;
+        }
+
         String pythonPath = embeddingProperty.getPythonPath();
         String scriptPath = resolveScriptPath(embeddingProperty.getScriptPath(), "embedding.py");
         String modelPath = embeddingProperty.getModelPath();
@@ -298,12 +253,13 @@ public class LlmClientUtil {
             throw new RuntimeException("Python脚本返回为空. Stderr: " + errorMsg);
         }
 
+        if (embeddingCache.size() > 2000) {
+            embeddingCache.clear();
+        }
+        embeddingCache.put(text, result);
         return result;
     }
 
-    /**
-     * 执行 Rerank (重排序)
-     */
     public List<Double> rerank(String query, List<String> documents) throws Exception {
         if (documents == null || documents.isEmpty()) {
             return new ArrayList<>();
@@ -367,9 +323,6 @@ public class LlmClientUtil {
         return objectMapper.readValue(result, objectMapper.getTypeFactory().constructCollectionType(List.class, Double.class));
     }
 
-    /**
-     * 按 rerank 分数重排并截断
-     */
     public <T> List<T> rerankResources(List<T> resources, List<Double> scores, int topK) {
         if (resources == null || resources.isEmpty()) return Collections.emptyList();
         if (scores == null || scores.isEmpty()) {
@@ -385,9 +338,6 @@ public class LlmClientUtil {
                 .toList();
     }
 
-    /**
-     * 解析 Python 脚本路径
-     */
     private String resolveScriptPath(String configuredPath, String resourceName) throws IOException {
         if (scriptPathCache.containsKey(resourceName)) {
             String cachedPath = scriptPathCache.get(resourceName);
