@@ -50,6 +50,12 @@ public class UserPreference implements Serializable {
     private String description;
 
     /**
+     * 向量表示（PGVector 文本）
+     */
+    @TableField("embedding")
+    private String embedding;
+
+    /**
      * 创建时间
      */
     @TableField(value = "created_at", fill = FieldFill.INSERT)

@@ -61,6 +61,12 @@ public class Memory implements Serializable {
     private Integer weight;
 
     /**
+     * 向量表示（PGVector 文本）
+     */
+    @TableField("embedding")
+    private String embedding;
+
+    /**
      * 创建时间
      * 插入时自动填充
      */

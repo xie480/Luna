@@ -22,11 +22,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.IntStream;
 
 /**
  * LLM 模型调用工具类
@@ -367,6 +365,24 @@ public class LlmClientUtil {
         }
 
         return objectMapper.readValue(result, objectMapper.getTypeFactory().constructCollectionType(List.class, Double.class));
+    }
+
+    /**
+     * 按 rerank 分数重排并截断
+     */
+    public <T> List<T> rerankResources(List<T> resources, List<Double> scores, int topK) {
+        if (resources == null || resources.isEmpty()) return Collections.emptyList();
+        if (scores == null || scores.isEmpty()) {
+            return resources.stream().limit(topK).toList();
+        }
+
+        int n = Math.min(resources.size(), scores.size());
+        return IntStream.range(0, n)
+                .boxed()
+                .sorted((i, j) -> Double.compare(scores.get(j), scores.get(i)))
+                .limit(topK)
+                .map(resources::get)
+                .toList();
     }
 
     /**
