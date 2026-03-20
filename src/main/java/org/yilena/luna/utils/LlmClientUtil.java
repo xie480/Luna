@@ -8,7 +8,10 @@ import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.output.Response;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import okhttp3.*;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.enums.ModelType;
@@ -285,7 +288,7 @@ public class LlmClientUtil {
                 .post(RequestBody.create(json, MediaType.parse("application/json")))
                 .build();
 
-        try (Response response = httpClient.newBuilder()
+        try (okhttp3.Response response = httpClient.newBuilder()
                 .readTimeout(Duration.ofMillis(inferenceHttpTimeoutMs))
                 .build()
                 .newCall(request)
@@ -313,7 +316,7 @@ public class LlmClientUtil {
                 .post(RequestBody.create(json, MediaType.parse("application/json")))
                 .build();
 
-        try (Response response = httpClient.newBuilder()
+        try (okhttp3.Response response = httpClient.newBuilder()
                 .readTimeout(Duration.ofMillis(inferenceHttpTimeoutMs))
                 .build()
                 .newCall(request)
