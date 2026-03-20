@@ -48,6 +48,7 @@ public class ReflectionToolExecutor {
      * @return 執行結果 JSON 字符串
      */
     public String execute(String sessionId, Resource resource, String argsJson) {
+        log.info("正在執行工具: {}, 參數: {}", resource.getName(), argsJson);
         // ExecutionGate: 檢查敏感度
         if (resource.getType().equals(ResourceType.TOOL)) {
             if (resource.getSensitivity() == Sensitivity.MEDIUM || resource.getSensitivity() == Sensitivity.HIGH) {
