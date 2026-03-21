@@ -18,7 +18,7 @@
         基於 PGVector 的向量檢索 
         注意：
         1. <=> 操作符在 XML 中必須轉義為 &lt;=&gt;
-        2. cast(#{vectorString} as vector) 將字符串轉換為 pgvector 類型
+        2. cast(#{vector} as vector) 將字符串轉換為 pgvector 類型
         3. LIMIT #{topK} 綁定第二個參數
     -->
     <select id="searchByVector" resultMap="BaseResultMap">
@@ -32,7 +32,7 @@
             created_at, 
             updated_at
         FROM knowledge_base
-        ORDER BY embedding &lt;=&gt; cast(#{vectorString} as vector)
+        ORDER BY embedding &lt;=&gt; cast(#{vector} as vector)
         LIMIT #{topK}
     </select>
 
