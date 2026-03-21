@@ -10,6 +10,14 @@ import org.yilena.luna.properties.EmbeddingProperty;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -34,6 +42,12 @@ public class ApplicationInitConfig {
 
     @Value("${rerank.model-path:}")
     private String rerankModelPath;
+
+    @Value("${inference.http.startup-timeout-ms:180000}")
+    private long startupTimeoutMs;
+
+    @Value("${inference.http.startup-check-interval-ms:1000}")
+    private long startupCheckIntervalMs;
 
     /**
      * 保存自动拉起的 Python 子进程，方便应用退出时清理
@@ -75,6 +89,12 @@ public class ApplicationInitConfig {
             ), "embedding-http");
 
             managedProcesses.add(embeddingProcess);
+            waitUntilHttpReady(
+                    "embedding-http",
+                    embeddingServiceUrl,
+                    "{\"text\":\"ping\"}",
+                    embeddingProcess
+            );
             log.info("已自动拉起 embedding HTTP 服务，host={}, port={}", embeddingHostPort.host(), embeddingHostPort.port());
 
             // 启动 rerank HTTP 服务
@@ -93,6 +113,12 @@ public class ApplicationInitConfig {
             ), "rerank-http");
 
             managedProcesses.add(rerankProcess);
+            waitUntilHttpReady(
+                    "rerank-http",
+                    rerankServiceUrl,
+                    "{\"query\":\"ping\",\"documents\":[\"ping\"]}",
+                    rerankProcess
+            );
             log.info("已自动拉起 rerank HTTP 服务，host={}, port={}", rerankHostPort.host(), rerankHostPort.port());
 
         } catch (Exception e) {
@@ -124,22 +150,101 @@ public class ApplicationInitConfig {
         log.info("准备启动 {}，command={}", tag, command);
         Process process = pb.start();
 
+        // 防止“瞬间退出”却被误判为启动成功
+        try {
+            Thread.sleep(500);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
         if (!process.isAlive()) {
-            throw new IOException("子进程启动失败: " + tag);
+            int exitCode = process.exitValue();
+            throw new IOException("子进程启动失败: " + tag + ", exitCode=" + exitCode);
         }
         return process;
     }
 
+    private void waitUntilHttpReady(String serviceName, String url, String requestJson, Process process) throws Exception {
+        long deadline = System.currentTimeMillis() + startupTimeoutMs;
+        HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofMillis(1000))
+                .build();
+
+        Exception lastException = null;
+        int lastStatus = -1;
+
+        while (System.currentTimeMillis() < deadline) {
+            if (process != null && !process.isAlive()) {
+                throw new IllegalStateException(serviceName + " 子进程已退出，pid=" + process.pid());
+            }
+
+            try {
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(url))
+                        .timeout(Duration.ofMillis(1500))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(requestJson))
+                        .build();
+
+                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+                lastStatus = response.statusCode();
+
+                // 只要能连接并返回 HTTP 响应（2xx/4xx），说明服务已可用
+                if (lastStatus >= 200 && lastStatus < 500) {
+                    log.info("{} 健康检查通过，url={}, status={}", serviceName, url, lastStatus);
+                    return;
+                }
+            } catch (Exception e) {
+                lastException = e;
+            }
+
+            try {
+                Thread.sleep(startupCheckIntervalMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("等待 " + serviceName + " 就绪时被中断", e);
+            }
+        }
+
+        String msg = String.format(
+                "%s 就绪超时，url=%s, timeoutMs=%d, lastStatus=%d, lastError=%s",
+                serviceName, url, startupTimeoutMs, lastStatus, lastException != null ? lastException.getMessage() : "none"
+        );
+        throw new IllegalStateException(msg, lastException);
+    }
+
     private String resolveScriptPath(String defaultPath) {
+        // 1) 优先磁盘路径
         File f = new File(defaultPath);
         if (f.exists()) {
             return f.getPath();
         }
-        // 回退：兼容从项目根目录执行时的相对路径
+
+        // 2) 回退：兼容从项目根目录执行时的相对路径
         File alt = new File("./" + defaultPath);
         if (alt.exists()) {
             return alt.getPath();
         }
+
+        // 3) 回退：从 classpath 提取到临时文件（兼容 jar 运行）
+        String classpathPath = defaultPath.replace("\\", "/");
+        if (classpathPath.startsWith("src/main/resources/")) {
+            classpathPath = classpathPath.substring("src/main/resources/".length());
+        }
+
+        try (InputStream is = Thread.currentThread().getContextClassLoader().getResourceAsStream(classpathPath)) {
+            if (is != null) {
+                String fileName = new File(classpathPath).getName();
+                File tempFile = File.createTempFile("luna_py_", "_" + fileName);
+                tempFile.deleteOnExit();
+                Files.copy(is, tempFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                log.info("脚本文件从 classpath 提取成功: {} -> {}", classpathPath, tempFile.getAbsolutePath());
+                return tempFile.getAbsolutePath();
+            }
+        } catch (Exception e) {
+            log.warn("从 classpath 提取脚本失败: {}, err={}", classpathPath, e.getMessage());
+        }
+
         throw new IllegalStateException("找不到脚本文件: " + defaultPath);
     }
 
