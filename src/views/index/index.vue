@@ -100,24 +100,24 @@
     </div>
 
     <!-- ===== 隱藏的測量用氣泡 (useBubble 必需) ===== -->
-    <div 
-      ref="dummyBoxRef" 
-      class="css-chat-bubble" 
+    <div
+      ref="dummyBoxRef"
+      class="css-chat-bubble"
       style="position: absolute; visibility: hidden; pointer-events: none; top: -9999px; left: -9999px; width: fit-content; max-width: 280px;"
     ></div>
 
     <!-- ===== 新版 UI 組件 ===== -->
-    
+
     <!-- 聊天輸入框 (Ctrl+L 呼出) -->
     <transition name="fade">
-      <ChatInput 
-        v-if="showChat" 
+      <ChatInput
+        v-if="showChat"
         :loading="isConnecting"
         :streaming="isStreaming"
         :streamText="streamText"
         :currentEmotion="currentEmotion"
         :statusText="lunaStatus"
-        @send="onSend" 
+        @send="onSend"
         @open-settings="openSettings"
         @toggle-history="toggleHistory"
         @close="showChat = false"
@@ -139,8 +139,8 @@
 
     <!-- 設置面板 -->
     <transition name="fade">
-      <SettingsPanel 
-        v-if="showSettings" 
+      <SettingsPanel
+        v-if="showSettings"
         :core="getCoreModel()"
         :model="model"
         :appearance="appearance"
@@ -149,7 +149,7 @@
         :isSetupMode="isSetupMode"
         :isTrackingSetupMode="isTrackingSetupMode"
         :isModelVisible="modelVisible"
-        @close="showSettings = false" 
+        @close="showSettings = false"
         @reset-model="resetModelState"
         @toggle-setup="toggleSetupMode"
         @toggle-tracking-setup="toggleTrackingSetupMode"
@@ -216,7 +216,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
 import { gsap } from "gsap";
-import * as PIXI from "pixi.js"; // 導入 PIXI
+import * as PIXI from "pixi.js";
 
 import {
   chat as chatApi,
@@ -227,37 +227,33 @@ import {
 } from "../../api/index.js";
 import { EMOTION_EXPRESSIONS } from "../../utils/emotion-expressions";
 
-// [Fix] 移除靜態導入，改為在 onMounted 中動態導入，確保 window.PIXI 已設置
-// import { Live2DModel } from "pixi-live2d-display/cubism4";
-
-import { useBubble }     from "../../composables/useBubble.js";
+import { useBubble } from "../../composables/useBubble.js";
 import { useAppearance } from "../../composables/useAppearance.js";
-import { useRhythm }     from "../../composables/useRhythm.js";
-import { useTheme }      from "../../composables/useTheme.js";
+import { useRhythm } from "../../composables/useRhythm.js";
+import { useTheme } from "../../composables/useTheme.js";
 
-// 引入新組件
 import ChatInput from "../../components/ChatInput.vue";
 import SettingsPanel from "../../components/SettingsPanel.vue";
 import HistoryPanel from "../../components/HistoryPanel.vue";
 import ApprovalModal from "../../components/ApprovalModal.vue";
 
 /* ================= DOM refs ================= */
-const canvasRef       = ref(null);
-const wrapperRef      = ref(null);
+const canvasRef = ref(null);
+const wrapperRef = ref(null);
 
 /* ================= 基礎狀態 ================= */
 const bgParticlesVisible = ref(true);
-const showChat         = ref(false); 
-const showSettings     = ref(false); 
-const showHistory      = ref(false);
-const historyPanelRef  = ref(null);
-const trackingEnabled  = ref(true);
+const showChat = ref(false);
+const showSettings = ref(false);
+const showHistory = ref(false);
+const historyPanelRef = ref(null);
+const trackingEnabled = ref(true);
 const lunaIntroVisible = ref(false);
-const lunaStatus       = ref(""); 
+const lunaStatus = ref("");
 
 // 審批狀態
-const showApproval     = ref(false);
-const approvalTask     = ref(null);
+const showApproval = ref(false);
+const approvalTask = ref(null);
 
 const { loadTheme } = useTheme();
 
@@ -289,7 +285,6 @@ function enqueueStatusMessage(msg) {
   const text = normalizeStatusPayload(msg);
   if (!text) return;
 
-  // 去重：避免同一文字連續入隊
   if (text === statusLastEnqueued) return;
   statusLastEnqueued = text;
 
@@ -315,6 +310,30 @@ async function consumeStatusQueue() {
   }
 }
 
+/* ================= SSE 事件標準化 ================= */
+function normalizeSseEventPayload(raw) {
+  // 新格式：{ event, data }
+  if (raw && typeof raw === "object" && Object.prototype.hasOwnProperty.call(raw, "event")) {
+    return {
+      event: raw.event || "message",
+      data: raw.data,
+    };
+  }
+
+  // 兼容舊格式：直接下發 data
+  if (raw && typeof raw === "object" && raw.type === "APPROVAL_REQUEST") {
+    return {
+      event: "APPROVAL_REQUEST",
+      data: raw.payload || raw,
+    };
+  }
+
+  return {
+    event: "luna-status",
+    data: raw,
+  };
+}
+
 /* ================= 設定模式狀態 ================= */
 const isSetupMode = ref(false);
 const isTrackingSetupMode = ref(false);
@@ -329,18 +348,18 @@ let trackingMarker = null;
 const modelVisible = ref(localStorage.getItem(LUNA_VISIBLE_KEY) !== "false");
 
 /* ================= 登錄狀態 ================= */
-const loginVisible   = ref(true);
-const loginLoading   = ref(false);
-const loginError     = ref("");
-const loginSuccess   = ref(false);
-const loginForm      = ref({ username: "", password: "" });
+const loginVisible = ref(true);
+const loginLoading = ref(false);
+const loginError = ref("");
+const loginSuccess = ref(false);
+const loginForm = ref({ username: "", password: "" });
 const loginSessionId = ref(Math.random().toString(16).slice(2, 10).toUpperCase());
-const loginLogLines  = ref([
+const loginLogLines = ref([
   "正在建立與鑒權服務的安全連接…",
   "檢測到當前會話未認證。",
   "請輸入用戶名與密碼以繼續。",
 ]);
-const authToken      = ref("");
+const authToken = ref("");
 const loginCollapsed = ref(false);
 
 function exitApp() {
@@ -394,7 +413,7 @@ async function performLogin() {
     authToken.value = token;
     loginSuccess.value = true;
     loginLogLines.value.push("鑒權通過，正在啟動 LUNA 核心…");
-    
+
     overUI = false;
     updatePetState();
 
@@ -422,42 +441,38 @@ async function handleLogout() {
   } catch (e) {
     console.error("[Auth] 登出請求失敗", e);
   } finally {
-    // 清除狀態
     authToken.value = "";
     loginSuccess.value = false;
     loginVisible.value = true;
     showSettings.value = false;
     showChat.value = false;
     showHistory.value = false;
-    
-    // 隱藏模型
+
     if (model) {
       gsap.to(model, {
         alpha: 0,
         y: (app?.renderer?.height || window.innerHeight) + 60,
         duration: 0.8,
-        ease: "power2.in"
+        ease: "power2.in",
       });
     }
-    
-    // 重置登錄面板日誌
+
     loginLogLines.value = [
       "會話已終止。",
-      "請重新輸入憑證以建立連接。"
+      "請重新輸入憑證以建立連接。",
     ];
     loginError.value = "";
-    loginForm.value.password = ""; // 清空密碼，保留用戶名
+    loginForm.value.password = "";
   }
 }
 
-let app       = null;
+let app = null;
 let container = null;
-let model     = null; 
+let model = null;
 const expressionCache = new Map();
 
 /* ================= 氣泡 ================= */
 const dummyBoxRef = ref(null);
-// 傳入 ref(false) 替代 showChat，防止氣泡因為輸入框打開而被強制隱藏
 const alwaysShowBubbles = ref(false);
 const { chatBubbles, bubbleAnchor, registerBubble, sendReplyAsBubbles, splitReplyIntoChunks } = useBubble(dummyBoxRef, alwaysShowBubbles);
 
@@ -470,61 +485,49 @@ const rhythm = useRhythm();
 function getCoreModel() { return model?.internalModel?.coreModel ?? null; }
 
 /* ================= 聊天輸入 ================= */
-// isConnecting: 發送請求後，等待服務器響應的階段 (按鈕轉圈)
 const isConnecting = ref(false);
-// isStreaming: 收到第一個字節後，正在接收/處理數據的階段 (輸入框特效)
-const isStreaming  = ref(false);
-// streamText: 顯示在輸入框特效層的文字
-const streamText   = ref("");
+const isStreaming = ref(false);
+const streamText = ref("");
 
 /* ================= 響應處理 ================= */
 function normalizeResponse(res) {
   const data = res?.data ?? res;
   if (typeof data === "string") {
-    try { return JSON.parse(data); } catch (e) { return data; } // 如果解析失敗，直接返回字符串
+    try { return JSON.parse(data); } catch { return data; }
   }
   return data;
 }
 
-/**
- * 模擬流式解碼特效
- * 將完整文本快速逐字顯示在輸入框的特效層上
- */
 async function playDecryptionEffect(text) {
   streamText.value = "";
-  // 限制顯示長度，避免過長文本導致特效層溢出太嚴重
-  // 這裡只展示前 60 個字符作為「預覽流」
   const displayLen = Math.min(text.length, 60);
-  
+
   for (let i = 0; i < displayLen; i++) {
     streamText.value += text[i];
-    // 隨機延遲，模擬黑客解碼的不穩定感 (20ms - 50ms)
-    await new Promise(r => setTimeout(r, 20 + Math.random() * 30));
+    await new Promise((r) => setTimeout(r, 20 + Math.random() * 30));
   }
-  
+
   if (text.length > 60) {
     streamText.value += "...";
   }
-  
-  // 稍微停頓一下，讓用戶看清最後的解碼結果
-  await new Promise(r => setTimeout(r, 300));
+
+  await new Promise((r) => setTimeout(r, 300));
 }
 
 async function handleModelReply(res) {
   console.log("[Luna] 模型已返回內容 (Raw):", res);
   if (!res) throw new Error("Empty response");
-  
+
   let replyText = "";
   let em = "";
 
-  // 增強的文本提取邏輯，兼容更多後端格式
-  if (typeof res === 'string') {
+  if (typeof res === "string") {
     replyText = res;
   } else {
     replyText = res.reply || res.text || res.message || res.content || res.answer || res.data || "";
     em = res.emotion || "";
-    
-    if (!replyText && typeof res === 'object') {
+
+    if (!replyText && typeof res === "object") {
       console.warn("[Luna] 未找到標準文本字段，嘗試顯示原始對象");
       replyText = JSON.stringify(res);
     }
@@ -539,19 +542,14 @@ async function handleModelReply(res) {
     currentEmotion.value = em;
     try { applyEmotionExpressions(em); } catch (e) { console.warn("[Luna] 表情應用失敗", e); }
   }
-  
+
   if (showHistory.value && historyPanelRef.value) {
-    // [Fix] 收到回信後，重新獲取最新的聊天記錄
     historyPanelRef.value.refresh();
   }
 
-  console.log("[Luna] 準備渲染氣泡:", replyText);
-  
-  // [Fix] 只顯示第一個氣泡的內容在輸入框特效中
   const chunks = splitReplyIntoChunks(replyText);
   const previewText = chunks.length > 0 ? chunks[0] : replyText;
 
-  // [Fix] 並行執行特效和氣泡渲染，避免 playDecryptionEffect 阻塞氣泡的出現
   const effectPromise = playDecryptionEffect(previewText);
   const bubblePromise = sendReplyAsBubbles(replyText, { interval: 1000, duration: 5000 });
 
@@ -566,51 +564,39 @@ function handleNetworkError() {
 async function onSend(text) {
   if (isConnecting.value || isStreaming.value) return;
   if (!text) return;
-  
-  // 1. 進入連接狀態 (按鈕轉圈)
+
   isConnecting.value = true;
-  streamText.value = ""; 
+  streamText.value = "";
 
   if (showHistory.value && historyPanelRef.value) {
-    // [Fix] 用戶發送信息時，先樂觀更新，然後重新獲取最新記錄
     historyPanelRef.value.pushMessage({
-      sender: 'user',
+      sender: "user",
       content: text,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     });
   }
 
   try {
-    // 強制最小加載時間 800ms，防止按鈕動畫閃爍
-    const minLoadTime = new Promise(resolve => setTimeout(resolve, 800));
-    
-    // 並行執行請求和最小等待
+    const minLoadTime = new Promise((resolve) => setTimeout(resolve, 800));
+
     const [res] = await Promise.all([
       chatApi({ userInput: text }),
-      minLoadTime
+      minLoadTime,
     ]);
-    
-    // 2. 收到響應，結束連接狀態，進入流式處理狀態 (輸入框特效)
-    // 注意：這裡狀態切換是同步的，確保按鈕不會中間變回普通狀態
+
     isConnecting.value = false;
     isStreaming.value = true;
-    
-    // 這裡不再設置靜態文字，而是等待 handleModelReply 中的 playDecryptionEffect 來填充
-    streamText.value = ""; 
+    streamText.value = "";
 
-    // 異步處理氣泡和表情
-    // 使用 await 確保在氣泡顯示期間保持 isStreaming 狀態，這樣輸入框會一直禁用
     await handleModelReply(normalizeResponse(res));
-    
   } catch (e) {
     console.error("[Luna] 發送失敗", e);
     handleNetworkError();
   } finally {
-    // 3. 無論成功失敗，最後才關閉流式狀態，恢復輸入框
     isConnecting.value = false;
     isStreaming.value = false;
     streamText.value = "";
-    lunaStatus.value = ""; // [Fix] 請求結束後清除狀態文字，防止卡在輸入框上
+    lunaStatus.value = "";
   }
 }
 
@@ -620,7 +606,7 @@ async function onApprove(approved) {
   try {
     const res = await window.mcpApi.approveSkill({
       taskId: approvalTask.value.taskId,
-      approved
+      approved,
     });
     appearance.showAppearanceHint(approved ? "已同意操作" : "已拒絕操作");
     console.log("[Approval] Result:", res);
@@ -680,23 +666,18 @@ function uiEnter() {
 function uiLeave() {
   clearTimeout(uiLeaveTimer);
   uiLeaveTimer = setTimeout(() => {
-    // [Fix] 排除正在執行退出動畫的元素，防止關閉面板時 overUI 卡在 true
     const selector = [
-      '.chat-bar-wrapper:not(.fade-leave-active):hover',
-      '.settings-panel:not(.fade-leave-active):hover',
-      '.login-terminal:hover',
-      '.history-panel:not(.fade-leave-active):hover',
-      '.top-banner:hover',
-      '.modal:hover',
-      '.approval-mask:hover' // 確保審批彈窗也被包含
-    ].join(', ');
+      ".chat-bar-wrapper:not(.fade-leave-active):hover",
+      ".settings-panel:not(.fade-leave-active):hover",
+      ".login-terminal:hover",
+      ".history-panel:not(.fade-leave-active):hover",
+      ".top-banner:hover",
+      ".modal:hover",
+      ".approval-mask:hover",
+    ].join(", ");
 
     const hovered = document.querySelector(selector);
-    if (hovered) {
-      overUI = true;
-    } else {
-      overUI = false;
-    }
+    overUI = !!hovered;
     updatePetState();
   }, 150);
 }
@@ -717,10 +698,10 @@ function modelLeave() {
   }, 150);
 }
 
-watch(showChat, (val) => { if(!val) uiLeave(); else updatePetState(); });
-watch(showSettings, (val) => { if(!val) uiLeave(); else updatePetState(); });
-watch(showHistory, (val) => { if(!val) uiLeave(); else updatePetState(); });
-watch(showApproval, (val) => { if(!val) uiLeave(); else updatePetState(); });
+watch(showChat, (val) => { if (!val) uiLeave(); else updatePetState(); });
+watch(showSettings, (val) => { if (!val) uiLeave(); else updatePetState(); });
+watch(showHistory, (val) => { if (!val) uiLeave(); else updatePetState(); });
+watch(showApproval, (val) => { if (!val) uiLeave(); else updatePetState(); });
 
 watch(modelVisible, (val) => {
   localStorage.setItem(LUNA_VISIBLE_KEY, val);
@@ -753,12 +734,12 @@ function loadModelTransform() {
   if (raw && container) {
     try {
       const data = JSON.parse(raw);
-      if (typeof data.x === 'number' && !isNaN(data.x)) container.x = data.x;
-      if (typeof data.y === 'number' && !isNaN(data.y)) container.y = data.y;
-      if (typeof data.scale === 'number' && !isNaN(data.scale) && data.scale > 0) {
+      if (typeof data.x === "number" && !isNaN(data.x)) container.x = data.x;
+      if (typeof data.y === "number" && !isNaN(data.y)) container.y = data.y;
+      if (typeof data.scale === "number" && !isNaN(data.scale) && data.scale > 0) {
         container.scale.set(data.scale);
       }
-    } catch (e) {}
+    } catch {}
   }
 }
 
@@ -767,29 +748,27 @@ function resetModelTransform() {
     appearance.showAppearanceHint("容器未初始化");
     return;
   }
-  
-  // 强制重置容器
+
   container.x = 0;
   container.y = 0;
   container.scale.set(1);
   container.visible = true;
   modelVisible.value = true;
 
-  // 强制重置模型本体
   if (model && app) {
     model.alpha = 1;
     model.visible = true;
     model.x = app.renderer.width / 2;
     model.y = app.renderer.height || window.innerHeight;
-    model.scale.set(0.2); // [Fix] 默認縮放改為 0.2，防止 0.1 太小導致不可見
-    
+    model.scale.set(0.2);
+
     console.log("[Debug] 强制重置执行完毕。当前模型状态:", {
       alpha: model.alpha,
       x: model.x,
       y: model.y,
       scale: model.scale.x,
       width: model.width,
-      height: model.height
+      height: model.height,
     });
   } else {
     console.warn("[Debug] 模型对象不存在，无法重置模型本体！");
@@ -823,7 +802,7 @@ function drawTrackingMarker() {
   if (!container) return;
   if (!trackingMarker) {
     trackingMarker = new PIXI.Graphics();
-    container.addChild(trackingMarker); 
+    container.addChild(trackingMarker);
   }
   trackingMarker.clear();
   trackingMarker.beginFill(0xff0000);
@@ -835,11 +814,11 @@ function drawTrackingMarker() {
 
 /* ================= 拖拽模型 ================= */
 let dragging = false;
-let lastPos  = { x: 0, y: 0 };
+let lastPos = { x: 0, y: 0 };
 
 function onPointerDown(e) {
   if (e.button !== 0) return;
-  
+
   if (isTrackingSetupMode.value) {
     const localPoint = container.toLocal(e.global);
     trackingOriginOffset = { x: localPoint.x, y: localPoint.y };
@@ -848,7 +827,7 @@ function onPointerDown(e) {
   }
 
   dragging = true;
-  lastPos  = { x: e.global.x, y: e.global.y };
+  lastPos = { x: e.global.x, y: e.global.y };
 }
 
 function onPointerMove(e) {
@@ -867,43 +846,43 @@ function onPointerUp() {
 /* ================= 滚轮缩放 ================= */
 function onWheel(ev) {
   if (!model || !app) return;
-  if (!overModel) return; 
-  
-  const rect        = canvasRef.value.getBoundingClientRect();
+  if (!overModel) return;
+
+  const rect = canvasRef.value.getBoundingClientRect();
   const globalPoint = new PIXI.Point(ev.clientX - rect.left, ev.clientY - rect.top);
 
   ev.preventDefault();
-  const factor   = ev.deltaY > 0 ? 0.95 : 1.05;
+  const factor = ev.deltaY > 0 ? 0.95 : 1.05;
   const newScale = Math.min(10, Math.max(0.05, container.scale.x * factor));
   const localPoint = container.toLocal(globalPoint, app.stage);
   container.scale.set(newScale);
-  const newGlobal  = container.toGlobal(localPoint);
+  const newGlobal = container.toGlobal(localPoint);
   container.position.x += globalPoint.x - newGlobal.x;
   container.position.y += globalPoint.y - newGlobal.y;
 }
 
 /* ================= 视线追踪 ================= */
 const PARAM_CONFIG = {
-  HEAD_X: { param: "ParamAngleX",   range: [-30, 30] },
-  HEAD_Y: { param: "ParamAngleY",   range: [-30, 30] },
-  EYE_X:  { param: "ParamEyeBallX", range: [-1, 1]   },
-  EYE_Y:  { param: "ParamEyeBallY", range: [-1, 1]   },
-  BREATH: { param: "ParamBreath",   range: [0, 1]    },
+  HEAD_X: { param: "ParamAngleX", range: [-30, 30] },
+  HEAD_Y: { param: "ParamAngleY", range: [-30, 30] },
+  EYE_X: { param: "ParamEyeBallX", range: [-1, 1] },
+  EYE_Y: { param: "ParamEyeBallY", range: [-1, 1] },
+  BREATH: { param: "ParamBreath", range: [0, 1] },
 };
 
 function applyLookAt(dx, dy) {
   const core = getCoreModel();
   if (!core) return;
-  
+
   const targetX = dx - trackingOriginOffset.x;
   const targetY = dy - trackingOriginOffset.y;
 
-  const nx = Math.max(-1, Math.min(1, targetX / (app.renderer.width  / 2)));
+  const nx = Math.max(-1, Math.min(1, targetX / (app.renderer.width / 2)));
   const ny = -Math.max(-1, Math.min(1, targetY / (app.renderer.height / 2)));
   const mapRange = (v, [min, max]) => min + ((v + 1) / 2) * (max - min);
   try {
-    core.setParameterValueById(PARAM_CONFIG.EYE_X.param,  mapRange(nx, PARAM_CONFIG.EYE_X.range));
-    core.setParameterValueById(PARAM_CONFIG.EYE_Y.param,  mapRange(ny, PARAM_CONFIG.EYE_Y.range));
+    core.setParameterValueById(PARAM_CONFIG.EYE_X.param, mapRange(nx, PARAM_CONFIG.EYE_X.range));
+    core.setParameterValueById(PARAM_CONFIG.EYE_Y.param, mapRange(ny, PARAM_CONFIG.EYE_Y.range));
     core.setParameterValueById(PARAM_CONFIG.HEAD_X.param, mapRange(nx, PARAM_CONFIG.HEAD_X.range));
     core.setParameterValueById(PARAM_CONFIG.HEAD_Y.param, mapRange(ny, PARAM_CONFIG.HEAD_Y.range));
   } catch (e) { console.warn("[Luna] applyLookAt 失败", e); }
@@ -911,7 +890,7 @@ function applyLookAt(dx, dy) {
 
 function onGlobalPointerMove(ev) {
   if (!trackingEnabled.value || !model || !modelVisible.value) return;
-  const rect  = canvasRef.value.getBoundingClientRect();
+  const rect = canvasRef.value.getBoundingClientRect();
   const world = new PIXI.Point(ev.clientX - rect.left, ev.clientY - rect.top);
   const local = container.toLocal(world, app.stage);
   applyLookAt(local.x, local.y);
@@ -924,7 +903,7 @@ function startBreath() {
   breathTickerFn = () => {
     const core = getCoreModel();
     if (!core) return;
-    const t   = performance.now() / 1000 - breathStart;
+    const t = performance.now() / 1000 - breathStart;
     const val = 0.5 + Math.sin(t * 0.9 * Math.PI * 2) * 0.15;
     try { core.setParameterValueById(PARAM_CONFIG.BREATH.param, val); } catch (e) { console.warn("[Luna] 呼吸参数失败", e); }
   };
@@ -959,7 +938,7 @@ async function resetToSolemn() {
 
 function tweenParameters(core, targetValues, duration = 200) {
   return new Promise((resolve) => {
-    const startTime  = performance.now();
+    const startTime = performance.now();
     const fromValues = {};
     for (const id in targetValues) {
       fromValues[id] = core.getParameterValueById(id) ?? 0;
@@ -984,7 +963,7 @@ async function applyEmotionExpressions(emotion) {
   await new Promise((r) => requestAnimationFrame(r));
   const names = EMOTION_EXPRESSIONS?.[emotion] || [];
   if (!names.length) return;
-  const targetValues  = {};
+  const targetValues = {};
   const thisApplyPrev = {};
   for (const cnName of names) {
     const expJson = expressionCache.get(cnName);
@@ -992,9 +971,9 @@ async function applyEmotionExpressions(emotion) {
     (expJson.Parameters || []).forEach(({ Id, Value, Blend }) => {
       const base = targetValues[Id] ?? core.getParameterValueById(Id) ?? 0;
       if (!(Id in thisApplyPrev)) thisApplyPrev[Id] = base;
-      if (Blend === "Add")           targetValues[Id] = base + Value;
+      if (Blend === "Add") targetValues[Id] = base + Value;
       else if (Blend === "Multiply") targetValues[Id] = base * Value;
-      else                           targetValues[Id] = Value;
+      else targetValues[Id] = Value;
     });
   }
   await tweenParameters(core, targetValues, 180);
@@ -1014,17 +993,17 @@ async function preloadExpressions() {
       try {
         const res = await fetch(`/models/luna/${encodeURIComponent(name)}.exp3.json`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        
+
         const text = await res.text();
-        if (text.trim().startsWith('<')) {
+        if (text.trim().startsWith("<")) {
           throw new Error("文件未找到 (返回了 HTML)");
         }
-        
+
         expressionCache.set(name, JSON.parse(text));
       } catch (e) {
         console.warn(`[Live2D] 表情文件加载跳过: ${name} - ${e.message}`);
       }
-    })
+    }),
   );
 }
 
@@ -1058,7 +1037,7 @@ function waitForModelReady(timeout = 10000) {
       if (model?.internalModel?.coreModel) return resolve(true);
       if (performance.now() - start > timeout) return resolve(false);
       setTimeout(poll, 120);
-    })();
+    }());
   });
 }
 
@@ -1076,7 +1055,7 @@ async function startBootSequence() {
 
     if (model && app) {
       model.alpha = 0;
-      model.y     = (app.renderer.height || window.innerHeight) + 40;
+      model.y = (app.renderer.height || window.innerHeight) + 40;
 
       gsap.to(model, {
         alpha: 1,
@@ -1095,29 +1074,27 @@ async function startBootSequence() {
 onMounted(async () => {
   loadTheme();
 
-  // [Fix] 確保 window.PIXI 存在，並動態導入 Live2DModel
   window.PIXI = PIXI;
   const { Live2DModel } = await import("pixi-live2d-display/cubism4");
 
-  // [Fix] 確保 Ticker 被註冊，解決 Vite 模塊加載順序導致的 Live2D 動畫不更新問題
   if (Live2DModel.registerTicker) {
     Live2DModel.registerTicker(PIXI.Ticker);
   }
 
   app = new PIXI.Application({
-    view:            canvasRef.value,
+    view: canvasRef.value,
     backgroundAlpha: 0,
-    resizeTo:        window, // [Fix] 改為 window 確保全屏，避免 wrapper 尺寸為 0
-    resolution:      window.devicePixelRatio || 1,
-    autoDensity:     true,
+    resizeTo: window,
+    resolution: window.devicePixelRatio || 1,
+    autoDensity: true,
   });
 
   container = new PIXI.Container();
-  container.visible = modelVisible.value; 
+  container.visible = modelVisible.value;
   app.stage.addChild(container);
 
   wrapperRef.value.addEventListener("pointermove", onGlobalPointerMove);
-  wrapperRef.value.addEventListener("wheel",       onWheel, { passive: false });
+  wrapperRef.value.addEventListener("wheel", onWheel, { passive: false });
 
   if (window.pet && window.pet.onToggleChat) {
     window.pet.onToggleChat(() => {
@@ -1130,11 +1107,17 @@ onMounted(async () => {
   }
 
   if (window.desktopApi && window.desktopApi.onStatusUpdate) {
-    window.desktopApi.onStatusUpdate((data) => {
-      if (data && data.type === 'APPROVAL_REQUEST') {
-        approvalTask.value = data.payload;
-        showApproval.value = true;
-        uiEnter(); // 觸發穿透狀態更新
+    window.desktopApi.onStatusUpdate((rawPayload) => {
+      const { event, data } = normalizeSseEventPayload(rawPayload);
+
+      if (event === "APPROVAL_REQUEST") {
+        const task = data?.payload ? data.payload : data;
+        approvalTask.value = task || null;
+        showApproval.value = !!approvalTask.value;
+        if (showApproval.value) {
+          uiEnter();
+          appearance.showAppearanceHint("收到敏感操作審批請求");
+        }
         return;
       }
 
@@ -1143,21 +1126,20 @@ onMounted(async () => {
   }
 
   try {
-    // [Fix] 使用 encodeURIComponent 對文件名進行編碼，解決中文路徑導致的 NetworkError
-    model = await Live2DModel.from("/models/luna/" + encodeURIComponent("jk盐.model3.json"), {
+    model = await Live2DModel.from(`/models/luna/${encodeURIComponent("jk盐.model3.json")}`, {
       autoInteract: false,
       autoUpdate: true,
-      ticker: app.ticker, // 強制使用當前 PIXI 應用的 Ticker
+      ticker: app.ticker,
     });
 
     console.log("[Live2D] 🎉 模型文件加载成功！尺寸:", model.width, "x", model.height);
 
-    model.scale.set(0.2); // [Fix] 默認縮放改為 0.2，防止 0.1 太小導致不可見
+    model.scale.set(0.2);
     model.anchor.set(0.5, 1);
-    model.x           = app.renderer.width / 2;
-    model.y           = app.renderer.height || window.innerHeight;
+    model.x = app.renderer.width / 2;
+    model.y = app.renderer.height || window.innerHeight;
     model.interactive = true;
-    model.cursor      = "pointer";
+    model.cursor = "pointer";
 
     if (!lunaIntroVisible.value && loginSuccess.value) {
       model.alpha = 1;
@@ -1167,13 +1149,13 @@ onMounted(async () => {
     }
 
     model
-      .on("pointerdown",      onPointerDown)
-      .on("pointermove",      onPointerMove)
-      .on("pointerup",        onPointerUp)
+      .on("pointerdown", onPointerDown)
+      .on("pointermove", onPointerMove)
+      .on("pointerup", onPointerUp)
       .on("pointerupoutside", onPointerUp);
 
     model.on("pointerover", modelEnter);
-    model.on("pointerout",  modelLeave);
+    model.on("pointerout", modelLeave);
 
     container.addChild(model);
 
@@ -1184,19 +1166,17 @@ onMounted(async () => {
 
     await waitForModelReady(5000);
     loadModelTransform();
-    
+
     appearance.loadAppearanceState();
-    
+
     await nextTick();
     await appearance.applyAllEnabled(getCoreModel());
     await applyEmotionExpressions(INITIAL_EMOTION);
-
   } catch (e) {
     console.error("[Live2D] 模型加载失败", e);
     appearance.showAppearanceHint("模型加载失败，请检查文件路径");
   }
 
-  // [Fix] 增加一個兜底檢查：如果模型加載完成且已經登錄，但透明度卡在 0，則強制恢復顯示
   setTimeout(() => {
     if (model && loginSuccess.value && !lunaIntroVisible.value && model.alpha === 0) {
       console.warn("[Live2D] 发现模型透明度异常为0，强制恢复显示");
@@ -1215,7 +1195,6 @@ onBeforeUnmount(() => {
   app?.destroy(true);
   callShutdown();
 
-  // 清理狀態渲染隊列
   statusQueue.length = 0;
   isConsumingStatusQueue = false;
   statusLastEnqueued = "";
@@ -1223,7 +1202,6 @@ onBeforeUnmount(() => {
 </script>
 
 <style>
-/* 全局重置，防止出現滾動條 */
 html, body {
   margin: 0;
   padding: 0;
@@ -1243,7 +1221,6 @@ html, body {
   background: transparent;
 }
 
-/* 頂部 Banner 樣式 */
 .top-banner {
   position: fixed;
   top: 0; left: 0; right: 0;
@@ -1256,10 +1233,9 @@ html, body {
   box-shadow: 0 2px 10px rgba(0,0,0,0.5);
 }
 
-/* ===== 全局輕提示 (Toast) 樣式 ===== */
 .toast-hint {
   position: fixed;
-  top: 60px; /* 避免和 top-banner 重疊 */
+  top: 60px;
   left: 50%;
   transform: translateX(-50%);
   background: rgba(0, 0, 0, 0.85);
@@ -1275,7 +1251,6 @@ html, body {
   letter-spacing: 1px;
 }
 
-/* ===== 登錄幕布 (復用原有樣式) ===== */
 .login-mask {
   position: fixed;
   inset: 0;
@@ -1476,7 +1451,7 @@ html, body {
   transition: opacity 0.35s ease;
 }
 .login-fade-leave-active {
-  pointer-events: none; /* 防止退出動畫期間殘留 hover 狀態 */
+  pointer-events: none;
 }
 .login-fade-enter-from,
 .login-fade-leave-to {
@@ -1506,7 +1481,7 @@ html, body {
 .interactive-wrapper {
   width: 100%;
   height: 100%;
-  position: absolute; /* 改為 absolute 確保覆蓋全屏 */
+  position: absolute;
   top: 0;
   left: 0;
   z-index: 1;
@@ -1514,7 +1489,6 @@ html, body {
 }
 .interactive-wrapper canvas {
   display: block;
-  /* [Fix] 確保 Canvas 佔滿屏幕，防止因尺寸為 0 而不可見 */
   width: 100vw;
   height: 100vh;
   pointer-events: auto;
@@ -1528,7 +1502,7 @@ html, body {
   gap: 10px;
   transform: translate(-50%, -100%);
   pointer-events: none;
-  z-index: 99999; /* [Fix] 確保氣泡在最上層，不被其他 UI 遮擋 */
+  z-index: 99999;
 }
 .css-chat-bubble {
   max-width: 280px;
@@ -1554,7 +1528,7 @@ html, body {
 }
 @keyframes bubbleAvatarBounce {
   0%, 100% { transform: translateY(0);    }
-  50%       { transform: translateY(-3px); }
+  50%      { transform: translateY(-3px); }
 }
 @keyframes bubbleIn {
   from { opacity: 0; transform: scale(0.8) translateY(10px); }
@@ -1568,7 +1542,6 @@ html, body {
   animation: bubbleOut 0.2s ease-in forwards;
 }
 
-/* ===== 科幻啟動遮罩 ===== */
 .luna-intro-mask {
   position: fixed;
   inset: 0;
@@ -1597,7 +1570,6 @@ html, body {
     inset 0 0 60px rgba(0, 255, 200, 0.03);
 }
 
-/* 掃描線 */
 .scan-line {
   position: absolute;
   top: 0;
@@ -1614,7 +1586,6 @@ html, body {
   100% { top: 0%;   opacity: 0.9; }
 }
 
-/* 主標題 */
 .boot-title {
   display: flex;
   align-items: baseline;
@@ -1638,22 +1609,18 @@ html, body {
 }
 
 .boot-version {
-  font-size: 11px;
-  color: rgba(0, 255, 200, 0.4);
-  letter-spacing: 0.12em;
-  align-self: flex-end;
-  margin-bottom: 4px;
   font-size: 10px;
   letter-spacing: 0.22em;
   color: rgba(0, 255, 200, 0.45);
+  align-self: flex-end;
+  margin-bottom: 4px;
   animation: subtitleBlink 2s step-end infinite;
 }
 @keyframes subtitleBlink {
   0%, 90%, 100% { opacity: 1; }
-  95%            { opacity: 0; }
+  95%           { opacity: 0; }
 }
 
-/* 進度條 */
 .boot-bar-wrap {
   width: 100%;
   display: flex;
@@ -1695,7 +1662,6 @@ html, body {
   100% { opacity: 0.8; }
 }
 
-/* 滾動日誌 */
 .boot-log {
   width: 100%;
   display: flex;
@@ -1720,7 +1686,6 @@ html, body {
   to   { opacity: 1; transform: translateX(0); }
 }
 
-/* 底部十六進制裝飾 */
 .boot-footer {
   display: flex;
   gap: 12px;
@@ -1733,7 +1698,6 @@ html, body {
   transition: color 0.18s ease;
 }
 
-/* 過渡動畫 */
 .luna-intro-enter-active { transition: opacity 0.4s ease; }
 .luna-intro-leave-active { transition: opacity 0.8s ease; pointer-events: none; }
 .luna-intro-enter-from   { opacity: 0; }
@@ -1744,7 +1708,7 @@ html, body {
   transition: opacity 0.3s ease, transform 0.3s ease;
 }
 .fade-leave-active {
-  pointer-events: none; /* 防止退出動畫期間殘留 hover 狀態導致穿透失效 */
+  pointer-events: none;
 }
 .fade-enter-from,
 .fade-leave-to {
