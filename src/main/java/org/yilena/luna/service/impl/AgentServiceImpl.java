@@ -50,7 +50,7 @@ public class AgentServiceImpl implements AgentService {
             return null;
         }
 
-        // 1.1 拉取近期历史对话，参与工具决策
+        // 1.1 拉取近期历史对话，参与工具决策与参数生成
         List<String> historySnippets = loadRecentHistory(sessionId);
 
         // 2. 決策階段 (調用 LLM 判斷是否需要工具)
@@ -74,8 +74,8 @@ public class AgentServiceImpl implements AgentService {
             return null;
         }
 
-        // 3. 參數生成階段（注入 Skill 的 toolIds + thoughtChain）
-        String argsPrompt = buildArgsPrompt(input, targetResource);
+        // 3. 參數生成階段（Tool/Skill 分流 + 注入历史上下文）
+        String argsPrompt = buildArgsPrompt(input, historySnippets, targetResource);
         String argsJson = llmAdapter.generate(argsPrompt);
         log.info("Agent 生成参数: {}", argsJson);
 
@@ -129,14 +129,30 @@ public class AgentServiceImpl implements AgentService {
         return String.format(PromptTemplates.TOOL_DECISION_PROMPT, input, historyText, toolDesc);
     }
 
-    private String buildArgsPrompt(String input, Resource tool) {
+    private String buildArgsPrompt(String input, List<String> historySnippets, Resource resource) {
+        String historyText = (historySnippets == null || historySnippets.isEmpty())
+                ? "（无可用历史对话）"
+                : String.join("\n", historySnippets);
+
+        if (ResourceType.SKILL.equals(resource.getType())) {
+            return String.format(
+                    PromptTemplates.SKILL_ARGS_PROMPT,
+                    input,
+                    historyText,
+                    resource.getName(),
+                    resource.getDescription(),
+                    resource.getInputSchema(),
+                    buildSkillOrchestrationHint(resource)
+            );
+        }
+
         return String.format(
                 PromptTemplates.TOOL_ARGS_PROMPT,
-                tool.getName(),
                 input,
-                tool.getDescription(),
-                tool.getInputSchema(),
-                buildSkillOrchestrationHint(tool)
+                historyText,
+                resource.getName(),
+                resource.getDescription(),
+                resource.getInputSchema()
         );
     }
 
@@ -165,7 +181,7 @@ public class AgentServiceImpl implements AgentService {
             if (recent == null || recent.isEmpty()) {
                 return Collections.emptyList();
             }
-            // 只取最近 20 条，避免决策提示词过长
+            // 只取最近 20 条，避免提示词过长
             int from = Math.max(0, recent.size() - 20);
             return recent.subList(from, recent.size()).stream()
                     .map(m -> m.getRole().name() + ": " + m.getContent())
