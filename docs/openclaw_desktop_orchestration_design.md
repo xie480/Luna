@@ -20,6 +20,7 @@
 8. 前端可视化展示任务流程图与子任务执行进度
 9. 无论任务最终成功或失败，都由 Luna 调用技能生成 HTML 任务报告并自动唤起浏览器展示
 10. 当用户给出需求后，先由 **BigModel 一次性完成“全局规划任务”**：产出子任务、串并行关系、所需 skill/tool、风险级别与阶段划分；规划结束后 BigModel 第一阶段任务即完成，后续进入“按阶段执行模式”
+11. 新增代码工程能力：支持“编写代码、修改代码、生成并运行测试、根据失败反馈迭代修复”的闭环任务链
 
 ---
 
@@ -90,6 +91,10 @@
    - 在任务结束时（成功/失败）统一触发报告技能
    - 负责组织任务摘要、节点结果、失败重试明细
    - 产出 HTML 文件并自动打开浏览器
+
+10. **CodeOps Capability Pack（新增，代码工程能力包）**
+    - 代码检索、代码生成、补丁应用、测试执行、失败归因、二次修复
+    - 支持“改代码 -> 跑测试 -> 修复 -> 再测”的循环编排
 
 ---
 
@@ -185,7 +190,7 @@
 - planId
 - phaseId
 - name
-- type（ANALYZE / TOOL / SKILL / VALIDATE / SUMMARIZE / REPORT）
+- type（ANALYZE / TOOL / SKILL / VALIDATE / SUMMARIZE / REPORT / CODE）
 - input
 - expectedOutputSchema
 - dependencies（前置节点列表）
@@ -239,6 +244,8 @@
 - 执行后总结：mid/big
 - 安全检测：small（低温）
 - 报告文案整理：mid（固定结构，低成本）
+- 代码改动方案生成：big/mid（按复杂度）
+- 测试失败归因与修复建议：mid
 
 ### 7.2 路由输入信号
 - 任务复杂度（节点数、依赖深度）
@@ -367,20 +374,28 @@
    - 同意/拒绝操作入口
    - 审批后节点恢复执行轨迹
 
+6. **代码任务节点展示（新增）**
+   - 改动文件列表
+   - patch 摘要
+   - 测试执行结果（通过/失败）
+   - 失败测试明细与修复轮次
+
 ---
 
 ## 13. SSE 与前端交互扩展
 
 建议新增事件：
 - `PLAN_CREATED`
-- `PLAN_PHASE_STARTED`（新增）
-- `PLAN_PHASE_FINISHED`（新增）
+- `PLAN_PHASE_STARTED`
+- `PLAN_PHASE_FINISHED`
 - `PLAN_NODE_RUNNING`
 - `PLAN_NODE_SUCCESS`
 - `PLAN_NODE_FAILED`
 - `PLAN_REPLANNED`
 - `PLAN_FINISHED`
 - `PLAN_REPORT_READY`（报告 HTML 可访问）
+- `PLAN_CODE_PATCH_READY`（新增，代码改动可视化）
+- `PLAN_TEST_RESULT`（新增，测试结果推送）
 
 前端可视化：
 - 展示 DAG 节点执行进度
@@ -409,6 +424,15 @@
   - `maxRetry`
   - `failReason`
   - `lastErrorStackBrief`
+
+- `PLAN_TEST_RESULT`（新增）：
+  - `planId`
+  - `phaseId`
+  - `nodeId`
+  - `passed`
+  - `totalTests`
+  - `failedTests`
+  - `reportPath`
 
 ---
 
@@ -445,6 +469,7 @@
 - 节点执行列表
   - 成功：结果、输出给下游的数据
   - 失败：失败原因、重试次数、最终错误
+- 代码改动与测试结果（新增）
 - 审批记录
 - 结论与下一步建议
 
@@ -460,12 +485,15 @@
 - 审批通过率、审批耗时
 - 模型路由命中率与成本
 - 报告生成成功率
+- 测试通过率（新增）
+- 自动修复回合数（新增）
 
 日志建议：
 - 每个 node 记录 `input/output/error/model/resource/costMs/retryCount/outputForNext`
 - 每个 phase 记录 `entry/exit/blockedReason`
 - 与现有 `luna_log` 打通 traceId，串联完整链路
 - 记录报告生成与浏览器唤起结果
+- 记录代码 patch 哈希、测试报告路径（新增）
 
 ---
 
@@ -491,7 +519,13 @@
 - 引入用户可视化任务图与人工介入点
 - 接入报告技能并自动打开浏览器
 
-### Phase D：策略学习与优化
+### Phase D：代码工程闭环（新增）
+- 支持代码编写/修改/测试子任务
+- 支持 patch 预览与审批
+- 支持失败测试自动修复循环
+- 产出代码变更与测试汇总报告
+
+### Phase E：策略学习与优化
 - 基于历史成功率优化路由和工具选择
 - 自动调整并行度与重试策略
 - 引入任务模板库（常见任务一键规划）
@@ -519,6 +553,8 @@
 - `PlanStateStore`（Redis + DB）
 - `PlanExecutionController`（对前端暴露任务状态查询）
 - `TaskReportSkill`（生成 HTML + 打开浏览器）
+- `CodeTaskService`（新增，代码任务编排）
+- `TestExecutionService`（新增，测试执行与结果结构化）
 
 ---
 
@@ -547,6 +583,11 @@
 - 报告技能设兜底：至少输出 JSON 报告并保存在日志
 - 浏览器唤起失败时返回可点击文件路径
 
+7. 代码任务存在误改风险（新增）
+- patch 必须可回滚
+- 默认先跑测试后再标记成功
+- 高风险改动（删除核心文件/依赖升级）走审批
+
 ---
 
 ## 19. 验收标准（建议）
@@ -563,6 +604,7 @@
   - 失败原因与重试次数
 - 无论任务成功/失败，均生成 HTML 报告并自动打开浏览器，成功率 >= 99%
 - BigModel 规划任务执行后可正确冻结阶段方案，后续按阶段执行无偏移
+- 代码任务中自动测试通过率持续提升，且失败可定位可回滚
 
 ---
 
@@ -575,6 +617,7 @@
 - 能在执行中学习与修正
 - 能在安全可控下进行桌面级任务推进
 - 能将全过程可视化给前端，并在任务结束自动产出可阅读的 HTML 成果报告
+- 能执行代码工程闭环任务（编写/修改/测试/修复）
 
 建议先落地 MVP（Phase A），以最小闭环验证架构，再逐步迭代到完整 OpenClaw 风格自治调度。
 
@@ -617,6 +660,26 @@
    - 用途：关键节点落盘与恢复点保存
    - 输出：checkpointId
 
+9. `plan_code_change_tasks`（新增）
+   - 用途：把“代码需求”拆成代码改动 + 测试 + 验证节点
+   - 输出：CodeTaskBlueprint
+
+10. `generate_code_patch`（新增）
+    - 用途：根据目标文件与需求生成可应用补丁
+    - 输出：patch + 变更说明
+
+11. `generate_test_cases`（新增）
+    - 用途：生成单元测试/集成测试样例
+    - 输出：testFiles + 覆盖说明
+
+12. `analyze_test_failure_and_fix`（新增）
+    - 用途：读取失败测试与日志，生成修复补丁
+    - 输出：fixPatch + rootCause
+
+13. `summarize_code_changes_for_report`（新增）
+    - 用途：整理本次代码改动摘要写入任务报告
+    - 输出：changeSummary
+
 ### 21.2 需要新增的 Tool（执行层）
 
 1. `save_plan_blueprint`
@@ -655,4 +718,49 @@
 12. `record_plan_audit_log`
     - 将计划级事件写入审计日志（便于复盘）
 
-> 备注：以上 Skill/Tool 为建议最小集合，可按 Phase A/B/C 分批落地。
+13. `read_repo_tree`（新增）
+    - 读取仓库目录结构，供代码任务规划
+
+14. `read_source_file`（新增）
+    - 读取源码文件内容
+
+15. `write_source_file`（新增）
+    - 写入源码文件（支持备份）
+
+16. `apply_unified_patch`（新增）
+    - 应用 patch 到工作区
+
+17. `run_build_command`（新增）
+    - 执行编译命令（mvn/gradle）
+
+18. `run_test_command`（新增）
+    - 执行测试命令并采集结果
+
+19. `run_lint_command`（新增）
+    - 执行静态检查（lint/spotbugs/checkstyle）
+
+20. `run_format_command`（新增）
+    - 执行格式化工具
+
+21. `collect_test_report`（新增）
+    - 聚合 surefire/junit 报告为结构化 JSON
+
+22. `git_create_checkpoint`（新增）
+    - 创建本地回滚点（commit/stash）
+
+23. `git_rollback_checkpoint`（新增）
+    - 回滚到指定检查点
+
+24. `search_symbol_references`（新增）
+    - 按符号查找引用，辅助重构安全性
+
+25. `scan_dependency_vulnerabilities`（新增）
+    - 扫描依赖安全风险（SCA）
+
+26. `capture_desktop_screenshot`（新增，桌面任务增强）
+    - 捕获屏幕快照用于状态判断
+
+27. `detect_ui_elements`（新增，桌面任务增强）
+    - UI 元素识别（OCR/控件树）
+
+> 备注：以上 Skill/Tool 为建议最小集合，可按 Phase A/B/C/D 分批落地。
