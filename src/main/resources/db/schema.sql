@@ -1,3 +1,6 @@
+-- 啟用 pgvector 擴展（必須放在最前，否則 vector 類型可能不可用）
+CREATE EXTENSION IF NOT EXISTS vector;
+
 -- 1. 用戶畫像/偏好表 (UserPreference)
 CREATE TABLE IF NOT EXISTS user_preference (
     id BIGSERIAL PRIMARY KEY,
@@ -88,8 +91,49 @@ COMMENT ON COLUMN schedule_task.deleted IS '邏輯刪除標記';
 COMMENT ON COLUMN schedule_task.created_at IS '創建時間';
 COMMENT ON COLUMN schedule_task.updated_at IS '更新時間';
 
--- 啟用 pgvector 擴展
-CREATE EXTENSION IF NOT EXISTS vector;
+-- =========================
+-- 向後兼容遷移（修復舊庫缺列問題）
+-- =========================
+
+-- user_preference 兼容缺失列
+ALTER TABLE IF EXISTS user_preference
+    ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE IF EXISTS user_preference
+    ADD COLUMN IF NOT EXISTS embedding vector(768);
+ALTER TABLE IF EXISTS user_preference
+    ADD COLUMN IF NOT EXISTS deleted INTEGER DEFAULT 0;
+ALTER TABLE IF EXISTS user_preference
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE IF EXISTS user_preference
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
+-- luna_memory 兼容缺失列
+ALTER TABLE IF EXISTS luna_memory
+    ADD COLUMN IF NOT EXISTS weight INTEGER DEFAULT 1;
+ALTER TABLE IF EXISTS luna_memory
+    ADD COLUMN IF NOT EXISTS embedding vector(768);
+ALTER TABLE IF EXISTS luna_memory
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE IF EXISTS luna_memory
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
+-- knowledge_base 兼容缺失列
+ALTER TABLE IF EXISTS knowledge_base
+    ADD COLUMN IF NOT EXISTS vector_id VARCHAR(255);
+ALTER TABLE IF EXISTS knowledge_base
+    ADD COLUMN IF NOT EXISTS embedding vector(768);
+ALTER TABLE IF EXISTS knowledge_base
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE IF EXISTS knowledge_base
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
+-- schedule_task 兼容缺失列
+ALTER TABLE IF EXISTS schedule_task
+    ADD COLUMN IF NOT EXISTS deleted INTEGER DEFAULT 0;
+ALTER TABLE IF EXISTS schedule_task
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE IF EXISTS schedule_task
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
 
 -- BTree 索引 (高頻過濾/排序)
 CREATE INDEX IF NOT EXISTS idx_kb_created_at ON knowledge_base(created_at DESC);
