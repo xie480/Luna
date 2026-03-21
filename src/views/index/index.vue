@@ -601,9 +601,17 @@ async function onSend(text) {
 /* ================= 審批處理 ================= */
 async function onApprove(approved) {
   if (!approvalTask.value) return;
+
+  const currentTaskId = approvalTask.value.taskId;
+
+  // 先立即關閉彈窗（按你需求）
+  showApproval.value = false;
+  approvalTask.value = null;
+  uiLeave();
+
   try {
     const res = await window.mcpApi.approveSkill({
-      taskId: approvalTask.value.taskId,
+      taskId: currentTaskId,
       approved,
     });
 
@@ -620,11 +628,8 @@ async function onApprove(approved) {
     console.error("[Approval] Failed:", e);
     appearance.showAppearanceHint("審批提交失敗");
   } finally {
-    showApproval.value = false;
-    approvalTask.value = null;
     isStreaming.value = false;
     streamText.value = "";
-    uiLeave();
   }
 }
 
