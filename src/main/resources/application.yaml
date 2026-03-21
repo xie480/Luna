@@ -81,6 +81,8 @@ knife4j:
 auth:
   username: Yilena
   password: XUWENBO219382
+  jwt-secret: "replace-with-a-strong-random-secret"
+  jwt-expire-seconds: 86400
 
 mybatis-plus:
   type-aliases-package: org.yilena.luna.*.entity

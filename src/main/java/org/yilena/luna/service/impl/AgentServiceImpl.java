@@ -15,6 +15,7 @@ import org.yilena.luna.gate.ExecutionGate;
 import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.router.ToolRouter;
 import org.yilena.luna.service.AgentService;
+import org.yilena.luna.utils.AuthContextHolder;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -91,8 +92,12 @@ public class AgentServiceImpl implements AgentService {
         if (ResourceType.SKILL.equals(targetResource.getType())) {
             executionResult = skillExecutor.execute(targetResource, argsJson);
         } else {
-            // 使用穩定業務 sessionId，而非 threadId，避免跨線程導致審批關聯錯亂
-            String stableSessionId = (sessionId == null || sessionId.isBlank()) ? "agent-default" : sessionId;
+            // 优先使用 JWT 的 jti 作为稳定会话ID；若不存在再回退入参
+            String jwtJti = AuthContextHolder.getSessionId();
+            String stableSessionId = (jwtJti != null && !jwtJti.isBlank())
+                    ? jwtJti
+                    : ((sessionId == null || sessionId.isBlank()) ? "agent-default" : sessionId);
+
             executionResult = toolExecutor.execute(stableSessionId, targetResource, argsJson);
         }
 
