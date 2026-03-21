@@ -1,7 +1,10 @@
 <template>
   <div class="approval-mask" @mouseenter="$emit('mouseenter')" @mouseleave="$emit('mouseleave')">
-    <div class="approval-modal">
-      <div class="modal-header">
+    <div
+      class="approval-modal"
+      :style="{ left: modalX + 'px', top: modalY + 'px' }"
+    >
+      <div class="modal-header" @mousedown="startDrag">
         <span class="warning-icon">⚠️</span>
         <h3>敏感操作请求</h3>
       </div>
@@ -126,16 +129,54 @@ watch(
   () => props.task?.taskId,
   () => {
     resetTimer();
+    centerModal();
   },
   { immediate: true }
 );
 
+// 拖拽逻辑
+const modalX = ref(0);
+const modalY = ref(0);
+let isDragging = false;
+let dragOffset = { x: 0, y: 0 };
+
+function centerModal() {
+  const w = 440;
+  const h = 460;
+  modalX.value = Math.max(12, Math.floor((window.innerWidth - w) / 2));
+  modalY.value = Math.max(12, Math.floor((window.innerHeight - h) / 2));
+}
+
+function startDrag(e) {
+  isDragging = true;
+  dragOffset.x = e.clientX - modalX.value;
+  dragOffset.y = e.clientY - modalY.value;
+  window.addEventListener("mousemove", onDrag);
+  window.addEventListener("mouseup", stopDrag);
+}
+
+function onDrag(e) {
+  if (!isDragging) return;
+  const maxX = window.innerWidth - 120;
+  const maxY = window.innerHeight - 80;
+  modalX.value = Math.min(Math.max(e.clientX - dragOffset.x, -320), maxX);
+  modalY.value = Math.min(Math.max(e.clientY - dragOffset.y, -380), maxY);
+}
+
+function stopDrag() {
+  isDragging = false;
+  window.removeEventListener("mousemove", onDrag);
+  window.removeEventListener("mouseup", stopDrag);
+}
+
 onMounted(() => {
   if (!timer) resetTimer();
+  centerModal();
 });
 
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer);
+  stopDrag();
 });
 
 function formatTime(seconds) {
@@ -151,46 +192,48 @@ function formatTime(seconds) {
 .approval-mask {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.75);
-  backdrop-filter: blur(6px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  background: transparent;
+  display: block;
   z-index: 10000;
-  pointer-events: auto;
+  pointer-events: none;
 }
 
 .approval-modal {
-  width: 520px;
-  max-width: 92vw;
+  position: fixed;
+  width: 440px;
+  max-width: 88vw;
+  max-height: 86vh;
   background: var(--bg-panel, rgba(15, 20, 25, 0.98));
   border: 1px solid #ff4d4f;
   border-radius: 8px;
-  box-shadow: 0 15px 40px rgba(255, 77, 79, 0.25), 0 0 10px rgba(255, 77, 79, 0.1) inset;
+  box-shadow: 0 12px 30px rgba(255, 77, 79, 0.18), 0 0 8px rgba(255, 77, 79, 0.08) inset;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   color: #eee;
   font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  animation: modal-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: modal-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  pointer-events: auto;
 }
 
 @keyframes modal-pop {
-  from { opacity: 0; transform: scale(0.9) translateY(10px); }
+  from { opacity: 0; transform: scale(0.94) translateY(8px); }
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 .modal-header {
   background: linear-gradient(90deg, rgba(255, 77, 79, 0.15), rgba(255, 77, 79, 0.05));
-  padding: 16px 20px;
+  padding: 12px 16px;
   border-bottom: 1px solid rgba(255, 77, 79, 0.3);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  cursor: move;
+  user-select: none;
 }
 
 .warning-icon {
-  font-size: 18px;
+  font-size: 16px;
   animation: pulse 1.5s infinite;
 }
 
@@ -202,38 +245,39 @@ function formatTime(seconds) {
 .modal-header h3 {
   margin: 0;
   color: #ff7875;
-  font-size: 15px;
-  letter-spacing: 1px;
+  font-size: 14px;
+  letter-spacing: 0.5px;
   font-weight: bold;
 }
 
 .modal-body {
-  padding: 20px;
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
+  overflow: auto;
 }
 
 .desc {
-  font-size: 13px;
+  font-size: 12px;
   color: #ccc;
   margin: 0;
-  line-height: 1.5;
+  line-height: 1.45;
 }
 
 .info-row {
   display: flex;
-  gap: 10px;
-  font-size: 14px;
+  gap: 8px;
+  font-size: 13px;
   background: rgba(255, 255, 255, 0.03);
-  padding: 10px;
+  padding: 8px;
   border-radius: 4px;
   border-left: 3px solid var(--primary, #00ffc8);
 }
 
 .label {
   color: #888;
-  min-width: 74px;
+  min-width: 72px;
 }
 
 .highlight {
@@ -252,17 +296,17 @@ function formatTime(seconds) {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 6px;
-  padding: 10px 12px;
-  max-height: 180px;
+  padding: 8px 10px;
+  max-height: 140px;
   overflow-y: auto;
 }
 
 .kv-row {
   display: grid;
-  grid-template-columns: minmax(80px, 160px) 12px 1fr;
-  gap: 6px;
+  grid-template-columns: minmax(70px, 140px) 10px 1fr;
+  gap: 5px;
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.45;
   padding: 2px 0;
 }
 
@@ -289,12 +333,12 @@ function formatTime(seconds) {
 .args-json {
   background: rgba(0, 0, 0, 0.6);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 12px;
+  padding: 10px;
   border-radius: 6px;
   font-family: "Consolas", "Monaco", monospace;
-  font-size: 12px;
+  font-size: 11px;
   color: #a5d6a7;
-  max-height: 180px;
+  max-height: 140px;
   overflow-y: auto;
   margin: 0;
   white-space: pre-wrap;
@@ -319,29 +363,29 @@ function formatTime(seconds) {
   font-size: 12px;
   text-align: right;
   color: #888;
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 .text-danger {
   color: #ff4d4f;
   font-weight: bold;
   font-family: monospace;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .modal-footer {
-  padding: 16px 20px;
+  padding: 12px 16px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 10px;
   background: rgba(0, 0, 0, 0.3);
 }
 
 button {
-  padding: 8px 24px;
+  padding: 7px 16px;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: bold;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -357,18 +401,18 @@ button {
 
 .btn-reject:hover {
   background: rgba(255, 77, 79, 0.2);
-  box-shadow: 0 0 10px rgba(255, 77, 79, 0.2);
+  box-shadow: 0 0 8px rgba(255, 77, 79, 0.2);
 }
 
 .btn-approve {
   background: var(--primary, #00ffc8);
   color: #000;
-  box-shadow: 0 0 10px rgba(0, 255, 200, 0.2);
+  box-shadow: 0 0 8px rgba(0, 255, 200, 0.2);
 }
 
 .btn-approve:hover {
   filter: brightness(1.15);
-  box-shadow: 0 0 15px var(--primary, #00ffc8);
+  box-shadow: 0 0 12px var(--primary, #00ffc8);
   transform: translateY(-1px);
 }
 </style>
