@@ -74,7 +74,7 @@ public class AgentServiceImpl implements AgentService {
         // 4. JSON Schema 校驗與修復
         if (!JsonSchemaValidator.validate(targetResource.getInputSchema(), argsJson)) {
             log.warn("参数校验失败，尝试自动修复...");
-            String repairPrompt = String.format(PromptTemplates.TOOL_ARGS_REPAIR_PROMPT, 
+            String repairPrompt = String.format(PromptTemplates.TOOL_ARGS_REPAIR_PROMPT,
                     targetResource.getInputSchema(), argsJson);
             argsJson = llmAdapter.generate(repairPrompt);
         }
@@ -91,9 +91,11 @@ public class AgentServiceImpl implements AgentService {
         if (ResourceType.SKILL.equals(targetResource.getType())) {
             executionResult = skillExecutor.execute(targetResource, argsJson);
         } else {
-            executionResult = toolExecutor.execute(targetResource, argsJson);
+            // 修復：提供 sessionId，避免觸發「未提供 sessionId」警告並啟用審批關聯
+            String sessionId = "agent-" + Thread.currentThread().threadId();
+            executionResult = toolExecutor.execute(sessionId, targetResource, argsJson);
         }
-        
+
         log.info("Agent 工具执行完毕，结果: {}", executionResult);
         return executionResult;
     }
@@ -104,7 +106,7 @@ public class AgentServiceImpl implements AgentService {
         String toolDesc = tools.stream()
                 .map(t -> String.format("- %s: %s", t.getName(), t.getDescription()))
                 .collect(Collectors.joining("\n"));
-        
+
         return String.format(PromptTemplates.TOOL_DECISION_PROMPT, input, toolDesc);
     }
 
