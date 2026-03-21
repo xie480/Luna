@@ -709,6 +709,7 @@ function uiLeave() {
       ".top-banner:hover",
       ".modal:hover",
       ".approval-mask:hover",
+      ".luna-intro-mask:hover",
     ].join(", ");
 
     const hovered = document.querySelector(selector);
@@ -745,6 +746,13 @@ watch(loginVisible, (val) => {
     overUI = true;
     updatePetState();
   } else {
+    uiLeave();
+  }
+});
+
+// 修復：入場遮罩關閉後，主動重算一次穿透狀態，避免卡在不可穿透
+watch(lunaIntroVisible, (val) => {
+  if (!val) {
     uiLeave();
   }
 });
@@ -1099,6 +1107,9 @@ async function startBootSequence() {
   gsap.delayedCall(4.5, async () => {
     lunaIntroVisible.value = false;
     bgParticlesVisible.value = false;
+
+    // 修復：啟動遮罩關閉後立即重算一次穿透，避免窗口卡在不可穿透
+    uiLeave();
 
     if (!model) {
       await waitForModelReady(10000);
