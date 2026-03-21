@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS mcp_skills (
     input_schema TEXT,
     output_schema TEXT,
     run_mode VARCHAR(20) DEFAULT 'SYNC',
+    tool_chain JSONB DEFAULT '{}'::jsonb,
     embedding vector(768),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -63,6 +64,7 @@ COMMENT ON COLUMN mcp_skills.method_name IS '執行方法名稱';
 COMMENT ON COLUMN mcp_skills.input_schema IS '參數 JSON Schema';
 COMMENT ON COLUMN mcp_skills.output_schema IS '輸出 JSON Schema';
 COMMENT ON COLUMN mcp_skills.run_mode IS 'SYNC 或 ASYNC';
+COMMENT ON COLUMN mcp_skills.tool_chain IS 'Skill 內部工具思維鏈定義(JSON)，描述工具選擇/依賴/並行策略';
 COMMENT ON COLUMN mcp_skills.embedding IS '技能語義向量 (PGVector, 768維)';
 
 -- 3. 任務表
@@ -83,11 +85,28 @@ COMMENT ON COLUMN tasks.status IS 'PENDING, RUNNING, COMPLETED, REJECTED, PENDIN
 COMMENT ON COLUMN tasks.input_args IS '執行參數';
 COMMENT ON COLUMN tasks.result IS '執行結果';
 
+-- =============================
+-- 向後兼容更新語句（你要求的 update/alter）
+-- =============================
+
+-- 舊庫補列：tool_chain
+ALTER TABLE IF EXISTS mcp_skills
+    ADD COLUMN IF NOT EXISTS tool_chain JSONB DEFAULT '{}'::jsonb;
+
+-- 舊數據補默認值
+UPDATE mcp_skills
+SET tool_chain = '{}'::jsonb
+WHERE tool_chain IS NULL;
+
 -- BTree 索引
 CREATE INDEX IF NOT EXISTS idx_mcp_tools_name ON mcp_tools(name);
 CREATE INDEX IF NOT EXISTS idx_mcp_skills_name ON mcp_skills(name);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at DESC);
+
+-- skill 工具链 JSON 檢索索引
+CREATE INDEX IF NOT EXISTS idx_mcp_skills_tool_chain_gin
+    ON mcp_skills USING gin (tool_chain);
 
 -- 向量索引
 CREATE INDEX IF NOT EXISTS idx_mcp_tools_embedding_ivfflat

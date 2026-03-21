@@ -237,6 +237,7 @@ public class McpServiceImpl implements McpService {
                 .runMode(RunMode.SYNC)
                 .requiresApproval(tool.getRequiresApproval() != null ? tool.getRequiresApproval() : false)
                 .sensitivity(tool.getSensitivity() != null ? tool.getSensitivity() : Sensitivity.LOW)
+                .toolChain(null)
                 .build();
     }
 
@@ -256,6 +257,7 @@ public class McpServiceImpl implements McpService {
                 .runMode(skill.getRunMode() != null ? skill.getRunMode() : RunMode.SYNC)
                 .requiresApproval(false)
                 .sensitivity(Sensitivity.LOW)
+                .toolChain(skill.getToolChain())
                 .build();
     }
 }

@@ -9,6 +9,7 @@ import org.yilena.luna.enums.RunMode;
 import org.yilena.luna.enums.Sensitivity;
 
 import java.io.Serializable;
+import java.util.Map;
 
 /**
  * MCP 资源 DTO (Data Transfer Object)
@@ -87,4 +88,9 @@ public class Resource implements Serializable {
      * 敏感度/权限等级 (Skill 特有字段，Tool 默认为 LOW)
      */
     private Sensitivity sensitivity;
+
+    /**
+     * Skill 内部工具思维链（JSON对象）
+     */
+    private Map<String, Object> toolChain;
 }

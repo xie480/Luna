@@ -8,9 +8,11 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.yilena.luna.enums.RunMode;
+import org.yilena.luna.handler.JsonbTypeHandler;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
+import java.util.Map;
 
 /**
  * MCP 技能实体 (对应 mcp_skills 表)
@@ -21,7 +23,7 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@TableName("mcp_skills")
+@TableName(value = "mcp_skills", autoResultMap = true)
 public class McpSkill implements Serializable {
 
     private static final long serialVersionUID = 1L;
@@ -87,6 +89,20 @@ public class McpSkill implements Serializable {
      */
     @TableField("run_mode")
     private RunMode runMode;
+
+    /**
+     * Skill 内部工具思维链定义（JSON）
+     * 示例：
+     * {
+     *   "steps":[
+     *     {"name":"search","tool":"web_search","parallelGroup":"A"},
+     *     {"name":"news","tool":"news_search","parallelGroup":"A"},
+     *     {"name":"scrape","tool":"web_scrape","dependsOn":["search","news"]}
+     *   ]
+     * }
+     */
+    @TableField(value = "tool_chain", typeHandler = JsonbTypeHandler.class)
+    private Map<String, Object> toolChain;
 
     /**
      * 文本的向量表示 (PGVector)，用于语义检索
