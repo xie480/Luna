@@ -16,6 +16,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.constants.RocketMqConstant;
 import org.yilena.luna.enums.LogType;
+import org.yilena.luna.exception.impl.NeedApprovalException;
 import org.yilena.luna.mq.dto.LogMessage;
 
 import java.io.PrintWriter;
@@ -71,8 +72,11 @@ public class LunaLogAspect {
                 }
             }
 
+            boolean approvalInterrupt = exception instanceof NeedApprovalException;
+
             LogType logType = annotation.type();
-            if (exception != null) {
+            if (exception != null && !approvalInterrupt) {
+                // 非审批中断异常才记为 ERROR
                 logType = LogType.ERROR;
             }
 
@@ -86,7 +90,8 @@ public class LunaLogAspect {
             String errorMessage = null;
             String errorStack = null;
 
-            if (exception != null) {
+            // 审批中断属于正常业务流，不记录错误堆栈
+            if (exception != null && !approvalInterrupt) {
                 errorMessage = exception.getMessage();
                 StringWriter sw = new StringWriter();
                 PrintWriter pw = new PrintWriter(sw);
