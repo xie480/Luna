@@ -19,6 +19,7 @@
 7. 在执行全过程保留审批、安全、可审计、可恢复能力
 8. 前端可视化展示任务流程图与子任务执行进度
 9. 无论任务最终成功或失败，都由 Luna 调用技能生成 HTML 任务报告并自动唤起浏览器展示
+10. 当用户给出需求后，先由 **BigModel 一次性完成“全局规划任务”**：产出子任务、串并行关系、所需 skill/tool、风险级别与阶段划分；规划结束后 BigModel 第一阶段任务即完成，后续进入“按阶段执行模式”
 
 ---
 
@@ -46,63 +47,98 @@
    - 输入：用户请求 + 历史上下文 + 桌面状态
    - 输出：任务目标、约束、成功标准
 
-2. **Planner（规划器）**
-   - 把目标拆成 Task DAG（有向无环图）
-   - 定义每个节点的依赖、可并行性、重试策略、所需能力标签
+2. **Master Planner（总规划器，BigModel）**
+   - 仅在用户新需求进入时触发一次
+   - 输出完整 `PlanBlueprint`：
+     - 子任务列表
+     - 依赖关系与串并行拓扑
+     - 每个子任务所需 Skill/Tool 候选
+     - 风险等级与审批策略
+     - 阶段划分（Phase 1..N）
+   - 规划完成后退出，不参与逐节点执行
 
-3. **Model Router（模型路由器）**
+3. **Phase Executor（阶段执行器）**
+   - 按 `PlanBlueprint` 的阶段顺序执行
+   - 阶段内按 DAG 并行/串行调度
+   - 阶段结束后进入下一阶段
+
+4. **Model Router（模型路由器）**
    - 按任务类型选择模型：
      - 规划/反思：big
      - 结构化抽取/分类：mid/small
      - 快速迭代/低成本：small/flash
      - 代码/命令生成：专用任务模型（后续可扩展）
 
-4. **Capability Matcher（能力匹配器）**
+5. **Capability Matcher（能力匹配器）**
    - 将每个节点映射到 Skill/Tool（可多候选）
    - 利用 resource embedding + schema 约束 + 历史成功率
 
-5. **Execution Scheduler（执行调度器）**
+6. **Execution Scheduler（执行调度器）**
    - 依据 DAG 进行串并行调度
    - 并行节点进线程池/虚拟线程；串行节点按依赖推进
    - 节点失败触发 loop：诊断 -> 重规划 -> 重试/降级
 
-6. **Observer & Critic（观察与评审）**
+7. **Observer & Critic（观察与评审）**
    - 收集每步执行结果，判断是否达标
    - 不达标时生成修正子任务（子图插入）
 
-7. **Policy Guard（策略守卫）**
+8. **Policy Guard（策略守卫）**
    - 统一复用现有 ExecutionGate + ApprovalService + AuthContext(jti)
    - 审批中断后可恢复到 DAG 当前节点继续执行
 
-8. **Plan Reporter（任务报告器，新增）**
+9. **Plan Reporter（任务报告器）**
    - 在任务结束时（成功/失败）统一触发报告技能
    - 负责组织任务摘要、节点结果、失败重试明细
    - 产出 HTML 文件并自动打开浏览器
 
 ---
 
-## 4. 核心流程（OpenClaw Loop）
+## 4. 核心流程（两段式：先规划后执行）
 
-定义主循环：
+### 4.1 规划阶段（BigModel 一次性任务）
+
+定义一次性总规划流程：
 
 1. **Understand**
    - 读取用户输入 + 近期会话 + 长期记忆 + 当前桌面状态
-2. **Plan**
-   - 产出初始任务图（DAG）
-3. **Execute**
-   - 调度节点执行（并行/串行）
-4. **Observe**
-   - 聚合节点输出、错误、外部反馈
-5. **Critique**
-   - 判断当前目标是否完成，是否偏航
-6. **Replan**
-   - 如未完成，补充/替换子任务，进入下一轮 loop
-7. **Finalize**
-   - 汇总结果回复用户，落盘审计，更新记忆
-8. **Report（新增）**
-   - 无论成功/失败，调用“任务报告技能”生成 HTML 并自动打开
+2. **Global Plan**
+   - BigModel 生成 `PlanBlueprint`，必须包含：
+     - `phases`（阶段划分）
+     - `nodes`（子任务）
+     - `edges`（依赖）
+     - `parallelGroups`（并行组）
+     - `resourcePlan`（每节点 skill/tool）
+     - `riskPlan`（风险级别与审批需求）
+3. **Plan Validate**
+   - 结构校验（JSON Schema）
+   - 规则校验（无环、无孤立关键节点、风险覆盖完整）
+4. **Freeze Plan**
+   - 规划冻结入库，标记版本号
+   - BigModel 第一个任务结束
 
-当满足以下任一条件终止 loop：
+> 关键要求：规划阶段结束后，不再依赖 BigModel 逐步“边想边执行”，后续改为“按阶段执行 + 必要时局部重规划”。
+
+### 4.2 执行阶段（按阶段推进）
+
+定义阶段执行循环：
+
+1. **Load Phase**
+   - 读取当前阶段节点
+2. **Execute**
+   - 阶段内按 DAG 调度（并行/串行）
+3. **Observe**
+   - 聚合节点输出、错误、外部反馈
+4. **Critique**
+   - 判断本阶段是否完成
+5. **Phase Close**
+   - 完成则推进下一阶段
+   - 失败则执行局部修复（不立即推翻全局规划）
+6. **Finalize**
+   - 全部阶段完成后输出最终结果
+7. **Report**
+   - 无论成功/失败，生成并展示 HTML 报告
+
+当满足以下任一条件终止执行：
 - 达成成功标准
 - 达到最大迭代次数
 - 出现不可恢复错误
@@ -121,10 +157,33 @@
 - constraints（时间/权限/隐私）
 - successCriteria
 - currentLoopIndex
+- planningModel（如 big）
+- planVersion
 
-### 5.2 TaskNode
+### 5.2 PlanBlueprint（新增）
+- planId
+- phases（阶段定义）
+- nodes
+- edges
+- riskMatrix
+- generatedAt
+- generatedByModel
+
+### 5.3 PlanPhase（新增）
+- phaseId
+- planId
+- name
+- objective
+- nodeIds
+- phaseOrder
+- entryCriteria
+- exitCriteria
+- status（PENDING/RUNNING/SUCCESS/FAILED）
+
+### 5.4 TaskNode
 - nodeId
 - planId
+- phaseId
 - name
 - type（ANALYZE / TOOL / SKILL / VALIDATE / SUMMARIZE / REPORT）
 - input
@@ -133,14 +192,15 @@
 - parallelGroup（并行组标识）
 - status（PENDING/RUNNING/SUCCESS/FAILED/BLOCKED/APPROVAL_PENDING/SKIPPED）
 - retryPolicy（maxRetry/backoff）
-- retryCount（实际已重试次数，新增）
+- retryCount（实际已重试次数）
 - modelHint（small/mid/big/flash）
 - resourceHint（候选 tool/skill）
 - output（节点输出结果，脱敏后）
-- outputForNext（传给后续节点的关键字段，新增）
-- failReason（失败原因，新增）
+- outputForNext（传给后续节点的关键字段）
+- failReason（失败原因）
+- riskLevel（LOW/MEDIUM/HIGH）
 
-### 5.3 TaskEdge
+### 5.5 TaskEdge
 - fromNodeId
 - toNodeId
 - condition（可选：条件分支）
@@ -166,14 +226,15 @@
   2) 核心执行节点
   3) 可选增强节点
 - 同层并行，层间串行
+- 阶段边界强约束：`Phase N` 全部满足 `exitCriteria` 才能进入 `Phase N+1`
 
 ---
 
 ## 7. 模型路由策略（Multi-Model）
 
 ### 7.1 基础路由表（建议初版）
+- 全局规划（只执行一次）：**big**
 - 意图识别、分类：small/mid
-- 任务拆解与重规划：big
 - 参数补全、schema 修复：mid
 - 执行后总结：mid/big
 - 安全检测：small（低温）
@@ -209,7 +270,7 @@
 
 ### 8.3 执行失败切换
 - 主候选失败时自动尝试备用候选
-- 超过阈值触发 replanning
+- 超过阈值触发局部重规划（优先在当前阶段内修复）
 
 ---
 
@@ -224,6 +285,8 @@
    - 重新选择资源
    - 或插入前置探测节点
 4. 记录节点复盘信息（用于后续学习）
+
+> 注意：loop 默认是“执行期局部 loop”，不覆盖“规划期一次性 bigmodel 任务”原则。
 
 ---
 
@@ -242,7 +305,7 @@
 - 审批回调后：
   - 同意：节点继续执行
   - 拒绝：节点标记 `SKIPPED`，由 Planner 决定是否补替代节点
-- 最终仍回到主 loop 继续
+- 最终仍回到当前阶段继续推进
 
 ---
 
@@ -252,32 +315,37 @@
 - `luna:plan:{planId}:state`（当前状态）
 - `luna:plan:{planId}:readyQueue`
 - `luna:plan:{planId}:node:{nodeId}`（节点快照）
+- `luna:plan:{planId}:phase:{phaseId}`（阶段快照）
 - 快速恢复、短期缓存
 
 ### 11.2 PostgreSQL（持久态）
 新增表建议：
 - `plan_instance`
+- `plan_phase`（新增）
 - `plan_node`
 - `plan_edge`
 - `plan_event_log`
 - `plan_checkpoint`
-- `plan_report`（新增，可存报告文件路径与摘要）
+- `plan_report`（可存报告文件路径与摘要）
+- `plan_blueprint`（新增，保存 bigmodel 全局规划原文）
 
 用途：
 - 审计追踪
 - 失败复盘
 - 离线优化模型路由与资源选择
 - 任务报告留档与回放
+- 规划结果版本化管理
 
 ---
 
-## 12. 前端任务流程图与执行明细展示需求（新增）
+## 12. 前端任务流程图与执行明细展示需求
 
 前端必须支持“任务级可视化”：
 
 1. **流程图展示**
    - 按 DAG 渲染节点与依赖边
    - 区分串行链路与并行分支（并行组颜色区分）
+   - 支持阶段视图（按 phase 分组）
 
 2. **每个子任务实时进度**
    - 状态：PENDING / RUNNING / SUCCESS / FAILED / APPROVAL_PENDING / SKIPPED
@@ -305,12 +373,14 @@
 
 建议新增事件：
 - `PLAN_CREATED`
+- `PLAN_PHASE_STARTED`（新增）
+- `PLAN_PHASE_FINISHED`（新增）
 - `PLAN_NODE_RUNNING`
 - `PLAN_NODE_SUCCESS`
 - `PLAN_NODE_FAILED`
 - `PLAN_REPLANNED`
 - `PLAN_FINISHED`
-- `PLAN_REPORT_READY`（新增，报告 HTML 可访问）
+- `PLAN_REPORT_READY`（报告 HTML 可访问）
 
 前端可视化：
 - 展示 DAG 节点执行进度
@@ -323,6 +393,7 @@
 
 - `PLAN_NODE_SUCCESS`：
   - `planId`
+  - `phaseId`
   - `nodeId`
   - `status`
   - `costMs`
@@ -331,6 +402,7 @@
 
 - `PLAN_NODE_FAILED`：
   - `planId`
+  - `phaseId`
   - `nodeId`
   - `status`
   - `retryCount`
@@ -340,7 +412,7 @@
 
 ---
 
-## 14. 任务报告技能（成功/失败必调，新增）
+## 14. 任务报告技能（成功/失败必调）
 
 ### 14.1 目标
 无论 Plan 最终是成功、失败或部分完成，都必须调用一个统一 Skill 生成任务报告：
@@ -352,6 +424,7 @@
 - `sessionId`
 - `userGoal`
 - `finalStatus`（SUCCESS/FAILED/PARTIAL/CANCELLED）
+- `phases`（阶段执行明细）
 - `nodes`（节点执行明细）
 - `timeline`（关键时间线）
 - `summary`（模型总结）
@@ -367,6 +440,7 @@
 
 ### 14.4 报告页面建议区块
 - 任务概览（目标、状态、总耗时）
+- 阶段总览（每阶段目标、状态、耗时）
 - DAG 流程图（可静态 SVG 或前端渲染）
 - 节点执行列表
   - 成功：结果、输出给下游的数据
@@ -380,14 +454,16 @@
 
 关键指标：
 - 计划成功率
+- 平均阶段数
 - 平均 loop 次数
 - 节点失败率（按 tool/skill 维度）
 - 审批通过率、审批耗时
 - 模型路由命中率与成本
-- 报告生成成功率（新增）
+- 报告生成成功率
 
 日志建议：
 - 每个 node 记录 `input/output/error/model/resource/costMs/retryCount/outputForNext`
+- 每个 phase 记录 `entry/exit/blockedReason`
 - 与现有 `luna_log` 打通 traceId，串联完整链路
 - 记录报告生成与浏览器唤起结果
 
@@ -396,7 +472,8 @@
 ## 16. 分阶段实施路线图
 
 ### Phase A：最小可用编排（MVP）
-- 单轮 Plan（无 Replan）
+- BigModel 一次性全局规划
+- 按阶段执行（无复杂 replanning）
 - 支持 DAG 串并行
 - 支持审批中断恢复
 - 支持 2-3 类模型路由
@@ -404,7 +481,7 @@
 
 ### Phase B：复杂任务 loop
 - 节点失败后自动修复与重试
-- 支持 replanning（子图插入）
+- 支持局部 replanning（子图插入）
 - 增强可观测事件
 - 前端展示重试次数与失败原因
 
@@ -434,6 +511,8 @@
 
 建议新增：
 - `PlanOrchestratorService`
+- `MasterPlanningService`（BigModel 总规划）
+- `PhaseExecutionService`
 - `TaskGraphService`
 - `ModelRoutingService`
 - `CapabilityMatchService`
@@ -452,6 +531,8 @@
 - 引入资源锁（窗口/应用级 mutex）
 
 3. 模型成本上升
+- 规划只做一次 bigmodel
+- 执行阶段优先 mid/small
 - 路由降级 + 缓存中间结果 + 批量执行
 
 4. 审批频繁打断体验
@@ -481,6 +562,7 @@
   - 传递给下游的数据
   - 失败原因与重试次数
 - 无论任务成功/失败，均生成 HTML 报告并自动打开浏览器，成功率 >= 99%
+- BigModel 规划任务执行后可正确冻结阶段方案，后续按阶段执行无偏移
 
 ---
 
@@ -488,9 +570,89 @@
 
 本方案将 Luna 从“单轮对话 + 工具调用”升级为“任务级自治编排系统”：
 - 能理解目标
-- 能分解与调度
+- 能一次性完成全局规划
+- 能按阶段稳定执行
 - 能在执行中学习与修正
 - 能在安全可控下进行桌面级任务推进
 - 能将全过程可视化给前端，并在任务结束自动产出可阅读的 HTML 成果报告
 
 建议先落地 MVP（Phase A），以最小闭环验证架构，再逐步迭代到完整 OpenClaw 风格自治调度。
+
+---
+
+## 21. 本文档对应需要新增的 Skill 与 Tool 清单（最终汇总）
+
+### 21.1 需要新增的 Skill（编排层）
+
+1. `plan_user_requirement_bigmodel`
+   - 用途：BigModel 一次性全局规划
+   - 输入：userGoal / context / constraints
+   - 输出：PlanBlueprint（含阶段、DAG、资源、风险）
+
+2. `validate_plan_blueprint`
+   - 用途：校验规划结构合法性（无环、依赖完整、风险覆盖）
+   - 输出：validateResult + 修复建议
+
+3. `execute_plan_phase`
+   - 用途：执行单个阶段（阶段内调度节点）
+   - 输出：phaseResult
+
+4. `replan_failed_nodes`
+   - 用途：阶段内局部重规划（失败节点替换/补节点）
+   - 输出：patchGraph
+
+5. `aggregate_phase_outputs`
+   - 用途：聚合阶段产出，生成下阶段输入上下文
+   - 输出：phaseContextForNext
+
+6. `generate_task_report_and_open`
+   - 用途：生成 HTML 报告并自动打开浏览器（成功/失败都必须执行）
+   - 输出：reportPath / reportUrl / openResult
+
+7. `publish_plan_sse_events`
+   - 用途：统一推送 PLAN/PHASE/NODE 事件给前端
+   - 输出：eventAck
+
+8. `checkpoint_plan_state`
+   - 用途：关键节点落盘与恢复点保存
+   - 输出：checkpointId
+
+### 21.2 需要新增的 Tool（执行层）
+
+1. `save_plan_blueprint`
+   - 将规划结果写入数据库/Redis（版本化）
+
+2. `load_plan_blueprint`
+   - 读取指定 planId 的规划结构
+
+3. `list_phase_nodes`
+   - 查询某阶段的全部节点及状态
+
+4. `update_node_status`
+   - 更新节点状态/耗时/失败原因/重试次数
+
+5. `append_node_output`
+   - 写入节点 output 与 outputForNext
+
+6. `acquire_execution_lock`
+   - 并行执行资源锁（窗口/应用/文件级）
+
+7. `release_execution_lock`
+   - 释放执行锁
+
+8. `open_browser_with_file`
+   - 打开指定 HTML 报告文件
+
+9. `write_html_report_file`
+   - 将报告内容写入本地文件系统
+
+10. `query_plan_progress`
+    - 前端轮询/补偿查询当前计划进度
+
+11. `emit_plan_event_sse`
+    - 底层 SSE 事件发送工具（PLAN_NODE_SUCCESS 等）
+
+12. `record_plan_audit_log`
+    - 将计划级事件写入审计日志（便于复盘）
+
+> 备注：以上 Skill/Tool 为建议最小集合，可按 Phase A/B/C 分批落地。
