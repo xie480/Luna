@@ -85,7 +85,7 @@ auth:
 mybatis-plus:
   type-aliases-package: org.yilena.luna.*.entity
   type-handlers-package: com.baomidou.mybatisplus.extension.handlers
-  mapper-locations: classpath:/mapper/*.xml,classpath:/org/yilena/luna/mapper/*.xml
+  mapper-locations: classpath:/mapper/*.xml
   global-config:
     db-config:
       id-type: auto
