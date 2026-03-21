@@ -14,6 +14,7 @@ import org.yilena.luna.entity.Memory;
 import org.yilena.luna.enums.LogType;
 import org.yilena.luna.enums.MemoryType;
 import org.yilena.luna.mapper.MemoryMapper;
+import org.yilena.luna.utils.LlmClientUtil;
 
 import java.util.Arrays;
 
@@ -21,10 +22,12 @@ import java.util.Arrays;
 public class MemoryTools extends BaseTool {
 
     private final MemoryMapper memoryMapper;
+    private final LlmClientUtil llmClientUtil;
 
-    public MemoryTools(ObjectMapper objectMapper, MemoryMapper memoryMapper) {
+    public MemoryTools(ObjectMapper objectMapper, MemoryMapper memoryMapper, LlmClientUtil llmClientUtil) {
         super(objectMapper);
         this.memoryMapper = memoryMapper;
+        this.llmClientUtil = llmClientUtil;
     }
 
     @LunaState(value = LunaStateConstant.VALUE_MEMORY, status = LunaStateConstant.STATUS_MEMORY)
@@ -41,11 +44,22 @@ public class MemoryTools extends BaseTool {
         try {
             if ("INSERT".equalsIgnoreCase(action)) {
                 if (memoryType == null || content == null) return error("INSERT 必须提供 memoryType 和 content");
+
+                // 插入前向量化（luna_memory.embedding）
+                String embeddingText = (sessionId == null ? "" : sessionId) + " " +
+                        (memoryType == null ? "" : memoryType) + " " +
+                        content;
+                String embedding = llmClientUtil.getEmbedding(embeddingText);
+                if (embedding == null || embedding.isBlank() || "[]".equals(embedding.trim())) {
+                    return error("INSERT 向量化失败，embedding 为空");
+                }
+
                 Memory memory = Memory.builder()
                         .sessionId(sessionId)
                         .memoryType(MemoryType.valueOf(memoryType.toUpperCase()))
                         .content(content)
                         .weight(weight != null ? weight : 1)
+                        .embedding(embedding)
                         .build();
                 memoryMapper.insert(memory);
                 return success(memoryMapper.selectById(memory.getId()));

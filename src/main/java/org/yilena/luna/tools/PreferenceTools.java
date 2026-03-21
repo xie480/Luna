@@ -13,15 +13,18 @@ import org.yilena.luna.constants.LunaStateConstant;
 import org.yilena.luna.entity.UserPreference;
 import org.yilena.luna.enums.LogType;
 import org.yilena.luna.mapper.UserPreferenceMapper;
+import org.yilena.luna.utils.LlmClientUtil;
 
 @Component
 public class PreferenceTools extends BaseTool {
 
     private final UserPreferenceMapper userPreferenceMapper;
+    private final LlmClientUtil llmClientUtil;
 
-    public PreferenceTools(ObjectMapper objectMapper, UserPreferenceMapper userPreferenceMapper) {
+    public PreferenceTools(ObjectMapper objectMapper, UserPreferenceMapper userPreferenceMapper, LlmClientUtil llmClientUtil) {
         super(objectMapper);
         this.userPreferenceMapper = userPreferenceMapper;
+        this.llmClientUtil = llmClientUtil;
     }
 
     @LunaState(value = LunaStateConstant.VALUE_PREFERENCE, status = LunaStateConstant.STATUS_PREFERENCE)
@@ -37,7 +40,22 @@ public class PreferenceTools extends BaseTool {
         try {
             if ("INSERT".equalsIgnoreCase(action)) {
                 if (prefKey == null || prefValue == null) return error("INSERT 必须提供 prefKey 和 prefValue");
-                UserPreference pref = UserPreference.builder().prefKey(prefKey).prefValue(prefValue).description(description).build();
+
+                // 插入前向量化（user_preference.embedding）
+                String embeddingText = (prefKey == null ? "" : prefKey) + " " +
+                        (prefValue == null ? "" : prefValue) + " " +
+                        (description == null ? "" : description);
+                String embedding = llmClientUtil.getEmbedding(embeddingText);
+                if (embedding == null || embedding.isBlank() || "[]".equals(embedding.trim())) {
+                    return error("INSERT 向量化失败，embedding 为空");
+                }
+
+                UserPreference pref = UserPreference.builder()
+                        .prefKey(prefKey)
+                        .prefValue(prefValue)
+                        .description(description)
+                        .embedding(embedding)
+                        .build();
                 userPreferenceMapper.insert(pref);
                 return success(userPreferenceMapper.selectById(pref.getId()));
             } else if ("QUERY".equalsIgnoreCase(action)) {
