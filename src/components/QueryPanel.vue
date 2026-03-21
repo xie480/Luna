@@ -71,7 +71,22 @@
                 <td :colspan="headers.length" class="empty">暂无数据</td>
               </tr>
               <tr v-for="(r, idx) in rows" :key="idx">
-                <td v-for="h in headers" :key="h">{{ stringifyCell(r[h]) }}</td>
+                <td v-for="h in headers" :key="h">
+                  <div
+                    class="cell-content"
+                    :class="{ expanded: isExpanded(idx, h) }"
+                    :title="stringifyCell(r[h])"
+                  >
+                    {{ getCellDisplayText(r[h], idx, h) }}
+                  </div>
+                  <button
+                    v-if="shouldCollapse(r[h])"
+                    class="cell-toggle"
+                    @click="toggleExpand(idx, h)"
+                  >
+                    {{ isExpanded(idx, h) ? "收起" : "展开" }}
+                  </button>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -110,13 +125,13 @@ defineEmits(["close", "mouseenter", "mouseleave"]);
 const tab = ref("kb");
 const loading = ref(false);
 
-const x = ref(window.innerWidth / 2 - 420);
-const y = ref(window.innerHeight / 2 - 260);
-const width = ref(840);
-const height = ref(520);
+const x = ref(window.innerWidth / 2 - 540);
+const y = ref(window.innerHeight / 2 - 320);
+const width = ref(1080);
+const height = ref(640);
 
-const minWidth = 620;
-const minHeight = 360;
+const minWidth = 760;
+const minHeight = 460;
 
 let isDragging = false;
 let dragOffset = { x: 0, y: 0 };
@@ -131,8 +146,10 @@ function startDrag(e) {
 }
 function onDrag(e) {
   if (!isDragging) return;
-  x.value = e.clientX - dragOffset.x;
-  y.value = e.clientY - dragOffset.y;
+  const maxX = window.innerWidth - 80;
+  const maxY = window.innerHeight - 80;
+  x.value = Math.min(Math.max(e.clientX - dragOffset.x, -width.value + 120), maxX);
+  y.value = Math.min(Math.max(e.clientY - dragOffset.y, -60), maxY);
 }
 function stopDrag() {
   isDragging = false;
@@ -176,6 +193,7 @@ function stopResize() {
 
 const filters = reactive({});
 const rows = ref([]);
+const expandedMap = reactive({});
 const pager = reactive({ total: 0, pages: 1, pageNo: 1, pageSize: 10 });
 
 const headers = computed(() => {
@@ -194,9 +212,39 @@ function stringifyCell(v) {
   return String(v);
 }
 
+function getCellKey(rowIdx, field) {
+  return `${pager.pageNo}-${rowIdx}-${field}`;
+}
+
+function shouldCollapse(v) {
+  const text = stringifyCell(v);
+  return text.length > 120 || text.includes("\n");
+}
+
+function isExpanded(rowIdx, field) {
+  return !!expandedMap[getCellKey(rowIdx, field)];
+}
+
+function toggleExpand(rowIdx, field) {
+  const key = getCellKey(rowIdx, field);
+  expandedMap[key] = !expandedMap[key];
+}
+
+function getCellDisplayText(v, rowIdx, field) {
+  const text = stringifyCell(v);
+  if (!shouldCollapse(v)) return text;
+  if (isExpanded(rowIdx, field)) return text;
+  return text.slice(0, 120) + "...";
+}
+
+function resetExpandedState() {
+  Object.keys(expandedMap).forEach((k) => delete expandedMap[k]);
+}
+
 function resetFilters() {
   Object.keys(filters).forEach((k) => { filters[k] = ""; });
   rows.value = [];
+  resetExpandedState();
   pager.total = 0;
   pager.pages = 1;
   pager.pageNo = 1;
@@ -230,6 +278,7 @@ async function query(pageNo = 1) {
     else res = await queryLog(payload);
 
     rows.value = res?.records || [];
+    resetExpandedState();
     pager.total = res?.total || 0;
     pager.pages = res?.pages || 1;
     pager.pageNo = res?.pageNo || 1;
@@ -237,6 +286,7 @@ async function query(pageNo = 1) {
   } catch (e) {
     console.error("[QueryPanel] 查询失败", e);
     rows.value = [];
+    resetExpandedState();
   } finally {
     loading.value = false;
   }
@@ -246,11 +296,13 @@ async function query(pageNo = 1) {
 <style scoped>
 .query-panel {
   position: fixed;
-  background: var(--bg-panel, rgba(5,10,19,0.95));
+  background:
+    radial-gradient(circle at top right, rgba(0, 255, 200, 0.08), transparent 35%),
+    var(--bg-panel, rgba(5,10,19,0.95));
   border: 1px solid var(--border, rgba(0,255,200,0.3));
-  border-radius: 10px;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.8);
-  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  box-shadow: 0 24px 70px rgba(0,0,0,0.78), 0 0 0 1px rgba(255,255,255,0.03) inset;
+  backdrop-filter: blur(12px);
   color: var(--text-main, #fff);
   z-index: 9600;
   display: flex;
@@ -260,7 +312,7 @@ async function query(pageNo = 1) {
 .panel-header {
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
-  background: rgba(0,0,0,0.25);
+  background: linear-gradient(180deg, rgba(0,0,0,0.3), rgba(0,0,0,0.12));
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -279,7 +331,7 @@ async function query(pageNo = 1) {
 }
 .panel-body { display: flex; flex: 1; min-height: 0; }
 .sidebar {
-  width: 140px;
+  width: 150px;
   border-right: 1px solid var(--border);
   background: var(--bg-sidebar, rgba(0,0,0,0.3));
   padding: 10px 0;
@@ -303,10 +355,11 @@ async function query(pageNo = 1) {
   flex-direction: column;
   gap: 10px;
   min-width: 0;
+  overflow: auto;
 }
 .filter-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
 .filter-grid input, .pager select {
@@ -325,17 +378,19 @@ async function query(pageNo = 1) {
 }
 .btn-primary { background: var(--primary, #00ffc8); color: #000; border-color: transparent; font-weight: bold; }
 .btn-secondary { background: rgba(255,255,255,0.08); color: var(--text-main, #fff); }
+
 .table-wrap {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  border: 1px solid var(--border, rgba(255,255,255,0.1));
-  border-radius: 8px;
+  border: 1px solid var(--border, rgba(255,255,255,0.12));
+  border-radius: 10px;
+  background: rgba(0,0,0,0.18);
 }
-.data-table { width: 100%; border-collapse: collapse; }
+.data-table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
 .data-table th, .data-table td {
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  padding: 10px 10px;
   text-align: left;
   font-size: 12px;
   vertical-align: top;
@@ -343,9 +398,38 @@ async function query(pageNo = 1) {
 .data-table th {
   position: sticky;
   top: 0;
-  background: rgba(0,0,0,0.5);
+  z-index: 2;
+  background: linear-gradient(180deg, rgba(0,0,0,0.78), rgba(0,0,0,0.58));
   color: var(--primary, #00ffc8);
+  font-weight: 700;
 }
+.data-table tbody tr:nth-child(odd) td {
+  background: rgba(255,255,255,0.02);
+}
+.data-table tbody tr:hover td {
+  background: rgba(0,255,200,0.06);
+}
+
+.cell-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.45;
+}
+.cell-content:not(.expanded) {
+  max-height: 3.2em;
+  overflow: hidden;
+}
+.cell-toggle {
+  margin-top: 4px;
+  background: transparent;
+  border: 1px solid var(--border, rgba(255,255,255,0.2));
+  color: var(--primary, #00ffc8);
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
 .empty { text-align: center; color: var(--text-dim, #999); padding: 20px 0; }
 .pager {
   display: flex;
@@ -366,4 +450,24 @@ async function query(pageNo = 1) {
 .resize-handle.se { right: 0; bottom: 0; cursor: se-resize; }
 .resize-handle.nw { left: 0; top: 0; cursor: nw-resize; }
 .resize-handle.ne { right: 0; top: 0; cursor: ne-resize; }
-</style>
+
+.table-wrap::-webkit-scrollbar,
+.content::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.table-wrap::-webkit-scrollbar-track,
+.content::-webkit-scrollbar-track {
+  background: rgba(255,255,255,0.04);
+  border-radius: 8px;
+}
+.table-wrap::-webkit-scrollbar-thumb,
+.content::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(0,255,200,0.45), rgba(0,180,255,0.4));
+  border-radius: 8px;
+  border: 2px solid rgba(0,0,0,0.2);
+}
+.table-wrap::-webkit-scrollbar-thumb:hover,
+.content::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(0,255,200,0.7), rgba(0,180,255,0.65));
+}
