@@ -471,3 +471,4 @@ async function query(pageNo = 1) {
 .content::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(180deg, rgba(0,255,200,0.7), rgba(0,180,255,0.65));
 }
+</style>
