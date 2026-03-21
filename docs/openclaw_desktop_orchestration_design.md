@@ -17,6 +17,8 @@
 5. 对复杂任务进行逐步 loop（Observe -> Replan -> Act）
 6. 灵活切换不同模型（Router：small/mid/big/flash + 任务型模型）
 7. 在执行全过程保留审批、安全、可审计、可恢复能力
+8. 前端可视化展示任务流程图与子任务执行进度
+9. 无论任务最终成功或失败，都由 Luna 调用技能生成 HTML 任务报告并自动唤起浏览器展示
 
 ---
 
@@ -72,6 +74,11 @@
    - 统一复用现有 ExecutionGate + ApprovalService + AuthContext(jti)
    - 审批中断后可恢复到 DAG 当前节点继续执行
 
+8. **Plan Reporter（任务报告器，新增）**
+   - 在任务结束时（成功/失败）统一触发报告技能
+   - 负责组织任务摘要、节点结果、失败重试明细
+   - 产出 HTML 文件并自动打开浏览器
+
 ---
 
 ## 4. 核心流程（OpenClaw Loop）
@@ -92,6 +99,8 @@
    - 如未完成，补充/替换子任务，进入下一轮 loop
 7. **Finalize**
    - 汇总结果回复用户，落盘审计，更新记忆
+8. **Report（新增）**
+   - 无论成功/失败，调用“任务报告技能”生成 HTML 并自动打开
 
 当满足以下任一条件终止 loop：
 - 达成成功标准
@@ -117,15 +126,19 @@
 - nodeId
 - planId
 - name
-- type（ANALYZE / TOOL / SKILL / VALIDATE / SUMMARIZE）
+- type（ANALYZE / TOOL / SKILL / VALIDATE / SUMMARIZE / REPORT）
 - input
 - expectedOutputSchema
 - dependencies（前置节点列表）
 - parallelGroup（并行组标识）
-- status（PENDING/RUNNING/SUCCESS/FAILED/BLOCKED/APPROVAL_PENDING）
+- status（PENDING/RUNNING/SUCCESS/FAILED/BLOCKED/APPROVAL_PENDING/SKIPPED）
 - retryPolicy（maxRetry/backoff）
+- retryCount（实际已重试次数，新增）
 - modelHint（small/mid/big/flash）
 - resourceHint（候选 tool/skill）
+- output（节点输出结果，脱敏后）
+- outputForNext（传给后续节点的关键字段，新增）
+- failReason（失败原因，新增）
 
 ### 5.3 TaskEdge
 - fromNodeId
@@ -164,6 +177,7 @@
 - 参数补全、schema 修复：mid
 - 执行后总结：mid/big
 - 安全检测：small（低温）
+- 报告文案整理：mid（固定结构，低成本）
 
 ### 7.2 路由输入信号
 - 任务复杂度（节点数、依赖深度）
@@ -247,15 +261,47 @@
 - `plan_edge`
 - `plan_event_log`
 - `plan_checkpoint`
+- `plan_report`（新增，可存报告文件路径与摘要）
 
 用途：
 - 审计追踪
 - 失败复盘
 - 离线优化模型路由与资源选择
+- 任务报告留档与回放
 
 ---
 
-## 12. SSE 与前端交互扩展
+## 12. 前端任务流程图与执行明细展示需求（新增）
+
+前端必须支持“任务级可视化”：
+
+1. **流程图展示**
+   - 按 DAG 渲染节点与依赖边
+   - 区分串行链路与并行分支（并行组颜色区分）
+
+2. **每个子任务实时进度**
+   - 状态：PENDING / RUNNING / SUCCESS / FAILED / APPROVAL_PENDING / SKIPPED
+   - 开始时间、结束时间、耗时
+   - 当前重试次数与最大重试次数
+
+3. **成功节点展示**
+   - 执行结果（output）
+   - 传给下一任务的关键数据（outputForNext）
+   - 下游依赖节点列表
+
+4. **失败节点展示**
+   - 失败原因（failReason）
+   - 重试次数（retryCount）
+   - 每次重试失败摘要（可折叠）
+
+5. **审批节点展示**
+   - 审批状态与 taskId
+   - 同意/拒绝操作入口
+   - 审批后节点恢复执行轨迹
+
+---
+
+## 13. SSE 与前端交互扩展
 
 建议新增事件：
 - `PLAN_CREATED`
@@ -264,16 +310,73 @@
 - `PLAN_NODE_FAILED`
 - `PLAN_REPLANNED`
 - `PLAN_FINISHED`
+- `PLAN_REPORT_READY`（新增，报告 HTML 可访问）
 
 前端可视化：
 - 展示 DAG 节点执行进度
 - 展示当前并行组
 - 审批节点高亮弹窗
 - 支持用户中断任务
+- 支持从 `PLAN_REPORT_READY` 一键查看任务报告
+
+### 13.1 事件载荷建议（最小字段）
+
+- `PLAN_NODE_SUCCESS`：
+  - `planId`
+  - `nodeId`
+  - `status`
+  - `costMs`
+  - `output`
+  - `outputForNext`
+
+- `PLAN_NODE_FAILED`：
+  - `planId`
+  - `nodeId`
+  - `status`
+  - `retryCount`
+  - `maxRetry`
+  - `failReason`
+  - `lastErrorStackBrief`
 
 ---
 
-## 13. 监控与可观测性
+## 14. 任务报告技能（成功/失败必调，新增）
+
+### 14.1 目标
+无论 Plan 最终是成功、失败或部分完成，都必须调用一个统一 Skill 生成任务报告：
+
+建议技能名：`generate_task_report_and_open`
+
+### 14.2 输入建议
+- `planId`
+- `sessionId`
+- `userGoal`
+- `finalStatus`（SUCCESS/FAILED/PARTIAL/CANCELLED）
+- `nodes`（节点执行明细）
+- `timeline`（关键时间线）
+- `summary`（模型总结）
+
+### 14.3 技能执行行为（强制）
+1. 生成结构化 HTML 报告（含流程图、节点状态、成功产出、失败原因、重试记录）
+2. 将 HTML 写入本地文件（建议目录：`./data/reports/{planId}.html`）
+3. 自动唤起系统默认浏览器打开该 HTML
+4. 返回：
+   - `reportPath`
+   - `reportUrl`（file://...）
+   - `openResult`
+
+### 14.4 报告页面建议区块
+- 任务概览（目标、状态、总耗时）
+- DAG 流程图（可静态 SVG 或前端渲染）
+- 节点执行列表
+  - 成功：结果、输出给下游的数据
+  - 失败：失败原因、重试次数、最终错误
+- 审批记录
+- 结论与下一步建议
+
+---
+
+## 15. 监控与可观测性
 
 关键指标：
 - 计划成功率
@@ -281,39 +384,45 @@
 - 节点失败率（按 tool/skill 维度）
 - 审批通过率、审批耗时
 - 模型路由命中率与成本
+- 报告生成成功率（新增）
 
 日志建议：
-- 每个 node 记录 `input/output/error/model/resource/costMs`
+- 每个 node 记录 `input/output/error/model/resource/costMs/retryCount/outputForNext`
 - 与现有 `luna_log` 打通 traceId，串联完整链路
+- 记录报告生成与浏览器唤起结果
 
 ---
 
-## 14. 分阶段实施路线图
+## 16. 分阶段实施路线图
 
 ### Phase A：最小可用编排（MVP）
 - 单轮 Plan（无 Replan）
 - 支持 DAG 串并行
 - 支持审批中断恢复
 - 支持 2-3 类模型路由
+- 前端最小流程图展示（静态节点状态）
 
 ### Phase B：复杂任务 loop
 - 节点失败后自动修复与重试
 - 支持 replanning（子图插入）
 - 增强可观测事件
+- 前端展示重试次数与失败原因
 
 ### Phase C：桌面调度增强
 - 引入桌面状态感知节点
 - 引入资源互斥与执行窗口管理
 - 引入用户可视化任务图与人工介入点
+- 接入报告技能并自动打开浏览器
 
 ### Phase D：策略学习与优化
 - 基于历史成功率优化路由和工具选择
 - 自动调整并行度与重试策略
 - 引入任务模板库（常见任务一键规划）
+- 报告模板与复盘建议智能化
 
 ---
 
-## 15. 与现有代码的映射建议
+## 17. 与现有代码的映射建议
 
 可复用：
 - AgentService（可作为 Planner/Executor 的上层入口）
@@ -329,11 +438,12 @@
 - `ModelRoutingService`
 - `CapabilityMatchService`
 - `PlanStateStore`（Redis + DB）
-- `PlanExecutionController`（可选，对前端暴露任务状态查询）
+- `PlanExecutionController`（对前端暴露任务状态查询）
+- `TaskReportSkill`（生成 HTML + 打开浏览器）
 
 ---
 
-## 16. 风险与应对
+## 18. 风险与应对
 
 1. 任务图失控（无限 replanning）
 - 设最大 loop、最大节点数、最大执行时长
@@ -350,10 +460,15 @@
 
 5. 可解释性不足
 - 每次计划都保留“规划理由 + 选择理由”
+- 强制记录 `outputForNext` 与 `failReason`
+
+6. 报告技能失败导致无法展示成果
+- 报告技能设兜底：至少输出 JSON 报告并保存在日志
+- 浏览器唤起失败时返回可点击文件路径
 
 ---
 
-## 17. 验收标准（建议）
+## 19. 验收标准（建议）
 
 - 复杂任务（>=6 节点）可稳定执行
 - 并行/串行逻辑正确率 >= 95%
@@ -361,15 +476,21 @@
 - 失败可恢复率 >= 90%
 - 全链路日志可追溯（planId + traceId）
 - 前端可实时看到节点级状态变化
+- 前端可查看每个子任务：
+  - 成功结果
+  - 传递给下游的数据
+  - 失败原因与重试次数
+- 无论任务成功/失败，均生成 HTML 报告并自动打开浏览器，成功率 >= 99%
 
 ---
 
-## 18. 总结
+## 20. 总结
 
 本方案将 Luna 从“单轮对话 + 工具调用”升级为“任务级自治编排系统”：
 - 能理解目标
 - 能分解与调度
 - 能在执行中学习与修正
 - 能在安全可控下进行桌面级任务推进
+- 能将全过程可视化给前端，并在任务结束自动产出可阅读的 HTML 成果报告
 
 建议先落地 MVP（Phase A），以最小闭环验证架构，再逐步迭代到完整 OpenClaw 风格自治调度。
