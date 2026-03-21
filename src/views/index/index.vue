@@ -445,6 +445,13 @@ async function handleLogout() {
     showSettings.value = false;
     showChat.value = false;
     showHistory.value = false;
+    showApproval.value = false;
+    approvalTask.value = null;
+
+    // 關鍵修復：登出後立即恢復可點擊狀態，避免穿透殘留導致登入框無法點擊
+    overUI = true;
+    overModel = false;
+    updatePetState();
 
     if (model) {
       gsap.to(model, {
@@ -715,6 +722,16 @@ watch(showChat, (val) => { if (!val) uiLeave(); else updatePetState(); });
 watch(showSettings, (val) => { if (!val) uiLeave(); else updatePetState(); });
 watch(showHistory, (val) => { if (!val) uiLeave(); else updatePetState(); });
 watch(showApproval, (val) => { if (!val) uiLeave(); else updatePetState(); });
+
+// 關鍵修復：登入遮罩顯示時，強制設定 overUI=true，確保窗口不穿透
+watch(loginVisible, (val) => {
+  if (val) {
+    overUI = true;
+    updatePetState();
+  } else {
+    uiLeave();
+  }
+});
 
 watch(modelVisible, (val) => {
   localStorage.setItem(LUNA_VISIBLE_KEY, val);
