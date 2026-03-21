@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.adapter.LlmAdapter;
 import org.yilena.luna.common.utils.JsonSchemaValidator;
+import org.yilena.luna.entity.ChatMessage;
 import org.yilena.luna.entity.Resource;
 import org.yilena.luna.enums.ResourceType;
 import org.yilena.luna.executor.ReflectionToolExecutor;
@@ -15,8 +16,10 @@ import org.yilena.luna.gate.ExecutionGate;
 import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.router.ToolRouter;
 import org.yilena.luna.service.AgentService;
+import org.yilena.luna.service.SessionService;
 import org.yilena.luna.utils.AuthContextHolder;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -34,6 +37,7 @@ public class AgentServiceImpl implements AgentService {
     private final ReflectionToolExecutor toolExecutor;
     private final SkillExecutor skillExecutor;
     private final ObjectMapper objectMapper;
+    private final SessionService sessionService;
 
     @Override
     public String processToolCalling(String sessionId, String input) {
@@ -46,8 +50,11 @@ public class AgentServiceImpl implements AgentService {
             return null;
         }
 
+        // 1.1 拉取近期历史对话，参与工具决策
+        List<String> historySnippets = loadRecentHistory(sessionId);
+
         // 2. 決策階段 (調用 LLM 判斷是否需要工具)
-        String decisionPrompt = buildDecisionPrompt(input, candidates);
+        String decisionPrompt = buildDecisionPrompt(input, historySnippets, candidates);
         String decisionJson = llmAdapter.generate(decisionPrompt);
         log.info("Agent 决策结果: {}", decisionJson);
 
@@ -107,16 +114,43 @@ public class AgentServiceImpl implements AgentService {
 
     // --- Prompt 構建輔助方法 ---
 
-    private String buildDecisionPrompt(String input, List<Resource> tools) {
+    private String buildDecisionPrompt(String input, List<String> historySnippets, List<Resource> tools) {
         String toolDesc = tools.stream()
                 .map(t -> String.format("- %s: %s", t.getName(), t.getDescription()))
                 .collect(Collectors.joining("\n"));
 
-        return String.format(PromptTemplates.TOOL_DECISION_PROMPT, input, toolDesc);
+        String historyText;
+        if (historySnippets == null || historySnippets.isEmpty()) {
+            historyText = "（无可用历史对话）";
+        } else {
+            historyText = historySnippets.stream().collect(Collectors.joining("\n"));
+        }
+
+        return String.format(PromptTemplates.TOOL_DECISION_PROMPT, input, historyText, toolDesc);
     }
 
     private String buildArgsPrompt(String input, Resource tool) {
         return String.format(PromptTemplates.TOOL_ARGS_PROMPT, tool.getName(), input, tool.getDescription(), tool.getInputSchema());
+    }
+
+    private List<String> loadRecentHistory(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return Collections.emptyList();
+        }
+        try {
+            List<ChatMessage> recent = sessionService.getRecentMessages(sessionId, false);
+            if (recent == null || recent.isEmpty()) {
+                return Collections.emptyList();
+            }
+            // 只取最近 20 条，避免决策提示词过长
+            int from = Math.max(0, recent.size() - 20);
+            return recent.subList(from, recent.size()).stream()
+                    .map(m -> m.getRole().name() + ": " + m.getContent())
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.warn("加载历史对话失败，sessionId={}, err={}", sessionId, e.getMessage());
+            return Collections.emptyList();
+        }
     }
 
     private String parseToolName(String json) {
