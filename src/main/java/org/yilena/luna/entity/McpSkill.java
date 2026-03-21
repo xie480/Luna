@@ -12,12 +12,14 @@ import org.yilena.luna.handler.JsonbTypeHandler;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
-import java.util.Map;
+import java.util.List;
 
 /**
  * MCP 技能实体 (对应 mcp_skills 表)
  * 复合能力，支持异步执行
- * 【v2.1 重构】敏感度和审批字段已迁移至 McpTool
+ * 【v2.2 重构】新增 tool_ids + thought_chain：
+ * - toolIds: Skill 可调用 Tool 白名单（JSONB 数组）
+ * - thoughtChain: 自然语言工具编排思维链
  */
 @Data
 @Builder
@@ -91,18 +93,18 @@ public class McpSkill implements Serializable {
     private RunMode runMode;
 
     /**
-     * Skill 内部工具思维链定义（JSON）
-     * 示例：
-     * {
-     *   "steps":[
-     *     {"name":"search","tool":"web_search","parallelGroup":"A"},
-     *     {"name":"news","tool":"news_search","parallelGroup":"A"},
-     *     {"name":"scrape","tool":"web_scrape","dependsOn":["search","news"]}
-     *   ]
-     * }
+     * Skill 可调用 Tool ID 白名单（JSONB 数组）
+     * 示例: [1001,1002,1003]
      */
-    @TableField(value = "tool_chain", typeHandler = JsonbTypeHandler.class)
-    private Map<String, Object> toolChain;
+    @TableField(value = "tool_ids", typeHandler = JsonbTypeHandler.class)
+    private List<Long> toolIds;
+
+    /**
+     * Skill 自然语言思维链
+     * 描述调用顺序、分支、失败回退、汇总策略等
+     */
+    @TableField("thought_chain")
+    private String thoughtChain;
 
     /**
      * 文本的向量表示 (PGVector)，用于语义检索

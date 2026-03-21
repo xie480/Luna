@@ -30,7 +30,7 @@ public class McpServiceImpl implements McpService {
     public McpTool registerTool(McpTool tool) {
         // 註冊時自動生成向量
         generateToolEmbedding(tool);
-        
+
         if (tool.getId() == null) {
             toolMapper.insert(tool);
         } else {
@@ -59,7 +59,7 @@ public class McpServiceImpl implements McpService {
             if (tool.getDescription() != null && !tool.getDescription().equals(existing.getDescription())) {
                 needReEmbedding = true;
             }
-            
+
             if (needReEmbedding) {
                 generateToolEmbedding(tool);
             } else {
@@ -82,7 +82,7 @@ public class McpServiceImpl implements McpService {
     public McpSkill registerSkill(McpSkill skill) {
         // 註冊時自動生成向量
         generateSkillEmbedding(skill);
-        
+
         if (skill.getId() == null) {
             skillMapper.insert(skill);
         } else {
@@ -111,7 +111,7 @@ public class McpServiceImpl implements McpService {
             if (skill.getDescription() != null && !skill.getDescription().equals(existing.getDescription())) {
                 needReEmbedding = true;
             }
-            
+
             if (needReEmbedding) {
                 generateSkillEmbedding(skill);
             } else {
@@ -161,7 +161,7 @@ public class McpServiceImpl implements McpService {
     @Override
     public List<Resource> listAll() {
         List<Resource> resources = new ArrayList<>();
-        
+
         // 轉換 Tools
         List<McpTool> tools = toolMapper.selectList(null);
         resources.addAll(tools.stream().map(this::toResource).toList());
@@ -207,7 +207,7 @@ public class McpServiceImpl implements McpService {
                 // 3. 向量檢索 Skills (取 Top 5)
                 List<McpSkill> skills = skillMapper.searchByVector(queryVectorStr, 5);
                 resources.addAll(skills.stream().map(this::toResource).toList());
-                
+
                 log.info("向量檢索完成，Query: [{}], 命中 Tool 數量: {}, 命中 Skill 數量: {}", query, tools.size(), skills.size());
             } else {
                 log.warn("查詢語句向量化失敗，無法進行檢索: {}", query);
@@ -237,7 +237,8 @@ public class McpServiceImpl implements McpService {
                 .runMode(RunMode.SYNC)
                 .requiresApproval(tool.getRequiresApproval() != null ? tool.getRequiresApproval() : false)
                 .sensitivity(tool.getSensitivity() != null ? tool.getSensitivity() : Sensitivity.LOW)
-                .toolChain(null)
+                .toolIds(null)
+                .thoughtChain(null)
                 .build();
     }
 
@@ -253,11 +254,12 @@ public class McpServiceImpl implements McpService {
                 .methodName(skill.getMethodName())
                 .inputSchema(skill.getInputSchema())
                 .outputSchema(skill.getOutputSchema())
-                // Skill 屬性 (不再包含敏感度，默認為 LOW)
+                // Skill 屬性
                 .runMode(skill.getRunMode() != null ? skill.getRunMode() : RunMode.SYNC)
                 .requiresApproval(false)
                 .sensitivity(Sensitivity.LOW)
-                .toolChain(skill.getToolChain())
+                .toolIds(skill.getToolIds())
+                .thoughtChain(skill.getThoughtChain())
                 .build();
     }
 }

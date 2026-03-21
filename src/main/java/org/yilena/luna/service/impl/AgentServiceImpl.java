@@ -74,7 +74,7 @@ public class AgentServiceImpl implements AgentService {
             return null;
         }
 
-        // 3. 參數生成階段
+        // 3. 參數生成階段（注入 Skill 的 toolIds + thoughtChain）
         String argsPrompt = buildArgsPrompt(input, targetResource);
         String argsJson = llmAdapter.generate(argsPrompt);
         log.info("Agent 生成参数: {}", argsJson);
@@ -130,7 +130,30 @@ public class AgentServiceImpl implements AgentService {
     }
 
     private String buildArgsPrompt(String input, Resource tool) {
-        return String.format(PromptTemplates.TOOL_ARGS_PROMPT, tool.getName(), input, tool.getDescription(), tool.getInputSchema());
+        return String.format(
+                PromptTemplates.TOOL_ARGS_PROMPT,
+                tool.getName(),
+                input,
+                tool.getDescription(),
+                tool.getInputSchema(),
+                buildSkillOrchestrationHint(tool)
+        );
+    }
+
+    private String buildSkillOrchestrationHint(Resource resource) {
+        if (!ResourceType.SKILL.equals(resource.getType())) {
+            return "N/A（该资源为 Tool）";
+        }
+
+        String ids = (resource.getToolIds() == null || resource.getToolIds().isEmpty())
+                ? "[]"
+                : resource.getToolIds().toString();
+
+        String thoughtChain = (resource.getThoughtChain() == null || resource.getThoughtChain().isBlank())
+                ? "（未配置 thoughtChain）"
+                : resource.getThoughtChain();
+
+        return "toolIds白名单=" + ids + "；thoughtChain=" + thoughtChain;
     }
 
     private List<String> loadRecentHistory(String sessionId) {
