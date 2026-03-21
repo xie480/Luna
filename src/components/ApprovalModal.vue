@@ -58,6 +58,41 @@ const props = defineProps({
 
 const emit = defineEmits(["approve", "reject", "mouseenter", "mouseleave"]);
 
+// 拖拽逻辑（先定义，避免 watch(immediate) 调用 centerModal 时变量未初始化）
+const modalX = ref(0);
+const modalY = ref(0);
+let isDragging = false;
+let dragOffset = { x: 0, y: 0 };
+
+function centerModal() {
+  const w = 440;
+  const h = 460;
+  modalX.value = Math.max(12, Math.floor((window.innerWidth - w) / 2));
+  modalY.value = Math.max(12, Math.floor((window.innerHeight - h) / 2));
+}
+
+function startDrag(e) {
+  isDragging = true;
+  dragOffset.x = e.clientX - modalX.value;
+  dragOffset.y = e.clientY - modalY.value;
+  window.addEventListener("mousemove", onDrag);
+  window.addEventListener("mouseup", stopDrag);
+}
+
+function onDrag(e) {
+  if (!isDragging) return;
+  const maxX = window.innerWidth - 120;
+  const maxY = window.innerHeight - 80;
+  modalX.value = Math.min(Math.max(e.clientX - dragOffset.x, -320), maxX);
+  modalY.value = Math.min(Math.max(e.clientY - dragOffset.y, -380), maxY);
+}
+
+function stopDrag() {
+  isDragging = false;
+  window.removeEventListener("mousemove", onDrag);
+  window.removeEventListener("mouseup", stopDrag);
+}
+
 function safeParseArgs() {
   try {
     const raw = props.task?.argsJson;
@@ -120,7 +155,7 @@ function resetTimer() {
     } else {
       clearInterval(timer);
       timer = null;
-      emit("reject"); // 超时自动拒绝
+      emit("reject");
     }
   }, 1000);
 }
@@ -133,41 +168,6 @@ watch(
   },
   { immediate: true }
 );
-
-// 拖拽逻辑
-const modalX = ref(0);
-const modalY = ref(0);
-let isDragging = false;
-let dragOffset = { x: 0, y: 0 };
-
-function centerModal() {
-  const w = 440;
-  const h = 460;
-  modalX.value = Math.max(12, Math.floor((window.innerWidth - w) / 2));
-  modalY.value = Math.max(12, Math.floor((window.innerHeight - h) / 2));
-}
-
-function startDrag(e) {
-  isDragging = true;
-  dragOffset.x = e.clientX - modalX.value;
-  dragOffset.y = e.clientY - modalY.value;
-  window.addEventListener("mousemove", onDrag);
-  window.addEventListener("mouseup", stopDrag);
-}
-
-function onDrag(e) {
-  if (!isDragging) return;
-  const maxX = window.innerWidth - 120;
-  const maxY = window.innerHeight - 80;
-  modalX.value = Math.min(Math.max(e.clientX - dragOffset.x, -320), maxX);
-  modalY.value = Math.min(Math.max(e.clientY - dragOffset.y, -380), maxY);
-}
-
-function stopDrag() {
-  isDragging = false;
-  window.removeEventListener("mousemove", onDrag);
-  window.removeEventListener("mouseup", stopDrag);
-}
 
 onMounted(() => {
   if (!timer) resetTimer();
