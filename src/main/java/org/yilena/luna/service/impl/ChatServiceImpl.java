@@ -20,6 +20,7 @@ import org.yilena.luna.entity.ChatMessage;
 import org.yilena.luna.entity.ChatRequest;
 import org.yilena.luna.entity.KnowledgeBase;
 import org.yilena.luna.entity.Memory;
+import org.yilena.luna.entity.ToolCallingContext;
 import org.yilena.luna.entity.UserPreference;
 import org.yilena.luna.enums.LogType;
 import org.yilena.luna.enums.ModelType;
@@ -40,6 +41,7 @@ import org.yilena.luna.sse.LunaStatusPublisher;
 import org.yilena.luna.utils.ContextPruner;
 import org.yilena.luna.utils.LlmClientUtil;
 import org.yilena.luna.utils.ServiceCommunicateUtil;
+import org.yilena.luna.utils.ToolCallingContextHolder;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
@@ -367,7 +369,21 @@ public class ChatServiceImpl implements ChatService {
                 knowledgeSnippets != null ? knowledgeSnippets.size() : 0);
 
         // -------------------- 7. Agent 工具调用 --------------------
-        String toolContext = agentService.processToolCalling(keyPrefix, input);
+        // 在触发审批前，先缓存续跑 chat 所需上下文，供 ApprovalService 在“同意/拒绝”后继续执行
+        ToolCallingContextHolder.set(ToolCallingContext.builder()
+                .chatSessionKey(keyPrefix)
+                .userInput(input)
+                .memorySnippets(memorySnippets)
+                .knowledgeSnippets(knowledgeSnippets)
+                .build());
+
+        String toolContext;
+        try {
+            toolContext = agentService.processToolCalling(keyPrefix, input);
+        } finally {
+            ToolCallingContextHolder.clear();
+        }
+
         log.info("Agent 工具调用完成，toolContextEmpty={}", toolContext == null || toolContext.isBlank());
 
         // -------------------- 8. 组装最终 Prompt --------------------

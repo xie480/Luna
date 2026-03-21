@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
+import java.util.List;
 
 /**
  * 審批任務上下文
@@ -25,7 +26,7 @@ public class ApprovalTask implements Serializable {
     private String taskId;
 
     /**
-     * 會話 ID
+     * 會話 ID（審批關聯）
      */
     private String sessionId;
 
@@ -53,4 +54,26 @@ public class ApprovalTask implements Serializable {
      * 創建時間戳
      */
     private Long createTime;
+
+    // ===== 續跑 chat 所需上下文（新增） =====
+
+    /**
+     * chat 會話key（例如 yyyy:MM:dd）
+     */
+    private String chatSessionKey;
+
+    /**
+     * 當輪用戶輸入
+     */
+    private String userInput;
+
+    /**
+     * 當輪裁剪後的近期對話片段
+     */
+    private List<String> memorySnippets;
+
+    /**
+     * 當輪裁剪後的知識庫片段
+     */
+    private List<String> knowledgeSnippets;
 }
