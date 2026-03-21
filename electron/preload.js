@@ -10,6 +10,12 @@ contextBridge.exposeInMainWorld("desktopApi", {
   logout:      (token)   => ipcRenderer.invoke("auth.logout", token),
   quit:        () => ipcRenderer.invoke("luna.app.quit"),
   setAlwaysOnTop: (flag) => ipcRenderer.invoke("luna.window.setAlwaysOnTop", flag),
+
+  // 新增：四类查询接口
+  queryKnowledgeBase: (payload) => ipcRenderer.invoke("luna.api.query.knowledge-base", payload),
+  queryUserPreference: (payload) => ipcRenderer.invoke("luna.api.query.user-preference", payload),
+  queryMemory: (payload) => ipcRenderer.invoke("luna.api.query.memory", payload),
+  queryLog: (payload) => ipcRenderer.invoke("luna.api.query.log", payload),
   
   // 監聽狀態更新
   onStatusUpdate: (callback) => ipcRenderer.on('luna:status-update', (_event, value) => callback(value)),

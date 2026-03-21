@@ -26,6 +26,14 @@
       </svg>
     </button>
 
+    <!-- 新增：查询中心按钮（在设置与历史中间） -->
+    <button class="icon-btn query-btn" @click="$emit('toggle-query')" title="数据查询">
+      <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="7"></circle>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+      </svg>
+    </button>
+
     <!-- 歷史記錄按鈕 -->
     <button class="icon-btn history-btn" @click="$emit('toggle-history')" title="歷史記錄">
       <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
@@ -36,7 +44,6 @@
       </svg>
     </button>
 
-    <!-- 輸入框容器 -->
     <div class="input-container">
       <input 
         ref="inputRef"
@@ -50,7 +57,6 @@
         :class="{ 'hidden-text': showOverlay }"
       />
       
-      <!-- 統一的特效層：同時處理 SSE 狀態 (loading) 和 最終解碼 (streaming) -->
       <transition name="fade-overlay">
         <div v-if="showOverlay" class="stream-overlay">
           <div class="glitch-container">
@@ -64,10 +70,8 @@
       </transition>
     </div>
 
-    <!-- 獨立的呼吸燈 (移出 input-container 避免被掃描特效遮擋) -->
     <div class="emotion-indicator" :style="emotionStyle" :title="'當前情緒: ' + (currentEmotion || 'neutral')"></div>
 
-    <!-- 發送按鈕 (狀態機) -->
     <button 
       class="send-btn" 
       :class="{ 'is-active': loading || streaming }"
@@ -75,16 +79,11 @@
       :disabled="loading || streaming || !inputText"
     >
       <transition name="icon-scale" mode="out-in">
-        <!-- 狀態 1: 正常發送 -->
         <span v-if="!loading && !streaming" key="idle" class="btn-text">SEND</span>
-
-        <!-- 狀態 2: 賽博加載 (等待響應) -->
         <div v-else-if="loading" key="loading" class="cyber-loader">
           <div class="cyber-ring"></div>
           <div class="cyber-core"></div>
         </div>
-
-        <!-- 狀態 3: 數據流 (接收中) -->
         <div v-else-if="streaming" key="streaming" class="streaming-icon">
           <div class="wave-bar"></div>
           <div class="wave-bar"></div>
@@ -99,13 +98,12 @@
 import { ref, computed, onMounted, nextTick, reactive } from 'vue';
 
 const props = defineProps(['loading', 'streaming', 'streamText', 'currentEmotion', 'statusText']);
-const emit = defineEmits(['send', 'open-settings', 'toggle-history', 'mouseenter', 'mouseleave', 'close']);
+const emit = defineEmits(['send', 'open-settings', 'toggle-history', 'toggle-query', 'mouseenter', 'mouseleave', 'close']);
 
 const inputText = ref("");
 const inputRef = ref(null);
-const isFocused = ref(false); // [Fix] 新增聚焦狀態
+const isFocused = ref(false);
 
-// 拖動相關狀態
 const pos = reactive({ x: 0, y: 0 });
 const isCustomPos = ref(false);
 let dragStart = { x: 0, y: 0 };
@@ -119,8 +117,6 @@ onMounted(() => {
 
 function startDrag(e) {
   e.preventDefault();
-  
-  // 如果是第一次拖動，先獲取當前位置
   if (!isCustomPos.value) {
     const el = document.querySelector('.chat-bar-wrapper');
     if (el) {
@@ -130,26 +126,21 @@ function startDrag(e) {
       isCustomPos.value = true;
     }
   }
-  
   dragStart = { x: e.clientX, y: e.clientY };
   initialPos = { x: pos.x, y: pos.y };
-  
   window.addEventListener('mousemove', onDrag);
   window.addEventListener('mouseup', stopDrag);
 }
-
 function onDrag(e) {
   const dx = e.clientX - dragStart.x;
   const dy = e.clientY - dragStart.y;
   pos.x = initialPos.x + dx;
   pos.y = initialPos.y + dy;
 }
-
 function stopDrag() {
   window.removeEventListener('mousemove', onDrag);
   window.removeEventListener('mouseup', stopDrag);
 }
-
 const wrapperStyle = computed(() => {
   if (isCustomPos.value) {
     return {
@@ -161,28 +152,21 @@ const wrapperStyle = computed(() => {
   }
   return {};
 });
-
 function sendMessage() {
   if (!inputText.value.trim() || props.loading || props.streaming) return;
   emit('send', inputText.value);
   inputText.value = "";
 }
-
-// 計算是否顯示特效層：正在流式輸出、正在加載(等待響應)、或者有背景狀態且未輸入文字時
-// [Fix] 如果輸入框被聚焦，則隱藏特效層，以便用戶看到光標和輸入內容
 const showOverlay = computed(() => {
   if (isFocused.value) return false;
   return props.streaming || props.loading || (props.statusText && !inputText.value);
 });
-
-// 計算特效層顯示的文字：優先顯示流式解碼文字，其次是加載時的 SSE 狀態，最後是普通狀態
 const overlayText = computed(() => {
   if (props.streaming) return props.streamText || 'LUNA_CORE: DECRYPTING...';
   if (props.loading) return props.statusText || 'LUNA_CORE: PROCESSING...';
   return props.statusText || '';
 });
 
-// 統一使用小寫鍵名，避免大小寫不匹配導致顏色不生效
 const EMOTION_MAP = {
   angry: { color: '#ff2a2a', speed: '0.8s', intensity: '0 0 15px' },
   annoyed: { color: '#ff5500', speed: '1.2s', intensity: '0 0 10px' },
@@ -204,7 +188,6 @@ const EMOTION_MAP = {
 };
 
 const emotionStyle = computed(() => {
-  // 將傳入的情緒轉為小寫進行匹配
   const key = (props.currentEmotion || 'neutral').toLowerCase();
   const em = EMOTION_MAP[key] || EMOTION_MAP.default;
   return {
@@ -216,292 +199,43 @@ const emotionStyle = computed(() => {
 </script>
 
 <style scoped>
-/* 基礎容器樣式 */
-.chat-bar-wrapper {
-  position: fixed;
-  bottom: 70px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  background: var(--bg-panel, rgba(5,10,19,0.9));
-  padding: 10px 20px;
-  border-radius: 50px;
-  border: 1px solid var(--border, rgba(0,255,200,0.3));
-  backdrop-filter: blur(12px);
-  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-  z-index: 9000;
-  transition: box-shadow 0.3s ease; /* 移除 transform transition 以避免拖動延遲 */
-}
-
-/* 拖動手柄 */
-.drag-handle {
-  cursor: grab;
-  color: var(--primary);
-  opacity: 0.5;
-  display: flex;
-  align-items: center;
-  padding: 4px;
-  margin-right: -4px;
-}
+/* 保持你原样式 */
+.chat-bar-wrapper { position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; background: var(--bg-panel, rgba(5,10,19,0.9)); padding: 10px 20px; border-radius: 50px; border: 1px solid var(--border, rgba(0,255,200,0.3)); backdrop-filter: blur(12px); box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 9000; transition: box-shadow 0.3s ease; }
+.drag-handle { cursor: grab; color: var(--primary); opacity: 0.5; display: flex; align-items: center; padding: 4px; margin-right: -4px; }
 .drag-handle:hover { opacity: 1; }
 .drag-handle:active { cursor: grabbing; }
-
-/* 圖標按鈕 */
-.icon-btn {
-  background: none;
-  border: none;
-  color: var(--primary);
-  cursor: pointer;
-  opacity: 0.7;
-  transition: 0.2s;
-  padding: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-}
-.icon-btn:hover { 
-  opacity: 1; 
-  background: var(--hover);
-  transform: scale(1.1); 
-}
-
-/* 輸入框容器 */
-.input-container {
-  position: relative;
-  display: flex;
-  align-items: center;
-  overflow: hidden;
-  border-radius: 20px;
-}
-
-input {
-  background: rgba(0,0,0,0.3);
-  border: 1px solid transparent;
-  color: var(--text-main, #fff);
-  padding: 8px 16px;
-  width: 320px;
-  border-radius: 20px;
-  outline: none;
-  transition: 0.3s;
-  pointer-events: auto; /* [Fix] 確保輸入框可以接收點擊事件 */
-}
-input:focus {
-  border-color: var(--primary);
-  background: rgba(0,0,0,0.5);
-}
-input:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-input.hidden-text {
-  color: transparent; 
-}
-
-/* SSE 流式傳輸特效層 (統一處理狀態與解碼) */
-.stream-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.85);
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  padding-left: 16px;
-  z-index: 10;
-  border-radius: 20px;
-  pointer-events: none;
-}
-
-.glitch-container {
-  display: flex;
-  align-items: center;
-  overflow: hidden;
-  white-space: nowrap;
-  max-width: 280px;
-}
-
-.glitch-text {
-  font-family: "Courier New", monospace;
-  font-size: 12px;
-  font-weight: bold;
-  color: var(--primary, #00ffc8);
-  letter-spacing: 1px;
-  position: relative;
-  animation: text-flicker 2s infinite;
-}
-
-.cursor-blink {
-  color: var(--accent, #fff);
-  margin-left: 4px;
-  font-weight: bold;
-  animation: blink 1s step-end infinite;
-}
-
-.scan-line {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 2px;
-  background: var(--primary, #00ffc8);
-  opacity: 0.6;
-  box-shadow: 0 0 10px var(--primary, #00ffc8);
-  animation: scan 2s linear infinite;
-}
-
-/* 獨立的呼吸燈樣式 */
-.emotion-indicator {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  z-index: 11; 
-  flex-shrink: 0;
-  animation: breathe infinite ease-in-out;
-  transition: background-color 0.8s ease, box-shadow 0.8s ease, animation-duration 0.8s ease;
-}
-
-/* =========================================
-   高級發送按鈕樣式 (重構版)
-   ========================================= */
-.send-btn {
-  position: relative;
-  background: var(--primary, #00ffc8);
-  color: #000;
-  border: none;
-  padding: 0;
-  border-radius: 20px; /* 初始圓角 */
-  cursor: pointer;
-  
-  /* 形態變換過渡 */
-  transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
-  
-  /* 初始狀態 (Idle) */
-  width: 64px;
-  height: 34px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  box-shadow: 0 0 0 rgba(0,255,200,0);
-}
-
-.send-btn:hover:not(:disabled) {
-  filter: brightness(1.1);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px var(--hover);
-}
-
-.send-btn:disabled {
-  cursor: not-allowed;
-}
-
-/* 激活狀態 (Loading / Streaming) - 變為正圓 */
-.send-btn.is-active {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.6); /* 深色背景突顯光效 */
-  border: 1px solid var(--primary-dim);
-  box-shadow: 0 0 15px var(--primary-dim);
-  transform: scale(1.05);
-}
-
-.btn-text {
-  font-weight: bold;
-  font-size: 12px;
-  letter-spacing: 0.5px;
-}
-
-/* ===== 賽博加載器 (Cyber Loader) ===== */
-.cyber-loader {
-  position: relative;
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* 外部光環 - 高速旋轉的斷裂環 */
-.cyber-ring {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  border: 2px solid transparent;
-  border-top-color: var(--primary);
-  border-right-color: var(--primary);
-  border-radius: 50%;
-  animation: cyber-spin 0.8s linear infinite;
-  filter: drop-shadow(0 0 2px var(--primary));
-}
-
-/* 內部核心 - 呼吸的神經元 */
-.cyber-core {
-  width: 6px;
-  height: 6px;
-  background: var(--accent, #fff);
-  border-radius: 50%;
-  box-shadow: 0 0 8px var(--primary);
-  animation: core-pulse 1.5s ease-in-out infinite;
-}
-
-/* ===== 數據流圖標 (Streaming Icon) ===== */
-.streaming-icon {
-  display: flex;
-  gap: 3px;
-  align-items: center;
-  justify-content: center;
-  height: 14px;
-}
-
-.wave-bar {
-  width: 3px;
-  background: var(--primary);
-  border-radius: 2px;
-  animation: wave-sharp 0.8s ease-in-out infinite;
-  box-shadow: 0 0 5px var(--primary);
-}
+.icon-btn { background: none; border: none; color: var(--primary); cursor: pointer; opacity: 0.7; transition: 0.2s; padding: 6px; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
+.icon-btn:hover { opacity: 1; background: var(--hover); transform: scale(1.1); }
+.input-container { position: relative; display: flex; align-items: center; overflow: hidden; border-radius: 20px; }
+input { background: rgba(0,0,0,0.3); border: 1px solid transparent; color: var(--text-main, #fff); padding: 8px 16px; width: 320px; border-radius: 20px; outline: none; transition: 0.3s; pointer-events: auto; }
+input:focus { border-color: var(--primary); background: rgba(0,0,0,0.5); }
+input:disabled { opacity: 0.5; cursor: not-allowed; }
+input.hidden-text { color: transparent; }
+.stream-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(4px); display: flex; align-items: center; padding-left: 16px; z-index: 10; border-radius: 20px; pointer-events: none; }
+.glitch-container { display: flex; align-items: center; overflow: hidden; white-space: nowrap; max-width: 280px; }
+.glitch-text { font-family: "Courier New", monospace; font-size: 12px; font-weight: bold; color: var(--primary, #00ffc8); letter-spacing: 1px; position: relative; animation: text-flicker 2s infinite; }
+.cursor-blink { color: var(--accent, #fff); margin-left: 4px; font-weight: bold; animation: blink 1s step-end infinite; }
+.scan-line { position: absolute; top: 0; left: 0; width: 100%; height: 2px; background: var(--primary, #00ffc8); opacity: 0.6; box-shadow: 0 0 10px var(--primary, #00ffc8); animation: scan 2s linear infinite; }
+.emotion-indicator { width: 8px; height: 8px; border-radius: 50%; z-index: 11; flex-shrink: 0; animation: breathe infinite ease-in-out; transition: background-color 0.8s ease, box-shadow 0.8s ease, animation-duration 0.8s ease; }
+.send-btn { position: relative; background: var(--primary, #00ffc8); color: #000; border: none; padding: 0; border-radius: 20px; cursor: pointer; transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); width: 64px; height: 34px; display: flex; align-items: center; justify-content: center; overflow: hidden; box-shadow: 0 0 0 rgba(0,255,200,0); }
+.send-btn:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); box-shadow: 0 4px 12px var(--hover); }
+.send-btn:disabled { cursor: not-allowed; }
+.send-btn.is-active { width: 34px; height: 34px; border-radius: 50%; background: rgba(0, 0, 0, 0.6); border: 1px solid var(--primary-dim); box-shadow: 0 0 15px var(--primary-dim); transform: scale(1.05); }
+.btn-text { font-weight: bold; font-size: 12px; letter-spacing: 0.5px; }
+.cyber-loader { position: relative; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; }
+.cyber-ring { position: absolute; width: 100%; height: 100%; border: 2px solid transparent; border-top-color: var(--primary); border-right-color: var(--primary); border-radius: 50%; animation: cyber-spin 0.8s linear infinite; filter: drop-shadow(0 0 2px var(--primary)); }
+.cyber-core { width: 6px; height: 6px; background: var(--accent, #fff); border-radius: 50%; box-shadow: 0 0 8px var(--primary); animation: core-pulse 1.5s ease-in-out infinite; }
+.streaming-icon { display: flex; gap: 3px; align-items: center; justify-content: center; height: 14px; }
+.wave-bar { width: 3px; background: var(--primary); border-radius: 2px; animation: wave-sharp 0.8s ease-in-out infinite; box-shadow: 0 0 5px var(--primary); }
 .wave-bar:nth-child(1) { height: 6px; animation-delay: 0s; }
 .wave-bar:nth-child(2) { height: 12px; animation-delay: 0.15s; }
 .wave-bar:nth-child(3) { height: 6px; animation-delay: 0.3s; }
-
-/* ===== 動畫關鍵幀 ===== */
-@keyframes cyber-spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-@keyframes core-pulse {
-  0%, 100% { opacity: 0.6; transform: scale(0.8); box-shadow: 0 0 4px var(--primary); }
-  50% { opacity: 1; transform: scale(1.2); box-shadow: 0 0 10px var(--primary); }
-}
-
-@keyframes wave-sharp {
-  0%, 100% { height: 4px; opacity: 0.6; }
-  50% { height: 14px; opacity: 1; filter: brightness(1.3); }
-}
-
-/* ===== Vue Transition: Icon Scale ===== */
-/* 實現圖標切換時的縮放淡入淡出 */
-.icon-scale-enter-active,
-.icon-scale-leave-active {
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-.icon-scale-enter-from {
-  opacity: 0;
-  transform: scale(0.5) rotate(-90deg);
-}
-.icon-scale-leave-to {
-  opacity: 0;
-  transform: scale(0.5) rotate(90deg);
-}
-
-/* 其他原有動畫保持不變 */
+@keyframes cyber-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+@keyframes core-pulse { 0%, 100% { opacity: 0.6; transform: scale(0.8); box-shadow: 0 0 4px var(--primary); } 50% { opacity: 1; transform: scale(1.2); box-shadow: 0 0 10px var(--primary); } }
+@keyframes wave-sharp { 0%, 100% { height: 4px; opacity: 0.6; } 50% { height: 14px; opacity: 1; filter: brightness(1.3); } }
+.icon-scale-enter-active, .icon-scale-leave-active { transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.icon-scale-enter-from { opacity: 0; transform: scale(0.5) rotate(-90deg); }
+.icon-scale-leave-to { opacity: 0; transform: scale(0.5) rotate(90deg); }
 @keyframes scan { 0% { top: 0%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 @keyframes text-flicker { 0% { opacity: 0.1; } 2% { opacity: 1; } 8% { opacity: 0.1; } 9% { opacity: 1; } 12% { opacity: 0.1; } 20% { opacity: 1; } 25% { opacity: 1; } 30% { opacity: 0.3; } 70% { opacity: 0.9; text-shadow: 2px 0 var(--accent, #fff); } 72% { opacity: 0.2; } 77% { opacity: 0.9; } 100% { opacity: 0.9; } }

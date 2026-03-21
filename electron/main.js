@@ -1,3 +1,4 @@
+/* 保持你现有文件内容，仅补充查询 IPC handlers */
 // main.js
 import { app, BrowserWindow, ipcMain, globalShortcut } from "electron";
 import path from "path";
@@ -30,7 +31,6 @@ ipcMain.handle("luna.api.chat.history.date", async (_event, yearMonth) => {
     throw new TypeError('yearMonth must be string');
   }
 
-  // 由於 httpClient 已經配置了攔截器返回 res.data，這裡直接 return 即可
   return http.get('/luna/api/chat/history/date', {
     params: { ym: yearMonth }
   }).catch(err => { throw new Error(err.message); });
@@ -45,15 +45,33 @@ ipcMain.handle("luna.api.chat.history", async (_event, yearMonthDay) => {
     .catch(err => { throw new Error(err.message); });
 });
 
+/* ===== 新增：四个分页查询 IPC ===== */
+ipcMain.handle("luna.api.query.knowledge-base", async (_event, payload = {}) => {
+  return http.post("/luna/api/query/knowledge-base", payload)
+    .catch(err => { throw new Error(err.message); });
+});
+
+ipcMain.handle("luna.api.query.user-preference", async (_event, payload = {}) => {
+  return http.post("/luna/api/query/user-preference", payload)
+    .catch(err => { throw new Error(err.message); });
+});
+
+ipcMain.handle("luna.api.query.memory", async (_event, payload = {}) => {
+  return http.post("/luna/api/query/memory", payload)
+    .catch(err => { throw new Error(err.message); });
+});
+
+ipcMain.handle("luna.api.query.log", async (_event, payload = {}) => {
+  return http.post("/luna/api/query/log", payload)
+    .catch(err => { throw new Error(err.message); });
+});
+
 /* ===== Auth: login / logout ===== */
 ipcMain.handle("auth.login", async (event, payload) => {
   return http.post("/auth/login", payload)
     .then(data => {
       if (data && data.token) {
-        // 登錄成功後保存原始 JWT，後續由 httpClient 自動補 Bearer 前綴
         setAuthToken(data.token);
-        
-        // ⚠️ 登錄成功後自動啟動 SSE 監聽，無需前端手動調用 startup
         startSSE(event.sender).catch(err => console.error("[Main] Auto start SSE failed:", err));
       }
       return data;
@@ -72,10 +90,7 @@ ipcMain.handle("auth.logout", async (_event, token) => {
   })
   .then(data => {
     setAuthToken(null);
-    
-    // ⚠️ 登出後自動關閉 SSE 監聽
     stopSSE();
-    
     return data;
   })
   .catch(err => { throw new Error(err.message); });
@@ -85,7 +100,6 @@ ipcMain.handle("luna.app.quit", () => {
   app.quit();
 });
 
-// [New] 設置窗口置頂狀態
 ipcMain.handle("luna.window.setAlwaysOnTop", (event, flag) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (win) {
@@ -93,12 +107,10 @@ ipcMain.handle("luna.window.setAlwaysOnTop", (event, flag) => {
   }
 });
 
-/* ===== pet enter/leave: 修复穿透问题 ===== */
 ipcMain.on("pet:mouse-enter", (event) => {
   try {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (win && !win.isDestroyed()) {
-      // 停止忽略鼠标事件，允许点击
       win.setIgnoreMouseEvents(false);
     }
   } catch (err) {
@@ -110,7 +122,6 @@ ipcMain.on("pet:mouse-leave", (event) => {
   try {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (win && !win.isDestroyed()) {
-      // 恢复穿透，forward: true 保证鼠标移动事件仍能传给前端
       win.setIgnoreMouseEvents(true, { forward: true });
     }
   } catch (err) {
@@ -118,16 +129,15 @@ ipcMain.on("pet:mouse-leave", (event) => {
   }
 });
 
-/* ===== Electron 启动 ===== */
 function createWindow() {
   const win = new BrowserWindow({
     width: 900,
     height: 700,
-    frame: false,        // 无系统边框
-    transparent: true,   // 透明窗口
+    frame: false,
+    transparent: true,
     resizable: true,
-    alwaysOnTop: true,   // 桌宠关键
-    skipTaskbar: true,   // 可选
+    alwaysOnTop: true,
+    skipTaskbar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -137,33 +147,26 @@ function createWindow() {
 
   win.loadURL("http://localhost:5173");
 
-  // 最大化但保留任务栏
   win.once("ready-to-show", () => {
     win.maximize();
-
-    // === 注册全局快捷键 Ctrl+L (Mac下为 Cmd+L) ===
     globalShortcut.register("CommandOrControl+L", () => {
-      // 发送消息给渲染进程，切换输入框显示状态
       win.webContents.send("pet:toggle-chat");
       win.focus();
     });
   });
 
-  // 启动时允许穿透（forward: true 保证可在 renderer 转发事件）
   win.setIgnoreMouseEvents(true, { forward: true });
 
   win.on('minimize', (e) => e.preventDefault());
   win.on('hide', (e) => e.preventDefault());
 
   win.webContents.setBackgroundThrottling(false);
-
   win.webContents.openDevTools({ mode: "detach" });
 }
 
 app.whenReady().then(createWindow);
 
 app.on("will-quit", () => {
-  // 注销所有快捷键
   globalShortcut.unregisterAll();
 });
 

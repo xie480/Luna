@@ -25,3 +25,20 @@ export const login = async (payload) => {
 export const logout = async (token) => {
   return window.desktopApi.logout(token);
 };
+
+// ===== 新增：查询接口 =====
+export const queryKnowledgeBase = async (payload) => {
+  return window.desktopApi.queryKnowledgeBase(payload);
+};
+
+export const queryUserPreference = async (payload) => {
+  return window.desktopApi.queryUserPreference(payload);
+};
+
+export const queryMemory = async (payload) => {
+  return window.desktopApi.queryMemory(payload);
+};
+
+export const queryLog = async (payload) => {
+  return window.desktopApi.queryLog(payload);
+};
