@@ -5,15 +5,20 @@ const request = axios.create({
   baseURL: '/api',
   timeout: 500000,
   headers: {
-    'Content-Type': 'application/json' // 设置默认的Content-Type
+    'Content-Type': 'application/json'
   }
 });
+
+function toBearer(token) {
+  if (!token || typeof token !== 'string') return '';
+  return token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+}
 
 request.interceptors.request.use(
   config => {
     const result = JSON.parse(localStorage.getItem('loginUser'));
     if (result && result.token) {
-      config.headers.token = result.token;
+      config.headers.Authorization = toBearer(result.token);
     }
     return config;
   },
@@ -28,11 +33,10 @@ request.interceptors.response.use(
   },
   error => {
     if (error.response) {
-      if (error.response.status == 401) {
+      if (error.response.status === 401) {
+        localStorage.removeItem('loginUser');
         router.push('/login');
       }
-    } else if (error.request) {
-    } else {
     }
     return Promise.reject(error);
   }

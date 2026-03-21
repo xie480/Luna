@@ -50,7 +50,7 @@ ipcMain.handle("auth.login", async (event, payload) => {
   return http.post("/auth/login", payload)
     .then(data => {
       if (data && data.token) {
-        // 登錄成功後保存 Token，後續所有請求（包括 SSE）都會自動帶上
+        // 登錄成功後保存原始 JWT，後續由 httpClient 自動補 Bearer 前綴
         setAuthToken(data.token);
         
         // ⚠️ 登錄成功後自動啟動 SSE 監聽，無需前端手動調用 startup
@@ -64,8 +64,11 @@ ipcMain.handle("auth.login", async (event, payload) => {
 ipcMain.handle("auth.logout", async (_event, token) => {
   const t = token || getAuthToken();
   if (!t) return;
+
+  const bearer = typeof t === "string" && t.startsWith("Bearer ") ? t : `Bearer ${t}`;
+
   return http.post("/auth/logout", null, {
-    headers: { Authorization: t },
+    headers: { Authorization: bearer },
   })
   .then(data => {
     setAuthToken(null);

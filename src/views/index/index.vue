@@ -578,8 +578,6 @@ async function onSend(text) {
       content: text,
       timestamp: Date.now()
     });
-    // [Fix] 移除這裡的 refresh()，防止在後端保存前覆蓋掉樂觀更新的消息
-    // historyPanelRef.value.refresh();
   }
 
   try {
@@ -588,7 +586,7 @@ async function onSend(text) {
     
     // 並行執行請求和最小等待
     const [res] = await Promise.all([
-      chatApi({ userInput: text }, authToken.value),
+      chatApi({ userInput: text }),
       minLoadTime
     ]);
     
@@ -640,7 +638,7 @@ async function onApprove(approved) {
 async function callStartup() {
   isConnecting.value = true;
   try {
-    const res = await startupApi({}, authToken.value);
+    const res = await startupApi();
     isConnecting.value = false;
     handleModelReply(normalizeResponse(res));
   } catch (e) {
@@ -653,7 +651,7 @@ async function callStartup() {
 async function callShutdown() {
   isConnecting.value = true;
   try {
-    const res = await shutdownApi({}, authToken.value);
+    const res = await shutdownApi();
     isConnecting.value = false;
     handleModelReply(normalizeResponse(res));
   } catch (e) {
