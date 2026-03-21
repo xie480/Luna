@@ -10,7 +10,7 @@
     "properties": {
       "query": {
         "type": "string",
-        "description": "图片搜索关键词"
+        "description": "图片搜索关键词（必填）。可包含风格、主体、场景等限定信息，例如“赛博朋克 城市 夜景 插画”。"
       }
     },
     "required": ["query"]
@@ -18,7 +18,10 @@
   "outputSchema": {
     "type": "object",
     "properties": {
-      "images": { "type": "array", "description": "图片结果列表，包含 URL 和标题" }
+      "images": {
+        "type": "array",
+        "description": "图片结果列表，通常包含图片 URL、来源页面、标题等字段。"
+      }
     }
   }
 }

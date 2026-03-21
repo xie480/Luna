@@ -10,13 +10,13 @@
     "properties": {
       "url": {
         "type": "string",
-        "description": "图片的 URL 地址"
+        "description": "图片 URL（必填）。需要可公网访问的完整链接（http/https）。"
       }
     },
     "required": ["url"]
   },
   "outputSchema": {
     "type": "object",
-    "description": "Google Lens 识别结果"
+    "description": "Google Lens 识别结果对象，字段结构由第三方接口返回决定。"
   }
 }

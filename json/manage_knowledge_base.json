@@ -11,28 +11,28 @@
       "action": {
         "type": "string",
         "enum": ["INSERT", "QUERY"],
-        "description": "操作类型"
+        "description": "操作类型（必填）。可选值：INSERT=新增知识；QUERY=检索知识。"
       },
       "title": {
         "type": "string",
-        "description": "知识标题 (INSERT 必须)"
+        "description": "知识标题。action=INSERT 时必填，用于标识该知识片段主题。"
       },
       "content": {
         "type": "string",
-        "description": "知识内容文本 (INSERT 必须)"
+        "description": "知识正文内容。action=INSERT 时必填，支持长文本。"
       },
       "sourceType": {
         "type": "string",
-        "enum": ["TEXT", "FILE", "URL"],
-        "description": "来源类型"
+        "enum": ["FILE", "WEB_SEARCH", "MANUAL_INPUT"],
+        "description": "来源类型。action=INSERT 时建议提供。可选值：FILE=本地文件；WEB_SEARCH=网络检索；MANUAL_INPUT=人工输入。"
       },
       "sourcePath": {
         "type": "string",
-        "description": "来源路径或链接"
+        "description": "来源路径或来源标识。可选，例如文件路径、URL、业务来源ID。"
       },
       "query": {
         "type": "string",
-        "description": "检索关键词 (QUERY 必须)"
+        "description": "检索关键词。action=QUERY 时必填，用于语义检索。"
       }
     },
     "required": ["action"]
@@ -40,8 +40,14 @@
   "outputSchema": {
     "type": "object",
     "properties": {
-      "status": { "type": "string" },
-      "data": { "type": "array", "description": "检索到的知识片段列表或操作结果消息" }
+      "status": {
+        "type": "string",
+        "description": "执行状态，常见值：success 或 error。"
+      },
+      "data": {
+        "type": "array",
+        "description": "操作结果。QUERY 时通常为知识片段列表；INSERT 时通常为成功提示。"
+      }
     }
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "manage_user_preference",
-  "description": "用于管理和持久化用户的个性化偏好设置。当用户明确要求记住某些习惯（如语言、主题、特定格式要求）或你需要查询用户之前的设置时调用。支持 INSERT(新增偏好), QUERY(按键名查询), UPDATE(修改现有偏好), DELETE(删除偏好)。",
+  "description": "用于管理和持久化用户的个性化偏好设置。当用户明确要求记住某些习惯（如语言、主题、特定格式要求）或你需要查询用户之前的设置时调用。支持 INSERT(新增), QUERY(查询), UPDATE(更新), DELETE(删除)。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "preferenceTools",
@@ -11,32 +11,32 @@
       "action": {
         "type": "string",
         "enum": ["INSERT", "QUERY", "UPDATE", "DELETE"],
-        "description": "操作类型"
+        "description": "操作类型（必填）。可选值：INSERT=新增偏好；QUERY=查询偏好；UPDATE=更新偏好；DELETE=删除偏好。"
       },
       "id": {
         "type": "integer",
-        "description": "记录ID (UPDATE/DELETE 操作必须)"
+        "description": "偏好记录ID。action=UPDATE 或 DELETE 时必填。"
       },
       "mode": {
         "type": "string",
         "enum": ["PUT", "PATCH"],
-        "description": "更新模式 (PUT:全量替换, PATCH:部分更新)"
+        "description": "更新模式。action=UPDATE 时必填。可选值：PUT=全量替换；PATCH=部分更新。"
       },
       "prefKey": {
         "type": "string",
-        "description": "偏好设置的键名 (Key)"
+        "description": "偏好键名（例如 nickname、language、style）。INSERT/UPDATE 时建议提供。"
       },
       "prefValue": {
         "type": "string",
-        "description": "偏好设置的值 (Value)"
+        "description": "偏好值（例如 Luna、zh-CN、formal）。INSERT/UPDATE 时建议提供。"
       },
       "description": {
         "type": "string",
-        "description": "备注描述"
+        "description": "偏好说明或备注（可选），用于增强语义理解。"
       },
       "hardDelete": {
         "type": "boolean",
-        "description": "是否物理删除 (仅 DELETE 操作有效)"
+        "description": "删除方式（可选，仅 action=DELETE 时生效）。true=物理删除；false/不传=按系统默认删除策略。"
       }
     },
     "required": ["action"]
@@ -44,8 +44,14 @@
   "outputSchema": {
     "type": "object",
     "properties": {
-      "status": { "type": "string", "description": "success 或 error" },
-      "data": { "type": "object", "description": "UserPreference 对象或列表" }
+      "status": {
+        "type": "string",
+        "description": "执行状态，常见值：success 或 error。"
+      },
+      "data": {
+        "type": "object",
+        "description": "返回数据。可能是单条 UserPreference、列表或操作结果信息。"
+      }
     }
   }
 }

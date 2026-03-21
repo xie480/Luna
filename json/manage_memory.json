@@ -1,6 +1,6 @@
 {
   "name": "manage_memory",
-  "description": "用于管理 AI 与用户对话的长期记忆。当需要记住用户的个人画像(USER_PROFILE)、对话总结(CONVERSATION_SUMMARY)或关键事实(FACT)以便未来对话使用时调用。这有助于保持跨会话的上下文连贯性。支持增删改查操作。",
+  "description": "用于管理 AI 与用户对话的长期记忆。当需要记住用户的个人画像、对话总结或关键事实以便未来对话使用时调用。支持 INSERT(新增)、QUERY(查询)、UPDATE(更新)、DELETE(删除)。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "memoryTools",
@@ -11,37 +11,37 @@
       "action": {
         "type": "string",
         "enum": ["INSERT", "QUERY", "UPDATE", "DELETE"],
-        "description": "操作类型"
+        "description": "操作类型（必填）。可选值：INSERT=新增记忆；QUERY=查询记忆；UPDATE=更新记忆；DELETE=删除记忆。"
       },
       "id": {
         "type": "integer",
-        "description": "记忆ID (UPDATE/DELETE 必须)"
+        "description": "记忆ID。action=UPDATE 或 DELETE 时必填。"
       },
       "mode": {
         "type": "string",
         "enum": ["PUT", "PATCH"],
-        "description": "更新模式"
+        "description": "更新模式。action=UPDATE 时必填。可选值：PUT=全量替换；PATCH=部分更新。"
       },
       "sessionId": {
         "type": "string",
-        "description": "会话标识 ID"
+        "description": "会话标识（可选），用于关联记忆归属会话。"
       },
       "memoryType": {
         "type": "string",
-        "enum": ["USER_PROFILE", "CONVERSATION_SUMMARY", "FACT", "PREFERENCE"],
-        "description": "记忆类型"
+        "enum": ["FACT", "PREFERENCE", "SUMMARY", "REFLECTION"],
+        "description": "记忆类型。可选值：FACT=客观事实；PREFERENCE=用户偏好；SUMMARY=对话摘要；REFLECTION=自我反思。"
       },
       "content": {
         "type": "string",
-        "description": "记忆内容"
+        "description": "记忆内容文本。action=INSERT 时通常必填。"
       },
       "weight": {
         "type": "integer",
-        "description": "记忆权重 (默认1)"
+        "description": "记忆权重（可选），数值越大表示越重要，默认 1。"
       },
       "hardDelete": {
         "type": "boolean",
-        "description": "是否物理删除"
+        "description": "删除方式（可选，仅 action=DELETE 时生效）。true=物理删除；false/不传=按系统默认删除策略。"
       }
     },
     "required": ["action"]
@@ -49,8 +49,14 @@
   "outputSchema": {
     "type": "object",
     "properties": {
-      "status": { "type": "string" },
-      "data": { "type": "object", "description": "Memory 对象或列表" }
+      "status": {
+        "type": "string",
+        "description": "执行状态，常见值：success 或 error。"
+      },
+      "data": {
+        "type": "object",
+        "description": "返回数据。可能是单条 Memory、Memory 列表或操作结果信息。"
+      }
     }
   }
 }

@@ -10,7 +10,7 @@
     "properties": {
       "query": {
         "type": "string",
-        "description": "新闻搜索关键词"
+        "description": "新闻搜索关键词（必填）。建议包含事件主体与时间范围，例如“AI 芯片 发布会 本周”。"
       }
     },
     "required": ["query"]
@@ -18,7 +18,10 @@
   "outputSchema": {
     "type": "object",
     "properties": {
-      "news": { "type": "array", "description": "新闻结果列表，包含标题、来源、时间" }
+      "news": {
+        "type": "array",
+        "description": "新闻结果列表，通常包含标题、来源、发布时间、链接、摘要等字段。"
+      }
     }
   }
 }

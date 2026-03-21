@@ -10,7 +10,7 @@
     "properties": {
       "query": {
         "type": "string",
-        "description": "搜索关键词"
+        "description": "搜索关键词（必填）。建议提供明确主题与限定词，例如“广州今天天气 实时”。"
       }
     },
     "required": ["query"]
@@ -18,8 +18,14 @@
   "outputSchema": {
     "type": "object",
     "properties": {
-      "organic": { "type": "array", "description": "搜索结果列表" },
-      "peopleAlsoAsk": { "type": "array", "description": "相关问题" }
+      "organic": {
+        "type": "array",
+        "description": "网页搜索结果列表（通常包含标题、链接、摘要等字段）。"
+      },
+      "peopleAlsoAsk": {
+        "type": "array",
+        "description": "相关问题列表（可能为空）。"
+      }
     }
   }
 }

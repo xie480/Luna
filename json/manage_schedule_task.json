@@ -1,6 +1,6 @@
 {
   "name": "manage_schedule_task",
-  "description": "用于管理用户的日程安排和定时任务。当用户要求设置提醒、安排会议、创建定时执行的任务，或者查询/修改现有日程时调用。支持 INSERT(创建任务), QUERY(查询任务), UPDATE(修改状态或时间), DELETE(取消任务)。需严格遵守 yyyy-MM-dd HH:mm:ss 的时间格式。",
+  "description": "用于管理用户的日程安排和定时任务。当用户要求设置提醒、安排会议、创建定时执行的任务，或者查询/修改现有日程时调用。支持 INSERT(创建任务), QUERY(查询任务), UPDATE(修改任务), DELETE(删除任务)。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "scheduleTools",
@@ -11,38 +11,38 @@
       "action": {
         "type": "string",
         "enum": ["INSERT", "QUERY", "UPDATE", "DELETE"],
-        "description": "操作类型"
+        "description": "操作类型（必填）。可选值：INSERT=新增任务；QUERY=查询任务；UPDATE=更新任务；DELETE=删除任务。"
       },
       "id": {
         "type": "integer",
-        "description": "任务ID (UPDATE/DELETE 操作必须)"
+        "description": "任务ID。action=UPDATE 或 DELETE 时必填。"
       },
       "mode": {
         "type": "string",
         "enum": ["PUT", "PATCH"],
-        "description": "更新模式"
+        "description": "更新模式。action=UPDATE 时必填。可选值：PUT=全量替换；PATCH=部分更新。"
       },
       "content": {
         "type": "string",
-        "description": "任务内容"
+        "description": "任务内容描述。action=INSERT 时通常必填。"
       },
       "triggerTime": {
         "type": "string",
-        "description": "触发时间，格式: yyyy-MM-dd HH:mm:ss"
+        "description": "触发时间，格式必须为 yyyy-MM-dd HH:mm:ss。action=INSERT 时通常必填。"
       },
       "status": {
         "type": "string",
-        "enum": ["PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"],
-        "description": "任务状态"
+        "enum": ["PENDING", "COMPLETED", "CANCELLED", "EXPIRED"],
+        "description": "任务状态。可选值：PENDING=待处理；COMPLETED=已完成；CANCELLED=已取消；EXPIRED=已过期。"
       },
       "taskType": {
         "type": "string",
-        "enum": ["ONCE", "CRON", "INTERVAL"],
-        "description": "任务类型"
+        "enum": ["REMINDER", "ACTION", "TODO"],
+        "description": "任务类型。可选值：REMINDER=提醒；ACTION=执行操作；TODO=待办事项。"
       },
       "hardDelete": {
         "type": "boolean",
-        "description": "是否物理删除"
+        "description": "删除方式（可选，仅 action=DELETE 生效）。true=物理删除；false/不传=按系统默认删除策略。"
       }
     },
     "required": ["action"]
@@ -50,8 +50,14 @@
   "outputSchema": {
     "type": "object",
     "properties": {
-      "status": { "type": "string" },
-      "data": { "type": "object", "description": "ScheduleTask 对象或列表" }
+      "status": {
+        "type": "string",
+        "description": "执行状态，常见值：success 或 error。"
+      },
+      "data": {
+        "type": "object",
+        "description": "返回数据。可能是单条 ScheduleTask、任务列表或操作结果信息。"
+      }
     }
   }
 }
