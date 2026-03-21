@@ -1,0 +1,68 @@
+{
+  "name": "system_audit_diagnosis",
+  "description": "系统审计诊断技能。按条件检索日志并自动生成故障诊断结论，必要时写入诊断日志沉淀审计链路。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "orchestrationSkills",
+  "methodName": "systemAuditDiagnosis",
+  "runMode": "ASYNC",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "targetModule": {
+        "type": "string",
+        "description": "目标模块（可选），例如：chat/tool/system。"
+      },
+      "targetAction": {
+        "type": "string",
+        "description": "目标动作（可选），例如：chat/manage_memory。"
+      },
+      "logType": {
+        "type": "string",
+        "enum": ["ERROR", "TOOL_CALL", "SYSTEM_EVENT", "API_CALL", "LUNA_OUTPUT", "SELF_UPDATE"],
+        "description": "日志类型（可选）。可选值：ERROR=异常；TOOL_CALL=工具调用；SYSTEM_EVENT=系统事件；API_CALL=接口调用；LUNA_OUTPUT=Luna输出；SELF_UPDATE=自我更新。"
+      },
+      "startTime": {
+        "type": "string",
+        "description": "开始时间（可选），格式：yyyy-MM-dd HH:mm:ss。"
+      },
+      "endTime": {
+        "type": "string",
+        "description": "结束时间（可选），格式：yyyy-MM-dd HH:mm:ss。"
+      },
+      "maxLogs": {
+        "type": "integer",
+        "description": "最大分析日志条数（可选），建议 20-500，默认 100。"
+      },
+      "writeBackDiagnosisLog": {
+        "type": "boolean",
+        "description": "是否回写诊断日志（可选）。true=写回；false=不写回。默认 true。"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": {
+        "type": "string",
+        "description": "执行状态，常见值：success 或 error。"
+      },
+      "diagnosis": {
+        "type": "string",
+        "description": "诊断结论文本。"
+      },
+      "rootCauses": {
+        "type": "array",
+        "description": "可能根因列表。"
+      },
+      "suggestions": {
+        "type": "array",
+        "description": "修复建议列表。"
+      },
+      "evidenceLogs": {
+        "type": "array",
+        "description": "关键证据日志列表（脱敏）。"
+      }
+    }
+  }
+}
