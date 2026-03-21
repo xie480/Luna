@@ -6,6 +6,8 @@
   "beanName": "orchestrationSkills",
   "methodName": "systemAuditDiagnosis",
   "runMode": "ASYNC",
+  "tool_ids": [],
+  "thought_chain": "1) 解析输入条件（targetModule、targetAction、logType、startTime、endTime、maxLogs），若缺失则使用默认窗口与默认上限。2) 调用日志管理工具执行 QUERY，按模块/动作/类型/时间范围筛选并限制返回条数。3) 对返回日志进行聚类与时间线整理，识别高频错误、首发时间、传播范围和关联链路。4) 提炼诊断结论：给出最可能根因、次要根因，并输出可验证的证据日志片段。5) 生成修复建议清单，按“立刻止血/短期修复/长期治理”分层。6) 若 writeBackDiagnosisLog=true，则调用日志管理工具 INSERT 写回诊断摘要与关键证据索引，形成可追溯审计链。7) 返回结构化结果（status、diagnosis、rootCauses、suggestions、evidenceLogs），若日志为空则返回可解释的空结果而非报错。",
   "inputSchema": {
     "type": "object",
     "properties": {

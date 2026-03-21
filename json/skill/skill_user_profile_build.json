@@ -6,6 +6,8 @@
   "beanName": "orchestrationSkills",
   "methodName": "buildUserProfile",
   "runMode": "SYNC",
+  "tool_ids": [],
+  "thought_chain": "1) 读取 sessionId 与 dialogueText，若 sessionId 缺失则尝试使用当前稳定会话标识。2) 对对话文本做信息抽取，识别可长期复用的画像项（昵称、语气偏好、作息、兴趣、禁忌、格式偏好等），并给出每项置信度。3) 按 minConfidence 过滤低可信项，避免把一次性表达写成长期偏好。4) 对保留项执行去重与归一化（同义键合并、值标准化、冲突项以最近且高置信为准）。5) 调用用户偏好管理工具执行 INSERT/UPDATE（幂等 upsert），统计 preferenceUpserts。6) 当 profileScope=PREFERENCE_AND_MEMORY 时，将高价值画像事件调用长期记忆工具 INSERT，统计 memoryInserts。7) 输出结构化结果（status、preferenceUpserts、memoryInserts、profileItems）；若无合格画像项则返回 success 且写入计数为 0。",
   "inputSchema": {
     "type": "object",
     "properties": {

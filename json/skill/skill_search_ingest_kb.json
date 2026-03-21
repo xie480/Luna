@@ -6,6 +6,8 @@
   "beanName": "orchestrationSkills",
   "methodName": "searchIngestKnowledgeBase",
   "runMode": "ASYNC",
+  "tool_ids": [],
+  "thought_chain": "1) 解析 query、kbTitle、sourceType、maxFetch、deduplicate，补全默认值（sourceType 默认 WEB_SEARCH，maxFetch 默认 8，deduplicate 默认 true）。2) 调用网页搜索工具获取候选来源，必要时并行补充新闻搜索结果。3) 对候选结果做质量筛选（可访问性、相关性、重复度、时效性），截断到 maxFetch。4) 若 need 深度内容则逐条调用网页抓取工具提取正文；抓取失败的来源保留摘要并记录 skipped。5) 对正文进行清洗（去模板噪声、去广告段、合并重复段）并生成入库标题（优先 kbTitle，否则自动生成）。6) 若 deduplicate=true，按 URL/标题哈希或语义相似度去重，避免重复入库。7) 调用知识库管理工具 INSERT 批量写入，统计 insertedCount 与 skippedCount。8) 返回结构化结果（status、insertedCount、skippedCount、sourceList），并在部分失败时返回 success + 明细而非整体失败。",
   "inputSchema": {
     "type": "object",
     "properties": {
