@@ -120,6 +120,7 @@
         @send="onSend"
         @open-settings="openSettings"
         @toggle-history="toggleHistory"
+        @toggle-query="toggleQuery"
         @close="showChat = false"
         @mouseenter="uiEnter"
         @mouseleave="uiLeave"
@@ -132,6 +133,16 @@
         v-if="showHistory"
         ref="historyPanelRef"
         @close="showHistory = false"
+        @mouseenter="uiEnter"
+        @mouseleave="uiLeave"
+      />
+    </transition>
+
+    <!-- 查询面板 -->
+    <transition name="fade">
+      <QueryPanel
+        v-if="showQuery"
+        @close="showQuery = false"
         @mouseenter="uiEnter"
         @mouseleave="uiLeave"
       />
@@ -235,6 +246,7 @@ import { useTheme } from "../../composables/useTheme.js";
 import ChatInput from "../../components/ChatInput.vue";
 import SettingsPanel from "../../components/SettingsPanel.vue";
 import HistoryPanel from "../../components/HistoryPanel.vue";
+import QueryPanel from "../../components/QueryPanel.vue";
 import ApprovalModal from "../../components/ApprovalModal.vue";
 
 /* ================= DOM refs ================= */
@@ -246,6 +258,7 @@ const bgParticlesVisible = ref(true);
 const showChat = ref(false);
 const showSettings = ref(false);
 const showHistory = ref(false);
+const showQuery = ref(false);
 const historyPanelRef = ref(null);
 const trackingEnabled = ref(true);
 const lunaIntroVisible = ref(false);
@@ -445,6 +458,7 @@ async function handleLogout() {
     showSettings.value = false;
     showChat.value = false;
     showHistory.value = false;
+    showQuery.value = false;
     showApproval.value = false;
     approvalTask.value = null;
 
@@ -691,6 +705,7 @@ function uiLeave() {
       ".settings-panel:not(.fade-leave-active):hover",
       ".login-terminal:hover",
       ".history-panel:not(.fade-leave-active):hover",
+      ".query-panel:not(.fade-leave-active):hover",
       ".top-banner:hover",
       ".modal:hover",
       ".approval-mask:hover",
@@ -721,6 +736,7 @@ function modelLeave() {
 watch(showChat, (val) => { if (!val) uiLeave(); else updatePetState(); });
 watch(showSettings, (val) => { if (!val) uiLeave(); else updatePetState(); });
 watch(showHistory, (val) => { if (!val) uiLeave(); else updatePetState(); });
+watch(showQuery, (val) => { if (!val) uiLeave(); else updatePetState(); });
 watch(showApproval, (val) => { if (!val) uiLeave(); else updatePetState(); });
 
 // 關鍵修復：登入遮罩顯示時，強制設定 overUI=true，確保窗口不穿透
@@ -1059,6 +1075,11 @@ function toggleHistory() {
   if (showHistory.value) uiEnter();
 }
 
+function toggleQuery() {
+  showQuery.value = !showQuery.value;
+  if (showQuery.value) uiEnter();
+}
+
 /* ================= 等待模型就绪 ================= */
 function waitForModelReady(timeout = 10000) {
   return new Promise((resolve) => {
@@ -1132,6 +1153,7 @@ onMounted(async () => {
       if (!showChat.value) {
         showSettings.value = false;
         showHistory.value = false;
+        showQuery.value = false;
       }
     });
   }
