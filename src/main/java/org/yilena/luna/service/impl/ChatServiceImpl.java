@@ -367,7 +367,7 @@ public class ChatServiceImpl implements ChatService {
                 knowledgeSnippets != null ? knowledgeSnippets.size() : 0);
 
         // -------------------- 7. Agent 工具调用 --------------------
-        String toolContext = agentService.processToolCalling(input);
+        String toolContext = agentService.processToolCalling(keyPrefix, input);
         log.info("Agent 工具调用完成，toolContextEmpty={}", toolContext == null || toolContext.isBlank());
 
         // -------------------- 8. 组装最终 Prompt --------------------

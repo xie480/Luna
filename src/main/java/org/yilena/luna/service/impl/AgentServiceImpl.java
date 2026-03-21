@@ -35,8 +35,8 @@ public class AgentServiceImpl implements AgentService {
     private final ObjectMapper objectMapper;
 
     @Override
-    public String processToolCalling(String input) {
-        log.info("Agent 开始进行工具决策分析: {}", input);
+    public String processToolCalling(String sessionId, String input) {
+        log.info("Agent 开始进行工具决策分析: {}, sessionId={}", input, sessionId);
 
         // 1. 獲取候選工具
         List<Resource> candidates = toolRouter.findCandidates(input);
@@ -91,9 +91,9 @@ public class AgentServiceImpl implements AgentService {
         if (ResourceType.SKILL.equals(targetResource.getType())) {
             executionResult = skillExecutor.execute(targetResource, argsJson);
         } else {
-            // 修復：提供 sessionId，避免觸發「未提供 sessionId」警告並啟用審批關聯
-            String sessionId = "agent-" + Thread.currentThread().threadId();
-            executionResult = toolExecutor.execute(sessionId, targetResource, argsJson);
+            // 使用穩定業務 sessionId，而非 threadId，避免跨線程導致審批關聯錯亂
+            String stableSessionId = (sessionId == null || sessionId.isBlank()) ? "agent-default" : sessionId;
+            executionResult = toolExecutor.execute(stableSessionId, targetResource, argsJson);
         }
 
         log.info("Agent 工具执行完毕，结果: {}", executionResult);
