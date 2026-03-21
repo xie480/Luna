@@ -3,29 +3,40 @@
     <div class="approval-modal">
       <div class="modal-header">
         <span class="warning-icon">⚠️</span>
-        <h3>敏感操作請求</h3>
+        <h3>敏感操作请求</h3>
       </div>
-      
+
       <div class="modal-body">
-        <p class="desc">AI 正在請求執行敏感操作，請確認參數。</p>
-        
+        <p class="desc">AI 正在请求执行敏感操作，请确认参数。</p>
+
         <div class="info-row">
-          <span class="label">技能名稱:</span>
-          <span class="value highlight">{{ task?.skillName }}</span>
+          <span class="label">操作名称:</span>
+          <span class="value highlight">{{ task?.skillName || "-" }}</span>
         </div>
-        
+
         <div class="args-container">
-          <div class="label">參數詳情:</div>
+          <div class="label">参数详情:</div>
+
+          <div v-if="kvRows.length" class="kv-list">
+            <div class="kv-row" v-for="row in kvRows" :key="row.key">
+              <span class="kv-key">{{ row.key }}</span>
+              <span class="kv-sep">:</span>
+              <span class="kv-val">{{ row.value }}</span>
+            </div>
+          </div>
+          <div v-else class="empty-kv">（参数不是对象或为空，已显示原始 JSON）</div>
+
           <pre class="args-json">{{ formattedArgs }}</pre>
         </div>
-        
+
         <div class="countdown">
-          任務有效期: <span :class="{ 'text-danger': timeLeft < 60 }">{{ formatTime(timeLeft) }}</span>
+          任务有效期:
+          <span :class="{ 'text-danger': timeLeft < 60 }">{{ formatTime(timeLeft) }}</span>
         </div>
       </div>
-      
+
       <div class="modal-footer">
-        <button class="btn-reject" @click="$emit('reject')">拒絕 (Reject)</button>
+        <button class="btn-reject" @click="$emit('reject')">拒绝 (Reject)</button>
         <button class="btn-approve" @click="$emit('approve')">同意 (Approve)</button>
       </div>
     </div>
@@ -33,44 +44,94 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch } from "vue";
 
 const props = defineProps({
   task: {
     type: Object,
-    default: () => ({})
-  }
+    default: () => ({}),
+  },
 });
 
-const emit = defineEmits(['approve', 'reject', 'mouseenter', 'mouseleave']);
+const emit = defineEmits(["approve", "reject", "mouseenter", "mouseleave"]);
 
-// 格式化 JSON 參數以便閱讀
+function safeParseArgs() {
+  try {
+    const raw = props.task?.argsJson;
+    if (!raw) return {};
+    if (typeof raw === "object") return raw;
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+const parsedArgs = computed(() => safeParseArgs());
+
+const kvRows = computed(() => {
+  const data = parsedArgs.value;
+  if (!data || typeof data !== "object" || Array.isArray(data)) return [];
+
+  return Object.entries(data).map(([key, value]) => {
+    let v = value;
+    if (typeof value === "object") {
+      try {
+        v = JSON.stringify(value);
+      } catch {
+        v = String(value);
+      }
+    }
+    return { key, value: String(v) };
+  });
+});
+
 const formattedArgs = computed(() => {
   try {
-    return JSON.stringify(JSON.parse(props.task?.argsJson || '{}'), null, 2);
-  } catch (e) {
-    return props.task?.argsJson || '{}';
+    const raw = props.task?.argsJson;
+    if (!raw) return "{}";
+    if (typeof raw === "object") return JSON.stringify(raw, null, 2);
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return props.task?.argsJson || "{}";
   }
 });
 
-// 倒計時邏輯 (後端 Redis TTL 為 10 分鐘)
-const timeLeft = ref(600);
+// 倒计时（默认 10 分钟）
+const TTL_SECONDS = 600;
+const timeLeft = ref(TTL_SECONDS);
 let timer = null;
 
-onMounted(() => {
+function resetTimer() {
+  if (timer) clearInterval(timer);
+
+  let initial = TTL_SECONDS;
   if (props.task?.createTime) {
     const elapsed = Math.floor((Date.now() - props.task.createTime) / 1000);
-    timeLeft.value = Math.max(0, 600 - elapsed);
+    initial = Math.max(0, TTL_SECONDS - elapsed);
   }
-  
+  timeLeft.value = initial;
+
   timer = setInterval(() => {
     if (timeLeft.value > 0) {
       timeLeft.value--;
     } else {
       clearInterval(timer);
-      emit('reject'); // 超時自動拒絕
+      timer = null;
+      emit("reject"); // 超时自动拒绝
     }
   }, 1000);
+}
+
+watch(
+  () => props.task?.taskId,
+  () => {
+    resetTimer();
+  },
+  { immediate: true }
+);
+
+onMounted(() => {
+  if (!timer) resetTimer();
 });
 
 onBeforeUnmount(() => {
@@ -78,8 +139,10 @@ onBeforeUnmount(() => {
 });
 
 function formatTime(seconds) {
-  const m = Math.floor(seconds / 60).toString().padStart(2, '0');
-  const s = (seconds % 60).toString().padStart(2, '0');
+  const m = Math.floor(seconds / 60)
+    .toString()
+    .padStart(2, "0");
+  const s = (seconds % 60).toString().padStart(2, "0");
   return `${m}:${s}`;
 }
 </script>
@@ -98,7 +161,8 @@ function formatTime(seconds) {
 }
 
 .approval-modal {
-  width: 480px;
+  width: 520px;
+  max-width: 92vw;
   background: var(--bg-panel, rgba(15, 20, 25, 0.98));
   border: 1px solid #ff4d4f;
   border-radius: 8px;
@@ -169,7 +233,7 @@ function formatTime(seconds) {
 
 .label {
   color: #888;
-  min-width: 70px;
+  min-width: 74px;
 }
 
 .highlight {
@@ -184,24 +248,72 @@ function formatTime(seconds) {
   gap: 8px;
 }
 
+.kv-list {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 10px 12px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.kv-row {
+  display: grid;
+  grid-template-columns: minmax(80px, 160px) 12px 1fr;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 2px 0;
+}
+
+.kv-key {
+  color: #81d4fa;
+  word-break: break-all;
+}
+
+.kv-sep {
+  color: #888;
+  text-align: center;
+}
+
+.kv-val {
+  color: #e8fff8;
+  word-break: break-word;
+}
+
+.empty-kv {
+  font-size: 12px;
+  color: #999;
+}
+
 .args-json {
   background: rgba(0, 0, 0, 0.6);
   border: 1px solid rgba(255, 255, 255, 0.1);
   padding: 12px;
   border-radius: 6px;
-  font-family: 'Consolas', 'Monaco', monospace;
+  font-family: "Consolas", "Monaco", monospace;
   font-size: 12px;
   color: #a5d6a7;
-  max-height: 220px;
+  max-height: 180px;
   overflow-y: auto;
   margin: 0;
   white-space: pre-wrap;
   word-wrap: break-word;
 }
 
-.args-json::-webkit-scrollbar { width: 6px; }
-.args-json::-webkit-scrollbar-track { background: transparent; }
-.args-json::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+.args-json::-webkit-scrollbar,
+.kv-list::-webkit-scrollbar {
+  width: 6px;
+}
+.args-json::-webkit-scrollbar-track,
+.kv-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.args-json::-webkit-scrollbar-thumb,
+.kv-list::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.2);
+  border-radius: 3px;
+}
 
 .countdown {
   font-size: 12px;
