@@ -312,7 +312,6 @@ async function consumeStatusQueue() {
 
 /* ================= SSE 事件標準化 ================= */
 function normalizeSseEventPayload(raw) {
-  // 新格式：{ event, data }
   if (raw && typeof raw === "object" && Object.prototype.hasOwnProperty.call(raw, "event")) {
     return {
       event: raw.event || "message",
@@ -320,7 +319,6 @@ function normalizeSseEventPayload(raw) {
     };
   }
 
-  // 兼容舊格式：直接下發 data
   if (raw && typeof raw === "object" && raw.type === "APPROVAL_REQUEST") {
     return {
       event: "APPROVAL_REQUEST",
@@ -608,14 +606,24 @@ async function onApprove(approved) {
       taskId: approvalTask.value.taskId,
       approved,
     });
-    appearance.showAppearanceHint(approved ? "已同意操作" : "已拒絕操作");
+
     console.log("[Approval] Result:", res);
+
+    if (res && typeof res === "object" && (res.reply || res.text || res.message || res.content || res.answer || res.data)) {
+      isStreaming.value = true;
+      streamText.value = "";
+      await handleModelReply(normalizeResponse(res));
+    } else {
+      appearance.showAppearanceHint(approved ? "已同意操作" : "已拒絕操作");
+    }
   } catch (e) {
     console.error("[Approval] Failed:", e);
     appearance.showAppearanceHint("審批提交失敗");
   } finally {
     showApproval.value = false;
     approvalTask.value = null;
+    isStreaming.value = false;
+    streamText.value = "";
     uiLeave();
   }
 }
