@@ -297,7 +297,9 @@ function openEditModal(skill) {
   form.runMode = (skill?.runMode === 'ASYNC' ? 'ASYNC' : 'SYNC');
   form.requiredCapabilitiesText = normalizeStringArrayText(skill?.requiredCapabilities);
   form.toolSlotsText = stringifyMaybeJson(skill?.toolSlots, '');
-  form.thoughtChainText = normalizeStringArrayText(skill?.thoughtChain);
+  form.thoughtChainText = normalizeStringArrayText(
+    skill?.thoughtChain ?? skill?.thought_chain ?? skill?.thoughtchain
+  );
 
   modalX.value = window.innerWidth / 2 - 260;
   modalY.value = window.innerHeight / 2 - 320;
@@ -360,8 +362,10 @@ function handleFileUpload(event) {
       if (json.toolSlots !== undefined) {
         form.toolSlotsText = stringifyMaybeJson(json.toolSlots, '');
       }
-      if (json.thoughtChain !== undefined) {
-        form.thoughtChainText = normalizeStringArrayText(json.thoughtChain);
+
+      const importedThoughtChain = json.thoughtChain ?? json.thought_chain ?? json.thoughtchain;
+      if (importedThoughtChain !== undefined) {
+        form.thoughtChainText = normalizeStringArrayText(importedThoughtChain);
       }
 
       alert("JSON 解析成功，表单已自动填充");
