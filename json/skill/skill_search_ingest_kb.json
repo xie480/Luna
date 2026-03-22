@@ -6,54 +6,35 @@
   "beanName": "orchestrationSkills",
   "methodName": "searchIngestKnowledgeBase",
   "runMode": "ASYNC",
-  "tool_ids": [],
-  "thought_chain": "1) 解析 query、kbTitle、sourceType、maxFetch、deduplicate，补全默认值（sourceType 默认 WEB_SEARCH，maxFetch 默认 8，deduplicate 默认 true）。2) 调用网页搜索工具获取候选来源，必要时并行补充新闻搜索结果。3) 对候选结果做质量筛选（可访问性、相关性、重复度、时效性），截断到 maxFetch。4) 若 need 深度内容则逐条调用网页抓取工具提取正文；抓取失败的来源保留摘要并记录 skipped。5) 对正文进行清洗（去模板噪声、去广告段、合并重复段）并生成入库标题（优先 kbTitle，否则自动生成）。6) 若 deduplicate=true，按 URL/标题哈希或语义相似度去重，避免重复入库。7) 调用知识库管理工具 INSERT 批量写入，统计 insertedCount 与 skippedCount。8) 返回结构化结果（status、insertedCount、skippedCount、sourceList），并在部分失败时返回 success + 明细而非整体失败。",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "query": {
-        "type": "string",
-        "description": "搜索关键词（必填），例如：'Luna 桌面智能体架构设计'。"
-      },
-      "kbTitle": {
-        "type": "string",
-        "description": "入库标题（可选）。未传时可由系统自动生成。"
-      },
-      "sourceType": {
-        "type": "string",
-        "enum": ["WEB_SEARCH", "MANUAL_INPUT", "FILE"],
-        "description": "入库来源类型（可选）。可选值：WEB_SEARCH=网络检索；MANUAL_INPUT=人工输入；FILE=文件导入。默认 WEB_SEARCH。"
-      },
-      "maxFetch": {
-        "type": "integer",
-        "description": "搜索抓取数量上限（可选），建议 1-20，默认 8。"
-      },
-      "deduplicate": {
-        "type": "boolean",
-        "description": "是否去重（可选）。true=按URL/标题哈希去重；false=不去重。默认 true。"
-      }
+  "requiredCapabilities": [
+    "WEB_SEARCH",
+    "WEB_FETCH",
+    "KB_INSERT"
+  ],
+  "toolSlots": [
+    {
+      "slot": "search",
+      "capability": "WEB_SEARCH",
+      "required": true
     },
-    "required": ["query"]
-  },
-  "outputSchema": {
-    "type": "object",
-    "properties": {
-      "status": {
-        "type": "string",
-        "description": "执行状态，常见值：success 或 error。"
-      },
-      "insertedCount": {
-        "type": "integer",
-        "description": "成功写入知识库的分片/条目数量。"
-      },
-      "skippedCount": {
-        "type": "integer",
-        "description": "被跳过的数量（去重、空内容、抓取失败等）。"
-      },
-      "sourceList": {
-        "type": "array",
-        "description": "处理过的来源列表。"
-      }
+    {
+      "slot": "fetch",
+      "capability": "WEB_FETCH",
+      "required": true
+    },
+    {
+      "slot": "kb",
+      "capability": "KB_INSERT",
+      "required": true
     }
-  }
+  ],
+  "thought_chain": [
+    "解析 query、kbTitle、sourceType、maxFetch、deduplicate，补全默认值。",
+    "调用【search】槽位对应的搜索能力获取候选来源。",
+    "筛选候选来源，按相关性、时效性、可访问性和重复度截断。",
+    "对需要深度内容的来源调用【fetch】槽位提取正文。",
+    "清洗正文并进行去重，生成入库标题。",
+    "调用【kb】槽位对应的写入能力批量入库。",
+    "返回 insertedCount、skippedCount 和 sourceList。"
+  ]
 }
