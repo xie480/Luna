@@ -9,6 +9,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.yilena.luna.enums.RunMode;
 import org.yilena.luna.handler.JsonbTypeHandler;
+import org.yilena.luna.handler.VectorTypeHandler;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -121,7 +122,7 @@ public class McpSkill implements Serializable {
     /**
      * 文本的向量表示 (PGVector)，用于语义检索
      */
-    @TableField("embedding")
+    @TableField(value = "embedding", typeHandler = VectorTypeHandler.class)
     private String embedding;
 
     /**
