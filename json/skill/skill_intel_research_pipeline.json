@@ -6,8 +6,44 @@
   "beanName": "orchestrationSkills",
   "methodName": "intelResearchPipeline",
   "runMode": "ASYNC",
-  "tool_ids": [],
-  "thought_chain": "1) 解析 topic、timeRange、maxSources、needDeepScrape、outputStyle，并填充默认值（timeRange=7D，maxSources=12，needDeepScrape=true，outputStyle=BULLET）。2) 并行调用网页搜索与新闻搜索，构建候选情报源池。3) 按主题相关性、来源可信度、发布时间和去重规则进行打分排序，保留前 maxSources 条。4) 当 needDeepScrape=true 时，对高分来源调用网页抓取工具抽取正文，并记录抓取成功/失败状态。5) 对摘要与正文做事实归并：抽取关键事件、主体、时间、数字与观点，标记冲突信息与不确定项。6) 生成情报产出：summary 主文、highlights 要点、sources 来源清单；输出风格按 BULLET/REPORT/TIMELINE 组织。7) 若来源不足或抓取大面积失败，返回部分成功结果并明确缺口，不伪造事实。8) 返回结构化结果（status、summary、sources、highlights），确保可直接用于前端展示或后续分析。",
+  "requiredCapabilities": [
+    "WEB_SEARCH",
+    "NEWS_SEARCH",
+    "WEB_FETCH",
+    "INTEL_SUMMARIZE"
+  ],
+  "toolSlots": [
+    {
+      "slot": "web",
+      "capability": "WEB_SEARCH",
+      "required": true
+    },
+    {
+      "slot": "news",
+      "capability": "NEWS_SEARCH",
+      "required": true
+    },
+    {
+      "slot": "fetch",
+      "capability": "WEB_FETCH",
+      "required": false
+    },
+    {
+      "slot": "summarize",
+      "capability": "INTEL_SUMMARIZE",
+      "required": true
+    }
+  ],
+  "thought_chain": [
+    "解析 topic、timeRange、maxSources、needDeepScrape、outputStyle，并填充默认值（timeRange=7D，maxSources=12，needDeepScrape=true，outputStyle=BULLET）。",
+    "并行调用【web】与【news】槽位构建候选情报源池。",
+    "按主题相关性、来源可信度、发布时间和去重规则进行打分排序，保留前 maxSources 条。",
+    "当 needDeepScrape=true 时，调用【fetch】槽位抓取高分来源正文，并记录抓取成功/失败状态。",
+    "对摘要与正文做事实归并：抽取关键事件、主体、时间、数字与观点，标记冲突信息与不确定项。",
+    "调用【summarize】槽位生成情报产出：summary 主文、highlights 要点、sources 来源清单；输出风格按 BULLET/REPORT/TIMELINE 组织。",
+    "若来源不足或抓取大面积失败，返回部分成功结果并明确缺口，不伪造事实。",
+    "返回结构化结果（status、summary、sources、highlights），确保可直接用于前端展示或后续分析。"
+  ],
   "inputSchema": {
     "type": "object",
     "properties": {
