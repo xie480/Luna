@@ -17,9 +17,11 @@ import java.util.List;
 /**
  * MCP 技能实体 (对应 mcp_skills 表)
  * 复合能力，支持异步执行
- * 【v2.2 重构】新增 tool_ids + thought_chain：
- * - toolIds: Skill 可调用 Tool 白名单（JSONB 数组）
- * - thoughtChain: 自然语言工具编排思维链
+ *
+ * 【v2.3 重构】对齐 Skill 新协议：
+ * - requiredCapabilities: 技能所需能力集合（JSONB 数组）
+ * - toolSlots: 能力槽位定义（JSONB 数组对象）
+ * - thoughtChain: 编排思维链（JSONB 字符串数组）
  */
 @Data
 @Builder
@@ -93,18 +95,28 @@ public class McpSkill implements Serializable {
     private RunMode runMode;
 
     /**
-     * Skill 可调用 Tool ID 白名单（JSONB 数组）
-     * 示例: [1001,1002,1003]
+     * 技能所需能力集合（JSONB 字符串数组）
+     * 示例: ["WEB_SEARCH","WEB_FETCH","KB_INSERT"]
      */
-    @TableField(value = "tool_ids", typeHandler = JsonbTypeHandler.class)
-    private List<Long> toolIds;
+    @TableField(value = "required_capabilities", typeHandler = JsonbTypeHandler.class)
+    private List<String> requiredCapabilities;
 
     /**
-     * Skill 自然语言思维链
-     * 描述调用顺序、分支、失败回退、汇总策略等
+     * 能力槽位定义（JSONB 数组对象）
+     * 示例:
+     * [
+     *   {"slot":"search","capability":"WEB_SEARCH","required":true},
+     *   {"slot":"fetch","capability":"WEB_FETCH","required":true}
+     * ]
      */
-    @TableField("thought_chain")
-    private String thoughtChain;
+    @TableField(value = "tool_slots", typeHandler = JsonbTypeHandler.class)
+    private List<ToolSlot> toolSlots;
+
+    /**
+     * Skill 编排思维链（JSONB 字符串数组）
+     */
+    @TableField(value = "thought_chain", typeHandler = JsonbTypeHandler.class)
+    private List<String> thoughtChain;
 
     /**
      * 文本的向量表示 (PGVector)，用于语义检索
@@ -123,4 +135,17 @@ public class McpSkill implements Serializable {
      */
     @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
+
+    /**
+     * 技能槽位对象
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ToolSlot implements Serializable {
+        private String slot;
+        private String capability;
+        private Boolean required;
+    }
 }

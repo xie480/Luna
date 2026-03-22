@@ -37,7 +37,7 @@ COMMENT ON COLUMN mcp_tools.requires_approval IS '是否需要審批';
 COMMENT ON COLUMN mcp_tools.sensitivity IS 'LOW, MEDIUM, HIGH';
 COMMENT ON COLUMN mcp_tools.embedding IS '工具語義向量 (PGVector, 768維)';
 
--- 2. MCP 技能表 (Composite Skills)
+-- 2. MCP 技能表 (Composite Skills) - 新能力槽位協議
 CREATE TABLE IF NOT EXISTS mcp_skills (
     id BIGINT PRIMARY KEY,
     name VARCHAR(100) NOT NULL UNIQUE,
@@ -49,14 +49,15 @@ CREATE TABLE IF NOT EXISTS mcp_skills (
     input_schema TEXT,
     output_schema TEXT,
     run_mode VARCHAR(20) DEFAULT 'SYNC',
-    tool_ids JSONB DEFAULT '[]'::jsonb,
-    thought_chain TEXT,
+    required_capabilities JSONB DEFAULT '[]'::jsonb,
+    tool_slots JSONB DEFAULT '[]'::jsonb,
+    thought_chain JSONB DEFAULT '[]'::jsonb,
     embedding vector(768),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-COMMENT ON TABLE mcp_skills IS 'MCP 技能表 (Composite Skills) - 存儲複合技能，支持異步執行';
+COMMENT ON TABLE mcp_skills IS 'MCP 技能表 (Composite Skills) - 存儲複合技能，支持異步執行（能力槽位協議）';
 COMMENT ON COLUMN mcp_skills.id IS '主鍵 ID (雪花算法)';
 COMMENT ON COLUMN mcp_skills.name IS '技能唯一名稱';
 COMMENT ON COLUMN mcp_skills.description IS '技能語義描述';
@@ -65,8 +66,9 @@ COMMENT ON COLUMN mcp_skills.method_name IS '執行方法名稱';
 COMMENT ON COLUMN mcp_skills.input_schema IS '參數 JSON Schema';
 COMMENT ON COLUMN mcp_skills.output_schema IS '輸出 JSON Schema';
 COMMENT ON COLUMN mcp_skills.run_mode IS 'SYNC 或 ASYNC';
-COMMENT ON COLUMN mcp_skills.tool_ids IS 'Skill 可调用 Tool ID 白名单(JSON数组)';
-COMMENT ON COLUMN mcp_skills.thought_chain IS 'Skill 的自然语言编排思维链（顺序、依赖、回退策略）';
+COMMENT ON COLUMN mcp_skills.required_capabilities IS 'Skill 所需能力集合(JSON数组)';
+COMMENT ON COLUMN mcp_skills.tool_slots IS 'Skill 工具槽位定义(JSON数组对象)，用于 capability -> slot 绑定';
+COMMENT ON COLUMN mcp_skills.thought_chain IS 'Skill 的编排思维链(JSON字符串数组)，描述顺序、依赖与回退策略';
 COMMENT ON COLUMN mcp_skills.embedding IS '技能語義向量 (PGVector, 768維)';
 
 -- 3. 任務表
@@ -93,9 +95,15 @@ CREATE INDEX IF NOT EXISTS idx_mcp_skills_name ON mcp_skills(name);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at DESC);
 
--- skill 白名单与编排字段索引
-CREATE INDEX IF NOT EXISTS idx_mcp_skills_tool_ids_gin
-    ON mcp_skills USING gin (tool_ids);
+-- skill 新協議字段索引
+CREATE INDEX IF NOT EXISTS idx_mcp_skills_required_capabilities_gin
+    ON mcp_skills USING gin (required_capabilities);
+
+CREATE INDEX IF NOT EXISTS idx_mcp_skills_tool_slots_gin
+    ON mcp_skills USING gin (tool_slots);
+
+CREATE INDEX IF NOT EXISTS idx_mcp_skills_thought_chain_gin
+    ON mcp_skills USING gin (thought_chain);
 
 -- 向量索引
 CREATE INDEX IF NOT EXISTS idx_mcp_tools_embedding_ivfflat
