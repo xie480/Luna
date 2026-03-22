@@ -9,7 +9,7 @@ import org.apache.rocketmq.spring.core.RocketMQListener;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.constants.RocketMqConstant;
-import org.yilena.luna.executor.ReflectionToolExecutor;
+import org.yilena.luna.executor.SkillExecutor;
 import org.yilena.luna.mq.dto.SkillExecutionMessage;
 import org.yilena.luna.sse.LunaStatusPublisher;
 import org.yilena.luna.sse.SseSessionManager;
@@ -26,7 +26,7 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
 
     private static final String TASK_REDIS_KEY_PREFIX = "luna:skill:task:";
 
-    private final ReflectionToolExecutor reflectionToolExecutor;
+    private final SkillExecutor skillExecutor;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
     private final SseSessionManager sseSessionManager;
@@ -52,26 +52,15 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
         }
 
         String skillName = msg.getResource().getName();
-        String beanName = msg.getResource().getBeanName();
-        String methodName = msg.getResource().getMethodName();
         String argsJson = (msg.getArgsJson() == null || msg.getArgsJson().isBlank()) ? "{}" : msg.getArgsJson();
-
-        if (beanName == null || beanName.isBlank() || methodName == null || methodName.isBlank()) {
-            String err = "beanName/methodName 缺失，无法执行";
-            log.error("MQ 消費: {}，taskId={}, skill={}", err, taskId, skillName);
-            markTaskFailed(taskId, err, skillName, 0L);
-            notifyAsyncResult(taskId, false, null, err);
-            return;
-        }
 
         long start = System.currentTimeMillis();
         markTaskRunning(taskId, skillName);
 
-        log.info("MQ 消費: 開始執行異步技能任務, taskId={}, skill={}, bean={}, method={}",
-                taskId, skillName, beanName, methodName);
+        log.info("MQ 消費: 開始執行異步技能任務, taskId={}, skill={}", taskId, skillName);
 
         try {
-            String result = reflectionToolExecutor.executeInternal(beanName, methodName, argsJson);
+            String result = skillExecutor.executeLoop(msg.getResource(), argsJson);
             long costMs = System.currentTimeMillis() - start;
 
             boolean failedByResult = isErrorResult(result);
@@ -95,7 +84,6 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
             markTaskFailed(taskId, err, skillName, costMs);
             notifyAsyncResult(taskId, false, null, err);
 
-            // 抛出异常给 RocketMQ，按消费重试策略处理
             throw new RuntimeException("Async skill execution failed, taskId=" + taskId + ", err=" + err, e);
         }
     }
@@ -161,7 +149,6 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
             }
             return false;
         } catch (Exception e) {
-            // 非 JSON 结果按成功处理（兼容旧工具纯文本返回）
             return false;
         }
     }
@@ -175,9 +162,9 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
             if (node.has("message")) {
                 return node.get("message").asText("unknown error");
             }
-            return "tool returned error status";
+            return "skill returned error status";
         } catch (Exception e) {
-            return "tool returned error status";
+            return "skill returned error status";
         }
     }
 

@@ -80,22 +80,40 @@ public class Resource implements Serializable {
     private RunMode runMode;
 
     /**
-     * 是否需要人工审批 (Skill 特有字段，Tool 默认为 false)
+     * 是否需要人工审批 (Tool 特有字段，Skill 默认 false)
      */
     private Boolean requiresApproval;
 
     /**
-     * 敏感度/权限等级 (Skill 特有字段，Tool 默认为 LOW)
+     * 敏感度/权限等级 (Tool 特有字段，Skill 默认 LOW)
      */
     private Sensitivity sensitivity;
 
     /**
-     * Skill 可调用 Tool ID 白名单（JSON数组）
+     * Skill 所需能力集合（新协议）
      */
-    private List<Long> toolIds;
+    private List<String> requiredCapabilities;
 
     /**
-     * Skill 自然语言思维链
+     * Skill 能力槽位定义（新协议）
      */
-    private String thoughtChain;
+    private List<ToolSlotDto> toolSlots;
+
+    /**
+     * Skill 编排思维链（新协议）
+     */
+    private List<String> thoughtChain;
+
+    /**
+     * 能力槽位 DTO
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ToolSlotDto implements Serializable {
+        private String slot;
+        private String capability;
+        private Boolean required;
+    }
 }

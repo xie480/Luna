@@ -32,7 +32,7 @@ import java.util.stream.Collectors;
 public class AgentServiceImpl implements AgentService {
 
     private final ToolRouter toolRouter;
-    private final LlmAdapter llmAdapter; // 默認注入 RealLlmAdapter
+    private final LlmAdapter llmAdapter;
     private final ExecutionGate executionGate;
     private final ReflectionToolExecutor toolExecutor;
     private final SkillExecutor skillExecutor;
@@ -112,8 +112,6 @@ public class AgentServiceImpl implements AgentService {
         return executionResult;
     }
 
-    // --- Prompt 構建輔助方法 ---
-
     private String buildDecisionPrompt(String input, List<String> historySnippets, List<Resource> tools) {
         String toolDesc = tools.stream()
                 .map(t -> String.format("- %s: %s", t.getName(), t.getDescription()))
@@ -161,15 +159,21 @@ public class AgentServiceImpl implements AgentService {
             return "N/A（该资源为 Tool）";
         }
 
-        String ids = (resource.getToolIds() == null || resource.getToolIds().isEmpty())
+        String capabilities = (resource.getRequiredCapabilities() == null || resource.getRequiredCapabilities().isEmpty())
                 ? "[]"
-                : resource.getToolIds().toString();
+                : resource.getRequiredCapabilities().toString();
 
-        String thoughtChain = (resource.getThoughtChain() == null || resource.getThoughtChain().isBlank())
-                ? "（未配置 thoughtChain）"
-                : resource.getThoughtChain();
+        String slots = (resource.getToolSlots() == null || resource.getToolSlots().isEmpty())
+                ? "[]"
+                : resource.getToolSlots().stream()
+                .map(s -> "{slot=" + s.getSlot() + ", capability=" + s.getCapability() + ", required=" + s.getRequired() + "}")
+                .collect(Collectors.joining(", ", "[", "]"));
 
-        return "toolIds白名单=" + ids + "；thoughtChain=" + thoughtChain;
+        String thoughtChain = (resource.getThoughtChain() == null || resource.getThoughtChain().isEmpty())
+                ? "（未配置 thought_chain）"
+                : resource.getThoughtChain().toString();
+
+        return "requiredCapabilities=" + capabilities + "；toolSlots=" + slots + "；thought_chain=" + thoughtChain;
     }
 
     private List<String> loadRecentHistory(String sessionId) {
@@ -181,7 +185,6 @@ public class AgentServiceImpl implements AgentService {
             if (recent == null || recent.isEmpty()) {
                 return Collections.emptyList();
             }
-            // 只取最近 20 条，避免提示词过长
             int from = Math.max(0, recent.size() - 20);
             return recent.subList(from, recent.size()).stream()
                     .map(m -> m.getRole().name() + ": " + m.getContent())
@@ -195,7 +198,6 @@ public class AgentServiceImpl implements AgentService {
     private String parseToolName(String json) {
         if (json == null) return null;
         try {
-            // 簡單清洗
             String clean = json.trim().replace("```json", "").replace("```", "");
             JsonNode node = objectMapper.readTree(clean);
             if (node.has("tool_name")) {

@@ -223,7 +223,7 @@ public class McpServiceImpl implements McpService {
 
     private Resource toResource(McpTool tool) {
         return Resource.builder()
-                .id(String.valueOf(tool.getId())) // 轉換為 String
+                .id(String.valueOf(tool.getId()))
                 .type(ResourceType.TOOL)
                 .name(tool.getName())
                 .description(tool.getDescription())
@@ -233,18 +233,29 @@ public class McpServiceImpl implements McpService {
                 .methodName(tool.getMethodName())
                 .inputSchema(tool.getInputSchema())
                 .outputSchema(tool.getOutputSchema())
-                // Tool 屬性 (讀取真實配置)
                 .runMode(RunMode.SYNC)
                 .requiresApproval(tool.getRequiresApproval() != null ? tool.getRequiresApproval() : false)
                 .sensitivity(tool.getSensitivity() != null ? tool.getSensitivity() : Sensitivity.LOW)
-                .toolIds(null)
+                .requiredCapabilities(null)
+                .toolSlots(null)
                 .thoughtChain(null)
                 .build();
     }
 
     private Resource toResource(McpSkill skill) {
+        List<Resource.ToolSlotDto> slots = null;
+        if (skill.getToolSlots() != null) {
+            slots = skill.getToolSlots().stream()
+                    .map(s -> Resource.ToolSlotDto.builder()
+                            .slot(s.getSlot())
+                            .capability(s.getCapability())
+                            .required(s.getRequired())
+                            .build())
+                    .toList();
+        }
+
         return Resource.builder()
-                .id(String.valueOf(skill.getId())) // 轉換為 String
+                .id(String.valueOf(skill.getId()))
                 .type(ResourceType.SKILL)
                 .name(skill.getName())
                 .description(skill.getDescription())
@@ -254,11 +265,11 @@ public class McpServiceImpl implements McpService {
                 .methodName(skill.getMethodName())
                 .inputSchema(skill.getInputSchema())
                 .outputSchema(skill.getOutputSchema())
-                // Skill 屬性
                 .runMode(skill.getRunMode() != null ? skill.getRunMode() : RunMode.SYNC)
                 .requiresApproval(false)
                 .sensitivity(Sensitivity.LOW)
-                .toolIds(skill.getToolIds())
+                .requiredCapabilities(skill.getRequiredCapabilities())
+                .toolSlots(slots)
                 .thoughtChain(skill.getThoughtChain())
                 .build();
     }
