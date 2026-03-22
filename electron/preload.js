@@ -22,15 +22,18 @@ contextBridge.exposeInMainWorld("desktopApi", {
 });
 
 contextBridge.exposeInMainWorld("mcpApi", {
-  // 資源列表
+  // 資源
   listResources: () => ipcRenderer.invoke("mcp.resource.list"),
-  
+  getResourceById: (id) => ipcRenderer.invoke("mcp.resource.get", id),
+
   // Tool 管理
   createTool: (payload) => ipcRenderer.invoke("mcp.tool.create", payload),
   updateTool: (payload) => ipcRenderer.invoke("mcp.tool.update", payload),
   deleteTool: (id)      => ipcRenderer.invoke("mcp.tool.delete", id),
   
-  // Skill 管理 (預留)
+  // Skill 管理
+  listSkills: () => ipcRenderer.invoke("mcp.skill.list"),
+  getSkillDetail: (id) => ipcRenderer.invoke("mcp.skill.detail", id),
   createSkill: (payload) => ipcRenderer.invoke("mcp.skill.create", payload),
   updateSkill: (payload) => ipcRenderer.invoke("mcp.skill.update", payload),
   deleteSkill: (id)      => ipcRenderer.invoke("mcp.skill.delete", id),

@@ -16,14 +16,19 @@
         <div class="card-header">
           <span class="skill-name">{{ skill.name }}</span>
           <div class="badges">
+            <span class="skill-version" v-if="skill.version">v{{ skill.version }}</span>
             <span class="badge mode">{{ skill.runMode || 'SYNC' }}</span>
           </div>
         </div>
         <div class="card-body">
           <p class="desc">{{ skill.description }}</p>
           <div class="meta">
-            <span class="tag">Bean: {{ skill.beanName }}</span>
-            <span class="tag">Method: {{ skill.methodName }}</span>
+            <span class="tag">Bean: {{ skill.beanName || '-' }}</span>
+            <span class="tag">Method: {{ skill.methodName || '-' }}</span>
+            <span class="tag">Owner: {{ skill.owner || '-' }}</span>
+          </div>
+          <div class="meta" v-if="Array.isArray(skill.requiredCapabilities) && skill.requiredCapabilities.length">
+            <span class="tag">Capabilities: {{ skill.requiredCapabilities.join(', ') }}</span>
           </div>
         </div>
         <div class="card-footer">
@@ -33,17 +38,14 @@
       </div>
     </div>
 
-    <!-- 使用 Teleport 将弹窗移动到 body，避免被父组件(SettingsPanel)的 overflow:hidden 裁剪 -->
     <Teleport to="body">
       <div v-if="showModal" class="mcp-modal-wrapper">
-        <!-- 编辑/新增 弹窗 (可拖拽) -->
         <div 
           class="modal"
           :style="{ left: modalX + 'px', top: modalY + 'px' }"
           @mouseenter="$emit('mouseenter')"
           @mouseleave="$emit('mouseleave')"
         >
-          <!-- 弹窗头部 (拖拽区域) -->
           <div class="modal-header" @mousedown="startDrag">
             <h3>{{ isEdit ? '编辑技能' : '注册新技能' }}</h3>
             <div class="header-actions">
@@ -54,14 +56,12 @@
             </div>
           </div>
           
-          <!-- 弹窗内容 (可滚动) -->
           <div class="modal-body">
-            <!-- 隐藏的文件输入框 -->
             <input type="file" ref="fileInput" accept=".json" style="display: none" @change="handleFileUpload" />
 
             <div class="form-group">
               <label>技能名称 (Name)*</label>
-              <input v-model="form.name" placeholder="例如: export_data" :disabled="isSaving" />
+              <input v-model="form.name" placeholder="例如: skill_search_ingest_kb" :disabled="isSaving" />
             </div>
 
             <div class="form-group">
@@ -71,8 +71,19 @@
 
             <div class="form-row">
               <div class="form-group">
+                <label>版本号 (Version)</label>
+                <input v-model="form.version" placeholder="例如: 1.0.0" :disabled="isSaving" />
+              </div>
+              <div class="form-group">
+                <label>负责人 (Owner)</label>
+                <input v-model="form.owner" placeholder="例如: luna-team" :disabled="isSaving" />
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
                 <label>Spring Bean 名称 (Bean Name)*</label>
-                <input v-model="form.beanName" placeholder="例如: dataExportSkill" :disabled="isSaving" />
+                <input v-model="form.beanName" placeholder="例如: skillExecutor" :disabled="isSaving" />
               </div>
               <div class="form-group">
                 <label>方法名称 (Method Name)*</label>
@@ -91,15 +102,52 @@
             </div>
 
             <div class="form-group">
+              <label>输出参数结构 (Output Schema JSON)</label>
+              <textarea 
+                v-model="form.outputSchema" 
+                class="code-editor" 
+                placeholder='{"type":"object"}'
+                :disabled="isSaving"
+              ></textarea>
+            </div>
+
+            <div class="form-group">
               <label>执行模式 (Run Mode)</label>
               <select v-model="form.runMode" :disabled="isSaving">
                 <option value="SYNC">同步 (SYNC)</option>
                 <option value="ASYNC">异步 (ASYNC)</option>
               </select>
             </div>
+
+            <div class="form-group">
+              <label>所需能力 (requiredCapabilities)</label>
+              <textarea
+                v-model="form.requiredCapabilitiesText"
+                placeholder='支持两种格式：&#10;1) JSON数组：["WEB_SEARCH","KB_INSERT"]&#10;2) 逗号分隔：WEB_SEARCH, KB_INSERT'
+                :disabled="isSaving"
+              ></textarea>
+            </div>
+
+            <div class="form-group">
+              <label>能力槽位 (toolSlots JSON)</label>
+              <textarea
+                v-model="form.toolSlotsText"
+                class="code-editor"
+                placeholder='[{"slot":"search","capability":"WEB_SEARCH","required":true}]'
+                :disabled="isSaving"
+              ></textarea>
+            </div>
+
+            <div class="form-group">
+              <label>思维链 (thoughtChain)</label>
+              <textarea
+                v-model="form.thoughtChainText"
+                placeholder='支持两种格式：&#10;1) JSON数组：["先搜索","再抓取"]&#10;2) 每行一条'
+                :disabled="isSaving"
+              ></textarea>
+            </div>
           </div>
 
-          <!-- 弹窗底部操作区 -->
           <div class="modal-actions">
             <button class="btn-secondary" @click="debouncedCloseModal" :disabled="isSaving">取消</button>
             <button class="btn-primary" @click="debouncedHandleSave" :disabled="isSaving">
@@ -125,7 +173,6 @@ const isEdit = ref(false);
 const isSaving = ref(false);
 const fileInput = ref(null);
 
-// 简单的防抖函数
 function debounce(func, wait) {
   let timeout;
   return function(...args) {
@@ -135,9 +182,8 @@ function debounce(func, wait) {
   };
 }
 
-// 弹窗拖拽逻辑
-const modalX = ref(window.innerWidth / 2 - 250);
-const modalY = ref(window.innerHeight / 2 - 300);
+const modalX = ref(window.innerWidth / 2 - 260);
+const modalY = ref(window.innerHeight / 2 - 320);
 let isDragging = false;
 let dragOffset = { x: 0, y: 0 };
 
@@ -162,15 +208,20 @@ function stopDrag() {
   window.removeEventListener('mouseup', stopDrag);
 }
 
-// 表单数据
 const form = reactive({
   id: '',
   name: '',
   description: '',
+  version: '',
+  owner: '',
   beanName: '',
   methodName: '',
   inputSchema: '',
-  runMode: 'SYNC'
+  outputSchema: '',
+  runMode: 'SYNC',
+  requiredCapabilitiesText: '',
+  toolSlotsText: '',
+  thoughtChainText: ''
 });
 
 onMounted(() => {
@@ -180,12 +231,22 @@ onMounted(() => {
 async function fetchSkills() {
   loading.value = true;
   try {
-    const resources = await window.mcpApi.listResources();
-    // 过滤出类型为 SKILL 的资源
-    skills.value = resources.filter(r => r.type === 'SKILL');
+    let list = [];
+    if (window.mcpApi?.listSkills) {
+      list = await window.mcpApi.listSkills();
+    } else {
+      const resources = await window.mcpApi.listResources();
+      list = (resources || []).filter(r => r.type === 'SKILL');
+    }
+
+    skills.value = (Array.isArray(list) ? list : []).sort((a, b) => {
+      const an = String(a?.name || '');
+      const bn = String(b?.name || '');
+      return an.localeCompare(bn);
+    });
   } catch (err) {
     console.error("Failed to fetch skills:", err);
-    alert("获取技能列表失败: " + err.message);
+    alert("获取技能列表失败: " + (err?.message || String(err)));
   } finally {
     loading.value = false;
   }
@@ -194,22 +255,52 @@ async function fetchSkills() {
 function openCreateModal() {
   isEdit.value = false;
   resetForm();
-  modalX.value = window.innerWidth / 2 - 250;
-  modalY.value = window.innerHeight / 2 - 300;
+  modalX.value = window.innerWidth / 2 - 260;
+  modalY.value = window.innerHeight / 2 - 320;
   showModal.value = true;
 }
 const debouncedOpenCreateModal = debounce(openCreateModal, 300);
 
+function stringifyMaybeJson(value, fallback = '') {
+  if (value === null || value === undefined || value === '') return fallback;
+  if (typeof value === 'object') return JSON.stringify(value, null, 2);
+  return String(value);
+}
+
+function normalizeStringArrayText(value) {
+  if (!value) return '';
+  if (Array.isArray(value)) return value.join('\n');
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed.join('\n');
+      return value;
+    } catch {
+      return value;
+    }
+  }
+  return '';
+}
+
 function openEditModal(skill) {
   isEdit.value = true;
-  Object.assign(form, skill);
-  
-  if (typeof form.inputSchema === 'object') {
-    form.inputSchema = JSON.stringify(form.inputSchema, null, 2);
-  }
-  
-  modalX.value = window.innerWidth / 2 - 250;
-  modalY.value = window.innerHeight / 2 - 300;
+
+  form.id = skill?.id ?? '';
+  form.name = skill?.name ?? '';
+  form.description = skill?.description ?? '';
+  form.version = skill?.version ?? '';
+  form.owner = skill?.owner ?? '';
+  form.beanName = skill?.beanName ?? '';
+  form.methodName = skill?.methodName ?? '';
+  form.inputSchema = stringifyMaybeJson(skill?.inputSchema, '{\n  "type": "object",\n  "properties": {}\n}');
+  form.outputSchema = stringifyMaybeJson(skill?.outputSchema, '');
+  form.runMode = (skill?.runMode === 'ASYNC' ? 'ASYNC' : 'SYNC');
+  form.requiredCapabilitiesText = normalizeStringArrayText(skill?.requiredCapabilities);
+  form.toolSlotsText = stringifyMaybeJson(skill?.toolSlots, '');
+  form.thoughtChainText = normalizeStringArrayText(skill?.thoughtChain);
+
+  modalX.value = window.innerWidth / 2 - 260;
+  modalY.value = window.innerHeight / 2 - 320;
   showModal.value = true;
 }
 const debouncedOpenEditModal = debounce(openEditModal, 300);
@@ -224,10 +315,16 @@ function resetForm() {
   form.id = '';
   form.name = '';
   form.description = '';
+  form.version = '1.0.0';
+  form.owner = '';
   form.beanName = '';
   form.methodName = '';
   form.inputSchema = '{\n  "type": "object",\n  "properties": {}\n}';
+  form.outputSchema = '{\n  "type": "object"\n}';
   form.runMode = 'SYNC';
+  form.requiredCapabilitiesText = '';
+  form.toolSlotsText = '';
+  form.thoughtChainText = '';
 }
 
 function triggerFileUpload() {
@@ -244,18 +341,29 @@ function handleFileUpload(event) {
   reader.onload = (e) => {
     try {
       const json = JSON.parse(e.target.result);
+
+      if (json.id !== undefined) form.id = json.id;
       if (json.name) form.name = json.name;
       if (json.description) form.description = json.description;
+      if (json.version) form.version = json.version;
+      if (json.owner) form.owner = json.owner;
       if (json.beanName) form.beanName = json.beanName;
       if (json.methodName) form.methodName = json.methodName;
       if (json.runMode) form.runMode = json.runMode;
-      
-      if (json.inputSchema) {
-        form.inputSchema = typeof json.inputSchema === 'object' 
-          ? JSON.stringify(json.inputSchema, null, 2) 
-          : json.inputSchema;
+
+      if (json.inputSchema !== undefined) form.inputSchema = stringifyMaybeJson(json.inputSchema, form.inputSchema);
+      if (json.outputSchema !== undefined) form.outputSchema = stringifyMaybeJson(json.outputSchema, form.outputSchema);
+
+      if (json.requiredCapabilities !== undefined) {
+        form.requiredCapabilitiesText = normalizeStringArrayText(json.requiredCapabilities);
       }
-      
+      if (json.toolSlots !== undefined) {
+        form.toolSlotsText = stringifyMaybeJson(json.toolSlots, '');
+      }
+      if (json.thoughtChain !== undefined) {
+        form.thoughtChainText = normalizeStringArrayText(json.thoughtChain);
+      }
+
       alert("JSON 解析成功，表单已自动填充");
     } catch (err) {
       console.error("JSON parse error:", err);
@@ -267,33 +375,125 @@ function handleFileUpload(event) {
   reader.readAsText(file);
 }
 
-async function handleSave() {
-  if (!form.name || !form.beanName || !form.methodName) {
-    alert("请填写必填字段");
-    return;
+function parseStringArray(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return [];
+
+  if (raw.startsWith('[')) {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      throw new Error("必须是数组");
+    }
+    return parsed.map(v => String(v).trim()).filter(Boolean);
   }
 
+  return raw
+    .split(/[\n,]/g)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+function parseToolSlots(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return [];
+
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed)) {
+    throw new Error("toolSlots 必须是 JSON 数组");
+  }
+
+  parsed.forEach((slot, idx) => {
+    if (!slot || typeof slot !== 'object') {
+      throw new Error(`toolSlots[${idx}] 必须是对象`);
+    }
+    if (!slot.slot || !slot.capability) {
+      throw new Error(`toolSlots[${idx}] 缺少 slot 或 capability`);
+    }
+    if (slot.required !== undefined && typeof slot.required !== 'boolean') {
+      throw new Error(`toolSlots[${idx}].required 必须是布尔值`);
+    }
+  });
+
+  return parsed;
+}
+
+function toJsonString(rawText, fieldName) {
+  const text = String(rawText || '').trim();
+  if (!text) return '';
   try {
-    JSON.parse(form.inputSchema);
+    const parsed = JSON.parse(text);
+    return JSON.stringify(parsed);
   } catch (e) {
-    alert("Input Schema 必须是有效的 JSON 格式");
-    return;
+    throw new Error(`${fieldName} 必须是有效的 JSON 格式`);
+  }
+}
+
+function buildPayload() {
+  if (!form.name || !form.beanName || !form.methodName) {
+    throw new Error("请填写必填字段：Name / Bean Name / Method Name");
   }
 
+  if (!['SYNC', 'ASYNC'].includes(form.runMode)) {
+    throw new Error("Run Mode 只能是 SYNC 或 ASYNC");
+  }
+
+  const inputSchema = toJsonString(form.inputSchema, "Input Schema");
+  if (!inputSchema) {
+    throw new Error("Input Schema 不能为空");
+  }
+
+  const outputSchema = toJsonString(form.outputSchema, "Output Schema");
+  const requiredCapabilities = parseStringArray(form.requiredCapabilitiesText);
+  const thoughtChain = parseStringArray(form.thoughtChainText);
+  const toolSlots = parseToolSlots(form.toolSlotsText);
+
+  const payload = {
+    name: String(form.name).trim(),
+    description: String(form.description || '').trim(),
+    version: String(form.version || '').trim() || undefined,
+    owner: String(form.owner || '').trim() || undefined,
+    beanName: String(form.beanName).trim(),
+    methodName: String(form.methodName).trim(),
+    inputSchema,
+    outputSchema: outputSchema || undefined,
+    runMode: form.runMode,
+    requiredCapabilities,
+    toolSlots,
+    thoughtChain
+  };
+
+  if (isEdit.value) {
+    if (!form.id && form.id !== 0) {
+      throw new Error("更新技能时必须包含 id");
+    }
+    payload.id = form.id;
+  }
+
+  Object.keys(payload).forEach((k) => {
+    if (payload[k] === undefined) delete payload[k];
+  });
+
+  return payload;
+}
+
+async function handleSave() {
   isSaving.value = true;
   try {
+    const payload = buildPayload();
+
     if (isEdit.value) {
-      await window.mcpApi.updateSkill({ ...form });
+      await window.mcpApi.updateSkill(payload);
       alert("技能更新成功！");
     } else {
-      await window.mcpApi.createSkill({ ...form });
+      await window.mcpApi.createSkill(payload);
       alert("技能创建成功！");
     }
+
     closeModal();
     fetchSkills();
   } catch (err) {
     console.error("Save failed:", err);
-    alert("保存失败: " + err.message);
+    alert("保存失败: " + (err?.message || String(err)));
   } finally {
     isSaving.value = false;
   }
@@ -308,7 +508,7 @@ async function handleDelete(skill) {
     fetchSkills();
   } catch (err) {
     console.error("Delete failed:", err);
-    alert("删除失败: " + err.message);
+    alert("删除失败: " + (err?.message || String(err)));
   }
 }
 const debouncedHandleDelete = debounce(handleDelete, 300);
@@ -377,6 +577,14 @@ const debouncedHandleDelete = debounce(handleDelete, 300);
 .badges {
   display: flex;
   gap: 6px;
+  align-items: center;
+}
+
+.skill-version {
+  font-size: 0.8em;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 .badge {
@@ -401,7 +609,7 @@ const debouncedHandleDelete = debounce(handleDelete, 300);
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  margin-bottom: 15px;
+  margin-bottom: 10px;
 }
 
 .tag {
@@ -471,8 +679,8 @@ const debouncedHandleDelete = debounce(handleDelete, 300);
   position: fixed;
   background: var(--bg-panel, #1a202c);
   border-radius: 8px;
-  width: 500px;
-  max-height: 85vh;
+  width: 520px;
+  max-height: 88vh;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border, #2d3748);
@@ -618,7 +826,6 @@ textarea {
   to { transform: rotate(360deg); }
 }
 
-/* 滚动条美化 */
 .skill-list::-webkit-scrollbar,
 .modal-body::-webkit-scrollbar,
 textarea::-webkit-scrollbar {
