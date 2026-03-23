@@ -7,8 +7,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
+import org.yilena.luna.constants.LogActionConstant;
+import org.yilena.luna.constants.LogModuleConstant;
 import org.yilena.luna.constants.LunaStateConstant;
 import org.yilena.luna.entity.PlanEventLog;
+import org.yilena.luna.enums.LogType;
 import org.yilena.luna.enums.PlanEventLevel;
 import org.yilena.luna.enums.PlanEventType;
 import org.yilena.luna.mapper.PlanEventLogMapper;
@@ -39,7 +42,7 @@ public class PlanEventTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
-    @LunaLogRecord(module = "tool", action = "record_plan_audit_log", content = "记录计划审计日志")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "记录计划审计日志")
     public String recordPlanAuditLog(
             @RequestParam("planId") String planId,
             @RequestParam(value = "phaseId", required = false) String phaseId,
@@ -69,7 +72,7 @@ public class PlanEventTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
-    @LunaLogRecord(module = "tool", action = "emit_plan_event_sse", content = "发送计划SSE事件")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "发送计划SSE事件")
     public String emitPlanEventSse(
             @RequestParam(value = "clientId", required = false) String clientId,
             @RequestParam("eventType") String eventType,

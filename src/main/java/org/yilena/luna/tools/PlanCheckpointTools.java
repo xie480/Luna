@@ -7,8 +7,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
+import org.yilena.luna.constants.LogActionConstant;
+import org.yilena.luna.constants.LogModuleConstant;
 import org.yilena.luna.constants.LunaStateConstant;
 import org.yilena.luna.entity.PlanCheckpoint;
+import org.yilena.luna.enums.LogType;
 import org.yilena.luna.mapper.PlanCheckpointMapper;
 import org.yilena.luna.utils.SnowflakeIdUtil;
 
@@ -32,7 +35,7 @@ public class PlanCheckpointTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
-    @LunaLogRecord(module = "tool", action = "checkpoint_plan_state", content = "创建计划检查点")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "创建计划检查点")
     public String checkpointPlanState(
             @RequestParam("planId") String planId,
             @RequestParam(value = "phaseId", required = false) String phaseId,

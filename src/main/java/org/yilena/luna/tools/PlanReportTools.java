@@ -6,8 +6,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
+import org.yilena.luna.constants.LogActionConstant;
+import org.yilena.luna.constants.LogModuleConstant;
 import org.yilena.luna.constants.LunaStateConstant;
 import org.yilena.luna.entity.PlanReport;
+import org.yilena.luna.enums.LogType;
 import org.yilena.luna.enums.PlanFinalStatus;
 import org.yilena.luna.enums.PlanOpenResult;
 import org.yilena.luna.mapper.PlanReportMapper;
@@ -35,7 +38,7 @@ public class PlanReportTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_REPORT, status = LunaStateConstant.STATUS_REPORT)
-    @LunaLogRecord(module = "tool", action = "write_html_report_file", content = "写入HTML报告")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "写入HTML报告")
     public String writeHtmlReportFile(
             @RequestParam("planId") String planId,
             @RequestParam("htmlContent") String htmlContent,
@@ -79,7 +82,7 @@ public class PlanReportTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_REPORT, status = LunaStateConstant.STATUS_REPORT)
-    @LunaLogRecord(module = "tool", action = "open_browser_with_file", content = "打开报告文件")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "打开报告文件")
     public String openBrowserWithFile(@RequestParam("reportPath") String reportPath) {
         try {
             File file = new File(reportPath);

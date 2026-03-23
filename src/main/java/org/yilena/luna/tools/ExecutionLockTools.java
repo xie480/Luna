@@ -6,7 +6,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
+import org.yilena.luna.constants.LogActionConstant;
+import org.yilena.luna.constants.LogModuleConstant;
 import org.yilena.luna.constants.LunaStateConstant;
+import org.yilena.luna.enums.LogType;
 
 import java.util.Map;
 
@@ -24,7 +27,7 @@ public class ExecutionLockTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_LOCK, status = LunaStateConstant.STATUS_LOCK)
-    @LunaLogRecord(module = "tool", action = "acquire_execution_lock", content = "获取执行锁")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "获取执行锁")
     public String acquireExecutionLock(
             @RequestParam("lockKey") String lockKey,
             @RequestParam("owner") String owner,
@@ -36,7 +39,7 @@ public class ExecutionLockTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_LOCK, status = LunaStateConstant.STATUS_LOCK)
-    @LunaLogRecord(module = "tool", action = "release_execution_lock", content = "释放执行锁")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "释放执行锁")
     public String releaseExecutionLock(
             @RequestParam("lockKey") String lockKey,
             @RequestParam("owner") String owner

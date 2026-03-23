@@ -6,7 +6,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
+import org.yilena.luna.constants.LogActionConstant;
+import org.yilena.luna.constants.LogModuleConstant;
 import org.yilena.luna.constants.LunaStateConstant;
+import org.yilena.luna.enums.LogType;
 import org.yilena.luna.utils.SnowflakeIdUtil;
 
 import java.io.File;
@@ -39,7 +42,7 @@ public class CodeOpsTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
-    @LunaLogRecord(module = "tool", action = "read_repo_tree", content = "读取仓库目录树")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "读取仓库目录树")
     public String readRepoTree(
             @RequestParam("repoPath") String repoPath,
             @RequestParam(value = "maxDepth", required = false) Integer maxDepth,
@@ -70,7 +73,7 @@ public class CodeOpsTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
-    @LunaLogRecord(module = "tool", action = "read_source_file", content = "读取源码文件")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "读取源码文件")
     public String readSourceFile(
             @RequestParam("filePath") String filePath,
             @RequestParam(value = "encoding", required = false) String encoding,
@@ -91,7 +94,7 @@ public class CodeOpsTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
-    @LunaLogRecord(module = "tool", action = "write_source_file", content = "写入源码文件")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "写入源码文件")
     public String writeSourceFile(
             @RequestParam("filePath") String filePath,
             @RequestParam("content") String content,
@@ -114,7 +117,7 @@ public class CodeOpsTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
-    @LunaLogRecord(module = "tool", action = "apply_unified_patch", content = "应用补丁")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "应用补丁")
     public String applyUnifiedPatch(
             @RequestParam("repoPath") String repoPath,
             @RequestParam("patchText") String patchText,
@@ -130,7 +133,7 @@ public class CodeOpsTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
-    @LunaLogRecord(module = "tool", action = "run_build_command", content = "执行构建命令")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "执行构建命令")
     public String runBuildCommand(
             @RequestParam("workDir") String workDir,
             @RequestParam("command") String command,
@@ -140,7 +143,7 @@ public class CodeOpsTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
-    @LunaLogRecord(module = "tool", action = "run_test_command", content = "执行测试命令")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "执行测试命令")
     public String runTestCommand(
             @RequestParam("workDir") String workDir,
             @RequestParam("command") String command,
@@ -150,7 +153,7 @@ public class CodeOpsTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
-    @LunaLogRecord(module = "tool", action = "run_lint_command", content = "执行静态检查")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "执行静态检查")
     public String runLintCommand(
             @RequestParam("workDir") String workDir,
             @RequestParam("command") String command,
@@ -160,7 +163,7 @@ public class CodeOpsTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
-    @LunaLogRecord(module = "tool", action = "run_format_command", content = "执行格式化")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "执行格式化")
     public String runFormatCommand(
             @RequestParam("workDir") String workDir,
             @RequestParam("command") String command,
@@ -170,7 +173,7 @@ public class CodeOpsTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
-    @LunaLogRecord(module = "tool", action = "collect_test_report", content = "收集测试报告")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "收集测试报告")
     public String collectTestReport(
             @RequestParam("reportDirs") String reportDirs,
             @RequestParam(value = "parserType", required = false) String parserType
@@ -187,7 +190,7 @@ public class CodeOpsTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
-    @LunaLogRecord(module = "tool", action = "git_create_checkpoint", content = "创建代码检查点")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "创建代码检查点")
     public String gitCreateCheckpoint(
             @RequestParam("repoPath") String repoPath,
             @RequestParam("mode") String mode,
@@ -198,7 +201,7 @@ public class CodeOpsTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
-    @LunaLogRecord(module = "tool", action = "git_rollback_checkpoint", content = "回滚代码检查点")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "回滚代码检查点")
     public String gitRollbackCheckpoint(
             @RequestParam("repoPath") String repoPath,
             @RequestParam("checkpointId") String checkpointId,
@@ -208,7 +211,7 @@ public class CodeOpsTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
-    @LunaLogRecord(module = "tool", action = "search_symbol_references", content = "搜索符号引用")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "搜索符号引用")
     public String searchSymbolReferences(
             @RequestParam("repoPath") String repoPath,
             @RequestParam("symbol") String symbol,
@@ -218,7 +221,7 @@ public class CodeOpsTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
-    @LunaLogRecord(module = "tool", action = "scan_dependency_vulnerabilities", content = "扫描依赖漏洞")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "扫描依赖漏洞")
     public String scanDependencyVulnerabilities(
             @RequestParam("repoPath") String repoPath,
             @RequestParam(value = "ecosystem", required = false) String ecosystem,

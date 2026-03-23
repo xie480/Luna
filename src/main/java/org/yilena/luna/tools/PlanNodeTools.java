@@ -8,8 +8,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
+import org.yilena.luna.constants.LogActionConstant;
+import org.yilena.luna.constants.LogModuleConstant;
 import org.yilena.luna.constants.LunaStateConstant;
 import org.yilena.luna.entity.PlanNode;
+import org.yilena.luna.enums.LogType;
 import org.yilena.luna.enums.PlanNodeStatus;
 import org.yilena.luna.mapper.PlanNodeMapper;
 
@@ -37,7 +40,7 @@ public class PlanNodeTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
-    @LunaLogRecord(module = "tool", action = "list_phase_nodes", content = "列出阶段节点")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "列出阶段节点")
     public String listPhaseNodes(@RequestParam("planId") String planId, @RequestParam("phaseId") String phaseId) {
         try {
             List<PlanNode> nodes = planNodeMapper.selectList(new LambdaQueryWrapper<PlanNode>()
@@ -53,7 +56,7 @@ public class PlanNodeTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
-    @LunaLogRecord(module = "tool", action = "update_node_status", content = "更新节点状态")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "更新节点状态")
     public String updateNodeStatus(
             @RequestParam("planId") String planId,
             @RequestParam("nodeId") String nodeId,
@@ -88,7 +91,7 @@ public class PlanNodeTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
-    @LunaLogRecord(module = "tool", action = "append_node_output", content = "追加节点输出")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "追加节点输出")
     public String appendNodeOutput(
             @RequestParam("planId") String planId,
             @RequestParam("nodeId") String nodeId,
@@ -119,7 +122,7 @@ public class PlanNodeTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
-    @LunaLogRecord(module = "tool", action = "query_plan_progress", content = "查询计划进度")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "查询计划进度")
     public String queryPlanProgress(@RequestParam("planId") String planId) {
         try {
             List<PlanNode> nodes = planNodeMapper.selectList(new LambdaQueryWrapper<PlanNode>()

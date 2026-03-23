@@ -8,8 +8,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
+import org.yilena.luna.constants.LogActionConstant;
+import org.yilena.luna.constants.LogModuleConstant;
 import org.yilena.luna.constants.LunaStateConstant;
 import org.yilena.luna.entity.PlanBlueprint;
+import org.yilena.luna.enums.LogType;
 import org.yilena.luna.mapper.PlanBlueprintMapper;
 
 import java.time.LocalDateTime;
@@ -33,7 +36,7 @@ public class PlanBlueprintTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
-    @LunaLogRecord(module = "tool", action = "save_plan_blueprint", content = "保存规划蓝图")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_KNOWLEDGE, type = LogType.TOOL_CALL, content = "保存规划蓝图")
     public String savePlanBlueprint(
             @RequestParam("planId") String planId,
             @RequestParam("planVersion") Integer planVersion,
@@ -81,7 +84,7 @@ public class PlanBlueprintTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
-    @LunaLogRecord(module = "tool", action = "load_plan_blueprint", content = "加载规划蓝图")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_KNOWLEDGE, type = LogType.TOOL_CALL, content = "加载规划蓝图")
     public String loadPlanBlueprint(
             @RequestParam("planId") String planId,
             @RequestParam(value = "planVersion", required = false) Integer planVersion

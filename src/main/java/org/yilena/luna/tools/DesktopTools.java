@@ -6,7 +6,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
+import org.yilena.luna.constants.LogActionConstant;
+import org.yilena.luna.constants.LogModuleConstant;
 import org.yilena.luna.constants.LunaStateConstant;
+import org.yilena.luna.enums.LogType;
 
 import java.util.List;
 import java.util.Map;
@@ -25,7 +28,7 @@ public class DesktopTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_DESKTOP, status = LunaStateConstant.STATUS_DESKTOP)
-    @LunaLogRecord(module = "tool", action = "capture_desktop_screenshot", content = "抓取桌面截图")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "抓取桌面截图")
     public String captureDesktopScreenshot(
             @RequestParam(value = "monitorIndex", required = false) Integer monitorIndex,
             @RequestParam(value = "region", required = false) String region
@@ -42,7 +45,7 @@ public class DesktopTools extends BaseTool {
     }
 
     @LunaState(value = LunaStateConstant.VALUE_DESKTOP, status = LunaStateConstant.STATUS_DESKTOP)
-    @LunaLogRecord(module = "tool", action = "detect_ui_elements", content = "识别UI元素")
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "识别UI元素")
     public String detectUiElements(
             @RequestParam(value = "imagePath", required = false) String imagePath,
             @RequestParam(value = "detectorType", required = false) String detectorType,
