@@ -11,12 +11,15 @@ import lombok.Getter;
 @Getter
 @AllArgsConstructor
 public enum TaskType {
-    REMINDER(0, "提醒"),
-    ACTION(1, "执行操作"),
-    TODO(2, "待办事项");
+    REMINDER(0, "REMINDER", "提醒"),
+    ACTION(1, "ACTION", "执行操作"),
+    TODO(2, "TODO", "待办事项");
 
     @EnumValue
-    @JsonValue
     private final Integer code;
+
+    @JsonValue
+    private final String value;
+
     private final String desc;
 }

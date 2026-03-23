@@ -11,13 +11,16 @@ import lombok.Getter;
 @Getter
 @AllArgsConstructor
 public enum MemoryType {
-    FACT(0, "客观事实"),
-    PREFERENCE(1, "用户偏好"),
-    SUMMARY(2, "对话摘要"),
-    REFLECTION(3, "自我反思");
+    FACT(0, "FACT", "客观事实"),
+    PREFERENCE(1, "PREFERENCE", "用户偏好"),
+    SUMMARY(2, "SUMMARY", "对话摘要"),
+    REFLECTION(3, "REFLECTION", "自我反思");
 
     @EnumValue
-    @JsonValue
     private final Integer code;
+
+    @JsonValue
+    private final String value;
+
     private final String desc;
 }
