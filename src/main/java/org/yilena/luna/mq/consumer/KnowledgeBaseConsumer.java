@@ -14,6 +14,7 @@ import org.yilena.luna.service.KnowledgeBaseService;
 import org.yilena.luna.utils.LlmClientUtil;
 
 import java.util.List;
+import java.util.Locale;
 
 @Slf4j
 @Component
@@ -28,12 +29,18 @@ public class KnowledgeBaseConsumer implements RocketMQListener<KnowledgeBaseMess
     public void onMessage(KnowledgeBaseMessage msg) {
         String title = msg.getTitle();
         String content = msg.getContent();
-        SourceType sourceType = SourceType.valueOf(msg.getSourceType());
+        String rawSourceType = msg.getSourceType();
         String sourcePath = msg.getSourcePath();
+
+        SourceType sourceType = parseSourceType(rawSourceType);
+        if (sourceType == null) {
+            log.error("MQ 消費: sourceType 非法，消息丟棄。title={}, sourceType={}", title, rawSourceType);
+            return;
+        }
 
         // 1. 文本分片 (每段 500 字，重疊 50 字)
         List<String> chunks = TextSplitter.splitText(content, 500, 50);
-        log.info("MQ 消費: 開始處理知識庫寫入，標題: {}, 總分片數: {}", title, chunks.size());
+        log.info("MQ 消費: 開始處理知識庫寫入，標題: {}, sourceType={}, 總分片數: {}", title, sourceType.getValue(), chunks.size());
 
         int successCount = 0;
         for (String chunk : chunks) {
@@ -57,9 +64,32 @@ public class KnowledgeBaseConsumer implements RocketMQListener<KnowledgeBaseMess
                     log.warn("分片向量化失敗，跳過該分片。標題: {}", title);
                 }
             } catch (Exception e) {
-                log.error("寫入知識庫分片異常: {}", e.getMessage());
+                log.error("寫入知識庫分片異常: {}", e.getMessage(), e);
             }
         }
         log.info("MQ 消費: 知識庫寫入完成，成功寫入分片數: {}/{}", successCount, chunks.size());
+    }
+
+    /**
+     * 兼容解析 SourceType：
+     * - 新格式：FILE / WEB_SEARCH / MANUAL_INPUT
+     * - 舊格式：0 / 1 / 2
+     */
+    private SourceType parseSourceType(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+
+        String v = raw.trim();
+        try {
+            // 先按枚舉值解析
+            return SourceType.valueOf(v.toUpperCase(Locale.ROOT));
+        } catch (Exception ignore) {
+            // 再按舊 code 解析
+            if ("0".equals(v)) return SourceType.FILE;
+            if ("1".equals(v)) return SourceType.WEB_SEARCH;
+            if ("2".equals(v)) return SourceType.MANUAL_INPUT;
+            return null;
+        }
     }
 }

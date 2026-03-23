@@ -40,13 +40,11 @@ public class KnowledgeBaseTools extends BaseTool {
                 if (title == null || content == null || sourceType == null) {
                     return error("INSERT 必须提供 title, content 和 sourceType");
                 }
-                SourceType st;
-                try {
-                    st = SourceType.valueOf(sourceType.toUpperCase());
-                } catch (IllegalArgumentException e) {
-                    // 明确提示错误，而不是默默使用默认值
+                SourceType st = parseSourceType(sourceType);
+                if (st == null) {
                     return error("无效的 sourceType: " + sourceType + "。可选值: " + Arrays.toString(SourceType.values()));
                 }
+
                 knowledgeBaseService.addKnowledge(title, content, st, sourcePath);
                 return success("知识库写入成功");
             } else if ("QUERY".equalsIgnoreCase(action)) {
@@ -57,6 +55,26 @@ public class KnowledgeBaseTools extends BaseTool {
         } catch (Exception e) {
             log.error("KnowledgeBaseTools 执行异常", e);
             return error("操作异常: " + (e.getMessage() != null ? e.getMessage() : e.toString()));
+        }
+    }
+
+    /**
+     * 兼容解析 SourceType：
+     * - 新格式：FILE / WEB_SEARCH / MANUAL_INPUT
+     * - 舊格式：0 / 1 / 2
+     */
+    private SourceType parseSourceType(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String v = raw.trim();
+        try {
+            return SourceType.valueOf(v.toUpperCase());
+        } catch (Exception ignore) {
+            if ("0".equals(v)) return SourceType.FILE;
+            if ("1".equals(v)) return SourceType.WEB_SEARCH;
+            if ("2".equals(v)) return SourceType.MANUAL_INPUT;
+            return null;
         }
     }
 }

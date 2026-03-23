@@ -75,6 +75,8 @@ public class ScheduleTools extends BaseTool {
                     if (triggerTime != null) existing.setTriggerTime(LocalDateTime.parse(triggerTime, DATE_TIME_FORMATTER));
                     if (status != null) existing.setStatus(TaskStatus.valueOf(status.toUpperCase()));
                     if (taskType != null) existing.setTaskType(TaskType.valueOf(taskType.toUpperCase()));
+                } else {
+                    return error("未知的 mode: " + mode + "，仅支持 PUT 或 PATCH");
                 }
                 scheduleTaskMapper.updateById(existing);
                 return success(scheduleTaskMapper.selectById(id));
@@ -91,7 +93,7 @@ public class ScheduleTools extends BaseTool {
             return error("未知的 action: " + action);
         } catch (IllegalArgumentException e) {
             // 专门捕获枚举解析错误，提示正确的值
-            if (e.getMessage().contains("No enum constant")) {
+            if (e.getMessage() != null && e.getMessage().contains("No enum constant")) {
                 return error("枚举值无效。TaskStatus 可选值: " + Arrays.toString(TaskStatus.values()) +
                         ", TaskType 可选值: " + Arrays.toString(TaskType.values()));
             }

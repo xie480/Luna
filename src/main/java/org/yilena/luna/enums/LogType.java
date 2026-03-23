@@ -15,9 +15,9 @@ public enum LogType {
     SYSTEM_EVENT(4, "SYSTEM_EVENT", "系统行为"),
     API_CALL(5, "API_CALL", "接口调用");
 
+    @EnumValue
     private final Integer code;
 
-    @EnumValue
     @JsonValue
     private final String value;
 

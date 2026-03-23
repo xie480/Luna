@@ -29,16 +29,17 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
 
     @Override
     public void addKnowledge(String title, String content, SourceType sourceType, String sourcePath) {
-        // 將耗時的 Embedding 和寫入操作轉為異步 MQ 處理
+        // 向後兼容：SourceType 可能是 code 值枚舉序列化，不要再用 name()
+        // 這裡統一傳遞 value（FILE / WEB_SEARCH / MANUAL_INPUT）
         KnowledgeBaseMessage msg = KnowledgeBaseMessage.builder()
                 .title(title)
                 .content(content)
-                .sourceType(sourceType.name())
+                .sourceType(sourceType != null ? sourceType.getValue() : null)
                 .sourcePath(sourcePath)
                 .build();
 
         rocketMQTemplate.convertAndSend(RocketMqConstant.TOPIC_KB_ADD, msg);
-        log.info("已發送知識庫寫入請求至 MQ, 標題: {}", title);
+        log.info("已發送知識庫寫入請求至 MQ, 標題: {}, sourceType={}", title, msg.getSourceType());
     }
 
     @Override
@@ -56,7 +57,7 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
             return this.baseMapper.searchByVector(queryVectorStr, topK);
 
         } catch (Exception e) {
-            log.error("檢索知識庫異常: {}", e.getMessage());
+            log.error("檢索知識庫異常: {}", e.getMessage(), e);
             throw new RuntimeException(e);
         }
     }
