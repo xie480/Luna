@@ -108,21 +108,21 @@ public class ChatServiceImpl implements ChatService {
             CompletableFuture<List<KnowledgeBase>> kbFuture = CompletableFuture.supplyAsync(() -> {
                 try {
                     List<KnowledgeBase> kbs = knowledgeBaseService.searchKnowledge(input, RAG_TOP_K_FETCH);
-                    if (kbs == null || kbs.isEmpty()) return Collections.emptyList();
+                    if (kbs == null || kbs.isEmpty()) return Collections.<KnowledgeBase>emptyList();
                     List<String> docs = kbs.stream().map(kb -> String.format("标题: %s\n内容: %s", kb.getTitle(), kb.getContent())).toList();
                     if (docs.size() <= RAG_TOP_K_FINAL) return kbs.stream().limit(RAG_TOP_K_FINAL).toList();
                     List<Double> scores = llmClientUtil.rerank(input, docs);
                     return llmClientUtil.rerankResources(kbs, scores, RAG_TOP_K_FINAL);
                 } catch (Exception e) {
-                    return Collections.emptyList();
+                    return Collections.<KnowledgeBase>emptyList();
                 }
-            }, vtp).completeOnTimeout(Collections.emptyList(), RAG_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            }, vtp).completeOnTimeout(Collections.<KnowledgeBase>emptyList(), RAG_TIMEOUT_MS, TimeUnit.MILLISECONDS);
 
             CompletableFuture<List<UserPreference>> preferenceFuture = queryVectorFuture.thenApplyAsync(queryVector -> {
                 try {
-                    if (queryVector == null || queryVector.isBlank()) return Collections.emptyList();
+                    if (queryVector == null || queryVector.isBlank()) return Collections.<UserPreference>emptyList();
                     List<UserPreference> preferences = userPreferenceMapper.searchByVector(queryVector, RAG_TOP_K_FETCH);
-                    if (preferences == null || preferences.isEmpty()) return Collections.emptyList();
+                    if (preferences == null || preferences.isEmpty()) return Collections.<UserPreference>emptyList();
                     List<String> docs = preferences.stream()
                             .map(p -> String.format("键: %s\n值: %s\n描述: %s", p.getPrefKey(), p.getPrefValue(), p.getDescription()))
                             .toList();
@@ -130,15 +130,15 @@ public class ChatServiceImpl implements ChatService {
                     List<Double> scores = llmClientUtil.rerank(input, docs);
                     return llmClientUtil.rerankResources(preferences, scores, RAG_TOP_K_FINAL);
                 } catch (Exception e) {
-                    return Collections.emptyList();
+                    return Collections.<UserPreference>emptyList();
                 }
-            }, vtp).completeOnTimeout(Collections.emptyList(), RAG_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            }, vtp).completeOnTimeout(Collections.<UserPreference>emptyList(), RAG_TIMEOUT_MS, TimeUnit.MILLISECONDS);
 
             CompletableFuture<List<Memory>> memoryFuture = queryVectorFuture.thenApplyAsync(queryVector -> {
                 try {
-                    if (queryVector == null || queryVector.isBlank()) return Collections.emptyList();
+                    if (queryVector == null || queryVector.isBlank()) return Collections.<Memory>emptyList();
                     List<Memory> memories = memoryMapper.searchByVector(queryVector, RAG_TOP_K_FETCH);
-                    if (memories == null || memories.isEmpty()) return Collections.emptyList();
+                    if (memories == null || memories.isEmpty()) return Collections.<Memory>emptyList();
                     List<String> docs = memories.stream()
                             .map(m -> String.format("会话: %s\n类型: %s\n内容: %s", m.getSessionId(), m.getMemoryType(), m.getContent()))
                             .toList();
@@ -146,9 +146,9 @@ public class ChatServiceImpl implements ChatService {
                     List<Double> scores = llmClientUtil.rerank(input, docs);
                     return llmClientUtil.rerankResources(memories, scores, RAG_TOP_K_FINAL);
                 } catch (Exception e) {
-                    return Collections.emptyList();
+                    return Collections.<Memory>emptyList();
                 }
-            }, vtp).completeOnTimeout(Collections.emptyList(), RAG_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            }, vtp).completeOnTimeout(Collections.<Memory>emptyList(), RAG_TIMEOUT_MS, TimeUnit.MILLISECONDS);
 
             List<KnowledgeBase> kbs = kbFuture.join();
             List<UserPreference> preferences = preferenceFuture.join();
