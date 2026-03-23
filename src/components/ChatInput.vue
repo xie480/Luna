@@ -6,7 +6,7 @@
     @mouseleave="$emit('mouseleave')"
   >
     
-    <!-- 拖動手柄 (新增) -->
+    <!-- 拖動手柄 -->
     <div class="drag-handle" @mousedown="startDrag" title="長按拖動">
       <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="9" cy="12" r="1" fill="currentColor"></circle>
@@ -26,7 +26,18 @@
       </svg>
     </button>
 
-    <!-- 新增：查询中心按钮（在设置与历史中间） -->
+    <!-- 新增：计划执行入口按钮（放在输入框左侧图标区） -->
+    <button class="icon-btn plan-btn" @click="$emit('toggle-plan')" title="计划执行">
+      <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 6h18"></path>
+        <path d="M3 12h12"></path>
+        <path d="M3 18h8"></path>
+        <circle cx="18" cy="12" r="3"></circle>
+        <path d="M18 9v-2"></path>
+      </svg>
+    </button>
+
+    <!-- 查询中心按钮 -->
     <button class="icon-btn query-btn" @click="$emit('toggle-query')" title="数据查询">
       <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="11" cy="11" r="7"></circle>
@@ -98,7 +109,7 @@
 import { ref, computed, onMounted, nextTick, reactive } from 'vue';
 
 const props = defineProps(['loading', 'streaming', 'streamText', 'currentEmotion', 'statusText']);
-const emit = defineEmits(['send', 'open-settings', 'toggle-history', 'toggle-query', 'mouseenter', 'mouseleave', 'close']);
+const emit = defineEmits(['send', 'open-settings', 'toggle-history', 'toggle-query', 'toggle-plan', 'mouseenter', 'mouseleave', 'close']);
 
 const inputText = ref("");
 const inputRef = ref(null);
@@ -202,7 +213,6 @@ const emotionStyle = computed(() => {
 </script>
 
 <style scoped>
-/* 保持你原样式 */
 .chat-bar-wrapper { position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; background: var(--bg-panel, rgba(5,10,19,0.9)); padding: 10px 20px; border-radius: 50px; border: 1px solid var(--border, rgba(0,255,200,0.3)); backdrop-filter: blur(12px); box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 9000; transition: box-shadow 0.3s ease; }
 .drag-handle { cursor: grab; color: var(--primary); opacity: 0.5; display: flex; align-items: center; padding: 4px; margin-right: -4px; }
 .drag-handle:hover { opacity: 1; }

@@ -121,6 +121,7 @@
         @open-settings="openSettings"
         @toggle-history="toggleHistory"
         @toggle-query="toggleQuery"
+        @toggle-plan="togglePlan"
         @close="showChat = false"
         @mouseenter="uiEnter"
         @mouseleave="uiLeave"
@@ -143,6 +144,19 @@
       <QueryPanel
         v-if="showQuery"
         @close="showQuery = false"
+        @mouseenter="uiEnter"
+        @mouseleave="uiLeave"
+      />
+    </transition>
+
+    <!-- 计划执行面板 -->
+    <transition name="fade">
+      <PlanPanel
+        v-if="showPlan"
+        :runtime="planRuntime"
+        :asyncEvents="planAsyncEvents"
+        @close="showPlan = false"
+        @runtime-replace="replacePlanRuntime"
         @mouseenter="uiEnter"
         @mouseleave="uiLeave"
       />
@@ -225,7 +239,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
+import { ref, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
 import { gsap } from "gsap";
 import * as PIXI from "pixi.js";
 
@@ -247,6 +261,7 @@ import ChatInput from "../../components/ChatInput.vue";
 import SettingsPanel from "../../components/SettingsPanel.vue";
 import HistoryPanel from "../../components/HistoryPanel.vue";
 import QueryPanel from "../../components/QueryPanel.vue";
+import PlanPanel from "../../components/PlanPanel.vue";
 import ApprovalModal from "../../components/ApprovalModal.vue";
 
 /* ================= DOM refs ================= */
@@ -259,10 +274,40 @@ const showChat = ref(false);
 const showSettings = ref(false);
 const showHistory = ref(false);
 const showQuery = ref(false);
+const showPlan = ref(false);
 const historyPanelRef = ref(null);
 const trackingEnabled = ref(true);
 const lunaIntroVisible = ref(false);
 const lunaStatus = ref("");
+
+// OpenClaw plan runtime（单活）
+const planRuntime = ref({
+  planId: "",
+  status: "IDLE",
+  createdAt: 0,
+  updatedAt: 0,
+  phases: {},
+  nodes: {},
+  report: { ready: false, reportPath: "", reportUrl: "" },
+  errors: [],
+});
+const planAsyncEvents = ref([]);
+
+function replacePlanRuntime(newRuntime) {
+  planRuntime.value = newRuntime;
+}
+function patchPlanRuntime(mutator) {
+  const draft = {
+    ...planRuntime.value,
+    phases: { ...(planRuntime.value.phases || {}) },
+    nodes: { ...(planRuntime.value.nodes || {}) },
+    report: { ...(planRuntime.value.report || {}) },
+    errors: [...(planRuntime.value.errors || [])],
+  };
+  mutator(draft);
+  draft.updatedAt = Date.now();
+  planRuntime.value = draft;
+}
 
 // 審批狀態
 const showApproval = ref(false);
@@ -357,6 +402,141 @@ function normalizeSseEventPayload(raw) {
     event: "luna-status",
     data: raw,
   };
+}
+
+function toUpperEventType(event, data) {
+  const e1 = String(event || "").trim();
+  if (e1 && e1 !== "message") return e1.toUpperCase();
+  const e2 = String(data?.eventType || data?.type || "").trim();
+  return e2.toUpperCase();
+}
+
+function handlePlanEvent(eventType, payload) {
+  if (!eventType) return;
+  const p = payload || {};
+  const now = Date.now();
+
+  if (eventType === "PLAN_CREATED") {
+    patchPlanRuntime((rt) => {
+      rt.planId = p.planId || rt.planId || "";
+      rt.status = "RUNNING";
+      rt.createdAt = rt.createdAt || p.timestamp || now;
+      rt.updatedAt = p.timestamp || now;
+      rt.phases = rt.phases || {};
+      rt.nodes = rt.nodes || {};
+      rt.report = rt.report || { ready: false, reportPath: "", reportUrl: "" };
+      rt.errors = rt.errors || [];
+    });
+    return;
+  }
+
+  if (eventType === "PLAN_PHASE_STARTED") {
+    patchPlanRuntime((rt) => {
+      const planId = p.planId || rt.planId;
+      if (rt.planId && planId && rt.planId !== planId) return;
+      rt.planId = planId || rt.planId;
+      const phaseId = p.phaseId || "unknown-phase";
+      rt.phases[phaseId] = {
+        ...(rt.phases[phaseId] || {}),
+        phaseId,
+        phaseOrder: p.phaseOrder ?? rt.phases[phaseId]?.phaseOrder ?? null,
+        status: "RUNNING",
+        costMs: p.costMs ?? rt.phases[phaseId]?.costMs ?? null,
+      };
+      rt.status = "RUNNING";
+    });
+    return;
+  }
+
+  if (eventType === "PLAN_NODE_RUNNING" || eventType === "PLAN_NODE_SUCCESS" || eventType === "PLAN_NODE_FAILED") {
+    patchPlanRuntime((rt) => {
+      const planId = p.planId || rt.planId;
+      if (rt.planId && planId && rt.planId !== planId) return;
+      rt.planId = planId || rt.planId;
+
+      const nodeId = p.nodeId || `node-${now}`;
+      const status = eventType === "PLAN_NODE_RUNNING" ? "RUNNING" : (eventType === "PLAN_NODE_SUCCESS" ? "SUCCESS" : "FAILED");
+      rt.nodes[nodeId] = {
+        ...(rt.nodes[nodeId] || {}),
+        nodeId,
+        phaseId: p.phaseId || rt.nodes[nodeId]?.phaseId || "",
+        status,
+        message: p.message || rt.nodes[nodeId]?.message || "",
+        costMs: p.costMs ?? rt.nodes[nodeId]?.costMs ?? null,
+        retryCount: p.retryCount ?? rt.nodes[nodeId]?.retryCount ?? 0,
+        errorCode: p.errorCode ?? rt.nodes[nodeId]?.errorCode ?? "",
+        failReason: p.failReason ?? rt.nodes[nodeId]?.failReason ?? "",
+        timestamp: p.timestamp || now,
+      };
+
+      if (status === "FAILED") {
+        rt.errors.push({
+          nodeId,
+          phaseId: p.phaseId || "",
+          errorCode: p.errorCode || "",
+          message: p.message || "",
+          failReason: p.failReason || "",
+          timestamp: p.timestamp || now,
+        });
+      }
+    });
+    return;
+  }
+
+  if (eventType === "PLAN_PHASE_FINISHED") {
+    patchPlanRuntime((rt) => {
+      const planId = p.planId || rt.planId;
+      if (rt.planId && planId && rt.planId !== planId) return;
+      rt.planId = planId || rt.planId;
+
+      const phaseId = p.phaseId || "unknown-phase";
+      rt.phases[phaseId] = {
+        ...(rt.phases[phaseId] || {}),
+        phaseId,
+        phaseOrder: p.phaseOrder ?? rt.phases[phaseId]?.phaseOrder ?? null,
+        status: p.status || "FINISHED",
+        costMs: p.costMs ?? rt.phases[phaseId]?.costMs ?? null,
+      };
+    });
+    return;
+  }
+
+  if (eventType === "PLAN_REPORT_READY") {
+    patchPlanRuntime((rt) => {
+      const planId = p.planId || rt.planId;
+      if (rt.planId && planId && rt.planId !== planId) return;
+      rt.planId = planId || rt.planId;
+      rt.report.ready = true;
+      rt.report.reportPath = p.reportPath || rt.report.reportPath || "";
+      rt.report.reportUrl = p.reportUrl || rt.report.reportUrl || "";
+      rt.status = "REPORT_READY";
+    });
+    return;
+  }
+
+  if (eventType === "SKILL_ASYNC_RESULT") {
+    const evt = {
+      taskId: p.taskId || "",
+      skillName: p.skillName || "",
+      status: p.status || "",
+      success: !!p.success,
+      message: p.message || "",
+      errorCode: p.errorCode || "",
+      error: p.error || "",
+      result: p.result,
+      costMs: p.costMs,
+      timestamp: p.timestamp || now,
+    };
+
+    planAsyncEvents.value = [evt, ...planAsyncEvents.value].slice(0, 50);
+
+    if (evt.status === "FAILED" || evt.success === false) {
+      appearance.showAppearanceHint(`异步技能失败: ${evt.skillName || evt.taskId}`);
+    } else {
+      appearance.showAppearanceHint(`异步技能完成: ${evt.skillName || evt.taskId}`);
+    }
+    return;
+  }
 }
 
 /* ================= 設定模式狀態 ================= */
@@ -473,10 +653,10 @@ async function handleLogout() {
     showChat.value = false;
     showHistory.value = false;
     showQuery.value = false;
+    showPlan.value = false;
     showApproval.value = false;
     approvalTask.value = null;
 
-    // 登出後立即恢復可點擊狀態，避免穿透殘留導致登入框無法點擊
     overUI = true;
     overModel = false;
     updatePetState();
@@ -640,7 +820,6 @@ async function onApprove(approved) {
 
   const currentTaskId = approvalTask.value.taskId;
 
-  // 先立即關閉彈窗（按你需求）
   showApproval.value = false;
   approvalTask.value = null;
   uiLeave();
@@ -706,17 +885,13 @@ function updatePetState() {
 
 let uiLeaveTimer = null;
 
-/**
- * 阻塞型 UI：出现时必须保持不可穿透（保证可点击）
- * 注意：showChat 不在这里，聊天框采用“按悬停决定”策略，
- * 以满足“唤出输出框时，除框外背景可穿透”。
- */
 function hasBlockingUiPanels() {
   return (
     loginVisible.value ||
     showSettings.value ||
     showHistory.value ||
     showQuery.value ||
+    showPlan.value ||
     showApproval.value ||
     lunaIntroVisible.value
   );
@@ -730,6 +905,7 @@ function getUiHoverSelector() {
     ".login-mask:hover",
     ".history-panel:not(.fade-leave-active):hover",
     ".query-panel:not(.fade-leave-active):hover",
+    ".plan-panel:not(.fade-leave-active):hover",
     ".top-banner:hover",
     ".modal:hover",
     ".approval-mask:hover",
@@ -744,14 +920,12 @@ function isAnyUiHovered() {
 function refreshUiInteractivity() {
   clearTimeout(uiLeaveTimer);
 
-  // 阻塞型面板优先：强制不可穿透
   if (hasBlockingUiPanels()) {
     overUI = true;
     updatePetState();
     return;
   }
 
-  // 仅聊天框打开时：允许背景穿透，是否可交互由悬停决定
   if (showChat.value) {
     uiLeaveTimer = setTimeout(() => {
       overUI = isAnyUiHovered();
@@ -772,27 +946,23 @@ function uiEnter() {
 function uiLeave() {
   clearTimeout(uiLeaveTimer);
   uiLeaveTimer = setTimeout(() => {
-    // 阻塞型面板在，仍保持不可穿透
     if (hasBlockingUiPanels()) {
       overUI = true;
       updatePetState();
       return;
     }
 
-    // 仅聊天框打开时：按当前悬停态决定
     if (showChat.value) {
       overUI = isAnyUiHovered();
       updatePetState();
       return;
     }
 
-    // 没有 UI 时：仅在仍悬停 UI 元素上才保持不可穿透
     overUI = isAnyUiHovered();
     updatePetState();
   }, 150);
 }
 
-// 全局鼠标移动：用于“聊天框开启且背景可穿透”场景下，实时切换交互状态
 function onWindowMouseMove() {
   if (hasBlockingUiPanels()) return;
   if (!showChat.value) return;
@@ -824,10 +994,10 @@ watch(showChat, () => refreshUiInteractivity());
 watch(showSettings, () => refreshUiInteractivity());
 watch(showHistory, () => refreshUiInteractivity());
 watch(showQuery, () => refreshUiInteractivity());
+watch(showPlan, () => refreshUiInteractivity());
 watch(showApproval, () => refreshUiInteractivity());
 watch(loginVisible, () => refreshUiInteractivity());
 
-// 修復：入場遮罩關閉後，主動重算一次穿透狀態，避免卡在不可穿透
 watch(lunaIntroVisible, (val) => {
   if (!val) {
     uiLeave();
@@ -848,6 +1018,9 @@ watch(modelVisible, (val) => {
 });
 
 /* ================= 設定模式邏輯 ================= */
+const isSetupMode = ref(false);
+const isTrackingSetupMode = ref(false);
+
 function toggleSetupMode() {
   if (isTrackingSetupMode.value) isTrackingSetupMode.value = false;
   isSetupMode.value = !isSetupMode.value;
@@ -1167,6 +1340,11 @@ function toggleQuery() {
   if (showQuery.value) uiEnter();
 }
 
+function togglePlan() {
+  showPlan.value = !showPlan.value;
+  if (showPlan.value) uiEnter();
+}
+
 /* ================= 等待模型就绪 ================= */
 function waitForModelReady(timeout = 10000) {
   return new Promise((resolve) => {
@@ -1186,8 +1364,6 @@ async function startBootSequence() {
   gsap.delayedCall(4.5, async () => {
     lunaIntroVisible.value = false;
     bgParticlesVisible.value = false;
-
-    // 修復：啟動遮罩關閉後立即重算一次穿透，避免窗口卡在不可穿透
     uiLeave();
 
     if (!model) {
@@ -1246,9 +1422,9 @@ onMounted(async () => {
         showSettings.value = false;
         showHistory.value = false;
         showQuery.value = false;
+        showPlan.value = false;
         refreshUiInteractivity();
       } else {
-        // 聊天框刚弹出时先确保可操作，再按悬停策略回落到背景可穿透
         overUI = true;
         updatePetState();
         setTimeout(() => {
@@ -1273,6 +1449,14 @@ onMounted(async () => {
         return;
       }
 
+      const eventType = toUpperEventType(event, data);
+      if (
+        eventType.startsWith("PLAN_") ||
+        eventType === "SKILL_ASYNC_RESULT"
+      ) {
+        handlePlanEvent(eventType, data);
+      }
+
       const msg = normalizeStatusPayload(data);
       if (!msg) {
         clearStatusDisplay();
@@ -1289,8 +1473,6 @@ onMounted(async () => {
       autoUpdate: true,
       ticker: app.ticker,
     });
-
-    console.log("[Live2D] 🎉 模型文件加载成功！尺寸:", model.width, "x", model.height);
 
     model.scale.set(0.2);
     model.anchor.set(0.5, 1);
@@ -1337,7 +1519,6 @@ onMounted(async () => {
 
   setTimeout(() => {
     if (model && loginSuccess.value && !lunaIntroVisible.value && model.alpha === 0) {
-      console.warn("[Live2D] 发现模型透明度异常为0，强制恢复显示");
       model.alpha = 1;
       model.y = app.renderer.height || window.innerHeight;
     }

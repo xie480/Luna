@@ -26,7 +26,7 @@ export const logout = async (token) => {
   return window.desktopApi.logout(token);
 };
 
-// ===== 新增：查询接口 =====
+// ===== 查询接口 =====
 export const queryKnowledgeBase = async (payload) => {
   return window.desktopApi.queryKnowledgeBase(payload);
 };
@@ -41,4 +41,21 @@ export const queryMemory = async (payload) => {
 
 export const queryLog = async (payload) => {
   return window.desktopApi.queryLog(payload);
+};
+
+// ===== OpenClaw Plan 接口 =====
+export const planRun = async (payload) => {
+  return window.desktopApi.planRun(payload);
+};
+
+export const planPhaseRun = async (payload) => {
+  return window.desktopApi.planPhaseRun(payload);
+};
+
+export const planFinalizeReport = async (payload) => {
+  return window.desktopApi.planFinalizeReport(payload);
+};
+
+export const openExternal = async (target) => {
+  return window.desktopApi.openExternal(target);
 };

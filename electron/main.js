@@ -1,6 +1,6 @@
 /* 保持你现有文件内容，仅补充查询 IPC handlers */
 // main.js
-import { app, BrowserWindow, ipcMain, globalShortcut } from "electron";
+import { app, BrowserWindow, ipcMain, globalShortcut, shell } from "electron";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -64,6 +64,29 @@ ipcMain.handle("luna.api.query.memory", async (_event, payload = {}) => {
 ipcMain.handle("luna.api.query.log", async (_event, payload = {}) => {
   return http.post("/luna/api/query/log", payload)
     .catch(err => { throw new Error(err.message); });
+});
+
+/* ===== OpenClaw Plan IPC ===== */
+ipcMain.handle("luna.api.plan.run", async (_event, payload = {}) => {
+  return http.post("/luna/api/plan/run", payload)
+    .catch(err => { throw new Error(err.message); });
+});
+
+ipcMain.handle("luna.api.plan.phase.run", async (_event, payload = {}) => {
+  return http.post("/luna/api/plan/phase/run", payload)
+    .catch(err => { throw new Error(err.message); });
+});
+
+ipcMain.handle("luna.api.plan.report.finalize", async (_event, payload = {}) => {
+  return http.post("/luna/api/plan/report/finalize", payload)
+    .catch(err => { throw new Error(err.message); });
+});
+
+ipcMain.handle("luna.app.openExternal", async (_event, target) => {
+  if (!target || typeof target !== "string") {
+    throw new Error("target is required");
+  }
+  return shell.openExternal(target);
 });
 
 /* ===== Auth: login / logout ===== */
