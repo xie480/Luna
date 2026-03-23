@@ -1018,8 +1018,6 @@ watch(modelVisible, (val) => {
 });
 
 /* ================= 設定模式邏輯 ================= */
-const isSetupMode = ref(false);
-const isTrackingSetupMode = ref(false);
 
 function toggleSetupMode() {
   if (isTrackingSetupMode.value) isTrackingSetupMode.value = false;
