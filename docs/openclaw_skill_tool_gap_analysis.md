@@ -23,6 +23,7 @@
 
 - **已实现**：后端已有对应方法，且非占位。
 - **占位实现**：有方法和 JSON，但返回 `NOT_IMPLEMENTED` 或空壳结果。
+- **环境未启用**：代码已接入，但依赖外部系统环境，当前默认未启用。
 - **缺失**：方法/JSON/可执行链路不存在。
 
 ---
@@ -43,27 +44,27 @@
 - open_browser_with_file（已实现）
 
 ## 3.2 调度锁类
-- acquire_execution_lock（占位实现）
-- release_execution_lock（占位实现）
+- acquire_execution_lock（已实现，Redis分布式锁）
+- release_execution_lock（已实现，Lua校验释放）
 
 ## 3.3 CodeOps 类
 - read_repo_tree（已实现）
 - read_source_file（已实现）
 - write_source_file（已实现）
-- apply_unified_patch（占位实现）
+- apply_unified_patch（已实现，基于 git apply）
 - run_build_command（已实现）
 - run_test_command（已实现）
 - run_lint_command（已实现）
 - run_format_command（已实现）
-- collect_test_report（占位实现）
-- git_create_checkpoint（占位实现）
-- git_rollback_checkpoint（占位实现）
-- search_symbol_references（占位实现）
-- scan_dependency_vulnerabilities（占位实现）
+- collect_test_report（已实现，JUnit/Surefire XML）
+- git_create_checkpoint（已实现）
+- git_rollback_checkpoint（已实现）
+- search_symbol_references（已实现，文件扫描基础版）
+- scan_dependency_vulnerabilities（环境未启用，依赖SCA工具）
 
 ## 3.4 桌面增强类
-- capture_desktop_screenshot（占位实现）
-- detect_ui_elements（占位实现）
+- capture_desktop_screenshot（环境未启用，依赖桌面环境）
+- detect_ui_elements（环境未启用，依赖OCR/UIA能力）
 
 ## 3.5 通用业务 Tool（已在系统长期使用）
 - web_search / image_search / news_search / lens_search / web_scrape（已实现）
@@ -120,11 +121,11 @@
 - release_execution_lock
 
 ### 判定
-**可创建但执行能力不完整**
+**可立即创建并执行（基础版）**
 
-### 主要缺口
-- 锁工具目前为占位实现，无法真正防并发冲突。
-- 尚未看到“完整 DAG 调度引擎 Tool 化”能力（主要在服务编排层，不是单 Tool 问题）。
+### 说明
+- 关键锁能力已落地。
+- 高并发与锁续租（watchdog）可作为后续增强项。
 
 ---
 
@@ -201,10 +202,10 @@
 - emit_plan_event_sse
 
 ### 判定
-**可创建但执行能力不完整**
+**可立即创建并执行（基础版）**
 
-### 主要缺口
-- `search_symbol_references` 目前占位实现。
+### 说明
+- `search_symbol_references` 已可用（基础扫描版），后续可升级 LSP 精确版本。
 
 ---
 
@@ -217,11 +218,7 @@
 - record_plan_audit_log
 
 ### 判定
-**可创建但执行能力不完整**
-
-### 主要缺口
-- `apply_unified_patch` 占位
-- `git_create_checkpoint` 占位
+**可立即创建并执行（基础版）**
 
 ---
 
@@ -249,12 +246,7 @@
 - emit_plan_event_sse
 
 ### 判定
-**可创建但执行能力不完整**
-
-### 主要缺口
-- `collect_test_report` 占位
-- `apply_unified_patch` 占位
-- `git_rollback_checkpoint` 占位
+**可立即创建并执行（基础版）**
 
 ---
 
@@ -340,16 +332,16 @@
 |---|---|
 | plan_user_requirement_bigmodel | 可立即创建并执行 |
 | validate_plan_blueprint | 可立即创建并执行 |
-| execute_plan_phase | 可创建但执行能力不完整 |
+| execute_plan_phase | 可立即创建并执行（基础版） |
 | replan_failed_nodes | 可创建但执行能力不完整 |
 | aggregate_phase_outputs | 可立即创建并执行 |
 | generate_task_report_and_open | 可立即创建并执行 |
 | publish_plan_sse_events | 可立即创建并执行 |
 | checkpoint_plan_state | 可立即创建并执行 |
-| plan_code_change_tasks | 可创建但执行能力不完整 |
-| generate_code_patch | 可创建但执行能力不完整 |
+| plan_code_change_tasks | 可立即创建并执行（基础版） |
+| generate_code_patch | 可立即创建并执行（基础版） |
 | generate_test_cases | 可立即创建并执行（基础版） |
-| analyze_test_failure_and_fix | 可创建但执行能力不完整 |
+| analyze_test_failure_and_fix | 可立即创建并执行（基础版） |
 | summarize_code_changes_for_report | 可立即创建并执行 |
 | intel_research_pipeline | 可立即创建并执行（需修正 toolSlots） |
 | skill_search_ingest_kb | 可立即创建并执行 |
@@ -358,32 +350,19 @@
 
 ---
 
-## 7. 关键缺口 Tool 清单（优先级）
+## 7. 关键剩余缺口 Tool 清单（优先级）
 
-## P0（会直接卡住代码闭环）
-1. apply_unified_patch（从占位改为可用）
-2. collect_test_report（从占位改为可用）
-3. git_rollback_checkpoint（从占位改为可用）
-4. git_create_checkpoint（从占位改为可用）
-
-## P1（提升计划执行稳定性）
-5. acquire_execution_lock（真实分布式锁）
-6. release_execution_lock（owner 校验释放）
-
-## P2（增强质量与分析）
-7. search_symbol_references（真实引用分析）
-8. scan_dependency_vulnerabilities（真实 SCA）
-
-## P3（桌面能力）
-9. capture_desktop_screenshot
-10. detect_ui_elements
+## P0（环境依赖项）
+1. scan_dependency_vulnerabilities（需接入SCA工具）
+2. capture_desktop_screenshot（需桌面环境）
+3. detect_ui_elements（需OCR/UIA能力）
 
 ---
 
 ## 8. 建议下一步
 
-1. 先把 P0 四个 Tool 做实，再开放 `generate_code_patch / analyze_test_failure_and_fix` 到生产链路。  
-2. 为四个已创建 Skill 增加启动前校验：`toolSlots` 非空、capability 可匹配到至少一个 Tool。  
-3. 在 Skill 注册阶段做“依赖 Tool 可用性校验”，把“占位 Tool”标记为不可用于生产编排。  
+1. 按 `docs/openclaw_tool_dependency_guide.md` 完成依赖安装后，启用环境依赖 Tool。  
+2. 在 Skill 注册阶段增加“Tool 可用性标签”（已实现 / 环境未启用）。  
+3. 对基础版实现（patch、symbol 引用）补充更高精度版本（LSP、三方补丁库）。  
 
 ```
