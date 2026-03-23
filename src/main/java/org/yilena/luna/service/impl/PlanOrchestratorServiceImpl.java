@@ -5,10 +5,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.entity.PlanInstance;
 import org.yilena.luna.entity.PlanNode;
 import org.yilena.luna.entity.PlanPhase;
 import org.yilena.luna.enums.PlanNodeStatus;
 import org.yilena.luna.enums.PlanPhaseStatus;
+import org.yilena.luna.enums.PlanStatus;
+import org.yilena.luna.mapper.PlanInstanceMapper;
 import org.yilena.luna.mapper.PlanNodeMapper;
 import org.yilena.luna.mapper.PlanPhaseMapper;
 import org.yilena.luna.service.PlanOrchestratorService;
@@ -37,6 +40,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
     private static final String DEFAULT_PHASE_ID = "phase-1";
 
     private final ObjectMapper objectMapper;
+    private final PlanInstanceMapper planInstanceMapper;
     private final PlanNodeMapper planNodeMapper;
     private final PlanPhaseMapper planPhaseMapper;
 
@@ -61,6 +65,20 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
             log.info("开始创建计划, planId={}, sessionId={}, userGoal={}", planId, sessionId, userGoal);
 
+            // 0) 先落 plan_instance，满足 blueprint 外键依赖
+            PlanInstance instance = PlanInstance.builder()
+                    .planId(planId)
+                    .sessionId(sessionId)
+                    .userGoal(userGoal)
+                    .planVersion(planVersion)
+                    .status(PlanStatus.PENDING)
+                    .currentLoopIndex(0)
+                    .planningModel("mvp-local-planner")
+                    .startedAt(LocalDateTime.now())
+                    .build();
+            planInstanceMapper.insert(instance);
+            log.info("已创建计划实例, planId={}", planId);
+
             // 1) 构造最小蓝图（支持多阶段）
             Map<String, Object> blueprint = buildMvpBlueprint(planId, sessionId, userGoal);
 
@@ -81,6 +99,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             );
             if (isError(saveResult)) {
                 log.error("保存蓝图失败, planId={}, saveResult={}", planId, saveResult);
+                markPlanFailed(planId, "保存蓝图失败");
                 return saveResult;
             }
 
@@ -130,8 +149,12 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             // 6) 从 plan_phase 表读取真实阶段顺序并执行
             List<PlanPhase> orderedPhases = loadOrderedPhases(planId);
             if (orderedPhases.isEmpty()) {
+                markPlanFailed(planId, "未找到可执行阶段");
                 return error("PLAN_PHASE_EMPTY", "未找到可执行阶段");
             }
+
+            // 标记计划运行中
+            updatePlanStatus(planId, PlanStatus.RUNNING, null);
 
             List<Map<String, Object>> phaseResults = new ArrayList<>();
             boolean hasPhaseFailure = false;
@@ -170,17 +193,20 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             merged.put("reportResult", safeParse(reportResult));
 
             if (hasPhaseFailure) {
+                updatePlanStatus(planId, PlanStatus.FAILED, "阶段执行失败");
                 merged.put("status", "error");
                 merged.put("message", "计划阶段执行失败，已生成报告");
                 return objectMapper.writeValueAsString(merged);
             }
 
             if (isError(reportResult)) {
+                updatePlanStatus(planId, PlanStatus.FAILED, "报告生成失败");
                 merged.put("status", "error");
                 merged.put("message", "计划执行完成，但报告生成失败");
                 return objectMapper.writeValueAsString(merged);
             }
 
+            updatePlanStatus(planId, PlanStatus.SUCCESS, null);
             merged.put("status", "success");
             merged.put("message", "计划多阶段执行成功并生成报告");
             return objectMapper.writeValueAsString(merged);
@@ -421,9 +447,29 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         }
     }
 
-    /**
-     * 从 plan_phase 表加载真实执行顺序
-     */
+    private void updatePlanStatus(String planId, PlanStatus status, String errorMessage) {
+        try {
+            PlanInstance instance = planInstanceMapper.selectById(planId);
+            if (instance == null) {
+                return;
+            }
+            instance.setStatus(status);
+            if (errorMessage != null && !errorMessage.isBlank()) {
+                instance.setErrorMessage(errorMessage);
+            }
+            if (status == PlanStatus.SUCCESS || status == PlanStatus.FAILED || status == PlanStatus.CANCELLED) {
+                instance.setFinishedAt(LocalDateTime.now());
+            }
+            planInstanceMapper.updateById(instance);
+        } catch (Exception e) {
+            log.warn("更新 plan_instance 状态失败, planId={}, status={}, err={}", planId, status.getValue(), e.getMessage());
+        }
+    }
+
+    private void markPlanFailed(String planId, String errorMessage) {
+        updatePlanStatus(planId, PlanStatus.FAILED, errorMessage);
+    }
+
     private List<PlanPhase> loadOrderedPhases(String planId) {
         return planPhaseMapper.selectList(
                 new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<PlanPhase>()
@@ -433,9 +479,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         );
     }
 
-    /**
-     * 更新阶段状态并记录时间
-     */
     private void markPhaseStatus(PlanPhase phase, PlanPhaseStatus status, boolean markStartedAt, boolean markFinishedAt) {
         try {
             phase.setStatus(status);
