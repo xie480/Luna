@@ -1,11 +1,11 @@
 package org.yilena.luna.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
-import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.yilena.luna.handler.JsonbTypeHandler;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -32,7 +32,7 @@ public class PlanCheckpoint implements Serializable {
     @TableField("node_id")
     private String nodeId;
 
-    @TableField(value = "checkpoint_data", typeHandler = JacksonTypeHandler.class)
+    @TableField(value = "checkpoint_data", typeHandler = JsonbTypeHandler.class)
     private Map<String, Object> checkpointData;
 
     @TableField("snapshot_hash")

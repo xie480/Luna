@@ -1,12 +1,12 @@
 package org.yilena.luna.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
-import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.yilena.luna.enums.PlanPhaseStatus;
+import org.yilena.luna.handler.JsonbTypeHandler;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -36,7 +36,7 @@ public class PlanPhase implements Serializable {
     @TableField("objective")
     private String objective;
 
-    @TableField(value = "node_ids", typeHandler = JacksonTypeHandler.class)
+    @TableField(value = "node_ids", typeHandler = JsonbTypeHandler.class)
     private List<String> nodeIds;
 
     @TableField("entry_criteria")

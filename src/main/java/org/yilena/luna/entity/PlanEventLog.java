@@ -1,13 +1,13 @@
 package org.yilena.luna.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
-import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.yilena.luna.enums.PlanEventLevel;
 import org.yilena.luna.enums.PlanEventType;
+import org.yilena.luna.handler.JsonbTypeHandler;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -37,7 +37,7 @@ public class PlanEventLog implements Serializable {
     @TableField("event_type")
     private PlanEventType eventType;
 
-    @TableField(value = "event_payload", typeHandler = JacksonTypeHandler.class)
+    @TableField(value = "event_payload", typeHandler = JsonbTypeHandler.class)
     private Map<String, Object> eventPayload;
 
     @TableField("trace_id")

@@ -1,12 +1,12 @@
 package org.yilena.luna.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
-import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.yilena.luna.enums.*;
+import org.yilena.luna.handler.JsonbTypeHandler;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -37,13 +37,13 @@ public class PlanNode implements Serializable {
     @TableField("node_type")
     private PlanNodeType nodeType;
 
-    @TableField(value = "input_json", typeHandler = JacksonTypeHandler.class)
+    @TableField(value = "input_json", typeHandler = JsonbTypeHandler.class)
     private Map<String, Object> inputJson;
 
-    @TableField(value = "expected_output_schema", typeHandler = JacksonTypeHandler.class)
+    @TableField(value = "expected_output_schema", typeHandler = JsonbTypeHandler.class)
     private Map<String, Object> expectedOutputSchema;
 
-    @TableField(value = "dependencies", typeHandler = JacksonTypeHandler.class)
+    @TableField(value = "dependencies", typeHandler = JsonbTypeHandler.class)
     private List<String> dependencies;
 
     @TableField("parallel_group")
@@ -52,7 +52,7 @@ public class PlanNode implements Serializable {
     @TableField("status")
     private PlanNodeStatus status;
 
-    @TableField(value = "retry_policy", typeHandler = JacksonTypeHandler.class)
+    @TableField(value = "retry_policy", typeHandler = JsonbTypeHandler.class)
     private Map<String, Object> retryPolicy;
 
     @TableField("retry_count")
@@ -64,13 +64,13 @@ public class PlanNode implements Serializable {
     @TableField("model_hint")
     private PlanModelHint modelHint;
 
-    @TableField(value = "resource_hint", typeHandler = JacksonTypeHandler.class)
+    @TableField(value = "resource_hint", typeHandler = JsonbTypeHandler.class)
     private Map<String, Object> resourceHint;
 
-    @TableField(value = "output_json", typeHandler = JacksonTypeHandler.class)
+    @TableField(value = "output_json", typeHandler = JsonbTypeHandler.class)
     private Map<String, Object> outputJson;
 
-    @TableField(value = "output_for_next", typeHandler = JacksonTypeHandler.class)
+    @TableField(value = "output_for_next", typeHandler = JsonbTypeHandler.class)
     private Map<String, Object> outputForNext;
 
     @TableField("fail_reason")

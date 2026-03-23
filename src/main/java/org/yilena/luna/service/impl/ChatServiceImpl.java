@@ -68,7 +68,11 @@ public class ChatServiceImpl implements ChatService {
     private final MemoryMapper memoryMapper;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    private static final DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy:MM:dd");
+    /**
+     * 会话 key 统一格式（避免 chat/startup 历史读取错位）
+     */
+    private static final DateTimeFormatter SESSION_KEY_FORMATTER = DateTimeFormatter.ofPattern("yyyy:MM:dd");
+
     private static final int RAG_TOP_K_FETCH = 12;
     private static final int RAG_TOP_K_FINAL = 5;
     private static final long RAG_TIMEOUT_MS = 2500;
@@ -82,7 +86,7 @@ public class ChatServiceImpl implements ChatService {
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_THINKING, LunaStateConstant.VALUE_THINKING);
 
         LocalDateTime today = LocalDateTime.now();
-        String keyPrefix = dateFormatter.format(today);
+        String keyPrefix = SESSION_KEY_FORMATTER.format(today);
 
         String input = Optional.ofNullable(rawInput).map(Object::toString).orElse("").trim();
         if (input.isEmpty()) {
@@ -266,14 +270,14 @@ public class ChatServiceImpl implements ChatService {
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_STARTING, LunaStateConstant.VALUE_STARTING);
 
         LocalDateTime today = LocalDateTime.now();
-        String keyPrefix = dateFormatter.format(today);
+        String keyPrefix = SESSION_KEY_FORMATTER.format(today);
         List<ChatMessage> recent = null;
 
         String redisKey = String.format(RedisKeyConstant.CONTEXT_KEY_PREFIX, keyPrefix);
         if (!stringRedisTemplate.hasKey(redisKey)) {
             int index = 1;
             while (index <= 30 && (recent == null || recent.isEmpty())) {
-                recent = sessionService.getRecentMessages(dateFormatter.format(today.minusDays(index++)), true);
+                recent = sessionService.getRecentMessages(SESSION_KEY_FORMATTER.format(today.minusDays(index++)), true);
                 if (recent == null) recent = Collections.emptyList();
             }
         } else {
@@ -299,7 +303,7 @@ public class ChatServiceImpl implements ChatService {
     @LunaLogRecord(module = LogModuleConstant.SYSTEM, action = LogActionConstant.SHUTDOWN, type = LogType.SYSTEM_EVENT, content = "系统关闭")
     public void shutdown() {
         LocalDateTime today = LocalDateTime.now();
-        String keyPrefix = dateFormatter.format(today);
+        String keyPrefix = SESSION_KEY_FORMATTER.format(today);
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.SHUTDOWN, "用户关机", LocalTime.now()));
     }
 

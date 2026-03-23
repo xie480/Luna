@@ -1,13 +1,13 @@
 package org.yilena.luna.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
-import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.yilena.luna.enums.PlanFinalStatus;
 import org.yilena.luna.enums.PlanStatus;
+import org.yilena.luna.handler.JsonbTypeHandler;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -31,7 +31,7 @@ public class PlanInstance implements Serializable {
     @TableField("user_goal")
     private String userGoal;
 
-    @TableField(value = "constraints_json", typeHandler = JacksonTypeHandler.class)
+    @TableField(value = "constraints_json", typeHandler = JsonbTypeHandler.class)
     private Map<String, Object> constraintsJson;
 
     @TableField("success_criteria")
