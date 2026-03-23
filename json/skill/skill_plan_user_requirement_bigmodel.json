@@ -1,15 +1,16 @@
 {
   "name": "plan_user_requirement_bigmodel",
-  "description": "使用大模型一次性生成全局计划蓝图，包含阶段、节点、依赖关系与风险信息",
-  "version": "1.0.0",
+  "description": "使用大模型一次性生成并落地全局计划蓝图，覆盖阶段划分、节点依赖、风险提示与执行闭环触发。适用于用户首次提出复杂任务时的总规划入口。",
+  "version": "1.1.0",
   "owner": "openclaw",
   "beanName": "planOrchestratorServiceImpl",
   "methodName": "createAndRunPlan",
-  "inputSchema": "{\"type\":\"object\",\"properties\":{\"sessionId\":{\"type\":\"string\",\"description\":\"稳定会话ID，建议使用JWT jti\"},\"userGoal\":{\"type\":\"string\",\"description\":\"用户目标\"}},\"required\":[\"sessionId\",\"userGoal\"]}",
-  "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"planId\":{\"type\":\"string\"},\"message\":{\"type\":\"string\"},\"phaseResult\":{\"type\":\"object\"},\"reportResult\":{\"type\":\"object\"}}}",
+  "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"sessionId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"稳定会话ID，建议使用JWT jti；若未提供将由服务端兜底\"},\"userGoal\":{\"type\":\"string\",\"minLength\":1,\"description\":\"用户目标，建议包含期望结果、范围与约束\"}},\"required\":[\"sessionId\",\"userGoal\"]}",
+  "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\",\"description\":\"执行状态：success/error\"},\"planId\":{\"type\":\"string\",\"description\":\"计划ID\"},\"message\":{\"type\":\"string\",\"description\":\"结果说明\"},\"phaseResult\":{\"type\":\"object\",\"description\":\"阶段执行结果\"},\"reportResult\":{\"type\":\"object\",\"description\":\"报告生成结果\"}}}",
   "runMode": "SYNC",
   "requiredCapabilities": [
     "SAVE_PLAN_BLUEPRINT",
+    "RECORD_PLAN_AUDIT_LOG",
     "EMIT_PLAN_EVENT_SSE"
   ],
   "toolSlots": [
@@ -19,14 +20,19 @@
       "required": true
     },
     {
+      "slot": "audit_log",
+      "capability": "RECORD_PLAN_AUDIT_LOG",
+      "required": true
+    },
+    {
       "slot": "emit_event",
       "capability": "EMIT_PLAN_EVENT_SSE",
       "required": true
     }
   ],
   "thoughtChain": [
-    "理解用户目标并生成MVP蓝图",
-    "保存蓝图并初始化阶段节点",
-    "发出计划创建事件"
+    "理解用户目标并生成可执行MVP蓝图",
+    "持久化蓝图并初始化最小节点",
+    "记录审计并推送计划创建事件"
   ]
 }

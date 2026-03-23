@@ -1,21 +1,29 @@
 {
   "name": "execute_plan_phase",
-  "description": "执行指定计划阶段，推进节点状态并输出阶段进度结果",
-  "version": "1.0.0",
+  "description": "执行指定计划阶段，驱动节点状态流转、写入节点输出、统计阶段进度并推送实时事件，作为阶段执行主技能。",
+  "version": "1.1.0",
   "owner": "openclaw",
   "beanName": "planOrchestratorServiceImpl",
   "methodName": "runPhase",
-  "inputSchema": "{\"type\":\"object\",\"properties\":{\"planId\":{\"type\":\"string\"},\"phaseId\":{\"type\":\"string\"}},\"required\":[\"planId\",\"phaseId\"]}",
-  "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"planId\":{\"type\":\"string\"},\"phaseId\":{\"type\":\"string\"},\"successCount\":{\"type\":\"integer\"},\"failCount\":{\"type\":\"integer\"},\"progress\":{\"type\":\"object\"}}}",
+  "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"planId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"计划ID\"},\"phaseId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"阶段ID\"}},\"required\":[\"planId\",\"phaseId\"]}",
+  "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\",\"description\":\"执行状态\"},\"planId\":{\"type\":\"string\"},\"phaseId\":{\"type\":\"string\"},\"successCount\":{\"type\":\"integer\",\"description\":\"成功节点数\"},\"failCount\":{\"type\":\"integer\",\"description\":\"失败节点数\"},\"progress\":{\"type\":\"object\",\"description\":\"计划进度快照\"},\"costMs\":{\"type\":\"integer\",\"description\":\"阶段耗时(毫秒)\"}}}",
   "runMode": "SYNC",
   "requiredCapabilities": [
+    "ACQUIRE_EXECUTION_LOCK",
     "LIST_PHASE_NODES",
     "UPDATE_NODE_STATUS",
     "APPEND_NODE_OUTPUT",
     "QUERY_PLAN_PROGRESS",
-    "EMIT_PLAN_EVENT_SSE"
+    "RECORD_PLAN_AUDIT_LOG",
+    "EMIT_PLAN_EVENT_SSE",
+    "RELEASE_EXECUTION_LOCK"
   ],
   "toolSlots": [
+    {
+      "slot": "acquire_lock",
+      "capability": "ACQUIRE_EXECUTION_LOCK",
+      "required": true
+    },
     {
       "slot": "list_nodes",
       "capability": "LIST_PHASE_NODES",
@@ -37,14 +45,25 @@
       "required": true
     },
     {
+      "slot": "audit_log",
+      "capability": "RECORD_PLAN_AUDIT_LOG",
+      "required": true
+    },
+    {
       "slot": "emit_event",
       "capability": "EMIT_PLAN_EVENT_SSE",
+      "required": true
+    },
+    {
+      "slot": "release_lock",
+      "capability": "RELEASE_EXECUTION_LOCK",
       "required": true
     }
   ],
   "thoughtChain": [
-    "加载阶段节点并筛选可执行节点",
+    "获取阶段执行锁并读取阶段节点",
     "按状态机推进节点执行与结果写入",
-    "输出阶段统计并推送SSE事件"
+    "统计阶段进度并完成审计与事件推送",
+    "释放执行锁并返回阶段结果"
   ]
 }

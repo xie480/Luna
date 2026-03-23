@@ -1,16 +1,17 @@
 {
   "name": "aggregate_phase_outputs",
-  "description": "聚合阶段节点输出，为下一阶段提供结构化上下文",
-  "version": "1.0.0",
+  "description": "聚合阶段节点输出，提炼可传递给下阶段的结构化上下文，并记录审计信息，确保阶段间数据连续性。",
+  "version": "1.1.0",
   "owner": "openclaw",
   "beanName": "planNodeTools",
   "methodName": "listPhaseNodes",
-  "inputSchema": "{\"type\":\"object\",\"properties\":{\"planId\":{\"type\":\"string\"},\"phaseId\":{\"type\":\"string\"}},\"required\":[\"planId\",\"phaseId\"]}",
-  "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"data\":{\"type\":\"array\"}}}",
+  "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"planId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"计划ID\"},\"phaseId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"阶段ID\"}},\"required\":[\"planId\",\"phaseId\"]}",
+  "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"data\":{\"type\":\"array\",\"description\":\"阶段节点列表或聚合后输出\"},\"message\":{\"type\":\"string\",\"description\":\"聚合说明\"}}}",
   "runMode": "SYNC",
   "requiredCapabilities": [
     "LIST_PHASE_NODES",
-    "APPEND_NODE_OUTPUT"
+    "APPEND_NODE_OUTPUT",
+    "RECORD_PLAN_AUDIT_LOG"
   ],
   "toolSlots": [
     {
@@ -22,11 +23,16 @@
       "slot": "append_summary",
       "capability": "APPEND_NODE_OUTPUT",
       "required": false
+    },
+    {
+      "slot": "audit_log",
+      "capability": "RECORD_PLAN_AUDIT_LOG",
+      "required": true
     }
   ],
   "thoughtChain": [
-    "读取阶段全部节点输出",
-    "提取可传递给下游的关键字段",
-    "生成阶段聚合摘要供后续节点使用"
+    "读取阶段节点及其输出",
+    "提炼可复用的关键字段并形成聚合摘要",
+    "将摘要记录到节点输出并写入审计"
   ]
 }

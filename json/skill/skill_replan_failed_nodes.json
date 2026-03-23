@@ -1,23 +1,35 @@
 {
   "name": "replan_failed_nodes",
-  "description": "针对失败节点进行局部重规划建议，输出可执行修复方向",
-  "version": "1.0.0",
+  "description": "针对失败节点执行局部重规划分析，输出可执行修复方向（重试/替代路径/降级建议），并保留审计与事件轨迹。",
+  "version": "1.1.0",
   "owner": "openclaw",
   "beanName": "planNodeTools",
   "methodName": "queryPlanProgress",
-  "inputSchema": "{\"type\":\"object\",\"properties\":{\"planId\":{\"type\":\"string\"}},\"required\":[\"planId\"]}",
-  "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"data\":{\"type\":\"object\"},\"message\":{\"type\":\"string\"}}}",
+  "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"planId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"计划ID\"}},\"required\":[\"planId\"]}",
+  "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"data\":{\"type\":\"object\",\"description\":\"进度与失败分布\"},\"message\":{\"type\":\"string\",\"description\":\"重规划建议说明\"}}}",
   "runMode": "SYNC",
   "requiredCapabilities": [
+    "LIST_PHASE_NODES",
     "QUERY_PLAN_PROGRESS",
+    "APPEND_NODE_OUTPUT",
     "RECORD_PLAN_AUDIT_LOG",
     "EMIT_PLAN_EVENT_SSE"
   ],
   "toolSlots": [
     {
+      "slot": "list_failed_nodes",
+      "capability": "LIST_PHASE_NODES",
+      "required": true
+    },
+    {
       "slot": "query_progress",
       "capability": "QUERY_PLAN_PROGRESS",
       "required": true
+    },
+    {
+      "slot": "append_replan_output",
+      "capability": "APPEND_NODE_OUTPUT",
+      "required": false
     },
     {
       "slot": "audit_log",
@@ -31,8 +43,8 @@
     }
   ],
   "thoughtChain": [
-    "识别当前计划中的失败节点与失败分布",
+    "识别失败节点与失败模式分布",
     "生成局部重试与替代路径建议",
-    "记录重规划审计并推送事件"
+    "输出重规划建议并记录审计事件"
   ]
 }

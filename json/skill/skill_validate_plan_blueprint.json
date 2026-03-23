@@ -1,16 +1,17 @@
 {
   "name": "validate_plan_blueprint",
-  "description": "加载并校验指定计划蓝图，检查核心字段完整性与阶段定义有效性",
-  "version": "1.0.0",
+  "description": "加载并校验指定计划蓝图，检查核心字段完整性、阶段定义有效性与基础可执行性，并输出审计记录。",
+  "version": "1.1.0",
   "owner": "openclaw",
   "beanName": "planBlueprintTools",
   "methodName": "loadPlanBlueprint",
-  "inputSchema": "{\"type\":\"object\",\"properties\":{\"planId\":{\"type\":\"string\"},\"planVersion\":{\"type\":\"integer\"}},\"required\":[\"planId\"]}",
-  "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"data\":{\"type\":\"object\"}}}",
+  "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"planId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"计划ID\"},\"planVersion\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"可选版本号；不传则加载最新版本\"}},\"required\":[\"planId\"]}",
+  "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\",\"description\":\"执行状态\"},\"data\":{\"type\":\"object\",\"description\":\"蓝图内容与来源信息\"},\"message\":{\"type\":\"string\",\"description\":\"补充说明\"}}}",
   "runMode": "SYNC",
   "requiredCapabilities": [
     "LOAD_PLAN_BLUEPRINT",
-    "RECORD_PLAN_AUDIT_LOG"
+    "RECORD_PLAN_AUDIT_LOG",
+    "EMIT_PLAN_EVENT_SSE"
   ],
   "toolSlots": [
     {
@@ -21,12 +22,17 @@
     {
       "slot": "audit_log",
       "capability": "RECORD_PLAN_AUDIT_LOG",
+      "required": true
+    },
+    {
+      "slot": "emit_event",
+      "capability": "EMIT_PLAN_EVENT_SSE",
       "required": false
     }
   ],
   "thoughtChain": [
-    "加载指定计划蓝图",
-    "检查计划核心字段与阶段结构",
-    "记录校验结果到审计日志"
+    "加载目标计划蓝图",
+    "执行结构与关键字段校验",
+    "记录校验审计并按需推送事件"
   ]
 }

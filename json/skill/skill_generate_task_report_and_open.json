@@ -1,16 +1,17 @@
 {
   "name": "generate_task_report_and_open",
-  "description": "对指定计划执行收尾并生成HTML报告，尝试自动打开浏览器展示",
-  "version": "1.0.0",
+  "description": "对指定计划执行收尾，生成HTML任务报告并尝试自动打开浏览器展示，适用于成功与失败场景统一出报告。",
+  "version": "1.1.0",
   "owner": "openclaw",
   "beanName": "planOrchestratorServiceImpl",
   "methodName": "finalizeAndReport",
-  "inputSchema": "{\"type\":\"object\",\"properties\":{\"planId\":{\"type\":\"string\"}},\"required\":[\"planId\"]}",
-  "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"planId\":{\"type\":\"string\"},\"finalStatus\":{\"type\":\"string\"},\"writeResult\":{\"type\":\"object\"},\"openResult\":{\"type\":\"object\"}}}",
+  "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"planId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"计划ID\"}},\"required\":[\"planId\"]}",
+  "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"planId\":{\"type\":\"string\"},\"finalStatus\":{\"type\":\"string\",\"description\":\"最终状态：SUCCESS/FAILED/PARTIAL/CANCELLED\"},\"writeResult\":{\"type\":\"object\",\"description\":\"报告写入结果\"},\"openResult\":{\"type\":\"object\",\"description\":\"浏览器唤起结果\"}}}",
   "runMode": "SYNC",
   "requiredCapabilities": [
     "WRITE_HTML_REPORT_FILE",
     "OPEN_BROWSER_WITH_FILE",
+    "RECORD_PLAN_AUDIT_LOG",
     "EMIT_PLAN_EVENT_SSE"
   ],
   "toolSlots": [
@@ -25,14 +26,19 @@
       "required": false
     },
     {
+      "slot": "audit_log",
+      "capability": "RECORD_PLAN_AUDIT_LOG",
+      "required": true
+    },
+    {
       "slot": "emit_report_event",
       "capability": "EMIT_PLAN_EVENT_SSE",
       "required": true
     }
   ],
   "thoughtChain": [
-    "汇总计划与节点执行信息",
-    "生成HTML报告并写入本地文件",
-    "推送报告就绪事件并尝试打开浏览器"
+    "汇总计划与节点执行结果",
+    "生成并写入HTML报告文件",
+    "记录审计、推送事件并尝试自动打开报告"
   ]
 }
