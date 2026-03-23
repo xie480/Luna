@@ -706,10 +706,14 @@ function updatePetState() {
 
 let uiLeaveTimer = null;
 
-function hasVisibleUiPanels() {
+/**
+ * 阻塞型 UI：出现时必须保持不可穿透（保证可点击）
+ * 注意：showChat 不在这里，聊天框采用“按悬停决定”策略，
+ * 以满足“唤出输出框时，除框外背景可穿透”。
+ */
+function hasBlockingUiPanels() {
   return (
     loginVisible.value ||
-    showChat.value ||
     showSettings.value ||
     showHistory.value ||
     showQuery.value ||
@@ -718,14 +722,45 @@ function hasVisibleUiPanels() {
   );
 }
 
+function getUiHoverSelector() {
+  return [
+    ".chat-bar-wrapper:not(.fade-leave-active):hover",
+    ".settings-panel:not(.fade-leave-active):hover",
+    ".login-terminal:hover",
+    ".login-mask:hover",
+    ".history-panel:not(.fade-leave-active):hover",
+    ".query-panel:not(.fade-leave-active):hover",
+    ".top-banner:hover",
+    ".modal:hover",
+    ".approval-mask:hover",
+    ".luna-intro-mask:hover",
+  ].join(", ");
+}
+
+function isAnyUiHovered() {
+  return !!document.querySelector(getUiHoverSelector());
+}
+
 function refreshUiInteractivity() {
-  if (hasVisibleUiPanels()) {
-    clearTimeout(uiLeaveTimer);
+  clearTimeout(uiLeaveTimer);
+
+  // 阻塞型面板优先：强制不可穿透
+  if (hasBlockingUiPanels()) {
     overUI = true;
     updatePetState();
-  } else {
-    uiLeave();
+    return;
   }
+
+  // 仅聊天框打开时：允许背景穿透，是否可交互由悬停决定
+  if (showChat.value) {
+    uiLeaveTimer = setTimeout(() => {
+      overUI = isAnyUiHovered();
+      updatePetState();
+    }, 80);
+    return;
+  }
+
+  uiLeave();
 }
 
 function uiEnter() {
@@ -737,29 +772,36 @@ function uiEnter() {
 function uiLeave() {
   clearTimeout(uiLeaveTimer);
   uiLeaveTimer = setTimeout(() => {
-    if (hasVisibleUiPanels()) {
+    // 阻塞型面板在，仍保持不可穿透
+    if (hasBlockingUiPanels()) {
       overUI = true;
       updatePetState();
       return;
     }
 
-    const selector = [
-      ".chat-bar-wrapper:not(.fade-leave-active):hover",
-      ".settings-panel:not(.fade-leave-active):hover",
-      ".login-terminal:hover",
-      ".login-mask:hover",
-      ".history-panel:not(.fade-leave-active):hover",
-      ".query-panel:not(.fade-leave-active):hover",
-      ".top-banner:hover",
-      ".modal:hover",
-      ".approval-mask:hover",
-      ".luna-intro-mask:hover",
-    ].join(", ");
+    // 仅聊天框打开时：按当前悬停态决定
+    if (showChat.value) {
+      overUI = isAnyUiHovered();
+      updatePetState();
+      return;
+    }
 
-    const hovered = document.querySelector(selector);
-    overUI = !!hovered;
+    // 没有 UI 时：仅在仍悬停 UI 元素上才保持不可穿透
+    overUI = isAnyUiHovered();
     updatePetState();
   }, 150);
+}
+
+// 全局鼠标移动：用于“聊天框开启且背景可穿透”场景下，实时切换交互状态
+function onWindowMouseMove() {
+  if (hasBlockingUiPanels()) return;
+  if (!showChat.value) return;
+
+  const hovered = isAnyUiHovered();
+  if (hovered !== overUI) {
+    overUI = hovered;
+    updatePetState();
+  }
 }
 
 let modelLeaveTimer = null;
@@ -1194,14 +1236,24 @@ onMounted(async () => {
 
   wrapperRef.value.addEventListener("pointermove", onGlobalPointerMove);
   wrapperRef.value.addEventListener("wheel", onWheel, { passive: false });
+  window.addEventListener("mousemove", onWindowMouseMove, true);
 
   if (window.pet && window.pet.onToggleChat) {
     window.pet.onToggleChat(() => {
       showChat.value = !showChat.value;
+
       if (!showChat.value) {
         showSettings.value = false;
         showHistory.value = false;
         showQuery.value = false;
+        refreshUiInteractivity();
+      } else {
+        // 聊天框刚弹出时先确保可操作，再按悬停策略回落到背景可穿透
+        overUI = true;
+        updatePetState();
+        setTimeout(() => {
+          refreshUiInteractivity();
+        }, 120);
       }
     });
   }
@@ -1300,6 +1352,8 @@ onBeforeUnmount(() => {
   rhythm.dispose(getCoreModel(), trackingEnabled);
   app?.destroy(true);
   callShutdown();
+
+  window.removeEventListener("mousemove", onWindowMouseMove, true);
 
   statusQueue.length = 0;
   isConsumingStatusQueue = false;
