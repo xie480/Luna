@@ -360,7 +360,8 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             Object dataObj = writeObj.get("data");
             String reportPath = "";
             if (dataObj instanceof Map<?, ?> dataMap) {
-                reportPath = String.valueOf(dataMap.getOrDefault("reportPath", ""));
+                Object reportPathObj = dataMap.get("reportPath");
+                reportPath = reportPathObj == null ? "" : String.valueOf(reportPathObj);
             }
 
             String openResult = "";
