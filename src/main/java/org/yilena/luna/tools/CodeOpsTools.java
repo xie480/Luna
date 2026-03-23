@@ -3,6 +3,7 @@ package org.yilena.luna.tools;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.w3c.dom.Document;
@@ -24,24 +25,20 @@ import java.util.*;
 import java.util.stream.Stream;
 
 /**
- * CodeOps 工具集合：
- * - read_repo_tree
- * - read_source_file
- * - write_source_file
- * - apply_unified_patch
- * - run_build_command
- * - run_test_command
- * - run_lint_command
- * - run_format_command
- * - collect_test_report
- * - git_create_checkpoint
- * - git_rollback_checkpoint
- * - search_symbol_references
- * - scan_dependency_vulnerabilities(暂保持占位，依赖外部SCA工具)
+ * CodeOps 工具集合
  */
 @Slf4j
 @Component
 public class CodeOpsTools extends BaseTool {
+
+    @Value("${codeops.workspace-root:}")
+    private String workspaceRoot;
+
+    private static final Set<String> CMD_HEAD_WHITELIST = Set.of(
+            "mvn", "gradle", "npm", "pnpm", "yarn", "pytest", "python", "bash", "sh"
+    );
+
+    private static final List<String> DANGEROUS_TOKENS = List.of("&&", ";", "|", ">", "<", "`", "$(");
 
     public CodeOpsTools(ObjectMapper objectMapper) {
         super(objectMapper);
@@ -55,9 +52,9 @@ public class CodeOpsTools extends BaseTool {
             @RequestParam(value = "includeHidden", required = false) Boolean includeHidden
     ) {
         try {
+            Path root = resolveSafePath(repoPath, true);
             int depth = maxDepth == null ? 4 : maxDepth;
             boolean hidden = Boolean.TRUE.equals(includeHidden);
-            Path root = Paths.get(repoPath).toAbsolutePath().normalize();
 
             List<String> items = new ArrayList<>();
             try (var stream = Files.walk(root, depth)) {
@@ -70,7 +67,7 @@ public class CodeOpsTools extends BaseTool {
                     items.add(s + (Files.isDirectory(p) ? "/" : ""));
                 });
             }
-            log.info("read_repo_tree 完成, repoPath={}, count={}", repoPath, items.size());
+            log.info("read_repo_tree 完成, repoPath={}, count={}", root, items.size());
             return success(Map.of("tree", items, "fileCount", items.size()));
         } catch (Exception e) {
             log.error("read_repo_tree 失败", e);
@@ -86,12 +83,13 @@ public class CodeOpsTools extends BaseTool {
             @RequestParam(value = "maxBytes", required = false) Integer maxBytes
     ) {
         try {
+            Path p = resolveSafePath(filePath, false);
             String enc = (encoding == null || encoding.isBlank()) ? "UTF-8" : encoding;
             int limit = maxBytes == null ? 1024 * 1024 : maxBytes;
-            byte[] bytes = Files.readAllBytes(Paths.get(filePath));
+            byte[] bytes = Files.readAllBytes(p);
             if (bytes.length > limit) return error("文件超过 maxBytes 限制");
             String content = new String(bytes, enc);
-            log.info("read_source_file 完成, filePath={}, size={}", filePath, bytes.length);
+            log.info("read_source_file 完成, filePath={}, size={}", p, bytes.length);
             return success(Map.of("content", content, "size", bytes.length));
         } catch (Exception e) {
             log.error("read_source_file 失败", e);
@@ -107,14 +105,15 @@ public class CodeOpsTools extends BaseTool {
             @RequestParam(value = "backup", required = false) Boolean backup
     ) {
         try {
-            Path p = Paths.get(filePath);
+            Path p = resolveSafePath(filePath, false);
             String backupPath = null;
             if (Boolean.TRUE.equals(backup) && Files.exists(p)) {
-                backupPath = filePath + ".bak." + System.currentTimeMillis();
+                backupPath = p.toString() + ".bak." + System.currentTimeMillis();
                 Files.copy(p, Paths.get(backupPath), StandardCopyOption.REPLACE_EXISTING);
             }
+            Files.createDirectories(p.getParent());
             Files.writeString(p, content, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-            log.info("write_source_file 完成, filePath={}", filePath);
+            log.info("write_source_file 完成, filePath={}", p);
             return success(Map.of("written", true, "backupPath", backupPath));
         } catch (Exception e) {
             log.error("write_source_file 失败", e);
@@ -131,10 +130,7 @@ public class CodeOpsTools extends BaseTool {
     ) {
         try {
             boolean dryRun = Boolean.TRUE.equals(checkOnly);
-            Path repo = Paths.get(repoPath).toAbsolutePath().normalize();
-            if (!Files.exists(repo) || !Files.isDirectory(repo)) {
-                return error("repoPath 不存在或不是目录");
-            }
+            Path repo = resolveSafePath(repoPath, true);
 
             Path patchFile = Files.createTempFile("luna_patch_", ".diff");
             Files.writeString(patchFile, patchText == null ? "" : patchText, StandardCharsets.UTF_8, StandardOpenOption.TRUNCATE_EXISTING);
@@ -207,7 +203,7 @@ public class CodeOpsTools extends BaseTool {
             List<Map<String, Object>> failedCases = new ArrayList<>();
 
             for (String dir : dirs) {
-                Path base = Paths.get(dir).toAbsolutePath().normalize();
+                Path base = resolveSafePath(dir, true);
                 if (!Files.exists(base)) {
                     continue;
                 }
@@ -277,10 +273,7 @@ public class CodeOpsTools extends BaseTool {
     ) {
         try {
             String m = mode == null ? "commit" : mode.trim().toLowerCase(Locale.ROOT);
-            File repo = Paths.get(repoPath).toAbsolutePath().normalize().toFile();
-            if (!repo.exists() || !repo.isDirectory()) {
-                return error("repoPath 不存在或不是目录");
-            }
+            File repo = resolveSafePath(repoPath, true).toFile();
 
             String checkpointId;
             switch (m) {
@@ -330,7 +323,7 @@ public class CodeOpsTools extends BaseTool {
                 return error("mode 非法，仅支持 hard/soft/mixed");
             }
 
-            File repo = Paths.get(repoPath).toAbsolutePath().normalize().toFile();
+            File repo = resolveSafePath(repoPath, true).toFile();
             ProcessResult pr = runCommandInternal(repo, List.of("git", "reset", "--" + m, checkpointId), 60);
             if (pr.exitCode != 0) {
                 return error("git rollback 失败: " + pr.stderrTail);
@@ -354,7 +347,7 @@ public class CodeOpsTools extends BaseTool {
             @RequestParam(value = "language", required = false) String language
     ) {
         try {
-            Path root = Paths.get(repoPath).toAbsolutePath().normalize();
+            Path root = resolveSafePath(repoPath, true);
             if (!Files.exists(root)) {
                 return error("repoPath 不存在");
             }
@@ -402,7 +395,10 @@ public class CodeOpsTools extends BaseTool {
 
     private String runCommand(String workDir, String command, Integer timeoutSec) {
         try {
-            ProcessResult pr = runCommandInternal(new File(workDir), parseCommand(command), timeoutSec == null ? 600 : timeoutSec);
+            Path wd = resolveSafePath(workDir, true);
+            validateCommand(command);
+
+            ProcessResult pr = runCommandInternal(wd.toFile(), parseCommand(command), timeoutSec == null ? 600 : timeoutSec);
             return success(Map.of(
                     "exitCode", pr.exitCode,
                     "stdoutTail", pr.stdoutTail,
@@ -482,6 +478,46 @@ public class CodeOpsTools extends BaseTool {
         } catch (Exception e) {
             return 0;
         }
+    }
+
+    private void validateCommand(String command) {
+        if (command == null || command.isBlank()) {
+            throw new IllegalArgumentException("command 不能为空");
+        }
+        String trimmed = command.trim();
+        for (String token : DANGEROUS_TOKENS) {
+            if (trimmed.contains(token)) {
+                throw new IllegalArgumentException("命令包含危险符号: " + token);
+            }
+        }
+        List<String> parts = parseCommand(trimmed);
+        if (parts.isEmpty()) {
+            throw new IllegalArgumentException("command 不能为空");
+        }
+        String head = parts.get(0).toLowerCase(Locale.ROOT);
+        if (!CMD_HEAD_WHITELIST.contains(head)) {
+            throw new IllegalArgumentException("命令不在白名单: " + head);
+        }
+    }
+
+    private Path resolveSafePath(String inputPath, boolean mustDirectory) throws Exception {
+        if (inputPath == null || inputPath.isBlank()) {
+            throw new IllegalArgumentException("路径不能为空");
+        }
+
+        Path target = Paths.get(inputPath).toAbsolutePath().normalize();
+
+        if (workspaceRoot != null && !workspaceRoot.isBlank()) {
+            Path root = Paths.get(workspaceRoot).toAbsolutePath().normalize();
+            if (!target.startsWith(root)) {
+                throw new SecurityException("路径越界，不在受控工作区内");
+            }
+        }
+
+        if (mustDirectory && (!Files.exists(target) || !Files.isDirectory(target))) {
+            throw new IllegalArgumentException("目录不存在: " + target);
+        }
+        return target;
     }
 
     private record ProcessResult(int exitCode, String stdoutTail, String stderrTail, long costMs) {

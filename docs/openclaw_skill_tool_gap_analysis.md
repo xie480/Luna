@@ -52,10 +52,10 @@
 - read_source_file（已实现）
 - write_source_file（已实现）
 - apply_unified_patch（已实现，基于 git apply）
-- run_build_command（已实现）
-- run_test_command（已实现）
-- run_lint_command（已实现）
-- run_format_command（已实现）
+- run_build_command（已实现，含命令白名单校验）
+- run_test_command（已实现，含命令白名单校验）
+- run_lint_command（已实现，含命令白名单校验）
+- run_format_command（已实现，含命令白名单校验）
 - collect_test_report（已实现，JUnit/Surefire XML）
 - git_create_checkpoint（已实现）
 - git_rollback_checkpoint（已实现）
@@ -87,10 +87,6 @@
 ### 判定
 **可立即创建并执行（基础版）**
 
-### 说明
-- 该 Skill 关键是模型规划与结果落盘；落盘和事件工具已具备。
-- 风险点不在 Tool 缺失，而在“规划输出结构质量与校验严格度”。
-
 ---
 
 ## 4.2 validate_plan_blueprint
@@ -102,10 +98,6 @@
 
 ### 判定
 **可立即创建并执行（规则校验版）**
-
-### 说明
-- 数据读取与日志工具齐全。
-- 若要“自动修复蓝图”，仍需结合模型与 patch 机制（非硬依赖）。
 
 ---
 
@@ -122,10 +114,6 @@
 
 ### 判定
 **可立即创建并执行（基础版）**
-
-### 说明
-- 关键锁能力已落地。
-- 高并发与锁续租（watchdog）可作为后续增强项。
 
 ---
 
@@ -167,10 +155,6 @@
 ### 判定
 **可立即创建并执行**
 
-### 说明
-- 报告落盘和打开浏览器已落地。
-- 建议补一个“打开失败兜底通知”模板（非阻塞）。
-
 ---
 
 ## 4.7 publish_plan_sse_events
@@ -203,9 +187,6 @@
 
 ### 判定
 **可立即创建并执行（基础版）**
-
-### 说明
-- `search_symbol_references` 已可用（基础扫描版），后续可升级 LSP 精确版本。
 
 ---
 
@@ -264,14 +245,12 @@
 
 ## 5. 当前已创建四个 Skill 分析
 
-以下四个 Skill 来自你仓库现有 JSON：
+以下四个 Skill 来自仓库现有 JSON：
 
 1. `intel_research_pipeline`
 2. `skill_search_ingest_kb`
 3. `skill_system_audit_diagnosis`
 4. `skill_user_profile_build`
-
-> 说明：你之前日志显示 `intel_research_pipeline` 出现过 `toolSlots` 缺失报错，该问题属于 Skill 配置完整性问题，而非 Tool 目录缺失。
 
 ---
 
@@ -285,9 +264,6 @@
 
 ### 判定
 **可立即创建并执行（前提：toolSlots 配置正确）**
-
-### 风险提示
-- 若缺 `toolSlots`，会直接失败（你已在线上遇到）。
 
 ---
 
@@ -318,7 +294,7 @@
 ### 建议依赖 Tool
 - manage_user_preference
 - manage_memory
-- manage_schedule_task（可选，若含行为计划）
+- manage_schedule_task（可选）
 - manage_log（可选）
 
 ### 判定
@@ -359,10 +335,19 @@
 
 ---
 
-## 8. 建议下一步
+## 8. 当前已落地的 P0 收敛项
 
-1. 按 `docs/openclaw_tool_dependency_guide.md` 完成依赖安装后，启用环境依赖 Tool。  
-2. 在 Skill 注册阶段增加“Tool 可用性标签”（已实现 / 环境未启用）。  
-3. 对基础版实现（patch、symbol 引用）补充更高精度版本（LSP、三方补丁库）。  
+1. Skill 注册/更新/执行前已增加配置预检（toolSlots、capability、thoughtChain 一致性）。  
+2. 异步技能 SSE 事件载荷已统一关键字段（taskId/skillName/status/message/errorCode/costMs/timestamp）。  
+3. CodeOps 命令执行已增加白名单与危险符号拦截。  
+4. 新增 OpenClaw MVP 编排服务：可形成“保存蓝图 -> 执行阶段 -> 生成报告”的最小闭环。  
+
+---
+
+## 9. 建议下一步
+
+1. 将 PlanOrchestratorService 接入控制器，打通前端触发入口。  
+2. 在前端流程图按统一事件契约渲染节点状态。  
+3. 对 replan_failed_nodes 设计“局部子图补丁”并落地。  
 
 ```

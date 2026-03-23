@@ -13,7 +13,6 @@ import org.yilena.luna.constants.RocketMqConstant;
 import org.yilena.luna.executor.SkillExecutor;
 import org.yilena.luna.mq.dto.SkillExecutionMessage;
 import org.yilena.luna.sse.LunaStatusPublisher;
-import org.yilena.luna.sse.SseSessionManager;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -30,7 +29,6 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
     private final SkillExecutor skillExecutor;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
-    private final SseSessionManager sseSessionManager;
     private final LunaStatusPublisher statusPublisher;
 
     @Override
@@ -49,7 +47,7 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
         if (msg.getResource() == null) {
             log.error("SkillAsync MQ：消息缺少 resource，taskId={}", taskId);
             markTaskFailed(taskId, "resource is null", null, 0L);
-            notifyAsyncResult(taskId, false, null, "resource is null", null, "FAILED");
+            notifyAsyncResult(taskId, false, null, "RESOURCE_NULL", "resource is null", null, "FAILED", 0L);
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
             return;
         }
@@ -68,17 +66,18 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
             boolean failedByResult = isErrorResult(result);
             if (failedByResult) {
                 String errMsg = extractErrorMessage(result);
+                String errCode = extractErrorCode(result);
                 log.warn("SkillAsync MQ：任务完成但结果为错误状态，taskId={}, skillName={}, costMs={}, err={}", taskId, skillName, costMs, errMsg);
 
                 markTaskFailed(taskId, errMsg, skillName, costMs);
-                notifyAsyncResult(taskId, false, result, errMsg, skillName, "FAILED");
+                notifyAsyncResult(taskId, false, result, errCode, errMsg, skillName, "FAILED", costMs);
                 statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_THINKING, "异步技能执行失败：" + skillName);
                 return;
             }
 
             log.info("SkillAsync MQ：任务执行成功，taskId={}, skillName={}, costMs={}", taskId, skillName, costMs);
             markTaskCompleted(taskId, result, skillName, costMs);
-            notifyAsyncResult(taskId, true, result, null, skillName, "COMPLETED");
+            notifyAsyncResult(taskId, true, result, "", null, skillName, "COMPLETED", costMs);
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_THINKING, "异步技能执行完成：" + skillName);
 
         } catch (Exception e) {
@@ -88,7 +87,7 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
             log.error("SkillAsync MQ：任务执行异常，taskId={}, skillName={}, costMs={}, err={}", taskId, skillName, costMs, err, e);
 
             markTaskFailed(taskId, err, skillName, costMs);
-            notifyAsyncResult(taskId, false, null, err, skillName, "FAILED");
+            notifyAsyncResult(taskId, false, null, "SKILL_EXECUTION_EXCEPTION", err, skillName, "FAILED", costMs);
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_THINKING, "异步技能执行异常：" + skillName);
 
             throw new RuntimeException("Async skill execution failed, taskId=" + taskId + ", err=" + err, e);
@@ -131,19 +130,27 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
         stringRedisTemplate.opsForHash().putAll(key, fields);
     }
 
-    private void notifyAsyncResult(String taskId, boolean success, String result, String error, String skillName, String status) {
+    private void notifyAsyncResult(String taskId, boolean success, String result, String errorCode, String error,
+                                   String skillName, String status, long costMs) {
         try {
             Map<String, Object> payload = new HashMap<>();
+            payload.put("eventType", "SKILL_ASYNC_RESULT");
             payload.put("taskId", taskId);
             payload.put("skillName", skillName);
-            payload.put("success", success);
+            payload.put("planId", "");
+            payload.put("phaseId", "");
+            payload.put("nodeId", "");
             payload.put("status", status);
+            payload.put("success", success);
             payload.put("message", success ? "异步技能执行完成" : "异步技能执行失败");
-            payload.put("result", result);
+            payload.put("errorCode", errorCode == null ? "" : errorCode);
             payload.put("error", error);
+            payload.put("result", result);
+            payload.put("costMs", costMs);
+            payload.put("retryCount", 0);
             payload.put("timestamp", System.currentTimeMillis());
 
-            sseSessionManager.send(LunaStatusPublisher.DEFAULT_CLIENT_ID, "SKILL_ASYNC_RESULT", payload);
+            statusPublisher.publishEvent(LunaStatusPublisher.DEFAULT_CLIENT_ID, "SKILL_ASYNC_RESULT", payload);
             log.debug("SkillAsync SSE 推送完成，taskId={}, success={}", taskId, success);
         } catch (Exception e) {
             log.warn("SkillAsync SSE 推送失败，taskId={}, err={}", taskId, e.getMessage());
@@ -178,6 +185,21 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
             return "skill returned error status";
         } catch (Exception e) {
             return "skill returned error status";
+        }
+    }
+
+    private String extractErrorCode(String result) {
+        if (result == null || result.isBlank()) {
+            return "UNKNOWN_ERROR";
+        }
+        try {
+            JsonNode node = objectMapper.readTree(result);
+            if (node.has("errorCode")) {
+                return node.get("errorCode").asText("UNKNOWN_ERROR");
+            }
+            return "UNKNOWN_ERROR";
+        } catch (Exception e) {
+            return "UNKNOWN_ERROR";
         }
     }
 

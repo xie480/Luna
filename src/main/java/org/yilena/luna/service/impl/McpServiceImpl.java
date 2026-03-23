@@ -15,9 +15,8 @@ import org.yilena.luna.mapper.McpToolMapper;
 import org.yilena.luna.service.McpService;
 import org.yilena.luna.utils.LlmClientUtil;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -31,7 +30,6 @@ public class McpServiceImpl implements McpService {
 
     @Override
     public McpTool registerTool(McpTool tool) {
-        // 註冊時自動生成向量
         generateToolEmbedding(tool);
 
         if (tool.getId() == null) {
@@ -52,7 +50,7 @@ public class McpServiceImpl implements McpService {
         if (tool.getId() == null) {
             throw new IllegalArgumentException("更新工具必須提供 ID");
         }
-        // 如果名稱或描述變更，重新生成向量
+
         McpTool existing = toolMapper.selectById(tool.getId());
         if (existing != null) {
             boolean needReEmbedding = false;
@@ -66,7 +64,6 @@ public class McpServiceImpl implements McpService {
             if (needReEmbedding) {
                 generateToolEmbedding(tool);
             } else {
-                // 保持原有的 embedding
                 tool.setEmbedding(existing.getEmbedding());
             }
             toolMapper.updateById(tool);
@@ -83,7 +80,9 @@ public class McpServiceImpl implements McpService {
 
     @Override
     public McpSkill registerSkill(McpSkill skill) {
-        // 註冊時自動生成向量
+        normalizeSkillFields(skill);
+        validateSkillDefinition(skill, true);
+
         generateSkillEmbedding(skill);
 
         if (skill.getId() == null) {
@@ -104,7 +103,10 @@ public class McpServiceImpl implements McpService {
         if (skill.getId() == null) {
             throw new IllegalArgumentException("更新技能必須提供 ID");
         }
-        // 如果名稱或描述變更，重新生成向量
+
+        normalizeSkillFields(skill);
+        validateSkillDefinition(skill, false);
+
         McpSkill existing = skillMapper.selectById(skill.getId());
         if (existing != null) {
             boolean needReEmbedding = false;
@@ -118,7 +120,6 @@ public class McpServiceImpl implements McpService {
             if (needReEmbedding) {
                 generateSkillEmbedding(skill);
             } else {
-                // 保持原有的 embedding
                 skill.setEmbedding(existing.getEmbedding());
             }
             skillMapper.updateById(skill);
@@ -135,7 +136,6 @@ public class McpServiceImpl implements McpService {
 
     private void generateToolEmbedding(McpTool tool) {
         try {
-            // 將工具名稱和描述拼接作為語義特徵
             String text = tool.getName() + " " + (tool.getDescription() != null ? tool.getDescription() : "");
             String vector = llmClientUtil.getEmbedding(text);
             if (vector != null && !vector.trim().isEmpty() && !vector.trim().equals("[]")) {
@@ -149,7 +149,6 @@ public class McpServiceImpl implements McpService {
 
     private void generateSkillEmbedding(McpSkill skill) {
         try {
-            // 將技能名稱和描述拼接作為語義特徵
             String text = skill.getName() + " " + (skill.getDescription() != null ? skill.getDescription() : "");
             String vector = llmClientUtil.getEmbedding(text);
             if (vector != null && !vector.trim().isEmpty() && !vector.trim().equals("[]")) {
@@ -164,26 +163,19 @@ public class McpServiceImpl implements McpService {
     @Override
     public List<Resource> listAll() {
         List<Resource> resources = new ArrayList<>();
-
-        // 轉換 Tools
         List<McpTool> tools = toolMapper.selectList(null);
         resources.addAll(tools.stream().map(this::toResource).toList());
-
-        // 轉換 Skills
         List<McpSkill> skills = skillMapper.selectList(null);
         resources.addAll(skills.stream().map(this::toResource).toList());
-
         return resources;
     }
 
     @Override
     public Resource getResourceById(Long id) {
-        // 先查 Tool
         McpTool tool = toolMapper.selectById(id);
         if (tool != null) {
             return toResource(tool);
         }
-        // 再查 Skill
         McpSkill skill = skillMapper.selectById(id);
         if (skill != null) {
             return toResource(skill);
@@ -199,15 +191,12 @@ public class McpServiceImpl implements McpService {
         }
 
         try {
-            // 1. 將用戶的查詢語句向量化
             String queryVectorStr = llmClientUtil.getEmbedding(query);
 
             if (queryVectorStr != null && !queryVectorStr.trim().isEmpty() && !queryVectorStr.trim().equals("[]")) {
-                // 2. 向量檢索 Tools (取 Top 5)
                 List<McpTool> tools = toolMapper.searchByVector(queryVectorStr, 5);
                 resources.addAll(tools.stream().map(this::toResource).toList());
 
-                // 3. 向量檢索 Skills (取 Top 5)
                 List<McpSkill> skills = skillMapper.searchByVector(queryVectorStr, 5);
                 resources.addAll(skills.stream().map(this::toResource).toList());
 
@@ -221,8 +210,6 @@ public class McpServiceImpl implements McpService {
 
         return resources;
     }
-
-    // --- DTO 轉換輔助方法 ---
 
     private Resource toResource(McpTool tool) {
         return Resource.builder()
@@ -293,5 +280,83 @@ public class McpServiceImpl implements McpService {
                 .toolSlots(slots.isEmpty() ? null : slots)
                 .thoughtChain(skill.getThoughtChain())
                 .build();
+    }
+
+    private void normalizeSkillFields(McpSkill skill) {
+        if (skill.getRunMode() == null) {
+            skill.setRunMode(RunMode.SYNC);
+        }
+        if (skill.getRequiredCapabilities() == null) {
+            skill.setRequiredCapabilities(new ArrayList<>());
+        }
+        if (skill.getToolSlots() == null) {
+            skill.setToolSlots(new ArrayList<>());
+        }
+        if (skill.getThoughtChain() == null) {
+            skill.setThoughtChain(new ArrayList<>());
+        }
+    }
+
+    private void validateSkillDefinition(McpSkill skill, boolean isCreate) {
+        if (skill == null) {
+            throw new IllegalArgumentException("skill 不能为空");
+        }
+        if (isCreate && (skill.getName() == null || skill.getName().isBlank())) {
+            throw new IllegalArgumentException("skillName 不能为空");
+        }
+
+        validateToolSlots(skill);
+        validateCapabilityCoverage(skill);
+
+        if (!skill.getThoughtChain().isEmpty() && skill.getThoughtChain().size() != skill.getToolSlots().size()) {
+            throw new IllegalArgumentException("thoughtChain 长度必须与 toolSlots 一致");
+        }
+    }
+
+    private void validateToolSlots(McpSkill skill) {
+        if (skill.getToolSlots() == null || skill.getToolSlots().isEmpty()) {
+            throw new IllegalArgumentException("toolSlots 不能为空，至少定义一个步骤槽位");
+        }
+
+        Set<String> slotNames = new HashSet<>();
+        for (McpSkill.ToolSlot slot : skill.getToolSlots()) {
+            if (slot == null) {
+                throw new IllegalArgumentException("toolSlots 不能包含空元素");
+            }
+            if (slot.getSlot() == null || slot.getSlot().isBlank()) {
+                throw new IllegalArgumentException("toolSlots.slot 不能为空");
+            }
+            if (slot.getCapability() == null || slot.getCapability().isBlank()) {
+                throw new IllegalArgumentException("toolSlots.capability 不能为空");
+            }
+            if (!slotNames.add(slot.getSlot())) {
+                throw new IllegalArgumentException("toolSlots.slot 不能重复: " + slot.getSlot());
+            }
+            if (slot.getRequired() == null) {
+                slot.setRequired(Boolean.TRUE);
+            }
+        }
+    }
+
+    private void validateCapabilityCoverage(McpSkill skill) {
+        Set<String> capabilitiesInSlots = skill.getToolSlots().stream()
+                .map(McpSkill.ToolSlot::getCapability)
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .collect(Collectors.toSet());
+
+        if (skill.getRequiredCapabilities() != null && !skill.getRequiredCapabilities().isEmpty()) {
+            for (String c : skill.getRequiredCapabilities()) {
+                if (c == null || c.isBlank()) {
+                    throw new IllegalArgumentException("requiredCapabilities 不能包含空值");
+                }
+                if (!capabilitiesInSlots.contains(c.trim())) {
+                    throw new IllegalArgumentException("requiredCapabilities 中的能力未在 toolSlots 中声明: " + c);
+                }
+            }
+        } else {
+            skill.setRequiredCapabilities(new ArrayList<>(capabilitiesInSlots));
+        }
     }
 }

@@ -24,13 +24,12 @@ public class LunaStatusPublisher {
      */
     public SseEmitter subscribe() {
         log.info("----------------SSE 訂閱請求: {}", DEFAULT_CLIENT_ID);
-        
-        // 調用管理器建立連接（管理器內部會處理舊連接清理）
+
         SseEmitter emitter = sessionManager.connect(DEFAULT_CLIENT_ID);
 
-        // 發送連接成功初始狀態
+        // 初始状态
         publish(DEFAULT_CLIENT_ID, "IDLE", "");
-        
+
         return emitter;
     }
 
@@ -42,17 +41,31 @@ public class LunaStatusPublisher {
     }
 
     /**
-     * 發布狀態
+     * 发布普通状态（兼容旧调用）
      */
     public void publish(String clientId, String status, String message) {
+        LunaStatusMessage msg = new LunaStatusMessage(
+                "luna-status",
+                status,
+                message,
+                "",
+                "",
+                System.currentTimeMillis()
+        );
+        publishEvent(clientId, "luna-status", msg);
+    }
+
+    /**
+     * 统一事件发布
+     */
+    public void publishEvent(String clientId, String eventType, Object payload) {
         if (sessionManager.isConnected(clientId)) {
-            LunaStatusMessage msg = new LunaStatusMessage(status, message, System.currentTimeMillis());
-            boolean success = sessionManager.send(clientId, "luna-status", msg);
+            boolean success = sessionManager.send(clientId, eventType, payload);
             if (success) {
-                log.info("向客戶端 {} 推送狀態成功, 狀態：{}，msg：{}", clientId, status, message);
+                log.info("向客戶端 {} 推送事件成功, eventType={}", clientId, eventType);
             }
         } else {
-            log.debug("客戶端 {} 未連接，跳過推送", clientId);
+            log.debug("客戶端 {} 未連接，跳過推送 eventType={}", clientId, eventType);
         }
     }
 }

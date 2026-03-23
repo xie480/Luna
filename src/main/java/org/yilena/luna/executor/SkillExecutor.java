@@ -48,6 +48,11 @@ public class SkillExecutor {
     public String execute(Resource skill, String argsJson) {
         log.info("Skill 调度开始，skillName={}, runMode={}", skill.getName(), skill.getRunMode());
 
+        String validateErr = validateExecutableSkill(skill);
+        if (validateErr != null) {
+            return validateErr;
+        }
+
         if (RunMode.ASYNC.equals(skill.getRunMode())) {
             String taskId = UUID.randomUUID().toString();
             log.info("Skill 异步任务已创建，taskId={}, skillName={}", taskId, skill.getName());
@@ -301,5 +306,65 @@ public class SkillExecutor {
                 skillName == null ? "" : skillName,
                 message == null ? "" : message.replace("\"", "\\\"")
         );
+    }
+
+    private String validateExecutableSkill(Resource skill) {
+        if (skill == null) {
+            return error("SKILL_CONFIG_INVALID", "skill 不能为空", "");
+        }
+        if (skill.getName() == null || skill.getName().isBlank()) {
+            return error("SKILL_CONFIG_INVALID", "skillName 不能为空", "");
+        }
+        if (skill.getToolSlots() == null || skill.getToolSlots().isEmpty()) {
+            return error("SKILL_CONFIG_INVALID", "技能未配置 toolSlots", skill.getName());
+        }
+
+        Set<String> slotNames = new HashSet<>();
+        for (Resource.ToolSlotDto slot : skill.getToolSlots()) {
+            if (slot == null) {
+                return error("SKILL_CONFIG_INVALID", "toolSlots 不能包含空元素", skill.getName());
+            }
+            if (slot.getSlot() == null || slot.getSlot().isBlank()) {
+                return error("SKILL_CONFIG_INVALID", "toolSlots.slot 不能为空", skill.getName());
+            }
+            if (!slotNames.add(slot.getSlot())) {
+                return error("SKILL_CONFIG_INVALID", "toolSlots.slot 重复: " + slot.getSlot(), skill.getName());
+            }
+            if (slot.getCapability() == null || slot.getCapability().isBlank()) {
+                return error("SKILL_CONFIG_INVALID", "toolSlots.capability 不能为空", skill.getName());
+            }
+        }
+
+        String thoughtErr = ensureThoughtChainConsistency(skill);
+        if (thoughtErr != null) {
+            return thoughtErr;
+        }
+
+        if (skill.getRequiredCapabilities() != null && !skill.getRequiredCapabilities().isEmpty()) {
+            Set<String> capInSlots = skill.getToolSlots().stream()
+                    .map(Resource.ToolSlotDto::getCapability)
+                    .filter(Objects::nonNull)
+                    .map(String::trim)
+                    .collect(Collectors.toSet());
+
+            for (String c : skill.getRequiredCapabilities()) {
+                if (c == null || c.isBlank()) {
+                    return error("SKILL_CONFIG_INVALID", "requiredCapabilities 不能包含空值", skill.getName());
+                }
+                if (!capInSlots.contains(c.trim())) {
+                    return error("SKILL_CONFIG_INVALID", "requiredCapabilities 未在 toolSlots 中声明: " + c, skill.getName());
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private String ensureThoughtChainConsistency(Resource skill) {
+        List<String> chain = skill.getThoughtChain() == null ? Collections.emptyList() : skill.getThoughtChain();
+        if (!chain.isEmpty() && chain.size() != skill.getToolSlots().size()) {
+            return error("SKILL_CONFIG_INVALID", "thoughtChain 长度必须与 toolSlots 一致", skill.getName());
+        }
+        return null;
     }
 }
