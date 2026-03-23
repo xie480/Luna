@@ -13,7 +13,8 @@
 - 安全与审批建议
 - 失败处理与重试策略
 
-> 说明：本文档聚焦 **Tool（原子执行能力）**，不覆盖 Skill（编排能力）。
+> 说明：本文档聚焦 **Tool（原子执行能力）**，不覆盖 Skill（编排能力）。  
+> 说明：**本文档中的 JSON 参考格式以 `json/tool/` 目录下现有文件为准**（如 `web_search.json`、`manage_memory.json`、`manage_log.json`）。
 
 ---
 
@@ -666,22 +667,54 @@ Tool 是最小可执行单元，特征为：
 
 ---
 
-## 5. 建议的 Tool 注册元数据模板
+## 5. Tool JSON 参考格式（以 json/tool 目录为准）
+
+以下模板与现有文件风格一致（如 `json/tool/web_search.json`、`json/tool/manage_memory.json`）：
 
 ```json
 {
-  "name": "run_test_command",
-  "description": "执行测试命令并返回结构化结果",
+  "name": "tool_name",
+  "description": "工具描述（说明调用时机与用途）",
   "version": "1.0.0",
-  "owner": "luna-core",
-  "beanName": "codeTools",
-  "methodName": "runTestCommand",
-  "inputSchema": {},
-  "outputSchema": {},
-  "requiresApproval": false,
-  "sensitivity": "MEDIUM"
+  "owner": "System",
+  "beanName": "xxxTools",
+  "methodName": "methodName",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": ["action"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": {
+        "type": "string",
+        "description": "执行状态，常见值：success 或 error。"
+      },
+      "data": {
+        "type": "object",
+        "description": "返回数据。"
+      }
+    }
+  }
 }
 ```
+
+### 5.1 字段说明（对齐现有工具 JSON）
+- `name`: 工具唯一名（与数据库 `mcp_tools.name` 对齐）
+- `description`: 工具用途、触发时机、行为边界
+- `version`: 工具版本（建议 semver）
+- `owner`: 归属（当前项目多为 `System`）
+- `beanName`: Spring Bean 名称（如 `searchTools` / `memoryTools`）
+- `methodName`: 反射执行方法名（如 `web_search` / `manageMemory`）
+- `inputSchema`: 参数 JSON Schema（用于校验）
+- `outputSchema`: 输出结构 JSON Schema（用于约束前端解析）
+
+### 5.2 命名规范建议
+- 管理型工具：`manage_xxx`（如 `manage_memory`）
+- 检索型工具：`xxx_search`（如 `web_search`）
+- 动作型工具：动词开头（如 `open_browser_with_file`）
+- 参数字段：驼峰命名（与现有 JSON 一致，如 `triggerTime`、`sourceType`）
 
 ---
 
