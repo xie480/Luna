@@ -24,7 +24,7 @@ import java.util.stream.Collectors;
  *
  * 设计目标：
  * 1) 提供“可执行、可观测、可收尾”的最小闭环；
- * 2) 先保证主链路稳定，再逐步演进局部重规划等高级能力；
+ * 2) 在原单阶段基础上，支持“最低限度多阶段执行”；
  * 3) 保持日志充分，便于问题定位与复盘。
  */
 @Slf4j
@@ -58,7 +58,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
             log.info("开始创建计划, planId={}, sessionId={}, userGoal={}", planId, sessionId, userGoal);
 
-            // 1) 构造最小蓝图
+            // 1) 构造最小蓝图（现支持多阶段）
             Map<String, Object> blueprint = buildMvpBlueprint(planId, sessionId, userGoal);
 
             // 2) 蓝图结构校验
@@ -81,41 +81,76 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 return saveResult;
             }
 
-            // 4) 初始化最小节点（演示用途）
-            PlanNode node = PlanNode.builder()
-                    .nodeId("node-" + SnowflakeIdUtil.nextIdStr())
-                    .planId(planId)
-                    .phaseId(DEFAULT_PHASE_ID)
-                    .name("mvp-node")
-                    .status(PlanNodeStatus.PENDING)
-                    .retryCount(0)
-                    .maxRetry(0)
-                    .build();
-            planNodeMapper.insert(node);
+            // 4) 初始化阶段节点（最低限度多阶段：每个阶段一个占位节点）
+            List<String> phaseIds = extractPhaseIds(blueprint);
+            if (phaseIds.isEmpty()) {
+                phaseIds = List.of(DEFAULT_PHASE_ID);
+            }
 
-            emitEvent("PLAN_CREATED", Map.of(
-                    "planId", planId,
-                    "phaseId", DEFAULT_PHASE_ID,
-                    "nodeId", node.getNodeId(),
-                    "status", "PENDING",
-                    "message", "计划已创建",
-                    "timestamp", System.currentTimeMillis()
-            ));
+            for (String phaseId : phaseIds) {
+                PlanNode node = PlanNode.builder()
+                        .nodeId("node-" + SnowflakeIdUtil.nextIdStr())
+                        .planId(planId)
+                        .phaseId(phaseId)
+                        .name("mvp-node-" + phaseId)
+                        .status(PlanNodeStatus.PENDING)
+                        .retryCount(0)
+                        .maxRetry(0)
+                        .build();
+                planNodeMapper.insert(node);
 
-            // 5) 执行阶段
-            String phaseResult = runPhase(planId, DEFAULT_PHASE_ID);
+                emitEvent("PLAN_CREATED", Map.of(
+                        "planId", planId,
+                        "phaseId", phaseId,
+                        "nodeId", node.getNodeId(),
+                        "status", "PENDING",
+                        "message", "阶段节点已创建",
+                        "timestamp", System.currentTimeMillis()
+                ));
+            }
+
+            // 5) 多阶段顺序执行（最低限度方案）
+            List<Map<String, Object>> phaseResults = new ArrayList<>();
+            boolean hasPhaseFailure = false;
+
+            for (String phaseId : phaseIds) {
+                log.info("准备执行阶段, planId={}, phaseId={}", planId, phaseId);
+                String phaseResult = runPhase(planId, phaseId);
+                phaseResults.add(Map.of(
+                        "phaseId", phaseId,
+                        "result", safeParse(phaseResult)
+                ));
+
+                if (isError(phaseResult)) {
+                    hasPhaseFailure = true;
+                    log.warn("阶段执行失败，停止后续阶段, planId={}, failedPhaseId={}", planId, phaseId);
+                    break;
+                }
+            }
 
             // 6) 收尾与报告（无论阶段成功失败都执行）
             String reportResult = finalizeAndReport(planId);
 
-            if (isError(phaseResult)) {
-                return mergeResult("error", "计划执行失败，已生成报告", planId, phaseResult, reportResult);
-            }
-            if (isError(reportResult)) {
-                return mergeResult("error", "计划执行完成，但报告生成失败", planId, phaseResult, reportResult);
+            Map<String, Object> merged = new LinkedHashMap<>();
+            merged.put("planId", planId);
+            merged.put("phaseResults", phaseResults);
+            merged.put("reportResult", safeParse(reportResult));
+
+            if (hasPhaseFailure) {
+                merged.put("status", "error");
+                merged.put("message", "计划阶段执行失败，已生成报告");
+                return objectMapper.writeValueAsString(merged);
             }
 
-            return mergeResult("success", "计划执行成功并生成报告", planId, phaseResult, reportResult);
+            if (isError(reportResult)) {
+                merged.put("status", "error");
+                merged.put("message", "计划执行完成，但报告生成失败");
+                return objectMapper.writeValueAsString(merged);
+            }
+
+            merged.put("status", "success");
+            merged.put("message", "计划多阶段执行成功并生成报告");
+            return objectMapper.writeValueAsString(merged);
         } catch (Exception e) {
             log.error("createAndRunPlan 失败", e);
             return error("PLAN_CREATE_RUN_FAILED", "创建并执行计划失败: " + e.getMessage());
@@ -357,7 +392,10 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
     }
 
     /**
-     * 构造 MVP 蓝图（单阶段 + 最小字段）
+     * 构造 MVP 蓝图（最低限度多阶段）
+     * 说明：
+     * - 若用户目标包含“多阶段 / multi phase / 分阶段 / 两阶段 / 三阶段”等关键词，则生成 2 阶段；
+     * - 否则默认单阶段。
      */
     private Map<String, Object> buildMvpBlueprint(String planId, String sessionId, String userGoal) {
         Map<String, Object> blueprint = new LinkedHashMap<>();
@@ -366,15 +404,55 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         blueprint.put("userGoal", userGoal);
         blueprint.put("createdAt", LocalDateTime.now().toString());
 
+        boolean multiPhase = shouldUseMultiPhase(userGoal);
+
         List<Map<String, Object>> phases = new ArrayList<>();
         Map<String, Object> phase1 = new LinkedHashMap<>();
-        phase1.put("phaseId", DEFAULT_PHASE_ID);
-        phase1.put("name", "MVP_PHASE");
-        phase1.put("objective", "执行最小闭环");
+        phase1.put("phaseId", "phase-1");
+        phase1.put("name", "MVP_PHASE_1");
+        phase1.put("objective", "执行阶段一");
         phases.add(phase1);
+
+        if (multiPhase) {
+            Map<String, Object> phase2 = new LinkedHashMap<>();
+            phase2.put("phaseId", "phase-2");
+            phase2.put("name", "MVP_PHASE_2");
+            phase2.put("objective", "执行阶段二");
+            phases.add(phase2);
+        }
 
         blueprint.put("phases", phases);
         return blueprint;
+    }
+
+    private boolean shouldUseMultiPhase(String userGoal) {
+        if (userGoal == null) return false;
+        String t = userGoal.toLowerCase(Locale.ROOT);
+        return t.contains("多阶段")
+                || t.contains("分阶段")
+                || t.contains("两阶段")
+                || t.contains("三阶段")
+                || t.contains("multi phase")
+                || t.contains("multi-phase")
+                || t.contains("phase");
+    }
+
+    private List<String> extractPhaseIds(Map<String, Object> blueprint) {
+        Object phasesObj = blueprint.get("phases");
+        if (!(phasesObj instanceof List<?> phases)) {
+            return new ArrayList<>();
+        }
+
+        List<String> ids = new ArrayList<>();
+        for (Object p : phases) {
+            if (p instanceof Map<?, ?> pm) {
+                Object phaseId = pm.get("phaseId");
+                if (phaseId instanceof String s && !s.isBlank()) {
+                    ids.add(s.trim());
+                }
+            }
+        }
+        return ids;
     }
 
     /**
@@ -396,11 +474,16 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             return "phases 不能为空且至少包含一个阶段";
         }
 
+        Set<String> phaseIdSet = new HashSet<>();
         for (Object p : phaseList) {
             if (!(p instanceof Map<?, ?> pm)) return "phases 元素必须为对象";
             Object phaseId = pm.get("phaseId");
             if (!(phaseId instanceof String) || ((String) phaseId).isBlank()) {
                 return "phase.phaseId 不能为空";
+            }
+            String pid = ((String) phaseId).trim();
+            if (!phaseIdSet.add(pid)) {
+                return "phase.phaseId 不能重复: " + pid;
             }
         }
 
@@ -473,20 +556,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             return objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
         } catch (Exception e) {
             return new LinkedHashMap<>();
-        }
-    }
-
-    private String mergeResult(String status, String message, String planId, String phaseResult, String reportResult) {
-        try {
-            Map<String, Object> out = new LinkedHashMap<>();
-            out.put("status", status);
-            out.put("message", message);
-            out.put("planId", planId);
-            out.put("phaseResult", safeParse(phaseResult));
-            out.put("reportResult", safeParse(reportResult));
-            return objectMapper.writeValueAsString(out);
-        } catch (Exception e) {
-            return error("PLAN_MERGE_RESULT_FAILED", "结果合并失败: " + e.getMessage());
         }
     }
 
