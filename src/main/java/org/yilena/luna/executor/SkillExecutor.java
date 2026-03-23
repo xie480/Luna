@@ -52,7 +52,6 @@ public class SkillExecutor {
             String taskId = UUID.randomUUID().toString();
             log.info("Skill 异步任务已创建，taskId={}, skillName={}", taskId, skill.getName());
 
-            // 向前端提示：异步技能已进入后台执行
             statusPublisher.publish(
                     LunaStatusPublisher.DEFAULT_CLIENT_ID,
                     LunaStateConstant.STATUS_WORKING,
@@ -68,12 +67,12 @@ public class SkillExecutor {
             rocketMQTemplate.convertAndSend(RocketMqConstant.TOPIC_SKILL_ASYNC, msg);
 
             return String.format(
-                    "{\"status\":\"pending\", \"taskId\":\"%s\", \"message\":\"异步任务已提交，后台执行中\"}",
-                    taskId
+                    "{\"status\":\"pending\", \"taskId\":\"%s\", \"skillName\":\"%s\", \"message\":\"异步任务已提交，后台执行中\"}",
+                    taskId,
+                    skill.getName()
             );
         }
 
-        // 同步技能：当前线程直接执行 loop
         return executeLoop(skill, argsJson);
     }
 
@@ -89,7 +88,6 @@ public class SkillExecutor {
         result.put("skillName", skill.getName());
         result.put("runMode", skill.getRunMode() != null ? skill.getRunMode().name() : "SYNC");
 
-        // 向前端提示：技能开始执行
         statusPublisher.publish(
                 LunaStatusPublisher.DEFAULT_CLIENT_ID,
                 LunaStateConstant.STATUS_WORKING,
@@ -104,15 +102,9 @@ public class SkillExecutor {
 
             if (slots.isEmpty()) {
                 log.warn("Skill 配置缺失 toolSlots，无法执行，skillName={}", skill.getName());
-                statusPublisher.publish(
-                        LunaStatusPublisher.DEFAULT_CLIENT_ID,
-                        LunaStateConstant.STATUS_IDLE,
-                        LunaStateConstant.VALUE_IDLE
-                );
-                return error("技能未配置 toolSlots，无法执行 step loop");
+                return error("SKILL_CONFIG_INVALID", "技能未配置 toolSlots，无法执行 step loop", skill.getName());
             }
 
-            // 编排态上下文（可用于后续 step 参数映射）
             Map<String, Object> state = new LinkedHashMap<>();
             state.put("input", inputNode);
 
@@ -130,12 +122,6 @@ public class SkillExecutor {
                 step.put("capability", slot.getCapability());
                 step.put("thought", stepDesc);
 
-                log.info(
-                        "Skill 步骤开始，skillName={}, step={}, slot={}, capability={}, required={}",
-                        skill.getName(), i + 1, slot.getSlot(), slot.getCapability(), slot.getRequired()
-                );
-
-                // 向前端提示：当前进入某个步骤
                 statusPublisher.publish(
                         LunaStatusPublisher.DEFAULT_CLIENT_ID,
                         LunaStateConstant.STATUS_THINKING,
@@ -153,11 +139,6 @@ public class SkillExecutor {
                             step.put("message", "可选槽位未匹配到工具，已跳过");
                             step.put("costMs", System.currentTimeMillis() - stepStart);
                             stepResults.add(step);
-
-                            log.info(
-                                    "Skill 步骤跳过（可选槽位无工具），skillName={}, step={}, slot={}",
-                                    skill.getName(), i + 1, slot.getSlot()
-                            );
                             continue;
                         }
                     }
@@ -168,11 +149,6 @@ public class SkillExecutor {
                     String toolArgs = buildToolArgs(inputNode, state);
                     step.put("toolArgs", safeToNode(toolArgs));
 
-                    log.info(
-                            "Skill 步骤调用工具，skillName={}, step={}, toolName={}, toolId={}",
-                            skill.getName(), i + 1, matchedTool.getName(), matchedTool.getId()
-                    );
-
                     String toolResult = reflectionToolExecutor.execute(matchedTool, toolArgs);
                     JsonNode toolResultNode = safeToNode(toolResult);
 
@@ -181,23 +157,12 @@ public class SkillExecutor {
                     step.put("status", stepSuccess ? "SUCCESS" : "FAILED");
                     step.put("costMs", System.currentTimeMillis() - stepStart);
 
-                    // 写入 state，便于后续步骤消费
                     state.put(slot.getSlot(), toolResultNode != null ? toolResultNode : toolResult);
 
                     if (stepSuccess) {
                         successCount++;
-                        log.info(
-                                "Skill 步骤成功，skillName={}, step={}, slot={}, costMs={}",
-                                skill.getName(), i + 1, slot.getSlot(), step.get("costMs")
-                        );
                     } else {
                         failCount++;
-                        log.warn(
-                                "Skill 步骤失败（工具返回非 success），skillName={}, step={}, slot={}, required={}",
-                                skill.getName(), i + 1, slot.getSlot(), slot.getRequired()
-                        );
-
-                        // 必需步骤失败，直接中止 loop
                         if (Boolean.TRUE.equals(slot.getRequired())) {
                             stepResults.add(step);
                             break;
@@ -210,16 +175,9 @@ public class SkillExecutor {
                     step.put("costMs", System.currentTimeMillis() - stepStart);
                     stepResults.add(step);
 
-                    log.error(
-                            "Skill 步骤异常，skillName={}, step={}, slot={}, required={}, err={}",
-                            skill.getName(), i + 1, slot.getSlot(), slot.getRequired(), e.getMessage(), e
-                    );
-
                     if (Boolean.TRUE.equals(slot.getRequired())) {
-                        // 必需步骤异常，直接中止 loop
                         break;
                     } else {
-                        // 可选步骤异常，继续后续步骤
                         continue;
                     }
                 }
@@ -239,16 +197,6 @@ public class SkillExecutor {
             result.put("status", hasRequiredFailure ? "error" : "success");
             result.put("state", state);
 
-            log.info(
-                    "Skill 执行完成，skillName={}, status={}, successSteps={}, failedSteps={}, costMs={}",
-                    skill.getName(),
-                    result.get("status"),
-                    successCount,
-                    failCount,
-                    result.get("costMs")
-            );
-
-            // 向前端推送最终状态
             if (hasRequiredFailure) {
                 statusPublisher.publish(
                         LunaStatusPublisher.DEFAULT_CLIENT_ID,
@@ -266,14 +214,8 @@ public class SkillExecutor {
             return objectMapper.writeValueAsString(result);
         } catch (Exception e) {
             log.error("Skill 执行异常，skillName={}, err={}", skill.getName(), e.getMessage(), e);
-            statusPublisher.publish(
-                    LunaStatusPublisher.DEFAULT_CLIENT_ID,
-                    LunaStateConstant.STATUS_THINKING,
-                    "技能执行异常：" + skill.getName()
-            );
-            return error("技能执行异常: " + e.getMessage());
+            return error("SKILL_EXECUTION_EXCEPTION", "技能执行异常: " + e.getMessage(), skill.getName());
         } finally {
-            // 无论成功失败，最后恢复前端状态为 IDLE
             statusPublisher.publish(
                     LunaStatusPublisher.DEFAULT_CLIENT_ID,
                     LunaStateConstant.STATUS_IDLE,
@@ -282,17 +224,11 @@ public class SkillExecutor {
         }
     }
 
-    /**
-     * 解析 skill 入参 JSON，空参时按 {}
-     */
     private JsonNode parseArgs(String argsJson) throws Exception {
         String content = (argsJson == null || argsJson.isBlank()) ? "{}" : argsJson;
         return objectMapper.readTree(content);
     }
 
-    /**
-     * 通过 slot 反查是否 required
-     */
     private Boolean findRequiredBySlot(List<Resource.ToolSlotDto> slots, String slotName) {
         return slots.stream()
                 .filter(s -> Objects.equals(s.getSlot(), slotName))
@@ -301,12 +237,6 @@ public class SkillExecutor {
                 .orElse(false);
     }
 
-    /**
-     * 工具结果成功判定：
-     * - 非 JSON：按成功处理（兼容旧工具）
-     * - JSON 且含 status：status=success/ok 视为成功
-     * - JSON 但无 status：按成功处理
-     */
     private boolean isToolSuccess(JsonNode node) {
         if (node == null || !node.isObject()) {
             return true;
@@ -318,21 +248,13 @@ public class SkillExecutor {
         return "success".equalsIgnoreCase(status) || "ok".equalsIgnoreCase(status);
     }
 
-    /**
-     * 根据 capability 选择最优 Tool：
-     * 1) capability 文本检索候选资源
-     * 2) 仅保留 TOOL 类型
-     * 3) 使用 rerank 按“capability + 当前输入”重排，取 top1
-     */
     private Resource selectBestToolByCapability(String capability, JsonNode inputNode) throws Exception {
         if (capability == null || capability.isBlank()) {
-            log.warn("能力匹配跳过：capability 为空");
             return null;
         }
 
         List<Resource> candidates = mcpService.searchResources(capability);
         if (candidates == null || candidates.isEmpty()) {
-            log.info("能力匹配无候选，capability={}", capability);
             return null;
         }
 
@@ -341,12 +263,10 @@ public class SkillExecutor {
                 .collect(Collectors.toList());
 
         if (tools.isEmpty()) {
-            log.info("能力匹配候选中无 TOOL，capability={}", capability);
             return null;
         }
 
         if (tools.size() == 1) {
-            log.info("能力匹配仅单候选，直接命中，capability={}, tool={}", capability, tools.get(0).getName());
             return tools.get(0);
         }
 
@@ -358,25 +278,13 @@ public class SkillExecutor {
         List<Double> scores = llmClientUtil.rerank(query, docs);
         List<Resource> ranked = llmClientUtil.rerankResources(tools, scores, 1);
 
-        Resource selected = ranked.isEmpty() ? tools.get(0) : ranked.get(0);
-        log.info(
-                "能力匹配完成，capability={}, candidates={}, selectedTool={}",
-                capability, tools.size(), selected.getName()
-        );
-        return selected;
+        return ranked.isEmpty() ? tools.get(0) : ranked.get(0);
     }
 
-    /**
-     * 当前参数策略：透传 skill 入参给 tool。
-     * 后续可基于 slot/capability 做字段映射与裁剪。
-     */
     private String buildToolArgs(JsonNode inputNode, Map<String, Object> state) throws Exception {
         return objectMapper.writeValueAsString(inputNode);
     }
 
-    /**
-     * 尝试解析字符串为 JsonNode，失败返回 null（兼容纯文本结果）
-     */
     private JsonNode safeToNode(String text) {
         if (text == null || text.isBlank()) return null;
         try {
@@ -386,10 +294,12 @@ public class SkillExecutor {
         }
     }
 
-    /**
-     * 统一错误 JSON
-     */
-    private String error(String message) {
-        return "{\"status\":\"error\", \"message\":\"" + message + "\"}";
+    private String error(String errorCode, String message, String skillName) {
+        return String.format(
+                "{\"status\":\"error\", \"errorCode\":\"%s\", \"skillName\":\"%s\", \"message\":\"%s\"}",
+                errorCode,
+                skillName == null ? "" : skillName,
+                message == null ? "" : message.replace("\"", "\\\"")
+        );
     }
 }
