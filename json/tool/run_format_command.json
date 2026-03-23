@@ -3,7 +3,7 @@
   "description": "执行代码格式化命令。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "codeOpsTools",
   "methodName": "runFormatCommand",
   "inputSchema": {
     "type": "object",

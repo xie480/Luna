@@ -3,7 +3,7 @@
   "description": "回滚到指定检查点。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "codeOpsTools",
   "methodName": "gitRollbackCheckpoint",
   "inputSchema": {
     "type": "object",

@@ -3,7 +3,7 @@
   "description": "创建代码检查点（commit/stash/tag 语义）。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "codeOpsTools",
   "methodName": "gitCreateCheckpoint",
   "inputSchema": {
     "type": "object",

@@ -3,7 +3,7 @@
   "description": "写入计划审计日志事件，供可视化与复盘使用。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "planEventTools",
   "methodName": "recordPlanAuditLog",
   "inputSchema": {
     "type": "object",

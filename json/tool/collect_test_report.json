@@ -3,7 +3,7 @@
   "description": "聚合测试报告目录，返回结构化测试结果（当前为基础实现）。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "codeOpsTools",
   "methodName": "collectTestReport",
   "inputSchema": {
     "type": "object",

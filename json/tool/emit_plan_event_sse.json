@@ -3,7 +3,7 @@
   "description": "向 SSE 客户端发送计划事件。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "planEventTools",
   "methodName": "emitPlanEventSse",
   "inputSchema": {
     "type": "object",

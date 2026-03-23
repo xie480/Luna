@@ -3,7 +3,7 @@
   "description": "执行静态检查命令。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "codeOpsTools",
   "methodName": "runLintCommand",
   "inputSchema": {
     "type": "object",

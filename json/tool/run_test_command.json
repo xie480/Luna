@@ -3,7 +3,7 @@
   "description": "执行测试命令并返回结果摘要。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "codeOpsTools",
   "methodName": "runTestCommand",
   "inputSchema": {
     "type": "object",

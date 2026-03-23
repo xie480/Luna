@@ -3,7 +3,7 @@
   "description": "更新节点执行状态与执行元数据（耗时、失败原因、重试次数）。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "planNodeTools",
   "methodName": "updateNodeStatus",
   "inputSchema": {
     "type": "object",

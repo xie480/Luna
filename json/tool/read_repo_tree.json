@@ -3,7 +3,7 @@
   "description": "读取仓库目录树，用于代码任务规划。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "codeOpsTools",
   "methodName": "readRepoTree",
   "inputSchema": {
     "type": "object",

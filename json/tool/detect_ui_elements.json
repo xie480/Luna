@@ -3,7 +3,7 @@
   "description": "UI元素识别（当前为占位实现）。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "desktopTools",
   "methodName": "detectUiElements",
   "inputSchema": {
     "type": "object",

@@ -21,6 +21,13 @@ public final class LunaStateConstant {
     public static final String STATUS_RETRIEVING = "RETRIEVING";
     public static final String STATUS_STARTING = "STARTING";
 
+    // 新增：OpenClaw / CodeOps / Desktop / Lock / Report 统一状态
+    public static final String STATUS_PLAN = "PLAN";
+    public static final String STATUS_CODEOPS = "CODEOPS";
+    public static final String STATUS_DESKTOP = "DESKTOP";
+    public static final String STATUS_LOCK = "LOCK";
+    public static final String STATUS_REPORT = "REPORT";
+
     // ================= 状态提示文本 (Value) =================
     public static final String VALUE_PREFERENCE = "Luna 正在记录主人的偏好...";
     public static final String VALUE_MEMORY = "Luna 正在回忆过去的点点滴滴...";
@@ -37,4 +44,11 @@ public final class LunaStateConstant {
     public static final String VALUE_IDLE = "";
     public static final String VALUE_RETRIEVING = "Luna 正在翻阅本地记忆与知识库...";
     public static final String VALUE_STARTING = "Luna 正在苏醒...";
+
+    // 新增：统一状态文案
+    public static final String VALUE_PLAN = "Luna 正在执行编排计划...";
+    public static final String VALUE_CODEOPS = "Luna 正在处理代码工程任务...";
+    public static final String VALUE_DESKTOP = "Luna 正在执行桌面能力任务...";
+    public static final String VALUE_LOCK = "Luna 正在处理执行锁...";
+    public static final String VALUE_REPORT = "Luna 正在生成任务报告...";
 }

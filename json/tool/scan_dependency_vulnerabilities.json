@@ -3,7 +3,7 @@
   "description": "依赖漏洞扫描（SCA，当前为基础占位实现）。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "codeOpsTools",
   "methodName": "scanDependencyVulnerabilities",
   "inputSchema": {
     "type": "object",

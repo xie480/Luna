@@ -3,7 +3,7 @@
   "description": "应用 unified diff patch（当前为基础占位实现）。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "codeOpsTools",
   "methodName": "applyUnifiedPatch",
   "inputSchema": {
     "type": "object",

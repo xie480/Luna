@@ -3,7 +3,7 @@
   "description": "按 planId / planVersion 读取规划蓝图，不传版本时读取最新版本。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "planBlueprintTools",
   "methodName": "loadPlanBlueprint",
   "inputSchema": {
     "type": "object",

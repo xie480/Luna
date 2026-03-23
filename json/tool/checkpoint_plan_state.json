@@ -3,7 +3,7 @@
   "description": "创建计划检查点快照，用于恢复与回滚。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "planCheckpointTools",
   "methodName": "checkpointPlanState",
   "inputSchema": {
     "type": "object",

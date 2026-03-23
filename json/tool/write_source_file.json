@@ -3,7 +3,7 @@
   "description": "写入源码文件，支持备份。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "codeOpsTools",
   "methodName": "writeSourceFile",
   "inputSchema": {
     "type": "object",

@@ -3,7 +3,7 @@
   "description": "按符号名查找引用（当前为基础占位实现）。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "codeOpsTools",
   "methodName": "searchSymbolReferences",
   "inputSchema": {
     "type": "object",

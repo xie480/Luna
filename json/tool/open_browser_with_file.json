@@ -3,7 +3,7 @@
   "description": "唤起系统默认浏览器打开本地文件。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "planReportTools",
   "methodName": "openBrowserWithFile",
   "inputSchema": {
     "type": "object",

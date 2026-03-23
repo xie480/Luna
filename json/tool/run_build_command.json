@@ -3,7 +3,7 @@
   "description": "执行构建命令（如 mvn/gradle）。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "codeOpsTools",
   "methodName": "runBuildCommand",
   "inputSchema": {
     "type": "object",

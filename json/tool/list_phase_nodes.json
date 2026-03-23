@@ -3,7 +3,7 @@
   "description": "列出指定 planId + phaseId 下的节点列表和状态。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "planNodeTools",
   "methodName": "listPhaseNodes",
   "inputSchema": {
     "type": "object",

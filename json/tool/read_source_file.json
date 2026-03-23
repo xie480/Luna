@@ -3,7 +3,7 @@
   "description": "读取源码文件内容。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "codeOpsTools",
   "methodName": "readSourceFile",
   "inputSchema": {
     "type": "object",

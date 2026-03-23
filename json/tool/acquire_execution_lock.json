@@ -3,7 +3,7 @@
   "description": "获取执行锁，避免并行冲突（当前为单机占位实现）。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "executionLockTools",
   "methodName": "acquireExecutionLock",
   "inputSchema": {
     "type": "object",

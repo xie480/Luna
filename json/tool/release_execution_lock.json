@@ -3,7 +3,7 @@
   "description": "释放执行锁（当前为单机占位实现）。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "executionLockTools",
   "methodName": "releaseExecutionLock",
   "inputSchema": {
     "type": "object",

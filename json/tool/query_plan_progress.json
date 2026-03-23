@@ -3,7 +3,7 @@
   "description": "查询计划级进度统计（节点总数及按状态分布）。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "planNodeTools",
   "methodName": "queryPlanProgress",
   "inputSchema": {
     "type": "object",

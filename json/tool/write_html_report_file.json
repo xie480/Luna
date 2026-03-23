@@ -3,7 +3,7 @@
   "description": "将HTML报告写入本地文件并返回路径和URL。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "planReportTools",
   "methodName": "writeHtmlReportFile",
   "inputSchema": {
     "type": "object",

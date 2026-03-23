@@ -3,7 +3,7 @@
   "description": "保存全局规划蓝图（PlanBlueprint）到持久层，支持按 planId+planVersion 幂等更新。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "planBlueprintTools",
   "methodName": "savePlanBlueprint",
   "inputSchema": {
     "type": "object",

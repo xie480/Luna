@@ -3,7 +3,7 @@
   "description": "写入节点输出 outputJson 及下游传递字段 outputForNext。",
   "version": "1.0.0",
   "owner": "System",
-  "beanName": "openClawTools",
+  "beanName": "planNodeTools",
   "methodName": "appendNodeOutput",
   "inputSchema": {
     "type": "object",
