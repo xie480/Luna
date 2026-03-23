@@ -891,7 +891,6 @@ function hasBlockingUiPanels() {
     showSettings.value ||
     showHistory.value ||
     showQuery.value ||
-    showPlan.value ||
     showApproval.value ||
     lunaIntroVisible.value
   );
@@ -905,7 +904,7 @@ function getUiHoverSelector() {
     ".login-mask:hover",
     ".history-panel:not(.fade-leave-active):hover",
     ".query-panel:not(.fade-leave-active):hover",
-    ".plan-panel:not(.fade-leave-active):hover",
+    ".plan-panel-shell:not(.fade-leave-active) .plan-panel:hover",
     ".top-banner:hover",
     ".modal:hover",
     ".approval-mask:hover",
@@ -926,7 +925,7 @@ function refreshUiInteractivity() {
     return;
   }
 
-  if (showChat.value) {
+  if (showChat.value || showPlan.value) {
     uiLeaveTimer = setTimeout(() => {
       overUI = isAnyUiHovered();
       updatePetState();
@@ -952,7 +951,7 @@ function uiLeave() {
       return;
     }
 
-    if (showChat.value) {
+    if (showChat.value || showPlan.value) {
       overUI = isAnyUiHovered();
       updatePetState();
       return;
@@ -965,7 +964,7 @@ function uiLeave() {
 
 function onWindowMouseMove() {
   if (hasBlockingUiPanels()) return;
-  if (!showChat.value) return;
+  if (!showChat.value && !showPlan.value) return;
 
   const hovered = isAnyUiHovered();
   if (hovered !== overUI) {
