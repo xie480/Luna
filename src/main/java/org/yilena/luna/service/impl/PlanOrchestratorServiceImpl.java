@@ -6,8 +6,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.entity.PlanNode;
+import org.yilena.luna.entity.PlanPhase;
 import org.yilena.luna.enums.PlanNodeStatus;
+import org.yilena.luna.enums.PlanPhaseStatus;
 import org.yilena.luna.mapper.PlanNodeMapper;
+import org.yilena.luna.mapper.PlanPhaseMapper;
 import org.yilena.luna.service.PlanOrchestratorService;
 import org.yilena.luna.tools.PlanBlueprintTools;
 import org.yilena.luna.tools.PlanEventTools;
@@ -17,14 +20,13 @@ import org.yilena.luna.utils.SnowflakeIdUtil;
 
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * OpenClaw 计划编排服务实现（MVP）
  *
  * 设计目标：
  * 1) 提供“可执行、可观测、可收尾”的最小闭环；
- * 2) 在原单阶段基础上，支持“最低限度多阶段执行”；
+ * 2) 支持“基于 plan_phase 表的真实阶段顺序执行”；
  * 3) 保持日志充分，便于问题定位与复盘。
  */
 @Slf4j
@@ -36,6 +38,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
     private final ObjectMapper objectMapper;
     private final PlanNodeMapper planNodeMapper;
+    private final PlanPhaseMapper planPhaseMapper;
 
     // 复用现有 Tool 实现（最小入侵）
     private final PlanBlueprintTools planBlueprintTools;
@@ -58,7 +61,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
             log.info("开始创建计划, planId={}, sessionId={}, userGoal={}", planId, sessionId, userGoal);
 
-            // 1) 构造最小蓝图（现支持多阶段）
+            // 1) 构造最小蓝图（支持多阶段）
             Map<String, Object> blueprint = buildMvpBlueprint(planId, sessionId, userGoal);
 
             // 2) 蓝图结构校验
@@ -81,13 +84,28 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 return saveResult;
             }
 
-            // 4) 初始化阶段节点（最低限度多阶段：每个阶段一个占位节点）
-            List<String> phaseIds = extractPhaseIds(blueprint);
-            if (phaseIds.isEmpty()) {
-                phaseIds = List.of(DEFAULT_PHASE_ID);
+            // 4) 写入 plan_phase 表（真实阶段顺序来源）
+            List<String> phaseIdsFromBlueprint = extractPhaseIds(blueprint);
+            if (phaseIdsFromBlueprint.isEmpty()) {
+                phaseIdsFromBlueprint = List.of(DEFAULT_PHASE_ID);
             }
 
-            for (String phaseId : phaseIds) {
+            for (int i = 0; i < phaseIdsFromBlueprint.size(); i++) {
+                String phaseId = phaseIdsFromBlueprint.get(i);
+                PlanPhase phase = PlanPhase.builder()
+                        .phaseId(phaseId)
+                        .planId(planId)
+                        .phaseOrder(i + 1)
+                        .name("MVP_PHASE_" + (i + 1))
+                        .objective("执行阶段 " + (i + 1))
+                        .status(PlanPhaseStatus.PENDING)
+                        .build();
+                planPhaseMapper.insert(phase);
+                log.info("已写入阶段定义, planId={}, phaseId={}, order={}", planId, phaseId, i + 1);
+            }
+
+            // 5) 初始化阶段节点（每阶段一个最小占位节点）
+            for (String phaseId : phaseIdsFromBlueprint) {
                 PlanNode node = PlanNode.builder()
                         .nodeId("node-" + SnowflakeIdUtil.nextIdStr())
                         .planId(planId)
@@ -109,26 +127,41 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 ));
             }
 
-            // 5) 多阶段顺序执行（最低限度方案）
+            // 6) 从 plan_phase 表读取真实阶段顺序并执行
+            List<PlanPhase> orderedPhases = loadOrderedPhases(planId);
+            if (orderedPhases.isEmpty()) {
+                return error("PLAN_PHASE_EMPTY", "未找到可执行阶段");
+            }
+
             List<Map<String, Object>> phaseResults = new ArrayList<>();
             boolean hasPhaseFailure = false;
 
-            for (String phaseId : phaseIds) {
-                log.info("准备执行阶段, planId={}, phaseId={}", planId, phaseId);
+            for (PlanPhase phase : orderedPhases) {
+                String phaseId = phase.getPhaseId();
+
+                // 标记阶段 RUNNING
+                markPhaseStatus(phase, PlanPhaseStatus.RUNNING, true, false);
+
+                log.info("准备执行阶段, planId={}, phaseId={}, order={}", planId, phaseId, phase.getPhaseOrder());
                 String phaseResult = runPhase(planId, phaseId);
+
                 phaseResults.add(Map.of(
                         "phaseId", phaseId,
+                        "phaseOrder", phase.getPhaseOrder() == null ? 0 : phase.getPhaseOrder(),
                         "result", safeParse(phaseResult)
                 ));
 
                 if (isError(phaseResult)) {
                     hasPhaseFailure = true;
+                    markPhaseStatus(phase, PlanPhaseStatus.FAILED, false, true);
                     log.warn("阶段执行失败，停止后续阶段, planId={}, failedPhaseId={}", planId, phaseId);
                     break;
+                } else {
+                    markPhaseStatus(phase, PlanPhaseStatus.SUCCESS, false, true);
                 }
             }
 
-            // 6) 收尾与报告（无论阶段成功失败都执行）
+            // 7) 收尾与报告（无论阶段成功失败都执行）
             String reportResult = finalizeAndReport(planId);
 
             Map<String, Object> merged = new LinkedHashMap<>();
@@ -199,7 +232,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             for (PlanNode node : nodes) {
                 long nodeStart = System.currentTimeMillis();
 
-                // 状态流转校验：仅允许从 PENDING/BLOCKED/APPROVAL_PENDING -> RUNNING
                 if (!canTransitToRunning(node.getStatus())) {
                     log.warn("节点状态流转不合法，跳过执行, nodeId={}, currentStatus={}",
                             node.getNodeId(), node.getStatus() == null ? "null" : node.getStatus().getValue());
@@ -225,7 +257,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                         "timestamp", System.currentTimeMillis()
                 ));
 
-                // MVP：模拟节点成功输出
                 Map<String, Object> output = new LinkedHashMap<>();
                 output.put("nodeName", node.getName());
                 output.put("result", "ok");
@@ -327,11 +358,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
             log.info("开始收尾并生成报告, planId={}", planId);
 
-            // 加载蓝图（用于报告展示）
             String loaded = planBlueprintTools.loadPlanBlueprint(planId, null);
             Map<String, Object> loadedObj = safeParse(loaded);
 
-            // 读取节点
             List<PlanNode> nodes = planNodeMapper.selectList(
                     new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<PlanNode>()
                             .eq(PlanNode::getPlanId, planId)
@@ -393,11 +422,37 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
     }
 
     /**
-     * 构造 MVP 蓝图（最低限度多阶段）
-     * 说明：
-     * - 若用户目标包含“多阶段 / multi phase / 分阶段 / 两阶段 / 三阶段”等关键词，则生成 2 阶段；
-     * - 否则默认单阶段。
+     * 从 plan_phase 表加载真实执行顺序
      */
+    private List<PlanPhase> loadOrderedPhases(String planId) {
+        return planPhaseMapper.selectList(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<PlanPhase>()
+                        .eq(PlanPhase::getPlanId, planId)
+                        .orderByAsc(PlanPhase::getPhaseOrder)
+                        .orderByAsc(PlanPhase::getPhaseId)
+        );
+    }
+
+    /**
+     * 更新阶段状态并记录时间
+     */
+    private void markPhaseStatus(PlanPhase phase, PlanPhaseStatus status, boolean markStartedAt, boolean markFinishedAt) {
+        try {
+            phase.setStatus(status);
+            if (markStartedAt && phase.getStartedAt() == null) {
+                phase.setStartedAt(LocalDateTime.now());
+            }
+            if (markFinishedAt) {
+                phase.setFinishedAt(LocalDateTime.now());
+            }
+            planPhaseMapper.updateById(phase);
+            log.info("阶段状态更新完成, planId={}, phaseId={}, status={}", phase.getPlanId(), phase.getPhaseId(), status.getValue());
+        } catch (Exception e) {
+            log.warn("阶段状态更新失败, planId={}, phaseId={}, status={}, err={}",
+                    phase.getPlanId(), phase.getPhaseId(), status.getValue(), e.getMessage());
+        }
+    }
+
     private Map<String, Object> buildMvpBlueprint(String planId, String sessionId, String userGoal) {
         Map<String, Object> blueprint = new LinkedHashMap<>();
         blueprint.put("planId", planId);
@@ -456,9 +511,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         return ids;
     }
 
-    /**
-     * 蓝图基础校验
-     */
     private String validateBlueprint(Map<String, Object> blueprint) {
         if (blueprint == null) return "blueprint 不能为空";
 
@@ -491,9 +543,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         return null;
     }
 
-    /**
-     * 节点状态是否可流转到 RUNNING
-     */
     private boolean canTransitToRunning(PlanNodeStatus status) {
         if (status == null) return true;
         return status == PlanNodeStatus.PENDING
@@ -501,9 +550,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 || status == PlanNodeStatus.APPROVAL_PENDING;
     }
 
-    /**
-     * 生成 HTML 报告
-     */
     private String buildReportHtml(String planId,
                                    String finalStatus,
                                    long success,
@@ -534,9 +580,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         return html.toString();
     }
 
-    /**
-     * 发送计划事件到 SSE（通过 PlanEventTools）
-     */
     private void emitEvent(String eventType, Map<String, Object> payload) {
         try {
             planEventTools.emitPlanEventSse("default", eventType, objectMapper.writeValueAsString(payload));
