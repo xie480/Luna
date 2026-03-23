@@ -1,6 +1,6 @@
 {
   "name": "search_symbol_references",
-  "description": "按符号名查找引用（当前为基础占位实现）。",
+  "description": "按符号名查找代码引用关系，用于评估改动影响范围、识别下游依赖与重构风险。适用于修改函数签名、删除字段、替换实现前的安全检查。当前为基础占位实现，后续可接入 LSP/ctags/grep 混合检索。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",

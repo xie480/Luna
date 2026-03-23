@@ -1,6 +1,6 @@
 {
   "name": "collect_test_report",
-  "description": "聚合测试报告目录，返回结构化测试结果（当前为基础实现）。",
+  "description": "聚合测试报告目录并输出结构化统计结果。用于将 surefire/junit 等多来源测试结果统一为机器可读格式，供报告生成、失败归因与自动修复循环使用。当前为基础实现，后续建议补充多格式解析器与失败用例明细提取。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",

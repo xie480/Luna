@@ -1,6 +1,6 @@
 {
   "name": "release_execution_lock",
-  "description": "释放执行锁（当前为单机占位实现）。",
+  "description": "释放执行锁。应与 acquire_execution_lock 成对使用，并携带同一 owner，避免误释放他人锁。建议调用方在节点执行完成、失败补偿或超时清理阶段都尝试释放，减少锁泄漏风险。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "executionLockTools",

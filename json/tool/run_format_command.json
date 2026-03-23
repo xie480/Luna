@@ -1,6 +1,6 @@
 {
   "name": "run_format_command",
-  "description": "执行代码格式化命令。",
+  "description": "执行代码格式化命令，统一代码风格并减少无效差异。常用于补丁应用后或提交前清理格式问题。调用时应明确 workDir 与格式化命令，并配置 timeoutSec 以避免大仓库长时间阻塞。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",

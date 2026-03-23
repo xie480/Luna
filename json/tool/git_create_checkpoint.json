@@ -1,6 +1,6 @@
 {
   "name": "git_create_checkpoint",
-  "description": "创建代码检查点（commit/stash/tag 语义）。",
+  "description": "创建代码检查点（commit/stash/tag 语义），用于在高风险修改前保存可回退状态。建议在应用补丁前、批量改动前与自动修复循环开始前调用。返回 checkpointId 供后续回滚使用。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",

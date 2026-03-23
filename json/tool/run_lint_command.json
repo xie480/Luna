@@ -1,6 +1,6 @@
 {
   "name": "run_lint_command",
-  "description": "执行静态检查命令。",
+  "description": "执行静态检查命令（lint/检查规则工具）。适用于提前发现风格与潜在缺陷问题，降低后续测试失败概率。建议结合 CI 规则使用统一命令模板，并通过 timeoutSec 控制执行时长。返回结果可用于问题列表提取与自动修复策略决策。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",

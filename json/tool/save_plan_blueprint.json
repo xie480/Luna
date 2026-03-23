@@ -1,6 +1,6 @@
 {
   "name": "save_plan_blueprint",
-  "description": "保存全局规划蓝图（PlanBlueprint）到持久层，支持按 planId+planVersion 幂等更新。",
+  "description": "保存全局规划蓝图（PlanBlueprint）到持久层。适用于大模型完成一次性全局任务规划后，将阶段划分、节点拓扑、资源计划与风险矩阵进行版本化落库。该工具支持按 planId + planVersion 的幂等写入：若同版本已存在则更新，不存在则插入。建议在规划阶段结束后立即调用，以便后续阶段执行器按冻结版本推进。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "planBlueprintTools",

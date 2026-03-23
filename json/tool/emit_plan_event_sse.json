@@ -1,6 +1,6 @@
 {
   "name": "emit_plan_event_sse",
-  "description": "向 SSE 客户端发送计划事件。",
+  "description": "向指定 SSE 客户端发送计划执行事件。用于实时推送节点状态变化、阶段推进、审批事件、测试结果等消息给前端。payload 建议采用结构化 JSON，并携带 planId/phaseId/nodeId 以便前端精确定位更新目标。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "planEventTools",

@@ -1,6 +1,6 @@
 {
   "name": "write_source_file",
-  "description": "写入源码文件，支持备份。",
+  "description": "写入源码文件内容，支持备份原文件。适用于生成代码、应用修复结果、重写测试文件等场景。建议在高风险改动前启用 backup=true，以便快速回滚。调用方应确保 filePath 在受控仓库目录内，避免路径越界写入。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",

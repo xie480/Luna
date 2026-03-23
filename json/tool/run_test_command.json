@@ -1,6 +1,6 @@
 {
   "name": "run_test_command",
-  "description": "执行测试命令并返回结果摘要。",
+  "description": "执行测试命令并返回结构化摘要。适用于代码改动后的质量验证、失败回归与自动修复闭环。调用方应传入 workDir 与测试命令（如 mvn test / gradle test），并设置 timeoutSec 防止卡死。返回包含 exitCode、输出片段与耗时，便于后续失败归因。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",

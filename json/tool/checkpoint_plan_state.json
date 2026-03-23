@@ -1,6 +1,6 @@
 {
   "name": "checkpoint_plan_state",
-  "description": "创建计划检查点快照，用于恢复与回滚。",
+  "description": "创建计划检查点快照，用于中断恢复与回滚。建议在关键阶段边界、审批前后、批量节点完成后调用。checkpointData 应包含可重建执行现场的必要字段；系统会生成 checkpointId 与快照哈希，便于后续校验一致性。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "planCheckpointTools",

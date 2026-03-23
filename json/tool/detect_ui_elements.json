@@ -1,6 +1,6 @@
 {
   "name": "detect_ui_elements",
-  "description": "UI元素识别（当前为占位实现）。",
+  "description": "识别截图中的 UI 元素（文本、控件、区域）并返回结构化结果，服务于桌面任务定位与自动化操作决策。可指定 detectorType（ocr/uiautomation/hybrid）与 targetHints 提高识别准确度。当前为占位实现，后续建议补充坐标标准化与置信度字段。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "desktopTools",

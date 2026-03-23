@@ -1,6 +1,6 @@
 {
   "name": "read_source_file",
-  "description": "读取源码文件内容。",
+  "description": "读取源码文件内容，供代码理解、补丁生成、测试修复等步骤使用。支持指定 encoding 与 maxBytes，防止读取超大文件导致性能问题。建议调用方先通过 read_repo_tree 确认路径，再按需读取具体文件。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",

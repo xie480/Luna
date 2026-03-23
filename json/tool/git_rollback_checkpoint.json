@@ -1,6 +1,6 @@
 {
   "name": "git_rollback_checkpoint",
-  "description": "回滚到指定检查点。",
+  "description": "回滚代码仓库到指定检查点。用于自动修复失败后的快速恢复或高风险改动撤销。调用时需提供 checkpointId，mode 可指定 hard/soft/mixed。建议在执行前进行审批或二次确认，避免误回滚造成工作区丢失。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",

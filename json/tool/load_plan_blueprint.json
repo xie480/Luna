@@ -1,6 +1,6 @@
 {
   "name": "load_plan_blueprint",
-  "description": "按 planId / planVersion 读取规划蓝图，不传版本时读取最新版本。",
+  "description": "读取指定计划的蓝图版本。用于阶段执行开始前加载冻结规划，或用于失败恢复时重建任务拓扑。若传入 planVersion，则精确读取该版本；若不传则读取最新版本。返回中会包含 blueprintJson 与来源标识，便于执行层判定是否可直接进入阶段调度。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "planBlueprintTools",

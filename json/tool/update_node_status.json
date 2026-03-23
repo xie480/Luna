@@ -1,6 +1,6 @@
 {
   "name": "update_node_status",
-  "description": "更新节点执行状态与执行元数据（耗时、失败原因、重试次数）。",
+  "description": "更新任务节点运行状态与执行元数据。用于调度器在节点开始/结束/失败时落盘状态，支持写入耗时(costMs)、失败原因(failReason)、重试次数(retryCount)。状态值必须使用系统约定枚举，以保证前端状态机、重试逻辑与审计链路一致。建议仅由执行引擎调用，避免外部任意改写导致状态漂移。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "planNodeTools",

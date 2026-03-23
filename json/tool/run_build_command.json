@@ -1,6 +1,6 @@
 {
   "name": "run_build_command",
-  "description": "执行构建命令（如 mvn/gradle）。",
+  "description": "执行项目构建命令（如 mvn/gradle）。用于验证代码改动后是否可成功编译打包。调用方应提供受控命令与工作目录，并设置合理 timeoutSec。返回值包含 exitCode 与输出尾部，便于快速定位构建失败原因。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",

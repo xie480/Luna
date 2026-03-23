@@ -1,6 +1,6 @@
 {
   "name": "record_plan_audit_log",
-  "description": "写入计划审计日志事件，供可视化与复盘使用。",
+  "description": "记录计划执行审计事件。用于沉淀阶段切换、节点执行、重规划、审批请求与结果等关键轨迹，支撑可视化回放、问题排查与合规审计。eventType 与 level 必须使用系统枚举；eventPayload 建议传结构化 JSON，便于后续检索与统计分析。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "planEventTools",

@@ -1,6 +1,6 @@
 {
   "name": "read_repo_tree",
-  "description": "读取仓库目录树，用于代码任务规划。",
+  "description": "读取代码仓库目录树结构，用于代码任务规划、影响面分析与文件定位。支持 maxDepth 限制遍历深度，可选 includeHidden 控制是否包含隐藏文件。工具会忽略常见大型目录（如 .git、node_modules、target）以提升性能。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",

@@ -1,6 +1,6 @@
 {
   "name": "acquire_execution_lock",
-  "description": "获取执行锁，避免并行冲突（当前为单机占位实现）。",
+  "description": "获取执行锁以避免并行冲突。适用于同一资源（窗口、文件、应用实例）不可重入场景。调用方应提供 lockKey 与 owner，必要时设置 ttlSec 防止死锁。当前实现为占位版本，后续建议接入 Redis SET NX EX + owner 校验。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "executionLockTools",

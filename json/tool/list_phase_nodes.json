@@ -1,6 +1,6 @@
 {
   "name": "list_phase_nodes",
-  "description": "列出指定 planId + phaseId 下的节点列表和状态。",
+  "description": "按 planId 与 phaseId 列出阶段内节点清单。适用于前端流程图渲染、阶段执行器拉取待执行节点、故障排查时查看当前阶段状态。返回内容通常包含节点标识、状态、依赖、重试信息等。建议与 query_plan_progress 结合使用：前者看明细，后者看聚合统计。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "planNodeTools",

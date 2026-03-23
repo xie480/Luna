@@ -1,6 +1,6 @@
 {
   "name": "append_node_output",
-  "description": "写入节点输出 outputJson 及下游传递字段 outputForNext。",
+  "description": "写入节点执行产物。outputJson 用于保存完整输出，outputForNext 用于保存下游节点消费的精简关键字段。适合在节点成功后调用，保证可追溯性与可恢复性。若输出体较大，建议上层先做裁剪或摘要再写入，以降低存储与网络开销。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "planNodeTools",

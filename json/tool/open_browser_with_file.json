@@ -1,6 +1,6 @@
 {
   "name": "open_browser_with_file",
-  "description": "唤起系统默认浏览器打开本地文件。",
+  "description": "调用系统默认浏览器打开本地报告文件。通常与 write_html_report_file 联动：先写文件，再打开。若运行环境不支持桌面能力或文件不存在，工具会返回失败信息但不应中断主任务链。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "planReportTools",

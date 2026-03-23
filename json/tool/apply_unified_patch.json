@@ -1,6 +1,6 @@
 {
   "name": "apply_unified_patch",
-  "description": "应用 unified diff patch（当前为基础占位实现）。",
+  "description": "应用 unified diff 补丁到目标仓库。用于在代码修复链路中将模型生成的 patch 安全落地。支持 checkOnly 预检模式：仅校验补丁可应用性，不实际修改文件。当前实现为基础占位，建议后续补充 dry-run、冲突明细与回滚策略。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",

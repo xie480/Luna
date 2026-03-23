@@ -1,6 +1,6 @@
 {
   "name": "capture_desktop_screenshot",
-  "description": "抓取桌面截图（当前为占位实现）。",
+  "description": "抓取桌面截图用于状态观察与后续 UI 分析。可指定显示器索引与区域（x,y,w,h）进行局部截图，减少隐私暴露与数据体积。适用于桌面自动化任务中的“观察”环节。当前为占位实现，后续应补充权限与脱敏策略。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "desktopTools",

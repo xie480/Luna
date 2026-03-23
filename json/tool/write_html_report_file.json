@@ -1,6 +1,6 @@
 {
   "name": "write_html_report_file",
-  "description": "将HTML报告写入本地文件并返回路径和URL。",
+  "description": "将任务报告 HTML 写入本地文件，并返回可访问路径。适用于计划结束后的统一报告落地（成功/失败都可生成）。支持自定义 fileName/outputDir；若未传则使用系统默认目录。建议上层先完成内容脱敏与安全检查，再调用本工具落盘。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "planReportTools",

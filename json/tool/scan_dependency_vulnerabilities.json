@@ -1,6 +1,6 @@
 {
   "name": "scan_dependency_vulnerabilities",
-  "description": "依赖漏洞扫描（SCA，当前为基础占位实现）。",
+  "description": "执行依赖漏洞扫描（SCA），用于识别项目依赖中的已知安全风险。支持指定生态（maven/npm/pip/auto）与失败阈值（failOnSeverity）。适用于发布前检查、安全审计与自动修复链路触发条件判定。当前为基础占位实现。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",
