@@ -1,0 +1,23 @@
+{
+  "name": "detect_ui_elements",
+  "description": "UI元素识别（当前为占位实现）。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "detectUiElements",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "imagePath": { "type": "string" },
+      "detectorType": { "type": "string", "enum": ["ocr", "uiautomation", "hybrid"] },
+      "targetHints": { "type": "string" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}

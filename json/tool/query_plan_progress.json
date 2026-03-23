@@ -1,0 +1,22 @@
+{
+  "name": "query_plan_progress",
+  "description": "查询计划级进度统计（节点总数及按状态分布）。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "queryPlanProgress",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "planId": { "type": "string" }
+    },
+    "required": ["planId"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}

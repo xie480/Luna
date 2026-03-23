@@ -1,0 +1,24 @@
+{
+  "name": "scan_dependency_vulnerabilities",
+  "description": "依赖漏洞扫描（SCA，当前为基础占位实现）。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "scanDependencyVulnerabilities",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "repoPath": { "type": "string" },
+      "ecosystem": { "type": "string", "enum": ["maven", "npm", "pip", "auto"] },
+      "failOnSeverity": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH"] }
+    },
+    "required": ["repoPath"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}

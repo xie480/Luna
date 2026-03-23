@@ -1,0 +1,24 @@
+{
+  "name": "run_lint_command",
+  "description": "执行静态检查命令。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "runLintCommand",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "workDir": { "type": "string" },
+      "command": { "type": "string" },
+      "timeoutSec": { "type": "integer" }
+    },
+    "required": ["workDir", "command"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}

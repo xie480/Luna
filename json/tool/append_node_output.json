@@ -1,0 +1,25 @@
+{
+  "name": "append_node_output",
+  "description": "写入节点输出 outputJson 及下游传递字段 outputForNext。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "appendNodeOutput",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "planId": { "type": "string" },
+      "nodeId": { "type": "string" },
+      "outputJson": { "type": "string", "description": "JSON字符串" },
+      "outputForNext": { "type": "string", "description": "JSON字符串（可选）" }
+    },
+    "required": ["planId", "nodeId", "outputJson"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}

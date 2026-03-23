@@ -1,0 +1,24 @@
+{
+  "name": "run_build_command",
+  "description": "执行构建命令（如 mvn/gradle）。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "runBuildCommand",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "workDir": { "type": "string" },
+      "command": { "type": "string" },
+      "timeoutSec": { "type": "integer" }
+    },
+    "required": ["workDir", "command"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "apply_unified_patch",
+  "description": "应用 unified diff patch（当前为基础占位实现）。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "applyUnifiedPatch",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "repoPath": { "type": "string" },
+      "patchText": { "type": "string" },
+      "checkOnly": { "type": "boolean" }
+    },
+    "required": ["repoPath", "patchText"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}

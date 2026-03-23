@@ -1,0 +1,24 @@
+{
+  "name": "search_symbol_references",
+  "description": "按符号名查找引用（当前为基础占位实现）。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "searchSymbolReferences",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "repoPath": { "type": "string" },
+      "symbol": { "type": "string" },
+      "language": { "type": "string" }
+    },
+    "required": ["repoPath", "symbol"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}

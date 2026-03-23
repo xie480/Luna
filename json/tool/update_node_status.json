@@ -1,0 +1,30 @@
+{
+  "name": "update_node_status",
+  "description": "更新节点执行状态与执行元数据（耗时、失败原因、重试次数）。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "updateNodeStatus",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "planId": { "type": "string" },
+      "nodeId": { "type": "string" },
+      "status": {
+        "type": "string",
+        "enum": ["PENDING", "RUNNING", "SUCCESS", "FAILED", "BLOCKED", "APPROVAL_PENDING", "SKIPPED"]
+      },
+      "costMs": { "type": "integer" },
+      "failReason": { "type": "string" },
+      "retryCount": { "type": "integer" }
+    },
+    "required": ["planId", "nodeId", "status"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}

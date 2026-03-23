@@ -1,0 +1,24 @@
+{
+  "name": "run_format_command",
+  "description": "执行代码格式化命令。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "runFormatCommand",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "workDir": { "type": "string" },
+      "command": { "type": "string" },
+      "timeoutSec": { "type": "integer" }
+    },
+    "required": ["workDir", "command"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}

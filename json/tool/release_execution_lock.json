@@ -1,0 +1,23 @@
+{
+  "name": "release_execution_lock",
+  "description": "释放执行锁（当前为单机占位实现）。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "releaseExecutionLock",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "lockKey": { "type": "string" },
+      "owner": { "type": "string" }
+    },
+    "required": ["lockKey", "owner"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}

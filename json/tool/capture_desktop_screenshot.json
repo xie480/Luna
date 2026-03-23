@@ -1,0 +1,22 @@
+{
+  "name": "capture_desktop_screenshot",
+  "description": "抓取桌面截图（当前为占位实现）。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "captureDesktopScreenshot",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "monitorIndex": { "type": "integer" },
+      "region": { "type": "string", "description": "x,y,w,h" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}

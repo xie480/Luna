@@ -1,0 +1,22 @@
+{
+  "name": "open_browser_with_file",
+  "description": "唤起系统默认浏览器打开本地文件。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "openBrowserWithFile",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "reportPath": { "type": "string" }
+    },
+    "required": ["reportPath"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}

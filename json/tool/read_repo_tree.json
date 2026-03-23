@@ -1,0 +1,24 @@
+{
+  "name": "read_repo_tree",
+  "description": "读取仓库目录树，用于代码任务规划。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "readRepoTree",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "repoPath": { "type": "string" },
+      "maxDepth": { "type": "integer" },
+      "includeHidden": { "type": "boolean" }
+    },
+    "required": ["repoPath"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}

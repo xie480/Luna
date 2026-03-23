@@ -1,0 +1,45 @@
+{
+  "name": "record_plan_audit_log",
+  "description": "写入计划审计日志事件，供可视化与复盘使用。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "recordPlanAuditLog",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "planId": { "type": "string" },
+      "phaseId": { "type": "string" },
+      "nodeId": { "type": "string" },
+      "level": { "type": "string", "enum": ["INFO", "WARN", "ERROR"] },
+      "eventType": {
+        "type": "string",
+        "enum": [
+          "PLAN_CREATED",
+          "PLAN_PHASE_STARTED",
+          "PLAN_PHASE_FINISHED",
+          "PLAN_NODE_RUNNING",
+          "PLAN_NODE_SUCCESS",
+          "PLAN_NODE_FAILED",
+          "PLAN_REPLANNED",
+          "PLAN_FINISHED",
+          "PLAN_REPORT_READY",
+          "PLAN_CODE_PATCH_READY",
+          "PLAN_TEST_RESULT",
+          "APPROVAL_REQUEST",
+          "APPROVAL_RESULT"
+        ]
+      },
+      "eventPayload": { "type": "string", "description": "JSON字符串" },
+      "traceId": { "type": "string" }
+    },
+    "required": ["planId", "level", "eventType", "eventPayload"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}

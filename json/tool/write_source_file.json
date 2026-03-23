@@ -1,0 +1,24 @@
+{
+  "name": "write_source_file",
+  "description": "写入源码文件，支持备份。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "writeSourceFile",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "filePath": { "type": "string" },
+      "content": { "type": "string" },
+      "backup": { "type": "boolean" }
+    },
+    "required": ["filePath", "content"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}

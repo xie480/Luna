@@ -1,0 +1,24 @@
+{
+  "name": "git_rollback_checkpoint",
+  "description": "回滚到指定检查点。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "gitRollbackCheckpoint",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "repoPath": { "type": "string" },
+      "checkpointId": { "type": "string" },
+      "mode": { "type": "string", "enum": ["hard", "soft", "mixed"] }
+    },
+    "required": ["repoPath", "checkpointId"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}

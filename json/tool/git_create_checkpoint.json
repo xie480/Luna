@@ -1,0 +1,24 @@
+{
+  "name": "git_create_checkpoint",
+  "description": "创建代码检查点（commit/stash/tag 语义）。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "gitCreateCheckpoint",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "repoPath": { "type": "string" },
+      "mode": { "type": "string", "enum": ["commit", "stash", "tag"] },
+      "message": { "type": "string" }
+    },
+    "required": ["repoPath", "mode", "message"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}

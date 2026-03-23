@@ -1,0 +1,24 @@
+{
+  "name": "acquire_execution_lock",
+  "description": "获取执行锁，避免并行冲突（当前为单机占位实现）。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "acquireExecutionLock",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "lockKey": { "type": "string" },
+      "owner": { "type": "string" },
+      "ttlSec": { "type": "integer" }
+    },
+    "required": ["lockKey", "owner"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}

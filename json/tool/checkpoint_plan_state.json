@@ -1,0 +1,26 @@
+{
+  "name": "checkpoint_plan_state",
+  "description": "创建计划检查点快照，用于恢复与回滚。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "checkpointPlanState",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "planId": { "type": "string" },
+      "phaseId": { "type": "string" },
+      "nodeId": { "type": "string" },
+      "checkpointData": { "type": "string", "description": "JSON字符串" },
+      "createdBy": { "type": "string" }
+    },
+    "required": ["planId", "checkpointData"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "load_plan_blueprint",
+  "description": "按 planId / planVersion 读取规划蓝图，不传版本时读取最新版本。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "loadPlanBlueprint",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "planId": { "type": "string", "description": "计划ID（必填）" },
+      "planVersion": { "type": "integer", "description": "计划版本（可选）" }
+    },
+    "required": ["planId"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}

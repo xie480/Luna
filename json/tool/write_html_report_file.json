@@ -1,0 +1,25 @@
+{
+  "name": "write_html_report_file",
+  "description": "将HTML报告写入本地文件并返回路径和URL。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "writeHtmlReportFile",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "planId": { "type": "string" },
+      "htmlContent": { "type": "string" },
+      "fileName": { "type": "string" },
+      "outputDir": { "type": "string" }
+    },
+    "required": ["planId", "htmlContent"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}

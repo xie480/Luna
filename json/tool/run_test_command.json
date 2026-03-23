@@ -1,0 +1,24 @@
+{
+  "name": "run_test_command",
+  "description": "执行测试命令并返回结果摘要。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "runTestCommand",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "workDir": { "type": "string" },
+      "command": { "type": "string" },
+      "timeoutSec": { "type": "integer" }
+    },
+    "required": ["workDir", "command"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}

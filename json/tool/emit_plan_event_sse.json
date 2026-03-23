@@ -1,0 +1,24 @@
+{
+  "name": "emit_plan_event_sse",
+  "description": "向 SSE 客户端发送计划事件。",
+  "version": "1.0.0",
+  "owner": "System",
+  "beanName": "openClawTools",
+  "methodName": "emitPlanEventSse",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "clientId": { "type": "string", "description": "默认 default" },
+      "eventType": { "type": "string" },
+      "payload": { "type": "string", "description": "JSON字符串" }
+    },
+    "required": ["eventType", "payload"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string" },
+      "data": { "type": "object" }
+    }
+  }
+}
