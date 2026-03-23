@@ -1,0 +1,32 @@
+{
+  "name": "plan_user_requirement_bigmodel",
+  "description": "使用大模型一次性生成全局计划蓝图，包含阶段、节点、依赖关系与风险信息",
+  "version": "1.0.0",
+  "owner": "openclaw",
+  "beanName": "planOrchestratorServiceImpl",
+  "methodName": "createAndRunPlan",
+  "inputSchema": "{\"type\":\"object\",\"properties\":{\"sessionId\":{\"type\":\"string\",\"description\":\"稳定会话ID，建议使用JWT jti\"},\"userGoal\":{\"type\":\"string\",\"description\":\"用户目标\"}},\"required\":[\"sessionId\",\"userGoal\"]}",
+  "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"planId\":{\"type\":\"string\"},\"message\":{\"type\":\"string\"},\"phaseResult\":{\"type\":\"object\"},\"reportResult\":{\"type\":\"object\"}}}",
+  "runMode": "SYNC",
+  "requiredCapabilities": [
+    "SAVE_PLAN_BLUEPRINT",
+    "EMIT_PLAN_EVENT_SSE"
+  ],
+  "toolSlots": [
+    {
+      "slot": "save_blueprint",
+      "capability": "SAVE_PLAN_BLUEPRINT",
+      "required": true
+    },
+    {
+      "slot": "emit_event",
+      "capability": "EMIT_PLAN_EVENT_SSE",
+      "required": true
+    }
+  ],
+  "thoughtChain": [
+    "理解用户目标并生成MVP蓝图",
+    "保存蓝图并初始化阶段节点",
+    "发出计划创建事件"
+  ]
+}

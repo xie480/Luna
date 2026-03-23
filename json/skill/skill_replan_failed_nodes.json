@@ -1,0 +1,38 @@
+{
+  "name": "replan_failed_nodes",
+  "description": "针对失败节点进行局部重规划建议，输出可执行修复方向",
+  "version": "1.0.0",
+  "owner": "openclaw",
+  "beanName": "planNodeTools",
+  "methodName": "queryPlanProgress",
+  "inputSchema": "{\"type\":\"object\",\"properties\":{\"planId\":{\"type\":\"string\"}},\"required\":[\"planId\"]}",
+  "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"data\":{\"type\":\"object\"},\"message\":{\"type\":\"string\"}}}",
+  "runMode": "SYNC",
+  "requiredCapabilities": [
+    "QUERY_PLAN_PROGRESS",
+    "RECORD_PLAN_AUDIT_LOG",
+    "EMIT_PLAN_EVENT_SSE"
+  ],
+  "toolSlots": [
+    {
+      "slot": "query_progress",
+      "capability": "QUERY_PLAN_PROGRESS",
+      "required": true
+    },
+    {
+      "slot": "audit_log",
+      "capability": "RECORD_PLAN_AUDIT_LOG",
+      "required": true
+    },
+    {
+      "slot": "emit_replan_event",
+      "capability": "EMIT_PLAN_EVENT_SSE",
+      "required": false
+    }
+  ],
+  "thoughtChain": [
+    "识别当前计划中的失败节点与失败分布",
+    "生成局部重试与替代路径建议",
+    "记录重规划审计并推送事件"
+  ]
+}

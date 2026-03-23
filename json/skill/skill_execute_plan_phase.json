@@ -1,0 +1,50 @@
+{
+  "name": "execute_plan_phase",
+  "description": "执行指定计划阶段，推进节点状态并输出阶段进度结果",
+  "version": "1.0.0",
+  "owner": "openclaw",
+  "beanName": "planOrchestratorServiceImpl",
+  "methodName": "runPhase",
+  "inputSchema": "{\"type\":\"object\",\"properties\":{\"planId\":{\"type\":\"string\"},\"phaseId\":{\"type\":\"string\"}},\"required\":[\"planId\",\"phaseId\"]}",
+  "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"planId\":{\"type\":\"string\"},\"phaseId\":{\"type\":\"string\"},\"successCount\":{\"type\":\"integer\"},\"failCount\":{\"type\":\"integer\"},\"progress\":{\"type\":\"object\"}}}",
+  "runMode": "SYNC",
+  "requiredCapabilities": [
+    "LIST_PHASE_NODES",
+    "UPDATE_NODE_STATUS",
+    "APPEND_NODE_OUTPUT",
+    "QUERY_PLAN_PROGRESS",
+    "EMIT_PLAN_EVENT_SSE"
+  ],
+  "toolSlots": [
+    {
+      "slot": "list_nodes",
+      "capability": "LIST_PHASE_NODES",
+      "required": true
+    },
+    {
+      "slot": "update_status",
+      "capability": "UPDATE_NODE_STATUS",
+      "required": true
+    },
+    {
+      "slot": "append_output",
+      "capability": "APPEND_NODE_OUTPUT",
+      "required": true
+    },
+    {
+      "slot": "query_progress",
+      "capability": "QUERY_PLAN_PROGRESS",
+      "required": true
+    },
+    {
+      "slot": "emit_event",
+      "capability": "EMIT_PLAN_EVENT_SSE",
+      "required": true
+    }
+  ],
+  "thoughtChain": [
+    "加载阶段节点并筛选可执行节点",
+    "按状态机推进节点执行与结果写入",
+    "输出阶段统计并推送SSE事件"
+  ]
+}

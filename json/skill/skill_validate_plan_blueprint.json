@@ -1,0 +1,32 @@
+{
+  "name": "validate_plan_blueprint",
+  "description": "加载并校验指定计划蓝图，检查核心字段完整性与阶段定义有效性",
+  "version": "1.0.0",
+  "owner": "openclaw",
+  "beanName": "planBlueprintTools",
+  "methodName": "loadPlanBlueprint",
+  "inputSchema": "{\"type\":\"object\",\"properties\":{\"planId\":{\"type\":\"string\"},\"planVersion\":{\"type\":\"integer\"}},\"required\":[\"planId\"]}",
+  "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"data\":{\"type\":\"object\"}}}",
+  "runMode": "SYNC",
+  "requiredCapabilities": [
+    "LOAD_PLAN_BLUEPRINT",
+    "RECORD_PLAN_AUDIT_LOG"
+  ],
+  "toolSlots": [
+    {
+      "slot": "load_blueprint",
+      "capability": "LOAD_PLAN_BLUEPRINT",
+      "required": true
+    },
+    {
+      "slot": "audit_log",
+      "capability": "RECORD_PLAN_AUDIT_LOG",
+      "required": false
+    }
+  ],
+  "thoughtChain": [
+    "加载指定计划蓝图",
+    "检查计划核心字段与阶段结构",
+    "记录校验结果到审计日志"
+  ]
+}
