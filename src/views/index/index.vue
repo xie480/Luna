@@ -275,6 +275,7 @@ const STATUS_MIN_DISPLAY_MS = 1000;
 const statusQueue = [];
 let isConsumingStatusQueue = false;
 let statusLastEnqueued = "";
+let statusConsumeVersion = 0;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -294,6 +295,14 @@ function normalizeStatusPayload(data) {
   return "";
 }
 
+function clearStatusDisplay() {
+  statusQueue.length = 0;
+  statusLastEnqueued = "";
+  statusConsumeVersion++;
+  isConsumingStatusQueue = false;
+  lunaStatus.value = "";
+}
+
 function enqueueStatusMessage(msg) {
   const text = normalizeStatusPayload(msg);
   if (!text) return;
@@ -311,15 +320,20 @@ function enqueueStatusMessage(msg) {
 async function consumeStatusQueue() {
   if (isConsumingStatusQueue) return;
   isConsumingStatusQueue = true;
+  const myVersion = statusConsumeVersion;
 
   try {
     while (statusQueue.length > 0) {
+      if (myVersion !== statusConsumeVersion) break;
       const nextStatus = statusQueue.shift();
       lunaStatus.value = nextStatus;
       await sleep(STATUS_MIN_DISPLAY_MS);
+      if (myVersion !== statusConsumeVersion) break;
     }
   } finally {
-    isConsumingStatusQueue = false;
+    if (myVersion === statusConsumeVersion) {
+      isConsumingStatusQueue = false;
+    }
   }
 }
 
@@ -462,10 +476,11 @@ async function handleLogout() {
     showApproval.value = false;
     approvalTask.value = null;
 
-    // 關鍵修復：登出後立即恢復可點擊狀態，避免穿透殘留導致登入框無法點擊
+    // 登出後立即恢復可點擊狀態，避免穿透殘留導致登入框無法點擊
     overUI = true;
     overModel = false;
     updatePetState();
+    refreshUiInteractivity();
 
     if (model) {
       gsap.to(model, {
@@ -691,6 +706,28 @@ function updatePetState() {
 
 let uiLeaveTimer = null;
 
+function hasVisibleUiPanels() {
+  return (
+    loginVisible.value ||
+    showChat.value ||
+    showSettings.value ||
+    showHistory.value ||
+    showQuery.value ||
+    showApproval.value ||
+    lunaIntroVisible.value
+  );
+}
+
+function refreshUiInteractivity() {
+  if (hasVisibleUiPanels()) {
+    clearTimeout(uiLeaveTimer);
+    overUI = true;
+    updatePetState();
+  } else {
+    uiLeave();
+  }
+}
+
 function uiEnter() {
   clearTimeout(uiLeaveTimer);
   overUI = true;
@@ -700,10 +737,17 @@ function uiEnter() {
 function uiLeave() {
   clearTimeout(uiLeaveTimer);
   uiLeaveTimer = setTimeout(() => {
+    if (hasVisibleUiPanels()) {
+      overUI = true;
+      updatePetState();
+      return;
+    }
+
     const selector = [
       ".chat-bar-wrapper:not(.fade-leave-active):hover",
       ".settings-panel:not(.fade-leave-active):hover",
       ".login-terminal:hover",
+      ".login-mask:hover",
       ".history-panel:not(.fade-leave-active):hover",
       ".query-panel:not(.fade-leave-active):hover",
       ".top-banner:hover",
@@ -734,26 +778,19 @@ function modelLeave() {
   }, 150);
 }
 
-watch(showChat, (val) => { if (!val) uiLeave(); else updatePetState(); });
-watch(showSettings, (val) => { if (!val) uiLeave(); else updatePetState(); });
-watch(showHistory, (val) => { if (!val) uiLeave(); else updatePetState(); });
-watch(showQuery, (val) => { if (!val) uiLeave(); else updatePetState(); });
-watch(showApproval, (val) => { if (!val) uiLeave(); else updatePetState(); });
-
-// 關鍵修復：登入遮罩顯示時，強制設定 overUI=true，確保窗口不穿透
-watch(loginVisible, (val) => {
-  if (val) {
-    overUI = true;
-    updatePetState();
-  } else {
-    uiLeave();
-  }
-});
+watch(showChat, () => refreshUiInteractivity());
+watch(showSettings, () => refreshUiInteractivity());
+watch(showHistory, () => refreshUiInteractivity());
+watch(showQuery, () => refreshUiInteractivity());
+watch(showApproval, () => refreshUiInteractivity());
+watch(loginVisible, () => refreshUiInteractivity());
 
 // 修復：入場遮罩關閉後，主動重算一次穿透狀態，避免卡在不可穿透
 watch(lunaIntroVisible, (val) => {
   if (!val) {
     uiLeave();
+  } else {
+    refreshUiInteractivity();
   }
 });
 
@@ -1184,7 +1221,13 @@ onMounted(async () => {
         return;
       }
 
-      enqueueStatusMessage(data);
+      const msg = normalizeStatusPayload(data);
+      if (!msg) {
+        clearStatusDisplay();
+        return;
+      }
+
+      enqueueStatusMessage(msg);
     });
   }
 
@@ -1261,6 +1304,7 @@ onBeforeUnmount(() => {
   statusQueue.length = 0;
   isConsumingStatusQueue = false;
   statusLastEnqueued = "";
+  statusConsumeVersion = 0;
 });
 </script>
 

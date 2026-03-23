@@ -210,16 +210,16 @@ const emit = defineEmits([
 ]);
 
 // 拖拽邏輯
-const x = ref(window.innerWidth / 2 - 275);
-const y = ref(window.innerHeight / 2 - 200);
+const x = ref(window.innerWidth / 2 - 320);
+const y = ref(window.innerHeight / 2 - 240);
 let isDragging = false;
 let dragOffset = { x: 0, y: 0 };
 
-// 尺寸邏輯
-const width = ref(550);
-const height = ref(400);
-const minWidth = 400;
-const minHeight = 300;
+// 尺寸邏輯（調大預設尺寸）
+const width = ref(640);
+const height = ref(480);
+const minWidth = 420;
+const minHeight = 320;
 
 function startDrag(e) {
   if (e.target.closest('.close-btn')) return;

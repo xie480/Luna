@@ -157,14 +157,17 @@ function sendMessage() {
   emit('send', inputText.value);
   inputText.value = "";
 }
+
+const trimmedStatusText = computed(() => String(props.statusText || '').trim());
+
 const showOverlay = computed(() => {
   if (isFocused.value) return false;
-  return props.streaming || props.loading || (props.statusText && !inputText.value);
+  return props.streaming || props.loading || (!!trimmedStatusText.value && !inputText.value);
 });
 const overlayText = computed(() => {
   if (props.streaming) return props.streamText || 'LUNA_CORE: DECRYPTING...';
-  if (props.loading) return props.statusText || 'LUNA_CORE: PROCESSING...';
-  return props.statusText || '';
+  if (props.loading) return trimmedStatusText.value || 'LUNA_CORE: PROCESSING...';
+  return trimmedStatusText.value;
 });
 
 const EMOTION_MAP = {
