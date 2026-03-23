@@ -1,5 +1,6 @@
 package org.yilena.luna.service.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -16,6 +17,7 @@ import org.yilena.luna.utils.LlmClientUtil;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -25,6 +27,7 @@ public class McpServiceImpl implements McpService {
     private final McpToolMapper toolMapper;
     private final McpSkillMapper skillMapper;
     private final LlmClientUtil llmClientUtil;
+    private final ObjectMapper objectMapper;
 
     @Override
     public McpTool registerTool(McpTool tool) {
@@ -243,15 +246,33 @@ public class McpServiceImpl implements McpService {
     }
 
     private Resource toResource(McpSkill skill) {
-        List<Resource.ToolSlotDto> slots = null;
+        List<Resource.ToolSlotDto> slots = new ArrayList<>();
         if (skill.getToolSlots() != null) {
-            slots = skill.getToolSlots().stream()
-                    .map(s -> Resource.ToolSlotDto.builder()
-                            .slot(s.getSlot())
-                            .capability(s.getCapability())
-                            .required(s.getRequired())
-                            .build())
-                    .toList();
+            for (Object rawSlot : skill.getToolSlots()) {
+                McpSkill.ToolSlot slotObj = null;
+
+                if (rawSlot instanceof McpSkill.ToolSlot ts) {
+                    slotObj = ts;
+                } else if (rawSlot instanceof Map<?, ?> mapSlot) {
+                    try {
+                        slotObj = objectMapper.convertValue(mapSlot, McpSkill.ToolSlot.class);
+                    } catch (Exception e) {
+                        log.warn("toolSlots 元素转换失败，skillId={}, skillName={}, rawSlot={}, err={}",
+                                skill.getId(), skill.getName(), rawSlot, e.getMessage());
+                    }
+                } else if (rawSlot != null) {
+                    log.warn("toolSlots 存在未知元素类型，skillId={}, skillName={}, type={}, value={}",
+                            skill.getId(), skill.getName(), rawSlot.getClass().getName(), rawSlot);
+                }
+
+                if (slotObj != null) {
+                    slots.add(Resource.ToolSlotDto.builder()
+                            .slot(slotObj.getSlot())
+                            .capability(slotObj.getCapability())
+                            .required(slotObj.getRequired())
+                            .build());
+                }
+            }
         }
 
         return Resource.builder()
@@ -269,7 +290,7 @@ public class McpServiceImpl implements McpService {
                 .requiresApproval(false)
                 .sensitivity(Sensitivity.LOW)
                 .requiredCapabilities(skill.getRequiredCapabilities())
-                .toolSlots(slots)
+                .toolSlots(slots.isEmpty() ? null : slots)
                 .thoughtChain(skill.getThoughtChain())
                 .build();
     }
