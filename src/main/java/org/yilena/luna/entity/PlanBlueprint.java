@@ -6,6 +6,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.yilena.luna.handler.JsonbTypeHandler;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -29,7 +30,7 @@ public class PlanBlueprint implements Serializable {
     @TableField("plan_version")
     private Integer planVersion;
 
-    @TableField(value = "blueprint_json", typeHandler = JacksonTypeHandler.class)
+    @TableField(value = "blueprint_json", typeHandler = JsonbTypeHandler.class)
     private Map<String, Object> blueprintJson;
 
     @TableField("generated_by_model")
