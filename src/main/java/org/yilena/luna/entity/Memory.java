@@ -8,6 +8,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.yilena.luna.enums.MemoryType;
+import org.yilena.luna.handler.VectorTypeHandler;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -20,7 +21,7 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@TableName("luna_memory")
+@TableName(value = "luna_memory", autoResultMap = true)
 public class Memory implements Serializable {
 
     private static final long serialVersionUID = 1L;
@@ -63,7 +64,7 @@ public class Memory implements Serializable {
     /**
      * 向量表示（PGVector 文本）
      */
-    @TableField("embedding")
+    @TableField(value = "embedding", typeHandler = VectorTypeHandler.class)
     private String embedding;
 
     /**

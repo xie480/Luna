@@ -7,6 +7,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.yilena.luna.handler.VectorTypeHandler;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -19,7 +20,7 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@TableName("user_preference")
+@TableName(value = "user_preference", autoResultMap = true)
 public class UserPreference implements Serializable {
 
     private static final long serialVersionUID = 1L;
@@ -52,7 +53,7 @@ public class UserPreference implements Serializable {
     /**
      * 向量表示（PGVector 文本）
      */
-    @TableField("embedding")
+    @TableField(value = "embedding", typeHandler = VectorTypeHandler.class)
     private String embedding;
 
     /**

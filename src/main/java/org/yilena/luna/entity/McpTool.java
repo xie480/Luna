@@ -8,6 +8,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.yilena.luna.enums.Sensitivity;
+import org.yilena.luna.handler.VectorTypeHandler;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -21,7 +22,7 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@TableName("mcp_tools")
+@TableName(value = "mcp_tools", autoResultMap = true)
 public class McpTool implements Serializable {
 
     private static final long serialVersionUID = 1L;
@@ -97,7 +98,7 @@ public class McpTool implements Serializable {
     /**
      * 文本的向量表示 (PGVector)，用于语义检索
      */
-    @TableField("embedding")
+    @TableField(value = "embedding", typeHandler = VectorTypeHandler.class)
     private String embedding;
 
     /**

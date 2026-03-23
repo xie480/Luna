@@ -8,6 +8,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.yilena.luna.enums.SourceType;
+import org.yilena.luna.handler.VectorTypeHandler;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -20,7 +21,7 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@TableName("knowledge_base")
+@TableName(value = "knowledge_base", autoResultMap = true)
 public class KnowledgeBase implements Serializable {
 
     private static final long serialVersionUID = 1L;
@@ -66,7 +67,7 @@ public class KnowledgeBase implements Serializable {
      * 文本的向量表示 (PGVector)
      * 格式如: "[0.1, 0.2, ...]"
      */
-    @TableField("embedding")
+    @TableField(value = "embedding", typeHandler = VectorTypeHandler.class)
     private String embedding;
 
     /**
