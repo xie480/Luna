@@ -62,7 +62,7 @@
           <span>更新时间：{{ formatTs(runtime.updatedAt) }}</span>
         </div>
 
-        <div class="graph card auto-card">
+        <div class="graph card auto-card neon-card">
           <div class="col-title">计划图谱（Phase 分栏）</div>
           <div class="graph-scroll">
             <div class="phase-lanes">
@@ -109,7 +109,7 @@
           </div>
         </div>
 
-        <div class="edges-box card auto-card">
+        <div class="edges-box card auto-card neon-card">
           <div class="col-title">边关系（from → to）</div>
           <div class="list">
             <div v-for="(e, idx) in runtimeEdges" :key="idx" class="item">
@@ -124,7 +124,7 @@
           </div>
         </div>
 
-        <div class="async-box card auto-card">
+        <div class="async-box card auto-card neon-card">
           <div class="col-title">异步技能事件</div>
           <div class="list">
             <div v-for="(e, idx) in asyncEvents" :key="idx" class="item">
@@ -412,9 +412,9 @@ onBeforeUnmount(() => {
 .plan-panel {
   position: fixed;
   background:
-    radial-gradient(circle at top right, rgba(0, 255, 200, 0.10), transparent 35%),
-    radial-gradient(circle at bottom left, rgba(0, 130, 255, 0.08), transparent 30%),
-    var(--bg-panel, rgba(5,10,19,0.95));
+    radial-gradient(circle at top right, rgba(0, 255, 200, 0.12), transparent 35%),
+    radial-gradient(circle at bottom left, rgba(0, 130, 255, 0.1), transparent 30%),
+    linear-gradient(145deg, rgba(7,12,24,0.96), rgba(4,8,18,0.96));
   border: 1px solid var(--border, rgba(0,255,200,0.3));
   border-radius: 12px;
   box-shadow: 0 20px 60px rgba(0,0,0,0.75), 0 0 0 1px rgba(255,255,255,0.03) inset;
@@ -423,6 +423,14 @@ onBeforeUnmount(() => {
   flex-direction: column;
   overflow: hidden;
   pointer-events: auto;
+}
+.plan-panel::before {
+  content: "";
+  position: absolute;
+  inset: -35%;
+  background: radial-gradient(circle, rgba(0,255,200,0.05), transparent 60%);
+  animation: panelGlow 7s linear infinite;
+  pointer-events: none;
 }
 .plan-panel.fullscreen {
   border-radius: 0;
@@ -440,6 +448,7 @@ onBeforeUnmount(() => {
   align-items: center;
   cursor: move;
   user-select: none;
+  z-index: 2;
 }
 .title-wrap { display: flex; flex-direction: column; gap: 2px; }
 .title-main {
@@ -466,6 +475,11 @@ onBeforeUnmount(() => {
   border-radius: 4px;
   cursor: pointer;
   line-height: 1;
+  transition: 0.2s;
+}
+.header-btn:hover {
+  border-color: var(--primary, #00ffc8);
+  box-shadow: 0 0 8px rgba(0,255,200,0.25);
 }
 .status-dot {
   width: 9px;
@@ -485,6 +499,10 @@ onBeforeUnmount(() => {
   color: inherit;
   font-size: 20px;
   cursor: pointer;
+  transition: transform 0.2s;
+}
+.close-btn:hover {
+  transform: scale(1.08);
 }
 
 .panel-body {
@@ -495,12 +513,16 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow-y: auto;
   overflow-x: auto;
+  z-index: 1;
 }
 
 .card {
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 8px;
   background: rgba(255,255,255,0.03);
+}
+.neon-card {
+  box-shadow: inset 0 0 12px rgba(0,255,200,0.05);
 }
 .auto-card {
   width: max-content;
@@ -540,9 +562,15 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
 }
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
 .btn-secondary {
   background: rgba(255,255,255,0.08);
   color: var(--text-main, #fff);
+}
+.btn-secondary:hover:not(:disabled) {
+  border-color: var(--primary, #00ffc8);
 }
 .btn-spinner {
   width: 12px;
@@ -645,11 +673,15 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   padding: 8px;
   background: rgba(255,255,255,0.02);
+  transition: transform 0.2s ease, box-shadow 0.25s ease;
 }
-.node-card.run { border-color: rgba(59,130,246,0.5); }
-.node-card.ok { border-color: rgba(34,197,94,0.5); }
-.node-card.err { border-color: rgba(239,68,68,0.5); }
-.node-card.wait { border-color: rgba(245,158,11,0.5); }
+.node-card:hover {
+  transform: translateY(-1px);
+}
+.node-card.run { border-color: rgba(59,130,246,0.5); box-shadow: 0 0 10px rgba(59,130,246,0.18); }
+.node-card.ok { border-color: rgba(34,197,94,0.5); box-shadow: 0 0 10px rgba(34,197,94,0.18); }
+.node-card.err { border-color: rgba(239,68,68,0.5); box-shadow: 0 0 10px rgba(239,68,68,0.18); }
+.node-card.wait { border-color: rgba(245,158,11,0.5); box-shadow: 0 0 10px rgba(245,158,11,0.18); }
 
 .node-top {
   display: flex;
@@ -763,6 +795,10 @@ onBeforeUnmount(() => {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+@keyframes panelGlow {
+  0% { transform: translate(-10%, -10%) rotate(0deg); }
+  100% { transform: translate(10%, 10%) rotate(360deg); }
 }
 .toast-fade-enter-active, .toast-fade-leave-active {
   transition: opacity 0.25s ease, transform 0.25s ease;
