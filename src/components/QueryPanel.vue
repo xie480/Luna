@@ -117,7 +117,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onBeforeUnmount } from "vue";
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from "vue";
 import { queryKnowledgeBase, queryUserPreference, queryMemory, queryLog } from "../api/index.js";
 
 defineEmits(["close", "mouseenter", "mouseleave"]);
@@ -300,6 +300,7 @@ function resetFilters() {
 function switchTab(t) {
   tab.value = t;
   resetFilters();
+  query(1);
 }
 
 function buildPayload(pageNo) {
@@ -361,17 +362,24 @@ async function query(pageNo = 1) {
     rows.value = parsed.records;
     resetExpandedState();
     pager.total = parsed.total;
-    pager.pages = parsed.pages;
-    pager.pageNo = parsed.pageNo;
-    pager.pageSize = parsed.pageSize;
+    pager.pages = parsed.pages || 1;
+    pager.pageNo = parsed.pageNo || pageNo;
+    pager.pageSize = parsed.pageSize || pager.pageSize;
   } catch (e) {
     console.error("[QueryPanel] 查询失败", e);
     rows.value = [];
     resetExpandedState();
+    pager.total = 0;
+    pager.pages = 1;
+    pager.pageNo = 1;
   } finally {
     loading.value = false;
   }
 }
+
+onMounted(() => {
+  query(1);
+});
 
 onBeforeUnmount(() => {
   stopDrag();
@@ -695,3 +703,4 @@ button:disabled {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+</style>
