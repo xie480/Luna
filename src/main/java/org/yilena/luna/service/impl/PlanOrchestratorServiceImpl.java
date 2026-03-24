@@ -37,8 +37,6 @@ import java.util.*;
 @RequiredArgsConstructor
 public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
-    private static final String DEFAULT_PHASE_ID = "phase-1";
-
     private final ObjectMapper objectMapper;
     private final PlanInstanceMapper planInstanceMapper;
     private final PlanNodeMapper planNodeMapper;
@@ -106,7 +104,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             // 4) 写入 plan_phase 表（真实阶段顺序来源）
             List<String> phaseIdsFromBlueprint = extractPhaseIds(blueprint);
             if (phaseIdsFromBlueprint.isEmpty()) {
-                phaseIdsFromBlueprint = List.of(DEFAULT_PHASE_ID);
+                phaseIdsFromBlueprint = List.of(defaultPhaseId(planId, 1));
             }
 
             for (int i = 0; i < phaseIdsFromBlueprint.size(); i++) {
@@ -507,14 +505,14 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
         List<Map<String, Object>> phases = new ArrayList<>();
         Map<String, Object> phase1 = new LinkedHashMap<>();
-        phase1.put("phaseId", "phase-1");
+        phase1.put("phaseId", defaultPhaseId(planId, 1));
         phase1.put("name", "MVP_PHASE_1");
         phase1.put("objective", "执行阶段一");
         phases.add(phase1);
 
         if (multiPhase) {
             Map<String, Object> phase2 = new LinkedHashMap<>();
-            phase2.put("phaseId", "phase-2");
+            phase2.put("phaseId", defaultPhaseId(planId, 2));
             phase2.put("name", "MVP_PHASE_2");
             phase2.put("objective", "执行阶段二");
             phases.add(phase2);
@@ -522,6 +520,10 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
         blueprint.put("phases", phases);
         return blueprint;
+    }
+
+    private String defaultPhaseId(String planId, int order) {
+        return planId + ":phase-" + order;
     }
 
     private boolean shouldUseMultiPhase(String userGoal) {
