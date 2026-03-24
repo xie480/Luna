@@ -328,27 +328,27 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 }
 
                 emitPlanEvent(
-                        "PLAN_NODE_RUNNING",
-                        "INFO",
-                        planId,
-                        phaseId,
-                        nodeId,
-                        Map.of(
-                                "eventType", "PLAN_NODE_RUNNING",
-                                "planId", planId,
-                                "phaseId", phaseId,
-                                "nodeId", nodeId,
-                                "status", "RUNNING",
-                                "message", "节点执行中",
-                                "skillName", skillName,
-                                "nodeType", nodeType,
-                                "failReason", "",
-                                "errorCode", "",
-                                "retryCount", retryCount,
-                                "costMs", 0,
-                                "outputForNext", Map.of(),
-                                "timestamp", System.currentTimeMillis()
-                        )
+                    "PLAN_NODE_RUNNING",
+                    "INFO",
+                    planId,
+                    phaseId,
+                    nodeId,
+                    Map.of(
+                            "eventType", "PLAN_NODE_RUNNING",
+                            "planId", planId,
+                            "phaseId", phaseId,
+                            "nodeId", nodeId,
+                            "status", "RUNNING",
+                            "message", "节点执行中",
+                            "skillName", skillName,
+                            "nodeType", nodeType,
+                            "failReason", "",
+                            "errorCode", "",
+                            "retryCount", retryCount,
+                            "costMs", 0,
+                            "outputForNext", Map.of(),
+                            "timestamp", System.currentTimeMillis()
+                    )
                 );
 
                 Map<String, Object> output = new LinkedHashMap<>();
@@ -764,7 +764,8 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                                Map<String, Object> payload) {
         try {
             String payloadJson = objectMapper.writeValueAsString(payload);
-            planEventTools.recordPlanAuditLog(
+            String result = planEventTools.emitPlanEvent(
+                    "default",
                     planId,
                     (phaseId == null || phaseId.isBlank()) ? null : phaseId,
                     (nodeId == null || nodeId.isBlank()) ? null : nodeId,
@@ -773,8 +774,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     payloadJson,
                     "plan-" + planId
             );
-
-            planEventTools.emitPlanEventSse("default", eventType, payloadJson);
+            if (isError(result)) {
+                log.warn("emitPlanEvent 双写返回错误, eventType={}, result={}", eventType, result);
+            }
         } catch (Exception e) {
             log.warn("emitPlanEvent 失败, eventType={}, err={}", eventType, e.getMessage());
         }
