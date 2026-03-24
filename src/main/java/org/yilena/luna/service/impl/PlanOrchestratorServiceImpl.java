@@ -403,25 +403,26 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             String progress = planNodeTools.queryPlanProgress(planId);
             long phaseCost = System.currentTimeMillis() - phaseStart;
 
+            Map<String, Object> phaseFinishedPayload = new LinkedHashMap<>();
+            phaseFinishedPayload.put("eventType", "PLAN_PHASE_FINISHED");
+            phaseFinishedPayload.put("planId", planId);
+            phaseFinishedPayload.put("phaseId", phaseId);
+            phaseFinishedPayload.put("nodeId", "");
+            phaseFinishedPayload.put("status", failCount > 0 ? "FAILED" : "SUCCESS");
+            phaseFinishedPayload.put("message", failCount > 0 ? "阶段执行结束（含失败）" : "阶段执行完成");
+            phaseFinishedPayload.put("phaseOrder", phaseOrder);
+            phaseFinishedPayload.put("successCount", successCount);
+            phaseFinishedPayload.put("failCount", failCount);
+            phaseFinishedPayload.put("costMs", phaseCost);
+            phaseFinishedPayload.put("timestamp", System.currentTimeMillis());
+
             emitPlanEvent(
                     "PLAN_PHASE_FINISHED",
                     failCount > 0 ? "WARN" : "INFO",
                     planId,
                     phaseId,
                     "",
-                    Map.of(
-                            "eventType", "PLAN_PHASE_FINISHED",
-                            "planId", planId,
-                            "phaseId", phaseId,
-                            "nodeId", "",
-                            "status", failCount > 0 ? "FAILED" : "SUCCESS",
-                            "message", failCount > 0 ? "阶段执行结束（含失败）" : "阶段执行完成",
-                            "phaseOrder", phaseOrder,
-                            "successCount", successCount,
-                            "failCount", failCount,
-                            "costMs", phaseCost,
-                            "timestamp", System.currentTimeMillis()
-                    )
+                    phaseFinishedPayload
             );
 
             Map<String, Object> out = new LinkedHashMap<>();
