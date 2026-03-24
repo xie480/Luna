@@ -1,7 +1,6 @@
 <template>
   <div class="app-root">
 
-    <!-- 顶部提示框 (设定模式时显示) -->
     <div v-if="isSetupMode" class="top-banner" @mouseenter="uiEnter" @mouseleave="uiLeave">
       正在进行初始位置设定，请调整模型位置和大小。
     </div>
@@ -9,14 +8,12 @@
       正在进行滑鼠追蹤設定，請點擊模型對應的位置設置為跟蹤點。
     </div>
 
-    <!-- ===== 全局轻提示 (Toast) ===== -->
     <transition name="fade">
       <div v-if="appearance.appearanceHint.value" class="toast-hint">
         {{ appearance.appearanceHint.value }}
       </div>
     </transition>
 
-    <!-- ===== 登錄幕布 ===== -->
     <transition name="login-fade">
       <div v-if="loginVisible" class="login-mask">
         <div

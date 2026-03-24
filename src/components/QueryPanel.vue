@@ -1,7 +1,7 @@
 <template>
   <div
     class="query-panel"
-    :class="{ fullscreen: isFullscreen, minimized: isMinimized }"
+    :class="{ fullscreen: isFullscreen }"
     :style="panelStyle"
     @mouseenter="$emit('mouseenter')"
     @mouseleave="$emit('mouseleave')"
@@ -9,9 +9,6 @@
     <div class="panel-header" @mousedown="startDrag">
       <span>DATA QUERY CENTER</span>
       <div class="header-actions">
-        <button class="header-btn" @click.stop="toggleMinimize" :title="isMinimized ? '还原' : '最小化'">
-          {{ isMinimized ? "▢" : "—" }}
-        </button>
         <button class="header-btn" @click.stop="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
           {{ isFullscreen ? "🗗" : "🗖" }}
         </button>
@@ -19,7 +16,7 @@
       </div>
     </div>
 
-    <div v-show="!isMinimized" class="panel-body">
+    <div class="panel-body">
       <div class="sidebar">
         <div class="menu-item" :class="{ active: tab === 'kb' }" @click="switchTab('kb')">知识库</div>
         <div class="menu-item" :class="{ active: tab === 'pref' }" @click="switchTab('pref')">用户偏好</div>
@@ -110,7 +107,7 @@
       </div>
     </div>
 
-    <template v-if="!isFullscreen && !isMinimized">
+    <template v-if="!isFullscreen">
       <div class="resize-handle sw" @mousedown.stop="startResize($event, 'sw')"></div>
       <div class="resize-handle se" @mousedown.stop="startResize($event, 'se')"></div>
       <div class="resize-handle nw" @mousedown.stop="startResize($event, 'nw')"></div>
@@ -120,7 +117,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from "vue";
+import { ref, reactive, computed, onBeforeUnmount } from "vue";
 import { queryKnowledgeBase, queryUserPreference, queryMemory, queryLog } from "../api/index.js";
 
 defineEmits(["close", "mouseenter", "mouseleave"]);
@@ -136,26 +133,21 @@ const height = ref(640);
 const minWidth = 760;
 const minHeight = 460;
 
-const isMinimized = ref(false);
 const isFullscreen = ref(false);
 const prevRect = ref({ x: x.value, y: y.value, w: width.value, h: height.value });
 
 const panelStyle = computed(() => {
   if (isFullscreen.value) return { left: "0px", top: "0px", width: "100vw", height: "100vh" };
-  return { left: x.value + "px", top: y.value + "px", width: width.value + "px", height: isMinimized.value ? "52px" : height.value + "px" };
+  return { left: x.value + "px", top: y.value + "px", width: width.value + "px", height: height.value + "px" };
 });
 
 function saveRect() {
   prevRect.value = { x: x.value, y: y.value, w: width.value, h: height.value };
 }
-function toggleMinimize() {
-  isMinimized.value = !isMinimized.value;
-}
 function toggleFullscreen() {
   if (!isFullscreen.value) {
     saveRect();
     isFullscreen.value = true;
-    isMinimized.value = false;
   } else {
     isFullscreen.value = false;
     x.value = prevRect.value.x;
@@ -195,7 +187,7 @@ let resizeStart = { x: 0, y: 0 };
 let initial = { x: 0, y: 0, w: 0, h: 0 };
 
 function startResize(e, dir) {
-  if (isFullscreen.value || isMinimized.value) return;
+  if (isFullscreen.value) return;
   resizeDir = dir;
   resizeStart = { x: e.clientX, y: e.clientY };
   initial = { x: x.value, y: y.value, w: width.value, h: height.value };
@@ -325,6 +317,11 @@ async function query(pageNo = 1) {
     loading.value = false;
   }
 }
+
+onBeforeUnmount(() => {
+  stopDrag();
+  stopResize();
+});
 </script>
 
 <style scoped>

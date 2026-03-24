@@ -6,7 +6,7 @@
   >
     <div
       class="plan-panel"
-      :class="{ fullscreen: isFullscreen, minimized: isMinimized }"
+      :class="{ fullscreen: isFullscreen }"
       :style="panelStyle"
     >
       <div class="panel-header" @mousedown="startDrag">
@@ -16,9 +16,6 @@
         </div>
         <div class="header-right">
           <span class="status-dot" :class="statusDotClass" :title="runtime?.status || 'IDLE'"></span>
-          <button class="header-btn" @click.stop="toggleMinimize" :title="isMinimized ? '还原' : '最小化'">
-            {{ isMinimized ? "▢" : "—" }}
-          </button>
           <button class="header-btn" @click.stop="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
             {{ isFullscreen ? "🗗" : "🗖" }}
           </button>
@@ -26,7 +23,7 @@
         </div>
       </div>
 
-      <div v-show="!isMinimized" class="panel-body">
+      <div class="panel-body">
         <div class="top-form card">
           <textarea
             v-model="userGoal"
@@ -140,7 +137,7 @@
         </div>
       </div>
 
-      <template v-if="!isFullscreen && !isMinimized">
+      <template v-if="!isFullscreen">
         <div class="resize-handle se" @mousedown.stop="startResize($event, 'se')"></div>
         <div class="resize-handle sw" @mousedown.stop="startResize($event, 'sw')"></div>
       </template>
@@ -183,7 +180,6 @@ const height = ref(640);
 const minWidth = 780;
 const minHeight = 460;
 
-const isMinimized = ref(false);
 const isFullscreen = ref(false);
 const prevRect = ref({ x: x.value, y: y.value, w: width.value, h: height.value });
 
@@ -191,22 +187,17 @@ const panelStyle = computed(() => {
   if (isFullscreen.value) {
     return { left: "0px", top: "0px", width: "100vw", height: "100vh" };
   }
-  return { left: x.value + "px", top: y.value + "px", width: width.value + "px", height: isMinimized.value ? "52px" : height.value + "px" };
+  return { left: x.value + "px", top: y.value + "px", width: width.value + "px", height: height.value + "px" };
 });
 
 function saveRect() {
   prevRect.value = { x: x.value, y: y.value, w: width.value, h: height.value };
 }
 
-function toggleMinimize() {
-  isMinimized.value = !isMinimized.value;
-}
-
 function toggleFullscreen() {
   if (!isFullscreen.value) {
     saveRect();
     isFullscreen.value = true;
-    isMinimized.value = false;
   } else {
     isFullscreen.value = false;
     x.value = prevRect.value.x;
@@ -244,7 +235,7 @@ let resizeStart = { x: 0, y: 0 };
 let initial = { x: 0, y: 0, w: 0, h: 0 };
 
 function startResize(e, dir) {
-  if (isFullscreen.value || isMinimized.value) return;
+  if (isFullscreen.value) return;
   resizeDir = dir;
   resizeStart = { x: e.clientX, y: e.clientY };
   initial = { x: x.value, y: y.value, w: width.value, h: height.value };
@@ -435,9 +426,6 @@ onBeforeUnmount(() => {
 .plan-panel.fullscreen {
   border-radius: 0;
 }
-.plan-panel.minimized {
-  overflow: hidden;
-}
 
 .panel-header {
   padding: 12px 16px;
@@ -611,7 +599,6 @@ onBeforeUnmount(() => {
   color: #fca5a5;
 }
 
-/* 关键修复：三个区块用固定占比高度 + 自身滚动，互不挤压溢出 */
 .graph,
 .edges-box,
 .async-box {

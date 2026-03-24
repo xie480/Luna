@@ -1,7 +1,7 @@
 <template>
   <div
     class="settings-panel"
-    :class="{ fullscreen: isFullscreen, minimized: isMinimized }"
+    :class="{ fullscreen: isFullscreen }"
     :style="panelStyle"
     @mouseenter="$emit('mouseenter')"
     @mouseleave="$emit('mouseleave')"
@@ -9,9 +9,6 @@
     <div class="panel-header" @mousedown="startDrag">
       <span>SYSTEM SETTINGS</span>
       <div class="header-actions">
-        <button class="header-btn" @click.stop="toggleMinimize" :title="isMinimized ? '还原' : '最小化'">
-          {{ isMinimized ? "▢" : "—" }}
-        </button>
         <button class="header-btn" @click.stop="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
           {{ isFullscreen ? "🗗" : "🗖" }}
         </button>
@@ -19,7 +16,7 @@
       </div>
     </div>
 
-    <div v-show="!isMinimized" class="panel-body">
+    <div class="panel-body">
       <div class="sidebar">
         <div class="menu-item" :class="{ active: activeTab === 'general' }" @click="activeTab = 'general'">通用設置</div>
         <div class="menu-item" :class="{ active: activeTab === 'appearance' }" @click="activeTab = 'appearance'">外貌定製</div>
@@ -125,7 +122,7 @@
       </div>
     </div>
 
-    <template v-if="!isFullscreen && !isMinimized">
+    <template v-if="!isFullscreen">
       <div class="resize-handle sw" @mousedown.stop="startResize($event, 'sw')"></div>
       <div class="resize-handle se" @mousedown.stop="startResize($event, 'se')"></div>
     </template>
@@ -156,26 +153,21 @@ const height = ref(480);
 const minWidth = 420;
 const minHeight = 320;
 
-const isMinimized = ref(false);
 const isFullscreen = ref(false);
 const prevRect = ref({ x: x.value, y: y.value, w: width.value, h: height.value });
 
 const panelStyle = computed(() => {
   if (isFullscreen.value) return { left: '0px', top: '0px', width: '100vw', height: '100vh' };
-  return { left: x.value + 'px', top: y.value + 'px', width: width.value + 'px', height: isMinimized.value ? '52px' : height.value + 'px' };
+  return { left: x.value + 'px', top: y.value + 'px', width: width.value + 'px', height: height.value + 'px' };
 });
 
 function saveRect() {
   prevRect.value = { x: x.value, y: y.value, w: width.value, h: height.value };
 }
-function toggleMinimize() {
-  isMinimized.value = !isMinimized.value;
-}
 function toggleFullscreen() {
   if (!isFullscreen.value) {
     saveRect();
     isFullscreen.value = true;
-    isMinimized.value = false;
   } else {
     isFullscreen.value = false;
     x.value = prevRect.value.x;
@@ -216,7 +208,7 @@ let initialPos = { x: 0, y: 0 };
 let resizeDir = '';
 
 function startResize(e, dir) {
-  if (isFullscreen.value || isMinimized.value) return;
+  if (isFullscreen.value) return;
   e.preventDefault();
   resizeDir = dir;
   resizeStart = { x: e.clientX, y: e.clientY };
