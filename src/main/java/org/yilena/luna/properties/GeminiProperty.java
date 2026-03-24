@@ -13,6 +13,14 @@ public class GeminiProperty {
     private ModelConfig mid;
     private ModelConfig big;
     private ModelConfig flash;
+    /**
+     * 新增：用于普通对话场景的大模型
+     */
+    private ModelConfig chat;
+    /**
+     * 新增：用于代码与计划编排场景的大模型
+     */
+    private ModelConfig code;
 
     @Data
     public static class ModelConfig {

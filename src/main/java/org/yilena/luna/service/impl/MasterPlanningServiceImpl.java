@@ -18,7 +18,7 @@ import java.util.*;
 
 /**
  * Master Planner 实现：
- * - 使用 BigModel 一次性产出全局蓝图
+ * - 使用 code 模型一次性产出全局蓝图
  * - 若模型输出不合法，回退到最小可执行蓝图
  */
 @Slf4j
@@ -35,9 +35,11 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
         try {
             String prompt = buildPlanningPrompt(planId, sessionId, userGoal);
 
+            String planningModel = resolvePlanningModelName();
+
             LlmRequest req = LlmRequest.builder()
                     .modelType(ModelType.OPENAI_COMPATIBLE)
-                    .modelName(geminiProperty.getBig().getModelName())
+                    .modelName(planningModel)
                     .messages(List.of(LlmMessage.user(prompt)))
                     .temperature(0.2)
                     .enablePromptInjectionCheck(false)
@@ -54,7 +56,6 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
             String cleaned = cleanJsonFence(text);
             Map<String, Object> map = objectMapper.readValue(cleaned, new TypeReference<Map<String, Object>>() {});
 
-            // 强制兜底关键字段
             map.putIfAbsent("planId", planId);
             map.putIfAbsent("sessionId", sessionId);
             map.putIfAbsent("userGoal", userGoal);
@@ -65,6 +66,16 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
             log.error("Master Planner 生成蓝图失败，使用回退蓝图", e);
             return fallbackBlueprint(planId, sessionId, userGoal);
         }
+    }
+
+    private String resolvePlanningModelName() {
+        if (geminiProperty.getCode() != null && geminiProperty.getCode().getModelName() != null && !geminiProperty.getCode().getModelName().isBlank()) {
+            return geminiProperty.getCode().getModelName();
+        }
+        if (geminiProperty.getBig() != null && geminiProperty.getBig().getModelName() != null && !geminiProperty.getBig().getModelName().isBlank()) {
+            return geminiProperty.getBig().getModelName();
+        }
+        throw new IllegalStateException("未配置可用的规划模型（gemini.code 或 gemini.big）");
     }
 
     private String buildPlanningPrompt(String planId, String sessionId, String userGoal) {
