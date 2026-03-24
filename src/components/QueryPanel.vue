@@ -312,6 +312,39 @@ function buildPayload(pageNo) {
   return payload;
 }
 
+function normalizeResponse(res) {
+  if (!res) return { records: [], total: 0, pages: 1, pageNo: 1, pageSize: pager.pageSize };
+
+  if (Array.isArray(res)) {
+    return {
+      records: res,
+      total: res.length,
+      pages: 1,
+      pageNo: 1,
+      pageSize: pager.pageSize,
+    };
+  }
+
+  const data = res.data ?? res;
+  if (Array.isArray(data)) {
+    return {
+      records: data,
+      total: data.length,
+      pages: 1,
+      pageNo: 1,
+      pageSize: pager.pageSize,
+    };
+  }
+
+  return {
+    records: data?.records || data?.list || [],
+    total: data?.total ?? 0,
+    pages: data?.pages ?? 1,
+    pageNo: data?.pageNo ?? 1,
+    pageSize: data?.pageSize ?? pager.pageSize,
+  };
+}
+
 async function query(pageNo = 1) {
   loading.value = true;
   try {
@@ -322,12 +355,13 @@ async function query(pageNo = 1) {
     else if (tab.value === "memory") res = await queryMemory(payload);
     else res = await queryLog(payload);
 
-    rows.value = res?.records || [];
+    const parsed = normalizeResponse(res);
+    rows.value = parsed.records;
     resetExpandedState();
-    pager.total = res?.total || 0;
-    pager.pages = res?.pages || 1;
-    pager.pageNo = res?.pageNo || 1;
-    pager.pageSize = res?.pageSize || pager.pageSize;
+    pager.total = parsed.total;
+    pager.pages = parsed.pages;
+    pager.pageNo = parsed.pageNo;
+    pager.pageSize = parsed.pageSize;
   } catch (e) {
     console.error("[QueryPanel] 查询失败", e);
     rows.value = [];
