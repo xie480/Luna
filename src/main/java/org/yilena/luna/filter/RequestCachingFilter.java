@@ -27,7 +27,7 @@ public class RequestCachingFilter extends OncePerRequestFilter {
     protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
         String uri = request.getRequestURI();
         // 跳过 SSE 接口，避免长连接被缓存包装导致异常
-        return uri.contains("/api/luna/status/stream");
+        return uri.contains("/luna/api/status/stream");
     }
 
     @Override

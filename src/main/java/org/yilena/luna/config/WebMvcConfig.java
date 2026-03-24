@@ -41,9 +41,10 @@ public class WebMvcConfig implements WebMvcConfigurer {
         registry.addInterceptor(authInterceptor)
                 // 拦截所有接口
                 .addPathPatterns("/**")
-                // 放行登录接口和 Swagger 文档相关路径
+                // 放行登录接口、SSE接口和 Swagger 文档相关路径
                 .excludePathPatterns(
                         "/auth/login",
+                        "/luna/api/status/stream",
                         "/doc.html",
                         "/webjars/**",
                         "/swagger-ui/**",
