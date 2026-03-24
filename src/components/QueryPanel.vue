@@ -287,7 +287,9 @@ function resetExpandedState() {
 }
 
 function resetFilters() {
-  Object.keys(filters).forEach((k) => { filters[k] = ""; });
+  Object.keys(filters).forEach((k) => {
+    filters[k] = "";
+  });
   rows.value = [];
   resetExpandedState();
   pager.total = 0;
@@ -451,7 +453,9 @@ onBeforeUnmount(() => {
   cursor: pointer;
   transition: transform 0.2s;
 }
-.close-btn:hover { transform: scale(1.08); }
+.close-btn:hover {
+  transform: scale(1.08);
+}
 
 .panel-body {
   flex: 1;
@@ -517,7 +521,8 @@ onBeforeUnmount(() => {
   justify-content: flex-end;
   gap: 8px;
 }
-.btn-primary, .btn-secondary {
+.btn-primary,
+.btn-secondary {
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 6px 12px;
@@ -530,7 +535,9 @@ onBeforeUnmount(() => {
   border-color: transparent;
   font-weight: bold;
 }
-.btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
 .btn-secondary {
   background: rgba(255,255,255,0.08);
   color: var(--text-main, #fff);
@@ -628,10 +635,26 @@ button:disabled {
   height: 14px;
   z-index: 10;
 }
-.resize-handle.sw { left: 0; bottom: 0; cursor: sw-resize; }
-.resize-handle.se { right: 0; bottom: 0; cursor: se-resize; }
-.resize-handle.nw { left: 0; top: 0; cursor: nw-resize; }
-.resize-handle.ne { right: 0; top: 0; cursor: ne-resize; }
+.resize-handle.sw {
+  left: 0;
+  bottom: 0;
+  cursor: sw-resize;
+}
+.resize-handle.se {
+  right: 0;
+  bottom: 0;
+  cursor: se-resize;
+}
+.resize-handle.nw {
+  left: 0;
+  top: 0;
+  cursor: nw-resize;
+}
+.resize-handle.ne {
+  right: 0;
+  top: 0;
+  cursor: ne-resize;
+}
 
 .content::-webkit-scrollbar,
 .table-wrap::-webkit-scrollbar {
@@ -654,9 +677,17 @@ button:disabled {
 }
 
 @keyframes panelAura {
-  0% { transform: rotate(0deg); opacity: 0.65; }
-  50% { opacity: 1; }
-  100% { transform: rotate(360deg); opacity: 0.65; }
+  0% {
+    transform: rotate(0deg);
+    opacity: 0.65;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(360deg);
+    opacity: 0.65;
+  }
 }
 
 @media (max-width: 1100px) {
