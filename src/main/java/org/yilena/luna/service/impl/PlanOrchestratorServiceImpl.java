@@ -207,24 +207,25 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             int failCount = 0;
             int phaseOrder = phaseOrderOf(planId, phaseId);
 
+            Map<String, Object> phaseStartPayload = new LinkedHashMap<>();
+            phaseStartPayload.put("eventType", "PLAN_PHASE_STARTED");
+            phaseStartPayload.put("planId", planId);
+            phaseStartPayload.put("phaseId", phaseId);
+            phaseStartPayload.put("nodeId", "");
+            phaseStartPayload.put("status", "RUNNING");
+            phaseStartPayload.put("message", "阶段开始执行");
+            phaseStartPayload.put("phaseOrder", phaseOrder);
+            phaseStartPayload.put("successCount", 0);
+            phaseStartPayload.put("failCount", 0);
+            phaseStartPayload.put("timestamp", System.currentTimeMillis());
+
             emitPlanEvent(
                     "PLAN_PHASE_STARTED",
                     "INFO",
                     planId,
                     phaseId,
                     "",
-                    Map.of(
-                            "eventType", "PLAN_PHASE_STARTED",
-                            "planId", planId,
-                            "phaseId", phaseId,
-                            "nodeId", "",
-                            "status", "RUNNING",
-                            "message", "阶段开始执行",
-                            "phaseOrder", phaseOrder,
-                            "successCount", 0,
-                            "failCount", 0,
-                            "timestamp", System.currentTimeMillis()
-                    )
+                    phaseStartPayload
             );
 
             for (PlanNode node : nodes) {
@@ -440,25 +441,26 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             long phaseCostMs = System.currentTimeMillis() - phaseStart;
             String phaseStatus = failCount > 0 ? "FAILED" : "SUCCESS";
 
+            Map<String, Object> phaseFinishPayload = new LinkedHashMap<>();
+            phaseFinishPayload.put("eventType", "PLAN_PHASE_FINISHED");
+            phaseFinishPayload.put("planId", planId);
+            phaseFinishPayload.put("phaseId", phaseId);
+            phaseFinishPayload.put("nodeId", "");
+            phaseFinishPayload.put("status", phaseStatus);
+            phaseFinishPayload.put("message", failCount > 0 ? "阶段执行完成（含失败节点）" : "阶段执行成功");
+            phaseFinishPayload.put("phaseOrder", phaseOrder);
+            phaseFinishPayload.put("successCount", successCount);
+            phaseFinishPayload.put("failCount", failCount);
+            phaseFinishPayload.put("costMs", phaseCostMs);
+            phaseFinishPayload.put("timestamp", System.currentTimeMillis());
+
             emitPlanEvent(
                     "PLAN_PHASE_FINISHED",
                     failCount > 0 ? "WARN" : "INFO",
                     planId,
                     phaseId,
                     "",
-                    Map.of(
-                            "eventType", "PLAN_PHASE_FINISHED",
-                            "planId", planId,
-                            "phaseId", phaseId,
-                            "nodeId", "",
-                            "status", phaseStatus,
-                            "message", failCount > 0 ? "阶段执行完成（含失败节点）" : "阶段执行成功",
-                            "phaseOrder", phaseOrder,
-                            "successCount", successCount,
-                            "failCount", failCount,
-                            "costMs", phaseCostMs,
-                            "timestamp", System.currentTimeMillis()
-                    )
+                    phaseFinishPayload
             );
 
             Map<String, Object> out = new LinkedHashMap<>();
@@ -555,24 +557,25 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             }
             planInstanceMapper.updateById(instance);
 
+            Map<String, Object> reportReadyPayload = new LinkedHashMap<>();
+            reportReadyPayload.put("eventType", "PLAN_REPORT_READY");
+            reportReadyPayload.put("planId", planId);
+            reportReadyPayload.put("phaseId", "");
+            reportReadyPayload.put("nodeId", "");
+            reportReadyPayload.put("status", "SUCCESS");
+            reportReadyPayload.put("message", "任务报告已生成");
+            reportReadyPayload.put("reportPath", reportPath);
+            reportReadyPayload.put("reportUrl", reportUrl);
+            reportReadyPayload.put("openResult", openFlag);
+            reportReadyPayload.put("timestamp", System.currentTimeMillis());
+
             emitPlanEvent(
                     "PLAN_REPORT_READY",
                     "INFO",
                     planId,
                     "",
                     "",
-                    Map.of(
-                            "eventType", "PLAN_REPORT_READY",
-                            "planId", planId,
-                            "phaseId", "",
-                            "nodeId", "",
-                            "status", "SUCCESS",
-                            "message", "任务报告已生成",
-                            "reportPath", reportPath,
-                            "reportUrl", reportUrl,
-                            "openResult", openFlag,
-                            "timestamp", System.currentTimeMillis()
-                    )
+                    reportReadyPayload
             );
 
             Map<String, Object> out = new LinkedHashMap<>();
@@ -859,43 +862,45 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
     }
 
     private void emitPlanCreated(String planId, String sessionId, String userGoal, int planVersion) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("eventType", "PLAN_CREATED");
+        payload.put("planId", planId);
+        payload.put("phaseId", "");
+        payload.put("nodeId", "");
+        payload.put("status", "PENDING");
+        payload.put("message", "计划已创建");
+        payload.put("sessionId", sessionId);
+        payload.put("userGoal", userGoal);
+        payload.put("planVersion", planVersion);
+        payload.put("timestamp", System.currentTimeMillis());
+
         emitPlanEvent(
                 "PLAN_CREATED",
                 "INFO",
                 planId,
                 "",
                 "",
-                Map.of(
-                        "eventType", "PLAN_CREATED",
-                        "planId", planId,
-                        "phaseId", "",
-                        "nodeId", "",
-                        "status", "PENDING",
-                        "message", "计划已创建",
-                        "sessionId", sessionId,
-                        "userGoal", userGoal,
-                        "planVersion", planVersion,
-                        "timestamp", System.currentTimeMillis()
-                )
+                payload
         );
     }
 
     private void emitPlanFinished(String planId, String finalStatus, String message) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("eventType", "PLAN_FINISHED");
+        payload.put("planId", planId);
+        payload.put("phaseId", "");
+        payload.put("nodeId", "");
+        payload.put("status", finalStatus);
+        payload.put("message", message == null ? "" : message);
+        payload.put("timestamp", System.currentTimeMillis());
+
         emitPlanEvent(
                 "PLAN_FINISHED",
                 "INFO",
                 planId,
                 "",
                 "",
-                Map.of(
-                        "eventType", "PLAN_FINISHED",
-                        "planId", planId,
-                        "phaseId", "",
-                        "nodeId", "",
-                        "status", finalStatus,
-                        "message", message == null ? "" : message,
-                        "timestamp", System.currentTimeMillis()
-                )
+                payload
         );
     }
 
