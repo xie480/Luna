@@ -18,6 +18,9 @@ import org.yilena.luna.mapper.PlanEdgeMapper;
 import org.yilena.luna.mapper.PlanInstanceMapper;
 import org.yilena.luna.mapper.PlanNodeMapper;
 import org.yilena.luna.mapper.PlanPhaseMapper;
+import org.yilena.luna.service.AgentService;
+import org.yilena.luna.service.BlueprintValidationService;
+import org.yilena.luna.service.MasterPlanningService;
 import org.yilena.luna.service.PlanOrchestratorService;
 import org.yilena.luna.tools.PlanBlueprintTools;
 import org.yilena.luna.tools.PlanEventTools;
@@ -29,7 +32,7 @@ import java.time.LocalDateTime;
 import java.util.*;
 
 /**
- * OpenClaw 计划编排服务实现（MVP）
+ * OpenClaw 计划编排服务实现（Master Planner 版）
  */
 @Slf4j
 @Service
@@ -46,6 +49,10 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
     private final PlanNodeTools planNodeTools;
     private final PlanEventTools planEventTools;
     private final PlanReportTools planReportTools;
+
+    private final MasterPlanningService masterPlanningService;
+    private final BlueprintValidationService blueprintValidationService;
+    private final AgentService agentService;
 
     @Override
     public String createAndRunPlan(String sessionId, String userGoal) {
@@ -68,13 +75,13 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     .planVersion(planVersion)
                     .status(PlanStatus.PENDING)
                     .currentLoopIndex(0)
-                    .planningModel("mvp-local-planner")
+                    .planningModel("master-planner-bigmodel")
                     .startedAt(LocalDateTime.now())
                     .build();
             planInstanceMapper.insert(instance);
 
-            Map<String, Object> blueprint = buildMvpBlueprint(planId, sessionId, userGoal);
-            String validateErr = validateBlueprint(blueprint);
+            Map<String, Object> blueprint = masterPlanningService.generateBlueprint(planId, sessionId, userGoal);
+            String validateErr = blueprintValidationService.validate(blueprint);
             if (validateErr != null) {
                 updatePlanStatus(planId, PlanStatus.FAILED, validateErr);
                 emitPlanFinished(planId, "FAILED", validateErr);
@@ -85,7 +92,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     planId,
                     planVersion,
                     objectMapper.writeValueAsString(blueprint),
-                    "mvp-local-planner",
+                    "master-planner-bigmodel",
                     LocalDateTime.now().toString()
             );
             if (isError(saveResult)) {
@@ -94,61 +101,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 return saveResult;
             }
 
-            List<String> phaseIdsFromBlueprint = extractPhaseIds(blueprint);
-            if (phaseIdsFromBlueprint.isEmpty()) {
-                phaseIdsFromBlueprint = List.of(defaultPhaseId(planId, 1));
-            }
+            materializePhasesAndNodes(planId, blueprint);
 
-            for (int i = 0; i < phaseIdsFromBlueprint.size(); i++) {
-                String phaseId = phaseIdsFromBlueprint.get(i);
-                PlanPhase phase = PlanPhase.builder()
-                        .phaseId(phaseId)
-                        .planId(planId)
-                        .phaseOrder(i + 1)
-                        .name("MVP_PHASE_" + (i + 1))
-                        .objective("执行阶段 " + (i + 1))
-                        .status(PlanPhaseStatus.PENDING)
-                        .build();
-                planPhaseMapper.insert(phase);
-            }
-
-            for (String phaseId : phaseIdsFromBlueprint) {
-                PlanNode node = PlanNode.builder()
-                        .nodeId("node-" + SnowflakeIdUtil.nextIdStr())
-                        .planId(planId)
-                        .phaseId(phaseId)
-                        .name("mvp-node-" + phaseId)
-                        .nodeType(PlanNodeType.TOOL)
-                        .riskLevel(PlanRiskLevel.LOW)
-                        .status(PlanNodeStatus.PENDING)
-                        .retryCount(0)
-                        .maxRetry(0)
-                        .build();
-                planNodeMapper.insert(node);
-
-                Map<String, Object> createdPayload = new LinkedHashMap<>();
-                createdPayload.put("eventType", "PLAN_CREATED");
-                createdPayload.put("planId", planId);
-                createdPayload.put("phaseId", phaseId);
-                createdPayload.put("nodeId", node.getNodeId());
-                createdPayload.put("status", "PENDING");
-                createdPayload.put("message", "阶段节点已创建");
-                createdPayload.put("skillName", node.getName());
-                createdPayload.put("nodeType", node.getNodeType() != null ? node.getNodeType().getValue() : "");
-                createdPayload.put("failReason", "");
-                createdPayload.put("errorCode", "");
-                createdPayload.put("retryCount", node.getRetryCount() == null ? 0 : node.getRetryCount());
-                createdPayload.put("costMs", 0);
-                createdPayload.put("outputForNext", Map.of());
-                createdPayload.put("phaseOrder", phaseOrderOf(planId, phaseId));
-                createdPayload.put("successCount", 0);
-                createdPayload.put("failCount", 0);
-                createdPayload.put("timestamp", System.currentTimeMillis());
-
-                emitPlanEvent("PLAN_CREATED", "INFO", planId, phaseId, node.getNodeId(), createdPayload);
-            }
-
-            buildSimplePlanEdges(planId);
+            buildEdgesFromBlueprint(planId, blueprint);
             updatePlanStatus(planId, PlanStatus.RUNNING, null);
 
             List<PlanPhase> orderedPhases = loadOrderedPhases(planId);
@@ -326,13 +281,20 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                         )
                 );
 
+                // === Master Planner版：节点执行走 Agent（模型决策） ===
+                String nodeGoal = buildNodeGoal(planId, phaseId, node);
+                String agentResult = agentService.processToolCalling(planId, nodeGoal);
+
                 Map<String, Object> output = new LinkedHashMap<>();
                 output.put("nodeName", node.getName());
-                output.put("result", "ok");
                 output.put("phaseId", phaseId);
+                output.put("nodeGoal", nodeGoal);
+                output.put("agentResult", safeParse(agentResult));
+                output.put("result", isError(agentResult) ? "error" : "ok");
 
                 Map<String, Object> outputForNext = new LinkedHashMap<>();
-                outputForNext.put("result", "ok");
+                outputForNext.put("result", output.get("result"));
+                outputForNext.put("agentResult", safeParse(agentResult));
 
                 String append = planNodeTools.appendNodeOutput(
                         planId,
@@ -341,14 +303,15 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                         objectMapper.writeValueAsString(outputForNext)
                 );
 
-                if (isError(append)) {
+                if (isError(append) || isError(agentResult)) {
                     long cost = System.currentTimeMillis() - nodeStart;
+                    String failMsg = isError(agentResult) ? "agent execute failed" : "append_node_output failed";
                     planNodeTools.updateNodeStatus(
                             planId,
                             nodeId,
                             "FAILED",
                             cost,
-                            "append_node_output failed",
+                            failMsg,
                             retryCount
                     );
 
@@ -361,8 +324,8 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                             nodeId,
                             buildNodeEventPayload(
                                     "PLAN_NODE_FAILED", planId, phaseId, nodeId, "FAILED",
-                                    "节点输出写入失败", skillName, nodeType,
-                                    "append_node_output failed", "NODE_OUTPUT_APPEND_FAILED",
+                                    "节点执行失败", skillName, nodeType,
+                                    failMsg, "NODE_EXECUTE_FAILED",
                                     retryCount, cost, Map.of(), System.currentTimeMillis()
                             )
                     );
@@ -608,6 +571,155 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         }
     }
 
+    private void materializePhasesAndNodes(String planId, Map<String, Object> blueprint) {
+        List<Map<String, Object>> phases = readListOfMap(blueprint.get("phases"));
+        List<Map<String, Object>> nodes = readListOfMap(blueprint.get("nodes"));
+
+        Map<String, Integer> phaseOrderMap = new HashMap<>();
+
+        for (Map<String, Object> p : phases) {
+            String phaseId = str(p.get("phaseId"));
+            String name = str(p.get("name"));
+            String objective = str(p.get("objective"));
+            Integer order = intVal(p.get("phaseOrder"), 0);
+
+            PlanPhase phase = PlanPhase.builder()
+                    .phaseId(phaseId)
+                    .planId(planId)
+                    .phaseOrder(order)
+                    .name(name.isBlank() ? ("PHASE_" + order) : name)
+                    .objective(objective.isBlank() ? "执行阶段" : objective)
+                    .status(PlanPhaseStatus.PENDING)
+                    .build();
+            planPhaseMapper.insert(phase);
+
+            phaseOrderMap.put(phaseId, order);
+        }
+
+        for (Map<String, Object> n : nodes) {
+            String nodeId = str(n.get("nodeId"));
+            String phaseId = str(n.get("phaseId"));
+            String name = str(n.get("name"));
+            String nodeTypeStr = str(n.get("nodeType"));
+            String riskLevelStr = str(n.get("riskLevel"));
+
+            PlanNodeType nodeType = parseNodeType(nodeTypeStr);
+            PlanRiskLevel riskLevel = parseRiskLevel(riskLevelStr);
+
+            PlanNode node = PlanNode.builder()
+                    .nodeId(nodeId.isBlank() ? ("node-" + SnowflakeIdUtil.nextIdStr()) : nodeId)
+                    .planId(planId)
+                    .phaseId(phaseId)
+                    .name(name.isBlank() ? "node-" + phaseId : name)
+                    .nodeType(nodeType)
+                    .riskLevel(riskLevel)
+                    .status(PlanNodeStatus.PENDING)
+                    .retryCount(0)
+                    .maxRetry(1)
+                    .build();
+            planNodeMapper.insert(node);
+
+            Map<String, Object> createdPayload = new LinkedHashMap<>();
+            createdPayload.put("eventType", "PLAN_CREATED");
+            createdPayload.put("planId", planId);
+            createdPayload.put("phaseId", phaseId);
+            createdPayload.put("nodeId", node.getNodeId());
+            createdPayload.put("status", "PENDING");
+            createdPayload.put("message", "阶段节点已创建");
+            createdPayload.put("skillName", node.getName());
+            createdPayload.put("nodeType", node.getNodeType() != null ? node.getNodeType().getValue() : "");
+            createdPayload.put("failReason", "");
+            createdPayload.put("errorCode", "");
+            createdPayload.put("retryCount", node.getRetryCount() == null ? 0 : node.getRetryCount());
+            createdPayload.put("costMs", 0);
+            createdPayload.put("outputForNext", Map.of());
+            createdPayload.put("phaseOrder", phaseOrderMap.getOrDefault(phaseId, 0));
+            createdPayload.put("successCount", 0);
+            createdPayload.put("failCount", 0);
+            createdPayload.put("timestamp", System.currentTimeMillis());
+
+            emitPlanEvent("PLAN_CREATED", "INFO", planId, phaseId, node.getNodeId(), createdPayload);
+        }
+    }
+
+    private void buildEdgesFromBlueprint(String planId, Map<String, Object> blueprint) {
+        try {
+            planEdgeMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<PlanEdge>()
+                    .eq(PlanEdge::getPlanId, planId));
+
+            List<Map<String, Object>> edges = readListOfMap(blueprint.get("edges"));
+            if (edges.isEmpty()) {
+                buildSimplePlanEdges(planId);
+                return;
+            }
+
+            for (Map<String, Object> e : edges) {
+                String from = str(e.get("fromNodeId"));
+                String to = str(e.get("toNodeId"));
+                String cond = str(e.get("conditionExpr"));
+                insertEdge(planId, from, to, cond);
+            }
+        } catch (Exception e) {
+            log.warn("构建 plan_edge 失败, planId={}, err={}", planId, e.getMessage());
+        }
+    }
+
+    private List<Map<String, Object>> readListOfMap(Object obj) {
+        if (!(obj instanceof List<?> list)) return List.of();
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Object it : list) {
+            if (it instanceof Map<?, ?> m) {
+                Map<String, Object> one = new LinkedHashMap<>();
+                for (Map.Entry<?, ?> en : m.entrySet()) {
+                    one.put(String.valueOf(en.getKey()), en.getValue());
+                }
+                out.add(one);
+            }
+        }
+        return out;
+    }
+
+    private String buildNodeGoal(String planId, String phaseId, PlanNode node) {
+        return "你正在执行计划节点，请根据节点目标选择合适工具并执行。"
+                + " planId=" + planId
+                + ", phaseId=" + phaseId
+                + ", nodeId=" + node.getNodeId()
+                + ", nodeName=" + node.getName()
+                + ", nodeType=" + (node.getNodeType() == null ? "" : node.getNodeType().getValue());
+    }
+
+    private PlanNodeType parseNodeType(String s) {
+        try {
+            if (s == null || s.isBlank()) return PlanNodeType.TOOL;
+            return PlanNodeType.valueOf(s.trim().toUpperCase(Locale.ROOT));
+        } catch (Exception e) {
+            return PlanNodeType.TOOL;
+        }
+    }
+
+    private PlanRiskLevel parseRiskLevel(String s) {
+        try {
+            if (s == null || s.isBlank()) return PlanRiskLevel.LOW;
+            return PlanRiskLevel.valueOf(s.trim().toUpperCase(Locale.ROOT));
+        } catch (Exception e) {
+            return PlanRiskLevel.LOW;
+        }
+    }
+
+    private String str(Object o) {
+        return o == null ? "" : String.valueOf(o).trim();
+    }
+
+    private Integer intVal(Object o, int def) {
+        try {
+            if (o == null) return def;
+            if (o instanceof Number n) return n.intValue();
+            return Integer.parseInt(String.valueOf(o).trim());
+        } catch (Exception e) {
+            return def;
+        }
+    }
+
     private void buildSimplePlanEdges(String planId) {
         try {
             planEdgeMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<PlanEdge>()
@@ -656,7 +768,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
     }
 
     private void insertEdge(String planId, String fromNodeId, String toNodeId, String conditionExpr) {
-        if (fromNodeId == null || toNodeId == null) return;
+        if (fromNodeId == null || fromNodeId.isBlank() || toNodeId == null || toNodeId.isBlank()) return;
         if (fromNodeId.equals(toNodeId)) return;
 
         PlanEdge edge = PlanEdge.builder()
@@ -827,100 +939,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             log.warn("阶段状态更新失败, planId={}, phaseId={}, status={}, err={}",
                     phase.getPlanId(), phase.getPhaseId(), status.getValue(), e.getMessage());
         }
-    }
-
-    private Map<String, Object> buildMvpBlueprint(String planId, String sessionId, String userGoal) {
-        Map<String, Object> blueprint = new LinkedHashMap<>();
-        blueprint.put("planId", planId);
-        blueprint.put("sessionId", sessionId);
-        blueprint.put("userGoal", userGoal);
-        blueprint.put("createdAt", LocalDateTime.now().toString());
-
-        boolean multiPhase = shouldUseMultiPhase(userGoal);
-
-        List<Map<String, Object>> phases = new ArrayList<>();
-        Map<String, Object> phase1 = new LinkedHashMap<>();
-        phase1.put("phaseId", defaultPhaseId(planId, 1));
-        phase1.put("name", "MVP_PHASE_1");
-        phase1.put("objective", "执行阶段一");
-        phases.add(phase1);
-
-        if (multiPhase) {
-            Map<String, Object> phase2 = new LinkedHashMap<>();
-            phase2.put("phaseId", defaultPhaseId(planId, 2));
-            phase2.put("name", "MVP_PHASE_2");
-            phase2.put("objective", "执行阶段二");
-            phases.add(phase2);
-        }
-
-        blueprint.put("phases", phases);
-        return blueprint;
-    }
-
-    private String defaultPhaseId(String planId, int order) {
-        return planId + ":phase-" + order;
-    }
-
-    private boolean shouldUseMultiPhase(String userGoal) {
-        if (userGoal == null) return false;
-        String t = userGoal.toLowerCase(Locale.ROOT);
-        return t.contains("多阶段")
-                || t.contains("分阶段")
-                || t.contains("两阶段")
-                || t.contains("三阶段")
-                || t.contains("multi phase")
-                || t.contains("multi-phase")
-                || t.contains("phase");
-    }
-
-    private List<String> extractPhaseIds(Map<String, Object> blueprint) {
-        Object phasesObj = blueprint.get("phases");
-        if (!(phasesObj instanceof List<?> phases)) {
-            return new ArrayList<>();
-        }
-
-        List<String> ids = new ArrayList<>();
-        for (Object p : phases) {
-            if (p instanceof Map<?, ?> pm) {
-                Object phaseId = pm.get("phaseId");
-                if (phaseId instanceof String s && !s.isBlank()) {
-                    ids.add(s.trim());
-                }
-            }
-        }
-        return ids;
-    }
-
-    private String validateBlueprint(Map<String, Object> blueprint) {
-        if (blueprint == null) return "blueprint 不能为空";
-
-        Object planId = blueprint.get("planId");
-        Object sessionId = blueprint.get("sessionId");
-        Object userGoal = blueprint.get("userGoal");
-        Object phases = blueprint.get("phases");
-
-        if (!(planId instanceof String) || ((String) planId).isBlank()) return "planId 不能为空";
-        if (!(sessionId instanceof String) || ((String) sessionId).isBlank()) return "sessionId 不能为空";
-        if (!(userGoal instanceof String) || ((String) userGoal).isBlank()) return "userGoal 不能为空";
-
-        if (!(phases instanceof List<?> phaseList) || phaseList.isEmpty()) {
-            return "phases 不能为空且至少包含一个阶段";
-        }
-
-        Set<String> phaseIdSet = new HashSet<>();
-        for (Object p : phaseList) {
-            if (!(p instanceof Map<?, ?> pm)) return "phases 元素必须为对象";
-            Object phaseId = pm.get("phaseId");
-            if (!(phaseId instanceof String) || ((String) phaseId).isBlank()) {
-                return "phase.phaseId 不能为空";
-            }
-            String pid = ((String) phaseId).trim();
-            if (!phaseIdSet.add(pid)) {
-                return "phase.phaseId 不能重复: " + pid;
-            }
-        }
-
-        return null;
     }
 
     private boolean canTransitToRunning(PlanNodeStatus status) {
