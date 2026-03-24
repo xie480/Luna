@@ -76,6 +76,8 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             Map<String, Object> blueprint = buildMvpBlueprint(planId, sessionId, userGoal);
             String validateErr = validateBlueprint(blueprint);
             if (validateErr != null) {
+                updatePlanStatus(planId, PlanStatus.FAILED, validateErr);
+                emitPlanFinished(planId, "FAILED", validateErr);
                 return error("PLAN_BLUEPRINT_INVALID", validateErr);
             }
 
@@ -770,7 +772,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
             emitPlanEvent(
                     "PLAN_FINISHED",
-                    "SUCCESS".equalsIgnoreCase(finalStatus) ? "INFO" : "WARN",
+                    "SUCCESS".equalsIgnoreCase(finalStatus) ? "INFO" : "ERROR",
                     planId,
                     "",
                     "",
