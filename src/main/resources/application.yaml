@@ -16,6 +16,11 @@ spring:
   main:
     allow-circular-references: true
 
+  autoconfigure:
+    exclude:
+      - org.redisson.spring.starter.RedissonAutoConfigurationV2
+      - org.redisson.spring.starter.RedissonAutoConfiguration
+
   cloud:
     nacos:
       config:
