@@ -62,7 +62,7 @@
           <span>更新时间：{{ formatTs(runtime.updatedAt) }}</span>
         </div>
 
-        <div class="graph card auto-card neon-card">
+        <div class="graph card neon-card">
           <div class="col-title">计划图谱（Phase 分栏）</div>
           <div class="graph-scroll">
             <div class="phase-lanes">
@@ -109,7 +109,7 @@
           </div>
         </div>
 
-        <div class="edges-box card auto-card neon-card">
+        <div class="edges-box card neon-card">
           <div class="col-title">边关系（from → to）</div>
           <div class="list">
             <div v-for="(e, idx) in runtimeEdges" :key="idx" class="item">
@@ -124,7 +124,7 @@
           </div>
         </div>
 
-        <div class="async-box card auto-card neon-card">
+        <div class="async-box card neon-card">
           <div class="col-title">异步技能事件</div>
           <div class="list">
             <div v-for="(e, idx) in asyncEvents" :key="idx" class="item">
@@ -512,7 +512,7 @@ onBeforeUnmount(() => {
   gap: 10px;
   min-height: 0;
   overflow-y: auto;
-  overflow-x: auto;
+  overflow-x: hidden;
   z-index: 1;
 }
 
@@ -524,13 +524,10 @@ onBeforeUnmount(() => {
 .neon-card {
   box-shadow: inset 0 0 12px rgba(0,255,200,0.05);
 }
-.auto-card {
-  width: max-content;
-  min-width: 100%;
-}
 
 .top-form {
   padding: 10px;
+  flex-shrink: 0;
 }
 .top-form textarea {
   width: 100%;
@@ -589,6 +586,7 @@ onBeforeUnmount(() => {
   color: var(--text-dim, #aaa);
   font-size: 12px;
   padding: 8px 10px;
+  flex-shrink: 0;
 }
 
 .feedback-toast {
@@ -613,27 +611,55 @@ onBeforeUnmount(() => {
   color: #fca5a5;
 }
 
-.graph {
-  min-height: 260px;
+/* 关键修复：三个区块用固定占比高度 + 自身滚动，互不挤压溢出 */
+.graph,
+.edges-box,
+.async-box {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
+.graph {
+  flex: 1.6;
+}
+.edges-box {
+  flex: 1;
+}
+.async-box {
+  flex: 1;
+}
+
 .col-title {
   padding: 8px 10px;
   border-bottom: 1px solid rgba(255,255,255,0.08);
   color: var(--primary, #00ffc8);
   font-size: 12px;
   font-weight: bold;
+  flex-shrink: 0;
 }
-.graph-scroll {
-  padding: 8px;
+
+.graph-scroll,
+.list {
+  flex: 1;
+  min-height: 0;
   overflow: auto;
 }
+
+.graph-scroll {
+  padding: 8px;
+}
+
 .phase-lanes {
   display: flex;
   gap: 10px;
   align-items: flex-start;
-  min-height: 180px;
+  min-height: min-content;
   width: max-content;
 }
+
 .phase-lane {
   min-width: 260px;
   max-width: 420px;
@@ -707,25 +733,19 @@ onBeforeUnmount(() => {
   word-break: break-word;
 }
 
-.edges-box {
-  min-height: 120px;
-}
-
 .list {
   padding: 8px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  overflow: auto;
-  width: max-content;
-  min-width: 100%;
 }
+
 .item {
   border: 1px solid rgba(255,255,255,0.08);
   background: rgba(255,255,255,0.03);
   border-radius: 6px;
   padding: 8px;
-  min-width: 420px;
+  min-width: 0;
 }
 .line {
   display: flex;
@@ -760,9 +780,6 @@ onBeforeUnmount(() => {
   font-size: 12px;
   text-align: center;
   padding: 10px 0;
-}
-.async-box {
-  min-height: 130px;
 }
 
 .resize-handle {
