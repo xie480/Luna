@@ -217,7 +217,26 @@ function stopResize() {
   window.removeEventListener("mouseup", stopResize);
 }
 
-const filters = reactive({});
+const filters = reactive({
+  title: "",
+  content: "",
+  sourceType: "",
+  sourcePath: "",
+  prefKey: "",
+  prefValue: "",
+  description: "",
+  sessionId: "",
+  memoryType: "",
+  minWeight: "",
+  maxWeight: "",
+  logType: "",
+  module: "",
+  action: "",
+  traceId: "",
+  operatorId: "",
+  startTime: "",
+  endTime: "",
+});
 const rows = ref([]);
 const expandedMap = reactive({});
 const pager = reactive({ total: 0, pages: 1, pageNo: 1, pageSize: 10 });
