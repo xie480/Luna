@@ -181,6 +181,8 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 return error("PHASE_INVALID_INPUT", "planId 和 phaseId 不能为空");
             }
 
+            String sessionId = resolveSessionIdByPlanId(planId);
+
             String listResult = planNodeTools.listPhaseNodes(planId, phaseId);
             if (isError(listResult)) {
                 return listResult;
@@ -281,9 +283,8 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                         )
                 );
 
-                // === Master Planner版：节点执行走 Agent（模型决策） ===
                 String nodeGoal = buildNodeGoal(planId, phaseId, node);
-                String agentResult = agentService.processToolCalling(planId, nodeGoal);
+                String agentResult = agentService.processToolCalling(sessionId, nodeGoal);
 
                 Map<String, Object> output = new LinkedHashMap<>();
                 output.put("nodeName", node.getName());
@@ -569,6 +570,18 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             log.error("getPlanGraph 失败", e);
             return error("PLAN_GRAPH_FAILED", "获取计划图谱失败: " + e.getMessage());
         }
+    }
+
+    private String resolveSessionIdByPlanId(String planId) {
+        try {
+            PlanInstance instance = planInstanceMapper.selectById(planId);
+            if (instance != null && instance.getSessionId() != null && !instance.getSessionId().isBlank()) {
+                return instance.getSessionId();
+            }
+        } catch (Exception e) {
+            log.warn("读取 plan sessionId 失败, planId={}, err={}", planId, e.getMessage());
+        }
+        return planId;
     }
 
     private void materializePhasesAndNodes(String planId, Map<String, Object> blueprint) {
