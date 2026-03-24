@@ -68,9 +68,6 @@ public class ChatServiceImpl implements ChatService {
     private final MemoryMapper memoryMapper;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    /**
-     * 会话 key 统一格式（避免 chat/startup 历史读取错位）
-     */
     private static final DateTimeFormatter SESSION_KEY_FORMATTER = DateTimeFormatter.ofPattern("yyyy:MM:dd");
 
     private static final int RAG_TOP_K_FETCH = 12;
@@ -241,28 +238,6 @@ public class ChatServiceImpl implements ChatService {
         return ResponseEntity.ok(tryParseJsonNode(result.valid()));
     }
 
-    private boolean isAsyncPending(String toolContext) {
-        JsonNode node = tryParseJsonNode(toolContext);
-        return node != null && "pending".equalsIgnoreCase(node.path("status").asText(""));
-    }
-
-    private String buildPendingReply(String toolContext) {
-        try {
-            JsonNode node = tryParseJsonNode(toolContext);
-            String taskId = node != null ? node.path("taskId").asText("") : "";
-            String skillName = node != null ? node.path("skillName").asText("该任务") : "该任务";
-
-            ObjectNode out = mapper.createObjectNode();
-            out.put("emotion", "Soft");
-            out.put("reply", "Luna 已经开始处理「" + skillName + "」，任务正在后台执行。你可以继续聊天，结果出来后会第一时间通知你。");
-            out.put("status", "pending");
-            out.put("taskId", taskId);
-            return out.toString();
-        } catch (Exception e) {
-            return "{\"emotion\":\"Soft\",\"reply\":\"Luna 已经开始处理任务，正在后台执行。\",\"status\":\"pending\"}";
-        }
-    }
-
     @Override
     @LunaLogRecord(module = LogModuleConstant.SYSTEM, action = LogActionConstant.STARTUP, type = LogType.SYSTEM_EVENT, content = "系统启动")
     public ResponseEntity<Object> startup() {
@@ -342,6 +317,7 @@ public class ChatServiceImpl implements ChatService {
         String valid = response != null ? response.getContent() : null;
 
         if (valid == null) {
+            log.warn("LLM 返回为空，触发本地兜底回复，scene={}", originalUserInput);
             String fallback = createFallbackJson();
             return new SendToLuna(fallback, removeThoughtFromJson(fallback), extractReplyFromJsonSafe(fallback));
         }
@@ -434,6 +410,28 @@ public class ChatServiceImpl implements ChatService {
         } catch (Exception ignored) {
         }
         return json;
+    }
+
+    private boolean isAsyncPending(String toolContext) {
+        JsonNode node = tryParseJsonNode(toolContext);
+        return node != null && "pending".equalsIgnoreCase(node.path("status").asText(""));
+    }
+
+    private String buildPendingReply(String toolContext) {
+        try {
+            JsonNode node = tryParseJsonNode(toolContext);
+            String taskId = node != null ? node.path("taskId").asText("") : "";
+            String skillName = node != null ? node.path("skillName").asText("该任务") : "该任务";
+
+            ObjectNode out = mapper.createObjectNode();
+            out.put("emotion", "Soft");
+            out.put("reply", "Luna 已经开始处理「" + skillName + "」，任务正在后台执行。你可以继续聊天，结果出来后会第一时间通知你。");
+            out.put("status", "pending");
+            out.put("taskId", taskId);
+            return out.toString();
+        } catch (Exception e) {
+            return "{\"emotion\":\"Soft\",\"reply\":\"Luna 已经开始处理任务，正在后台执行。\",\"status\":\"pending\"}";
+        }
     }
 
     private record SendToLuna(String raw, String valid, String replyText) {

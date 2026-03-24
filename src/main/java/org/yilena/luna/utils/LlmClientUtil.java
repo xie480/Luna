@@ -36,88 +36,40 @@ import java.util.stream.IntStream;
 @RequiredArgsConstructor
 public class LlmClientUtil {
 
-    /**
-     * 多模型配置（small/mid/big/flash）来源于 application.yaml -> gemini
-     */
     private final GeminiProperty geminiProperty;
-
-    /**
-     * Embedding 本地脚本与模型配置（python 路径、script 路径、model 路径）
-     */
     private final EmbeddingProperty embeddingProperty;
-
-    /**
-     * 通用 JSON 读写工具
-     */
     private final ObjectMapper objectMapper;
 
-    /**
-     * rerank 模型路径（本地进程回退方案用）
-     */
     @Value("${rerank.model-path:}")
     private String rerankModelPath;
 
-    /**
-     * rerank 脚本路径（本地进程回退方案用）
-     */
     @Value("${rerank.script-path:./python/rerank.py}")
     private String rerankScriptPath;
 
-    /**
-     * 是否启用常驻 HTTP 推理服务（方案A）
-     */
     @Value("${inference.http.enabled:true}")
     private boolean inferenceHttpEnabled;
 
-    /**
-     * embedding HTTP 服务地址
-     */
     @Value("${inference.http.embedding-url:http://127.0.0.1:18080/embedding}")
     private String embeddingServiceUrl;
 
-    /**
-     * rerank HTTP 服务地址
-     */
     @Value("${inference.http.rerank-url:http://127.0.0.1:18081/rerank}")
     private String rerankServiceUrl;
 
-    /**
-     * HTTP 推理超时时间（毫秒）
-     */
     @Value("${inference.http.timeout-ms:1500}")
     private long inferenceHttpTimeoutMs;
 
-    /**
-     * HTTP 推理失败后是否允许本地脚本回退
-     */
     @Value("${inference.http.fallback-local:true}")
     private boolean fallbackLocal;
 
-    /**
-     * 脚本路径缓存：resourceName -> resolvedPath
-     * 目的：避免每次都从 classpath 提取临时文件
-     */
     private static final Map<String, String> scriptPathCache = new ConcurrentHashMap<>();
-
-    /**
-     * embedding 结果缓存：text -> vector_json
-     * 目的：减少重复向量化请求
-     */
     private static final Map<String, String> embeddingCache = new ConcurrentHashMap<>();
 
-    /**
-     * 通用 HTTP 客户端
-     * 注意：具体请求时会通过 newBuilder 覆盖 readTimeout（按配置动态值）
-     */
     private final OkHttpClient httpClient = new OkHttpClient.Builder()
             .connectTimeout(Duration.ofMillis(1500))
             .readTimeout(Duration.ofMillis(1500))
             .writeTimeout(Duration.ofMillis(1500))
             .build();
 
-    /**
-     * 对外统一入口：根据模型类型分发调用
-     */
     public LlmResponse generate(LlmRequest request) {
         if (request == null) {
             log.error("generate 调用失败：request 为空");
@@ -133,18 +85,11 @@ public class LlmClientUtil {
         throw new UnsupportedOperationException("暂不支持的模型类型: " + request.getModelType());
     }
 
-    /**
-     * OpenAI 兼容协议调用逻辑（当前核心链路）
-     */
     private LlmResponse callOpenAiCompatible(LlmRequest request) {
         try {
-            // 1) 提取最近一条用户文本，作为 Prompt Injection 检测输入
             String userLatestText = extractLatestUserTextForSafetyCheck(request.getMessages());
-
-            // 2) 默认启用检测，除非调用方显式关闭
             boolean enablePromptInjectionCheck = request.getEnablePromptInjectionCheck() == null || request.getEnablePromptInjectionCheck();
 
-            // 3) 安全检测（仅对有效用户输入执行）
             if (enablePromptInjectionCheck && userLatestText != null && !userLatestText.isEmpty()) {
                 boolean isSafe = isInputSafe(userLatestText);
                 if (!isSafe) {
@@ -158,22 +103,18 @@ public class LlmClientUtil {
                         enablePromptInjectionCheck, userLatestText != null && !userLatestText.isEmpty());
             }
 
-            // 4) 将统一 LlmMessage 映射为 LangChain4j ChatMessage
             List<ChatMessage> messages = new ArrayList<>();
             if (request.getMessages() != null) {
                 for (LlmMessage msg : request.getMessages()) {
                     if ("system".equalsIgnoreCase(msg.getRole())) {
-                        // system 消息追加安全提示，强化边界
                         String hardenedSystemPrompt = msg.getText() + PromptTemplates.SYSTEM_SECURITY_NOTICE;
                         messages.add(SystemMessage.from(hardenedSystemPrompt));
                     } else if ("assistant".equalsIgnoreCase(msg.getRole())) {
                         messages.add(AiMessage.from(msg.getText()));
                     } else {
-                        // user / 默认角色：统一用 <user_input> 包裹，降低指令污染风险
                         String safeText = msg.getText() != null ? msg.getText() : "";
                         String wrappedText = "<user_input>\n" + safeText + "\n</user_input>";
 
-                        // 支持多模态：文本 + 图片 URL
                         if (msg.getImageUrls() != null && !msg.getImageUrls().isEmpty()) {
                             List<Content> contents = new ArrayList<>();
                             if (!safeText.isEmpty()) {
@@ -190,7 +131,6 @@ public class LlmClientUtil {
                 }
             }
 
-            // 5) 根据 modelName 解析对应配置（URL/API Key/实际 model）
             String requestModelName = request.getModelName();
             GeminiProperty.ModelConfig config = getModelConfig(requestModelName);
 
@@ -199,22 +139,22 @@ public class LlmClientUtil {
                 return null;
             }
 
-            // 6) 发起对话调用并返回
             String responseText = executeChatCall(messages, config, request.getTemperature());
             log.info("LLM 调用完成，model={}, responseLength={}",
                     config.getModelName(), responseText != null ? responseText.length() : 0);
             return LlmResponse.builder().content(responseText).build();
 
         } catch (Exception e) {
-            log.error("调用模型异常，model={}: {}", request.getModelName(), e.getMessage(), e);
+            String msg = e.getMessage() == null ? "" : e.getMessage();
+            if (msg.contains("502") || msg.contains("Bad Gateway")) {
+                log.error("LLM 上游网关异常（502 Bad Gateway），model={}, err={}", request.getModelName(), msg);
+            } else {
+                log.error("调用模型异常，model={}: {}", request.getModelName(), msg, e);
+            }
             return null;
         }
     }
 
-    /**
-     * Prompt Injection 检测（小模型低温）
-     * 返回 true = 安全，false = 不安全
-     */
     private boolean isInputSafe(String userInput) {
         try {
             GeminiProperty.ModelConfig smallConfig = geminiProperty.getSmall();
@@ -231,24 +171,18 @@ public class LlmClientUtil {
             log.debug("Prompt Injection 检测完成，safe={}, result={}", safe, result);
             return safe;
         } catch (Exception e) {
-            // 检测失败不阻断主流程，默认放行（可用性优先）
             log.warn("安全检测调用失败，默认放行: {}", e.getMessage());
             return true;
         }
     }
 
-    /**
-     * 实际 Chat API 调用（LangChain4j OpenAI compatible）
-     */
     private String executeChatCall(List<ChatMessage> messages, GeminiProperty.ModelConfig config, Double temperature) {
-        // 1) 兼容处理 baseUrl：去掉尾部固定 path，传给 OpenAiChatModel
         String baseUrl = config.getUrl();
         if (baseUrl != null) {
             baseUrl = baseUrl.replace("/chat/completions", "")
                     .replace("/embeddings", "");
         }
 
-        // 2) 构建模型客户端
         ChatLanguageModel chatModel = OpenAiChatModel.builder()
                 .baseUrl(baseUrl)
                 .apiKey(config.getApiKey())
@@ -260,15 +194,10 @@ public class LlmClientUtil {
                 .logResponses(true)
                 .build();
 
-        // 3) 调用并返回文本
         Response<AiMessage> response = chatModel.generate(messages);
         return response.content().text();
     }
 
-    /**
-     * 从消息列表末尾回溯，提取最后一条用户文本用于安全检测
-     * 会过滤系统/助手消息，并跳过疑似内部提示词
-     */
     private String extractLatestUserTextForSafetyCheck(List<LlmMessage> messages) {
         if (messages == null || messages.isEmpty()) return null;
         for (int i = messages.size() - 1; i >= 0; i--) {
@@ -289,9 +218,6 @@ public class LlmClientUtil {
         return null;
     }
 
-    /**
-     * 简单规则：识别内部 Prompt 片段，避免误当作用户输入做注入检测
-     */
     private boolean isLikelyInternalPrompt(String text) {
         return text.contains("# LUNA 核心人格宪章")
                 || text.contains("# 输出修复指令")
@@ -302,9 +228,6 @@ public class LlmClientUtil {
                 || text.contains("你是一个安全检测系统");
     }
 
-    /**
-     * 根据请求 modelName 定位配置；找不到时回退到 big
-     */
     private GeminiProperty.ModelConfig getModelConfig(String modelName) {
         if (modelName == null) return geminiProperty.getBig();
 
@@ -325,24 +248,18 @@ public class LlmClientUtil {
         return geminiProperty.getBig();
     }
 
-    /**
-     * 获取 embedding（优先 HTTP 常驻服务，失败可回退本地进程）
-     */
     public String getEmbedding(String text) throws Exception {
-        // 1) 输入判空
         if (text == null || text.isBlank()) {
             log.warn("getEmbedding 跳过：输入为空");
             return null;
         }
 
-        // 2) 命中缓存直接返回
         String cached = embeddingCache.get(text);
         if (cached != null && !cached.isBlank()) {
             log.debug("Embedding cache hit, textLength={}", text.length());
             return cached;
         }
 
-        // 3) 优先 HTTP 服务
         if (inferenceHttpEnabled) {
             try {
                 String vector = callEmbeddingHttpService(text);
@@ -360,24 +277,18 @@ public class LlmClientUtil {
             }
         }
 
-        // 4) 本地脚本回退
         String vector = getEmbeddingByLocalProcess(text);
         cacheEmbedding(text, vector);
         log.debug("Embedding via local process success, textLength={}", text.length());
         return vector;
     }
 
-    /**
-     * rerank（优先 HTTP 常驻服务，失败可回退本地进程）
-     */
     public List<Double> rerank(String query, List<String> documents) throws Exception {
-        // 1) 输入检查
         if (documents == null || documents.isEmpty()) {
             log.debug("rerank 跳过：documents 为空");
             return new ArrayList<>();
         }
 
-        // 2) 优先 HTTP 服务
         if (inferenceHttpEnabled) {
             try {
                 List<Double> scores = callRerankHttpService(query, documents);
@@ -391,16 +302,11 @@ public class LlmClientUtil {
             }
         }
 
-        // 3) 本地脚本回退
         List<Double> scores = rerankByLocalProcess(query, documents);
         log.debug("rerank via local process success, docSize={}", documents.size());
         return scores;
     }
 
-    /**
-     * 调用 embedding HTTP 服务
-     * 协议：POST /embedding -> { vector_json, success, error_message }
-     */
     private String callEmbeddingHttpService(String text) throws Exception {
         Map<String, Object> body = new HashMap<>();
         body.put("text", text);
@@ -428,10 +334,6 @@ public class LlmClientUtil {
         }
     }
 
-    /**
-     * 调用 rerank HTTP 服务
-     * 协议：POST /rerank -> { scores, success, error_message }
-     */
     private List<Double> callRerankHttpService(String query, List<String> documents) throws Exception {
         Map<String, Object> body = new HashMap<>();
         body.put("query", query);
@@ -467,9 +369,6 @@ public class LlmClientUtil {
         }
     }
 
-    /**
-     * 本地 Python 进程执行 embedding 脚本
-     */
     private String getEmbeddingByLocalProcess(String text) throws Exception {
         String pythonPath = embeddingProperty.getPythonPath();
         String scriptPath = resolveScriptPath(embeddingProperty.getScriptPath(), "embedding.py");
@@ -486,7 +385,6 @@ public class LlmClientUtil {
 
         Process process = pb.start();
 
-        // 读取标准输出（向量字符串）
         StringBuilder output = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
             String line;
@@ -495,7 +393,6 @@ public class LlmClientUtil {
             }
         }
 
-        // 读取标准错误（异常信息）
         StringBuilder errorOutput = new StringBuilder();
         try (BufferedReader errorReader = new BufferedReader(new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
             String line;
@@ -522,9 +419,6 @@ public class LlmClientUtil {
         return result;
     }
 
-    /**
-     * 本地 Python 进程执行 rerank 脚本（stdin 传 query/documents）
-     */
     private List<Double> rerankByLocalProcess(String query, List<String> documents) throws Exception {
         if (rerankModelPath == null || rerankModelPath.isEmpty()) {
             throw new IllegalStateException("Rerank 模型路径未配置 (rerank.model-path)");
@@ -543,7 +437,6 @@ public class LlmClientUtil {
 
         Process process = pb.start();
 
-        // 通过 stdin 传入 JSON payload
         try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8))) {
             Map<String, Object> inputPayload = new HashMap<>();
             inputPayload.put("query", query);
@@ -554,7 +447,6 @@ public class LlmClientUtil {
             writer.flush();
         }
 
-        // 读取 stdout（分数数组）
         StringBuilder output = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
             String line;
@@ -563,7 +455,6 @@ public class LlmClientUtil {
             }
         }
 
-        // 读取 stderr（异常信息）
         StringBuilder errorOutput = new StringBuilder();
         try (BufferedReader errorReader = new BufferedReader(new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
             String line;
@@ -590,14 +481,10 @@ public class LlmClientUtil {
         return objectMapper.readValue(result, objectMapper.getTypeFactory().constructCollectionType(List.class, Double.class));
     }
 
-    /**
-     * embedding 缓存写入（带简单容量保护）
-     */
     private void cacheEmbedding(String text, String vector) {
         if (vector == null || vector.isBlank()) {
             return;
         }
-        // 粗粒度控制：超过阈值直接清空，防止无界增长
         if (embeddingCache.size() > 2000) {
             log.info("Embedding cache size={} 超过阈值，执行清空", embeddingCache.size());
             embeddingCache.clear();
@@ -605,9 +492,6 @@ public class LlmClientUtil {
         embeddingCache.put(text, vector);
     }
 
-    /**
-     * 根据 rerank 分数对资源重排并截断 topK
-     */
     public <T> List<T> rerankResources(List<T> resources, List<Double> scores, int topK) {
         if (resources == null || resources.isEmpty()) return Collections.emptyList();
         if (scores == null || scores.isEmpty()) {
@@ -624,15 +508,7 @@ public class LlmClientUtil {
                 .toList();
     }
 
-    /**
-     * 解析脚本路径：
-     * 1) 优先缓存路径（且文件仍存在）
-     * 2) 其次配置路径（磁盘文件）
-     * 3) 再尝试源码资源路径（src/main/resources/python）
-     * 4) 最后 classpath 提取到临时文件
-     */
     private String resolveScriptPath(String configuredPath, String resourceName) throws IOException {
-        // 1) 命中缓存且文件存在
         if (scriptPathCache.containsKey(resourceName)) {
             String cachedPath = scriptPathCache.get(resourceName);
             if (new File(cachedPath).exists()) {
@@ -641,7 +517,6 @@ public class LlmClientUtil {
             log.warn("脚本缓存路径已失效，将重新解析，resourceName={}, cachedPath={}", resourceName, cachedPath);
         }
 
-        // 2) 使用配置路径（如果存在）
         if (configuredPath != null && !configuredPath.isEmpty()) {
             File file = new File(configuredPath);
             if (file.exists()) {
@@ -650,7 +525,6 @@ public class LlmClientUtil {
             }
         }
 
-        // 3) 开发环境兜底：尝试 src/main/resources/python/<resourceName>
         File devResourceFile = new File("src/main/resources/python/" + resourceName);
         if (devResourceFile.exists()) {
             String devPath = devResourceFile.getPath();
@@ -659,7 +533,6 @@ public class LlmClientUtil {
             return devPath;
         }
 
-        // 4) 从 classpath 提取到临时文件
         log.warn("配置脚本路径不存在: {}，且源码资源路径未找到，尝试从 classpath 加载", configuredPath);
         String resourcePath = "python/" + resourceName;
         try (InputStream is = this.getClass().getClassLoader().getResourceAsStream(resourcePath)) {
