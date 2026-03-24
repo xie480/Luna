@@ -9,7 +9,9 @@ import org.yilena.luna.entity.PlanInstance;
 import org.yilena.luna.entity.PlanNode;
 import org.yilena.luna.entity.PlanPhase;
 import org.yilena.luna.enums.PlanNodeStatus;
+import org.yilena.luna.enums.PlanNodeType;
 import org.yilena.luna.enums.PlanPhaseStatus;
+import org.yilena.luna.enums.PlanRiskLevel;
 import org.yilena.luna.enums.PlanStatus;
 import org.yilena.luna.mapper.PlanInstanceMapper;
 import org.yilena.luna.mapper.PlanNodeMapper;
@@ -128,6 +130,8 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                         .planId(planId)
                         .phaseId(phaseId)
                         .name("mvp-node-" + phaseId)
+                        .nodeType(PlanNodeType.TOOL)
+                        .riskLevel(PlanRiskLevel.LOW)
                         .status(PlanNodeStatus.PENDING)
                         .retryCount(0)
                         .maxRetry(0)
