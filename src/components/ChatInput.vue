@@ -5,8 +5,6 @@
     @mouseenter="$emit('mouseenter')" 
     @mouseleave="$emit('mouseleave')"
   >
-    
-    <!-- 拖動手柄 -->
     <div class="drag-handle" @mousedown="startDrag" title="長按拖動">
       <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="9" cy="12" r="1" fill="currentColor"></circle>
@@ -18,7 +16,6 @@
       </svg>
     </div>
 
-    <!-- 設置按鈕 -->
     <button class="icon-btn settings-btn" @click="$emit('open-settings')" title="設置">
       <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="3"></circle>
@@ -26,7 +23,6 @@
       </svg>
     </button>
 
-    <!-- 新增：计划执行入口按钮（放在输入框左侧图标区） -->
     <button class="icon-btn plan-btn" @click="$emit('toggle-plan')" title="计划执行">
       <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
         <path d="M3 6h18"></path>
@@ -37,7 +33,6 @@
       </svg>
     </button>
 
-    <!-- 查询中心按钮 -->
     <button class="icon-btn query-btn" @click="$emit('toggle-query')" title="数据查询">
       <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="11" cy="11" r="7"></circle>
@@ -45,7 +40,6 @@
       </svg>
     </button>
 
-    <!-- 歷史記錄按鈕 -->
     <button class="icon-btn history-btn" @click="$emit('toggle-history')" title="歷史記錄">
       <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
         <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
@@ -106,7 +100,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick, reactive } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, reactive } from 'vue';
 
 const props = defineProps(['loading', 'streaming', 'streamText', 'currentEmotion', 'statusText']);
 const emit = defineEmits(['send', 'open-settings', 'toggle-history', 'toggle-query', 'toggle-plan', 'mouseenter', 'mouseleave', 'close']);
@@ -119,11 +113,16 @@ const pos = reactive({ x: 0, y: 0 });
 const isCustomPos = ref(false);
 let dragStart = { x: 0, y: 0 };
 let initialPos = { x: 0, y: 0 };
+let dragging = false;
 
 onMounted(() => {
   nextTick(() => {
     inputRef.value?.focus();
   });
+});
+
+onBeforeUnmount(() => {
+  stopDrag();
 });
 
 function startDrag(e) {
@@ -137,18 +136,21 @@ function startDrag(e) {
       isCustomPos.value = true;
     }
   }
+  dragging = true;
   dragStart = { x: e.clientX, y: e.clientY };
   initialPos = { x: pos.x, y: pos.y };
   window.addEventListener('mousemove', onDrag);
   window.addEventListener('mouseup', stopDrag);
 }
 function onDrag(e) {
+  if (!dragging) return;
   const dx = e.clientX - dragStart.x;
   const dy = e.clientY - dragStart.y;
   pos.x = initialPos.x + dx;
   pos.y = initialPos.y + dy;
 }
 function stopDrag() {
+  dragging = false;
   window.removeEventListener('mousemove', onDrag);
   window.removeEventListener('mouseup', stopDrag);
 }
