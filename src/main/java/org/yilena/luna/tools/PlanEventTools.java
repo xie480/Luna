@@ -17,6 +17,7 @@ import org.yilena.luna.enums.PlanEventType;
 import org.yilena.luna.mapper.PlanEventLogMapper;
 import org.yilena.luna.sse.SseSessionManager;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -58,8 +59,8 @@ public class PlanEventTools extends BaseTool {
                     .planId(planId)
                     .phaseId(phaseId)
                     .nodeId(nodeId)
-                    .level(PlanEventLevel.valueOf(level.toUpperCase()))
-                    .eventType(PlanEventType.valueOf(eventType.toUpperCase()))
+                    .level(parseEventLevel(level))
+                    .eventType(parseEventType(eventType))
                     .eventPayload(objectMapper.readValue(eventPayload, new TypeReference<>() {}))
                     .traceId(traceId)
                     .build();
@@ -105,17 +106,59 @@ public class PlanEventTools extends BaseTool {
     ) {
         try {
             String record = recordPlanAuditLog(planId, phaseId, nodeId, level, eventType, payload, traceId);
-            if (isError(record)) {
-                return record;
-            }
             String sse = emitPlanEventSse(clientId, eventType, payload);
-            if (isError(sse)) {
-                return sse;
+
+            boolean recordError = isError(record);
+            boolean sseError = isError(sse);
+
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("record", safeReadObject(record));
+            out.put("sse", safeReadObject(sse));
+            out.put("recordOk", !recordError);
+            out.put("sseOk", !sseError);
+
+            if (!recordError && !sseError) {
+                return success(out);
             }
-            return success(Map.of("record", objectMapper.readValue(record, Object.class), "sse", objectMapper.readValue(sse, Object.class)));
+
+            if (recordError && !sseError) {
+                log.warn("emit_plan_event 部分成功：DB失败但SSE成功, planId={}, eventType={}", planId, eventType);
+                return success(out);
+            }
+
+            if (!recordError) {
+                log.warn("emit_plan_event 部分成功：DB成功但SSE失败, planId={}, eventType={}", planId, eventType);
+                return error("emit_plan_event 部分失败: SSE发送失败");
+            }
+
+            return error("emit_plan_event 失败: DB落库和SSE发送均失败");
         } catch (Exception e) {
             log.error("emit_plan_event 失败", e);
             return error("emit_plan_event 失败: " + e.getMessage());
+        }
+    }
+
+    private PlanEventLevel parseEventLevel(String level) {
+        if (level == null || level.isBlank()) {
+            return PlanEventLevel.INFO;
+        }
+        try {
+            return PlanEventLevel.valueOf(level.trim().toUpperCase());
+        } catch (Exception e) {
+            log.warn("未知事件级别，降级为 INFO, level={}", level);
+            return PlanEventLevel.INFO;
+        }
+    }
+
+    private PlanEventType parseEventType(String eventType) {
+        if (eventType == null || eventType.isBlank()) {
+            return PlanEventType.PLAN_REPORT_READY;
+        }
+        try {
+            return PlanEventType.valueOf(eventType.trim().toUpperCase());
+        } catch (Exception e) {
+            log.warn("未知事件类型，降级为 PLAN_REPORT_READY, eventType={}", eventType);
+            return PlanEventType.PLAN_REPORT_READY;
         }
     }
 
@@ -129,6 +172,14 @@ public class PlanEventTools extends BaseTool {
             return false;
         } catch (Exception e) {
             return false;
+        }
+    }
+
+    private Object safeReadObject(String json) {
+        try {
+            return objectMapper.readValue(json, Object.class);
+        } catch (Exception e) {
+            return json;
         }
     }
 }
