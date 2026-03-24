@@ -3,6 +3,7 @@ package org.yilena.luna;
 import com.mzt.logapi.starter.annotation.EnableLogRecord;
 import lombok.extern.slf4j.Slf4j;
 import org.mybatis.spring.annotation.MapperScan;
+import org.redisson.spring.starter.RedissonAutoConfigurationV2;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cache.annotation.EnableCaching;
@@ -14,7 +15,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 @MapperScan("org.yilena.luna.mapper")
 @EnableCaching
 @EnableLogRecord(tenant = "RunaApplication")
-@SpringBootApplication
+@SpringBootApplication(exclude = {RedissonAutoConfigurationV2.class})
 @EnableTransactionManagement
 public class RunaApplication {
     public static void main(String[] args) {
