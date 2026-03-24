@@ -56,6 +56,10 @@ export const planFinalizeReport = async (payload) => {
   return window.desktopApi.planFinalizeReport(payload);
 };
 
+export const planGraph = async (planId) => {
+  return window.desktopApi.planGraph(planId);
+};
+
 export const openExternal = async (target) => {
   return window.desktopApi.openExternal(target);
 };

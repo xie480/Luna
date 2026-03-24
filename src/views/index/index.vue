@@ -156,7 +156,7 @@
         :runtime="planRuntime"
         :asyncEvents="planAsyncEvents"
         @close="showPlan = false"
-        @runtime-replace="replacePlanRuntime"
+        @run-created="handlePlanCreated"
         @mouseenter="uiEnter"
         @mouseleave="uiLeave"
       />
@@ -239,7 +239,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
+import { ref, onMounted, onBeforeUnmount, nextTick, watch, computed } from "vue";
 import { gsap } from "gsap";
 import * as PIXI from "pixi.js";
 
@@ -256,6 +256,7 @@ import { useBubble } from "../../composables/useBubble.js";
 import { useAppearance } from "../../composables/useAppearance.js";
 import { useRhythm } from "../../composables/useRhythm.js";
 import { useTheme } from "../../composables/useTheme.js";
+import { usePlanGraphStore } from "../../composables/usePlanGraphStore.js";
 
 import ChatInput from "../../components/ChatInput.vue";
 import SettingsPanel from "../../components/SettingsPanel.vue";
@@ -280,33 +281,52 @@ const trackingEnabled = ref(true);
 const lunaIntroVisible = ref(false);
 const lunaStatus = ref("");
 
-// OpenClaw plan runtime（单活）
-const planRuntime = ref({
-  planId: "",
-  status: "IDLE",
-  createdAt: 0,
-  updatedAt: 0,
-  phases: {},
-  nodes: {},
-  report: { ready: false, reportPath: "", reportUrl: "" },
-  errors: [],
-});
-const planAsyncEvents = ref([]);
+// Plan Graph Store
+const planStore = usePlanGraphStore();
+const planRuntime = computed(() => planStore.toPlanPanelRuntime());
+const planAsyncEvents = computed(() => planStore.asyncEvents.value);
 
-function replacePlanRuntime(newRuntime) {
-  planRuntime.value = newRuntime;
+let activePlanId = "";
+let planReconnectTimer = null;
+let planReconnectAttempt = 0;
+const PLAN_RECONNECT_STEPS = [1000, 2000, 5000, 10000, 30000];
+
+async function handlePlanCreated({ planId }) {
+  if (!planId) return;
+  activePlanId = planId;
+  planReconnectAttempt = 0;
+  clearTimeout(planReconnectTimer);
+
+  planStore.reset(planId);
+
+  try {
+    await planStore.syncGraphSnapshot(planId);
+    appearance.showAppearanceHint("已加载计划图谱快照");
+  } catch (e) {
+    console.error("[Plan] 首次快照拉取失败:", e);
+    appearance.showAppearanceHint("计划快照拉取失败，将自动重试");
+    schedulePlanSnapshotReconnect();
+  }
 }
-function patchPlanRuntime(mutator) {
-  const draft = {
-    ...planRuntime.value,
-    phases: { ...(planRuntime.value.phases || {}) },
-    nodes: { ...(planRuntime.value.nodes || {}) },
-    report: { ...(planRuntime.value.report || {}) },
-    errors: [...(planRuntime.value.errors || [])],
-  };
-  mutator(draft);
-  draft.updatedAt = Date.now();
-  planRuntime.value = draft;
+
+function schedulePlanSnapshotReconnect() {
+  if (!activePlanId) return;
+  if (planReconnectTimer) return;
+
+  const delay = PLAN_RECONNECT_STEPS[Math.min(planReconnectAttempt, PLAN_RECONNECT_STEPS.length - 1)];
+  planReconnectAttempt += 1;
+
+  planReconnectTimer = setTimeout(async () => {
+    planReconnectTimer = null;
+    try {
+      await planStore.syncGraphSnapshot(activePlanId);
+      planReconnectAttempt = 0;
+      appearance.showAppearanceHint("计划图谱已自动校准");
+    } catch (e) {
+      console.error("[Plan] 自动校准失败:", e);
+      schedulePlanSnapshotReconnect();
+    }
+  }, delay);
 }
 
 // 審批狀態
@@ -409,134 +429,6 @@ function toUpperEventType(event, data) {
   if (e1 && e1 !== "message") return e1.toUpperCase();
   const e2 = String(data?.eventType || data?.type || "").trim();
   return e2.toUpperCase();
-}
-
-function handlePlanEvent(eventType, payload) {
-  if (!eventType) return;
-  const p = payload || {};
-  const now = Date.now();
-
-  if (eventType === "PLAN_CREATED") {
-    patchPlanRuntime((rt) => {
-      rt.planId = p.planId || rt.planId || "";
-      rt.status = "RUNNING";
-      rt.createdAt = rt.createdAt || p.timestamp || now;
-      rt.updatedAt = p.timestamp || now;
-      rt.phases = rt.phases || {};
-      rt.nodes = rt.nodes || {};
-      rt.report = rt.report || { ready: false, reportPath: "", reportUrl: "" };
-      rt.errors = rt.errors || [];
-    });
-    return;
-  }
-
-  if (eventType === "PLAN_PHASE_STARTED") {
-    patchPlanRuntime((rt) => {
-      const planId = p.planId || rt.planId;
-      if (rt.planId && planId && rt.planId !== planId) return;
-      rt.planId = planId || rt.planId;
-      const phaseId = p.phaseId || "unknown-phase";
-      rt.phases[phaseId] = {
-        ...(rt.phases[phaseId] || {}),
-        phaseId,
-        phaseOrder: p.phaseOrder ?? rt.phases[phaseId]?.phaseOrder ?? null,
-        status: "RUNNING",
-        costMs: p.costMs ?? rt.phases[phaseId]?.costMs ?? null,
-      };
-      rt.status = "RUNNING";
-    });
-    return;
-  }
-
-  if (eventType === "PLAN_NODE_RUNNING" || eventType === "PLAN_NODE_SUCCESS" || eventType === "PLAN_NODE_FAILED") {
-    patchPlanRuntime((rt) => {
-      const planId = p.planId || rt.planId;
-      if (rt.planId && planId && rt.planId !== planId) return;
-      rt.planId = planId || rt.planId;
-
-      const nodeId = p.nodeId || `node-${now}`;
-      const status = eventType === "PLAN_NODE_RUNNING" ? "RUNNING" : (eventType === "PLAN_NODE_SUCCESS" ? "SUCCESS" : "FAILED");
-      rt.nodes[nodeId] = {
-        ...(rt.nodes[nodeId] || {}),
-        nodeId,
-        phaseId: p.phaseId || rt.nodes[nodeId]?.phaseId || "",
-        status,
-        message: p.message || rt.nodes[nodeId]?.message || "",
-        costMs: p.costMs ?? rt.nodes[nodeId]?.costMs ?? null,
-        retryCount: p.retryCount ?? rt.nodes[nodeId]?.retryCount ?? 0,
-        errorCode: p.errorCode ?? rt.nodes[nodeId]?.errorCode ?? "",
-        failReason: p.failReason ?? rt.nodes[nodeId]?.failReason ?? "",
-        timestamp: p.timestamp || now,
-      };
-
-      if (status === "FAILED") {
-        rt.errors.push({
-          nodeId,
-          phaseId: p.phaseId || "",
-          errorCode: p.errorCode || "",
-          message: p.message || "",
-          failReason: p.failReason || "",
-          timestamp: p.timestamp || now,
-        });
-      }
-    });
-    return;
-  }
-
-  if (eventType === "PLAN_PHASE_FINISHED") {
-    patchPlanRuntime((rt) => {
-      const planId = p.planId || rt.planId;
-      if (rt.planId && planId && rt.planId !== planId) return;
-      rt.planId = planId || rt.planId;
-
-      const phaseId = p.phaseId || "unknown-phase";
-      rt.phases[phaseId] = {
-        ...(rt.phases[phaseId] || {}),
-        phaseId,
-        phaseOrder: p.phaseOrder ?? rt.phases[phaseId]?.phaseOrder ?? null,
-        status: p.status || "FINISHED",
-        costMs: p.costMs ?? rt.phases[phaseId]?.costMs ?? null,
-      };
-    });
-    return;
-  }
-
-  if (eventType === "PLAN_REPORT_READY") {
-    patchPlanRuntime((rt) => {
-      const planId = p.planId || rt.planId;
-      if (rt.planId && planId && rt.planId !== planId) return;
-      rt.planId = planId || rt.planId;
-      rt.report.ready = true;
-      rt.report.reportPath = p.reportPath || rt.report.reportPath || "";
-      rt.report.reportUrl = p.reportUrl || rt.report.reportUrl || "";
-      rt.status = "REPORT_READY";
-    });
-    return;
-  }
-
-  if (eventType === "SKILL_ASYNC_RESULT") {
-    const evt = {
-      taskId: p.taskId || "",
-      skillName: p.skillName || "",
-      status: p.status || "",
-      success: !!p.success,
-      message: p.message || "",
-      errorCode: p.errorCode || "",
-      error: p.error || "",
-      result: p.result,
-      costMs: p.costMs,
-      timestamp: p.timestamp || now,
-    };
-
-    planAsyncEvents.value = [evt, ...planAsyncEvents.value].slice(0, 50);
-
-    if (evt.status === "FAILED" || evt.success === false) {
-      appearance.showAppearanceHint(`异步技能失败: ${evt.skillName || evt.taskId}`);
-    } else {
-      appearance.showAppearanceHint(`异步技能完成: ${evt.skillName || evt.taskId}`);
-    }
-    return;
-  }
 }
 
 /* ================= 設定模式狀態 ================= */
@@ -656,6 +548,8 @@ async function handleLogout() {
     showPlan.value = false;
     showApproval.value = false;
     approvalTask.value = null;
+    activePlanId = "";
+    planStore.reset("");
 
     overUI = true;
     overModel = false;
@@ -1339,7 +1233,15 @@ function toggleQuery() {
 
 function togglePlan() {
   showPlan.value = !showPlan.value;
-  if (showPlan.value) uiEnter();
+  if (showPlan.value) {
+    uiEnter();
+    // 后台切前台时校准一次
+    if (activePlanId) {
+      planStore.syncGraphSnapshot(activePlanId).catch((e) => {
+        console.error("[Plan] 打开面板时校准失败:", e);
+      });
+    }
+  }
 }
 
 /* ================= 等待模型就绪 ================= */
@@ -1447,11 +1349,21 @@ onMounted(async () => {
       }
 
       const eventType = toUpperEventType(event, data);
-      if (
-        eventType.startsWith("PLAN_") ||
-        eventType === "SKILL_ASYNC_RESULT"
-      ) {
-        handlePlanEvent(eventType, data);
+
+      // 计划事件分流（含 planId 过滤在 store 内）
+      if (eventType.startsWith("PLAN_") || eventType === "SKILL_ASYNC_RESULT") {
+        planStore.applyEvent({
+          ...(data || {}),
+          eventType,
+        });
+
+        if ((eventType === "PLAN_NODE_FAILED" || eventType === "PLAN_PHASE_FINISHED" || eventType === "PLAN_REPORT_READY") && activePlanId) {
+          // 关键事件触发校准，避免乱序或丢事件
+          planStore.syncGraphSnapshot(activePlanId).catch((e) => {
+            console.error("[Plan] 关键事件校准失败:", e);
+            schedulePlanSnapshotReconnect();
+          });
+        }
       }
 
       const msg = normalizeStatusPayload(data);
@@ -1523,6 +1435,20 @@ onMounted(async () => {
 
   await preloadExpressions();
   startBreath();
+
+  // 页面回到前台，若有活动计划则校准
+  const onVisibility = () => {
+    if (!document.hidden && activePlanId) {
+      planStore.syncGraphSnapshot(activePlanId).catch((e) => {
+        console.error("[Plan] 前台校准失败:", e);
+      });
+    }
+  };
+  document.addEventListener("visibilitychange", onVisibility);
+
+  onBeforeUnmount(() => {
+    document.removeEventListener("visibilitychange", onVisibility);
+  });
 });
 
 onBeforeUnmount(() => {
@@ -1537,6 +1463,11 @@ onBeforeUnmount(() => {
   isConsumingStatusQueue = false;
   statusLastEnqueued = "";
   statusConsumeVersion = 0;
+
+  if (planReconnectTimer) {
+    clearTimeout(planReconnectTimer);
+    planReconnectTimer = null;
+  }
 });
 </script>
 

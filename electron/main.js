@@ -82,6 +82,14 @@ ipcMain.handle("luna.api.plan.report.finalize", async (_event, payload = {}) => 
     .catch(err => { throw new Error(err.message); });
 });
 
+ipcMain.handle("luna.api.plan.graph", async (_event, planId) => {
+  if (!planId || typeof planId !== "string") {
+    throw new Error("planId is required");
+  }
+  return http.get(`/luna/api/plan/graph/${encodeURIComponent(planId)}`)
+    .catch(err => { throw new Error(err.message); });
+});
+
 ipcMain.handle("luna.app.openExternal", async (_event, target) => {
   if (!target || typeof target !== "string") {
     throw new Error("target is required");

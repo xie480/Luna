@@ -53,36 +53,68 @@
           <span>更新时间：{{ formatTs(runtime.updatedAt) }}</span>
         </div>
 
-        <div class="two-col">
-          <div class="col phase-col card">
-            <div class="col-title">阶段列表</div>
-            <div class="list">
-              <div v-for="p in phaseList" :key="p.phaseId" class="item">
-                <div class="line">
-                  <b>{{ p.phaseId }}</b>
-                  <span class="badge" :class="badgeClass(p.status)">{{ p.status || "UNKNOWN" }}</span>
+        <div class="graph card">
+          <div class="col-title">计划图谱（Phase 分栏）</div>
+          <div class="graph-scroll">
+            <div class="phase-lanes">
+              <div
+                v-for="phase in orderedPhases"
+                :key="phase.phaseId"
+                class="phase-lane"
+              >
+                <div class="phase-head">
+                  <div class="phase-name">{{ phase.name || phase.phaseId }}</div>
+                  <div class="phase-meta">
+                    <span>#{{ phase.phaseOrder ?? "-" }}</span>
+                    <span class="badge" :class="badgeClass(phase.status)">{{ phase.status || "PENDING" }}</span>
+                  </div>
+                  <div class="phase-count">S: {{ phase.successCount ?? 0 }} / F: {{ phase.failCount ?? 0 }}</div>
                 </div>
-                <div class="sub">order: {{ p.phaseOrder ?? "-" }} · costMs: {{ p.costMs ?? "-" }}</div>
+
+                <div class="phase-nodes">
+                  <div
+                    v-for="node in getNodesByPhase(phase.phaseId)"
+                    :key="node.nodeId"
+                    class="node-card"
+                    :class="badgeClass(node.status)"
+                  >
+                    <div class="node-top">
+                      <b>{{ node.skillName || node.nodeName || node.nodeId }}</b>
+                      <span class="badge" :class="badgeClass(node.status)">{{ node.status || "PENDING" }}</span>
+                    </div>
+                    <div class="node-sub">
+                      nodeId: {{ node.nodeId }}
+                    </div>
+                    <div class="node-sub">
+                      costMs: {{ node.costMs ?? 0 }} · retry: {{ node.retryCount ?? 0 }}
+                    </div>
+                    <div v-if="node.status === 'FAILED'" class="fail-reason">
+                      失败原因：{{ node.failReason || node.errorCode || node.message || "-" }}
+                    </div>
+                    <div v-else class="output-summary">
+                      输出摘要：{{ summarizeOutput(node.outputForNext) }}
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div v-if="phaseList.length === 0" class="empty">暂无阶段数据</div>
+
+              <div v-if="orderedPhases.length === 0" class="empty">暂无图谱数据</div>
             </div>
           </div>
+        </div>
 
-          <div class="col node-col card">
-            <div class="col-title">节点执行流</div>
-            <div class="list">
-              <div v-for="n in nodeList" :key="n.nodeId + '-' + (n.timestamp || '')" class="item">
-                <div class="line">
-                  <b>{{ n.nodeId }}</b>
-                  <span class="badge" :class="badgeClass(n.status)">{{ n.status || "UNKNOWN" }}</span>
-                </div>
-                <div class="sub">
-                  phase: {{ n.phaseId || "-" }} · costMs: {{ n.costMs ?? "-" }} · retry: {{ n.retryCount ?? 0 }}
-                </div>
-                <div class="msg">{{ n.message || n.failReason || n.errorCode || "-" }}</div>
+        <div class="edges-box card">
+          <div class="col-title">边关系（from → to）</div>
+          <div class="list">
+            <div v-for="(e, idx) in runtimeEdges" :key="idx" class="item">
+              <div class="line">
+                <b>{{ e.fromNodeId || "-" }}</b>
+                <span>→</span>
+                <b>{{ e.toNodeId || "-" }}</b>
               </div>
-              <div v-if="nodeList.length === 0" class="empty">暂无节点数据</div>
+              <div class="sub">condition: {{ e.conditionExpr || "-" }}</div>
             </div>
+            <div v-if="runtimeEdges.length === 0" class="empty">暂无边关系</div>
           </div>
         </div>
 
@@ -116,14 +148,14 @@ const props = defineProps({
   runtime: { type: Object, required: true },
   asyncEvents: { type: Array, default: () => [] },
 });
-const emit = defineEmits(["close", "mouseenter", "mouseleave", "runtime-replace", "runtime-patch"]);
+const emit = defineEmits(["close", "mouseenter", "mouseleave", "run-created"]);
 
 const userGoal = ref("");
 const isRunning = ref(false);
 
 const feedback = ref({
   show: false,
-  type: "info", // info | success | error
+  type: "info",
   text: "",
 });
 let feedbackTimer = null;
@@ -194,15 +226,25 @@ function stopResize() {
   window.removeEventListener("mouseup", stopResize);
 }
 
-const phaseList = computed(() => {
+const orderedPhases = computed(() => {
   const phases = props.runtime?.phases || {};
-  return Object.values(phases).sort((a, b) => (a.phaseOrder ?? 0) - (b.phaseOrder ?? 0));
+  const arr = Object.values(phases);
+  return arr.sort((a, b) => (a.phaseOrder ?? 0) - (b.phaseOrder ?? 0));
 });
 
-const nodeList = computed(() => {
+const allNodes = computed(() => {
   const nodes = props.runtime?.nodes || {};
   return Object.values(nodes).sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
 });
+
+const runtimeEdges = computed(() => {
+  const edges = props.runtime?.edges;
+  return Array.isArray(edges) ? edges : [];
+});
+
+function getNodesByPhase(phaseId) {
+  return allNodes.value.filter((n) => n.phaseId === phaseId);
+}
 
 const statusDotClass = computed(() => {
   const s = String(props.runtime?.status || "").toUpperCase();
@@ -229,20 +271,15 @@ function badgeClass(status) {
   return "";
 }
 
-function normalizeRunResponse(res) {
-  const data = res?.data ?? res ?? {};
-  const planId = data.planId || "";
-  const now = Date.now();
-  return {
-    planId,
-    status: "RUNNING",
-    createdAt: now,
-    updatedAt: now,
-    phases: {},
-    nodes: {},
-    report: { ready: false, reportPath: "", reportUrl: "" },
-    errors: [],
-  };
+function summarizeOutput(v) {
+  if (v === null || v === undefined) return "-";
+  if (typeof v === "string") return v.length > 120 ? v.slice(0, 120) + "..." : v;
+  try {
+    const s = JSON.stringify(v);
+    return s.length > 120 ? s.slice(0, 120) + "..." : s;
+  } catch {
+    return String(v);
+  }
 }
 
 async function runPlan() {
@@ -252,22 +289,14 @@ async function runPlan() {
 
   try {
     const res = await planRun({ userGoal: userGoal.value.trim() });
-    const runtime = normalizeRunResponse(res);
-
-    const reportPath = res?.reportResult?.writeResult?.data?.reportPath || "";
-    const reportUrl = res?.reportResult?.writeResult?.data?.reportUrl || "";
-
-    if (reportPath || reportUrl) {
-      runtime.report.ready = true;
-      runtime.report.reportPath = reportPath;
-      runtime.report.reportUrl = reportUrl;
-      runtime.status = "REPORT_READY";
-      showFeedback("计划执行完成，报告已生成", "success", 2600);
-    } else {
-      showFeedback("计划已创建，等待实时事件更新", "info", 2200);
+    const data = res?.data ?? res ?? {};
+    const planId = data.planId || res?.planId || "";
+    if (!planId) {
+      throw new Error("后端未返回 planId");
     }
 
-    emit("runtime-replace", runtime);
+    emit("run-created", { planId, runResponse: res });
+    showFeedback("计划已创建，正在拉取图谱并订阅实时更新", "success", 2400);
   } catch (e) {
     const msg = e?.message || String(e);
     showFeedback(`计划执行失败：${msg}`, "error", 3200);
@@ -484,16 +513,8 @@ async function copyReportPath() {
   color: #fca5a5;
 }
 
-.two-col {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  min-height: 0;
-}
-.col {
-  display: flex;
-  flex-direction: column;
-  min-height: 230px;
+.graph {
+  min-height: 260px;
 }
 .col-title {
   padding: 8px 10px;
@@ -502,6 +523,88 @@ async function copyReportPath() {
   font-size: 12px;
   font-weight: bold;
 }
+.graph-scroll {
+  padding: 8px;
+  overflow: auto;
+}
+.phase-lanes {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  min-height: 180px;
+}
+.phase-lane {
+  min-width: 260px;
+  max-width: 320px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.03);
+}
+.phase-head {
+  padding: 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.phase-name {
+  font-weight: bold;
+  font-size: 13px;
+}
+.phase-meta {
+  margin-top: 6px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 11px;
+  color: #9fb0bc;
+}
+.phase-count {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #a7bac8;
+}
+.phase-nodes {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.node-card {
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  padding: 8px;
+  background: rgba(255,255,255,0.02);
+}
+.node-card.run { border-color: rgba(59,130,246,0.5); }
+.node-card.ok { border-color: rgba(34,197,94,0.5); }
+.node-card.err { border-color: rgba(239,68,68,0.5); }
+
+.node-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.node-sub {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #9fb0bc;
+}
+.fail-reason {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #fca5a5;
+  word-break: break-word;
+}
+.output-summary {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #d8e8ef;
+  word-break: break-word;
+}
+
+.edges-box {
+  min-height: 120px;
+}
+
 .list {
   padding: 8px;
   display: flex;
@@ -562,17 +665,20 @@ async function copyReportPath() {
 .resize-handle.sw { left: 0; cursor: sw-resize; }
 
 .panel-body::-webkit-scrollbar,
-.list::-webkit-scrollbar {
+.list::-webkit-scrollbar,
+.graph-scroll::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 .panel-body::-webkit-scrollbar-track,
-.list::-webkit-scrollbar-track {
+.list::-webkit-scrollbar-track,
+.graph-scroll::-webkit-scrollbar-track {
   background: rgba(255,255,255,0.05);
   border-radius: 8px;
 }
 .panel-body::-webkit-scrollbar-thumb,
-.list::-webkit-scrollbar-thumb {
+.list::-webkit-scrollbar-thumb,
+.graph-scroll::-webkit-scrollbar-thumb {
   background: linear-gradient(180deg, rgba(0,255,200,0.45), rgba(0,180,255,0.45));
   border-radius: 8px;
 }

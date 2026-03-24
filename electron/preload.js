@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld("desktopApi", {
   planRun: (payload) => ipcRenderer.invoke("luna.api.plan.run", payload),
   planPhaseRun: (payload) => ipcRenderer.invoke("luna.api.plan.phase.run", payload),
   planFinalizeReport: (payload) => ipcRenderer.invoke("luna.api.plan.report.finalize", payload),
+  planGraph: (planId) => ipcRenderer.invoke("luna.api.plan.graph", planId),
   openExternal: (target) => ipcRenderer.invoke("luna.app.openExternal", target),
 
   // 監聽狀態更新

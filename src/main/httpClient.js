@@ -21,6 +21,13 @@ function toBearerToken(token) {
   return token.startsWith("Bearer ") ? token : `Bearer ${token}`;
 }
 
+function shouldSkipDataUnwrap(config) {
+  const accept = String(config?.headers?.Accept || config?.headers?.accept || "");
+  if (accept.includes("text/event-stream")) return true;
+  if (config?.responseType === "stream") return true;
+  return false;
+}
+
 // 統一日誌 / token / header
 http.interceptors.request.use((config) => {
   console.log("[HTTP]", config.method?.toUpperCase(), config.url);
@@ -34,7 +41,12 @@ http.interceptors.request.use((config) => {
 });
 
 http.interceptors.response.use(
-  (res) => res.data,
+  (res) => {
+    if (shouldSkipDataUnwrap(res.config)) {
+      return res;
+    }
+    return res.data;
+  },
   (err) => {
     console.error("[HTTP ERROR]", err.message);
     throw err;
