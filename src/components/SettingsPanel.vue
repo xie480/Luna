@@ -112,7 +112,6 @@
             </div>
           </div>
 
-          <!-- 退出按鈕移至通用設置底部右下角 -->
           <div class="section" style="text-align: right; margin-top: 30px; border: none;">
             <button class="quit-btn" @click="quitApp">退出應用</button>
           </div>
@@ -143,7 +142,6 @@
             <div class="status-row">
               <div class="status-indicator" :class="{ active: isLoggedIn }"></div>
               <span class="status-text">{{ isLoggedIn ? '已登錄 (Online)' : '未連接 (Offline)' }}</span>
-              <!-- 新增退出登錄按鈕 -->
               <button v-if="isLoggedIn" class="logout-btn" @click="$emit('logout')">退出登錄</button>
             </div>
           </div>
@@ -186,14 +184,13 @@
       </div>
     </div>
 
-    <!-- Resize Handles -->
     <div class="resize-handle sw" @mousedown.stop="startResize($event, 'sw')"></div>
     <div class="resize-handle se" @mousedown.stop="startResize($event, 'se')"></div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, onMounted, onBeforeUnmount } from 'vue';
 import { useTheme } from '../composables/useTheme';
 import ToolManager from '../views/settings/ToolManager.vue';
 import SkillManager from '../views/settings/SkillManager.vue';
@@ -209,13 +206,11 @@ const emit = defineEmits([
   'mouseenter', 'mouseleave', 'toggle-model', 'logout'
 ]);
 
-// 拖拽邏輯
 const x = ref(window.innerWidth / 2 - 320);
 const y = ref(window.innerHeight / 2 - 240);
 let isDragging = false;
 let dragOffset = { x: 0, y: 0 };
 
-// 尺寸邏輯（調大預設尺寸）
 const width = ref(640);
 const height = ref(480);
 const minWidth = 420;
@@ -232,7 +227,6 @@ function startDrag(e) {
 
 function onDrag(e) {
   if (!isDragging) return;
-  // [Fix] 增加邊界檢查，防止拖出屏幕
   const maxX = window.innerWidth - 50;
   const maxY = window.innerHeight - 50;
   x.value = Math.min(Math.max(e.clientX - dragOffset.x, -500), maxX);
@@ -245,7 +239,6 @@ function stopDrag() {
   window.removeEventListener('mouseup', stopDrag);
 }
 
-// Resize logic
 let resizeStart = { x: 0, y: 0 };
 let initialSize = { w: 0, h: 0 };
 let initialPos = { x: 0, y: 0 };
@@ -273,7 +266,6 @@ function onResize(e) {
     const newWidth = Math.max(minWidth, initialSize.w - dx);
     width.value = newWidth;
     height.value = Math.max(minHeight, initialSize.h + dy);
-    // Adjust x to keep right edge stable
     x.value = initialPos.x + (initialSize.w - newWidth);
   }
 }
@@ -283,10 +275,8 @@ function stopResize() {
   window.removeEventListener('mouseup', stopResize);
 }
 
-// 標籤頁邏輯
 const activeTab = ref('general');
 
-// 主題邏輯
 const { THEMES, currentTheme, applyTheme } = useTheme();
 const selectedTheme = ref(currentTheme.value);
 const themes = THEMES;
@@ -295,7 +285,6 @@ function applyThemeSetting() {
   applyTheme(selectedTheme.value);
 }
 
-// 模式切換
 function toggleSetupMode() {
   emit('toggle-setup');
 }
@@ -308,18 +297,30 @@ function quitApp() {
   window.desktopApi?.quit?.();
 }
 
-// 窗口置頂邏輯
 const isAlwaysOnTop = ref(true);
 
 function toggleAlwaysOnTop() {
   window.desktopApi.setAlwaysOnTop(isAlwaysOnTop.value);
 }
+
+onMounted(async () => {
+  try {
+    const win = window;
+    if (win?.desktopApi?.setAlwaysOnTop) {
+      win.desktopApi.setAlwaysOnTop(isAlwaysOnTop.value);
+    }
+  } catch {}
+});
+
+onBeforeUnmount(() => {
+  stopDrag();
+  stopResize();
+});
 </script>
 
 <style scoped>
 .settings-panel {
   position: fixed;
-  /* width & height are now inline styles */
   background: var(--bg-panel, rgba(5,10,19,0.95));
   border: 1px solid var(--border, rgba(0,255,200,0.3));
   border-radius: 8px;
@@ -353,7 +354,6 @@ function toggleAlwaysOnTop() {
   overflow: hidden;
 }
 
-/* 左側菜單 */
 .sidebar {
   width: 140px;
   background: var(--bg-sidebar, rgba(0,0,0,0.3));
@@ -380,7 +380,6 @@ function toggleAlwaysOnTop() {
   border-left-color: var(--primary);
 }
 
-/* 右側內容 */
 .content {
   flex: 1;
   padding: 20px;
@@ -390,7 +389,7 @@ function toggleAlwaysOnTop() {
 
 .tab-content {
   animation: fadeIn 0.3s ease;
-  height: 100%; /* Ensure full height for tool manager */
+  height: 100%;
   display: flex;
   flex-direction: column;
 }
@@ -409,7 +408,6 @@ function toggleAlwaysOnTop() {
 }
 .desc { font-size: 12px; opacity: 0.6; margin-bottom: 10px; }
 
-/* 用戶狀態燈 */
 .status-row { display: flex; align-items: center; gap: 8px; }
 .status-indicator {
   width: 8px; height: 8px;
@@ -424,7 +422,6 @@ function toggleAlwaysOnTop() {
 }
 .status-text { font-size: 12px; }
 
-/* 退出登錄按鈕 */
 .logout-btn {
   margin-left: auto;
   background: rgba(255, 50, 50, 0.15);
@@ -440,7 +437,6 @@ function toggleAlwaysOnTop() {
   background: rgba(255, 50, 50, 0.3);
 }
 
-/* 主題控制 */
 .theme-control { display: flex; gap: 10px; }
 select {
   flex: 1;
@@ -462,17 +458,15 @@ select {
   border-radius: 4px;
 }
 
-/* 按鈕組 */
 .btn-group {
   display: flex;
   gap: 10px;
 }
 
-/* 綠色/紅色/灰色按鈕 */
 .action-btn {
   flex: 1;
   padding: 8px;
-  background: #28a745; /* 綠色 */
+  background: #28a745;
   color: white;
   border: none;
   cursor: pointer;
@@ -481,16 +475,15 @@ select {
   border-radius: 4px;
 }
 .action-btn.active-red {
-  background: #dc3545; /* 紅色 */
+  background: #dc3545;
 }
 .action-btn.secondary {
-  background: #6c757d; /* 灰色 */
+  background: #6c757d;
 }
 .action-btn.secondary:hover {
   background: #5a6268;
 }
 
-/* 外貌列表 */
 .appearance-list {
   display: flex;
   flex-direction: column;
@@ -520,7 +513,6 @@ select {
   width: 100%;
 }
 
-/* 退出按鈕 */
 .quit-btn {
   background: rgba(255, 50, 50, 0.15);
   border: 1px solid rgba(255, 50, 50, 0.4);
@@ -533,7 +525,6 @@ select {
 }
 .quit-btn:hover { background: rgba(255, 50, 50, 0.3); }
 
-/* Resize Handles */
 .resize-handle {
   position: absolute;
   bottom: 0;
@@ -553,7 +544,6 @@ select {
   background: rgba(0, 255, 200, 0.2);
 }
 
-/* 全局滾動條美化 (針對 SettingsPanel 內部) */
 .content::-webkit-scrollbar,
 .appearance-list::-webkit-scrollbar {
   width: 6px;
@@ -565,11 +555,11 @@ select {
 }
 .content::-webkit-scrollbar-thumb,
 .appearance-list::-webkit-scrollbar-thumb {
-  background: var(--border); /* 使用主題變量 */
+  background: var(--border);
   border-radius: 3px;
 }
 .content::-webkit-scrollbar-thumb:hover,
 .appearance-list::-webkit-scrollbar-thumb:hover {
-  background: var(--primary); /* 使用主題變量 */
+  background: var(--primary);
 }
 </style>

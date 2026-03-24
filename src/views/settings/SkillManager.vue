@@ -7,7 +7,6 @@
       </button>
     </div>
 
-    <!-- 技能列表 -->
     <div class="skill-list">
       <div v-if="loading" class="loading">加载中...</div>
       <div v-else-if="skills.length === 0" class="empty">暂无技能</div>
@@ -162,7 +161,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, reactive } from 'vue';
+import { ref, onMounted, reactive, onBeforeUnmount } from 'vue';
 
 const emit = defineEmits(['mouseenter', 'mouseleave']);
 
@@ -198,8 +197,10 @@ function startDrag(e) {
 
 function onDrag(e) {
   if (!isDragging) return;
-  modalX.value = e.clientX - dragOffset.x;
-  modalY.value = e.clientY - dragOffset.y;
+  const maxX = window.innerWidth - 120;
+  const maxY = window.innerHeight - 80;
+  modalX.value = Math.min(Math.max(e.clientX - dragOffset.x, -360), maxX);
+  modalY.value = Math.min(Math.max(e.clientY - dragOffset.y, -420), maxY);
 }
 
 function stopDrag() {
@@ -226,6 +227,10 @@ const form = reactive({
 
 onMounted(() => {
   fetchSkills();
+});
+
+onBeforeUnmount(() => {
+  stopDrag();
 });
 
 async function fetchSkills() {
@@ -632,7 +637,6 @@ const debouncedHandleDelete = debounce(handleDelete, 300);
   padding-top: 10px;
 }
 
-/* Buttons */
 .btn-primary {
   background: var(--primary, #319795);
   color: #000;
@@ -670,7 +674,6 @@ const debouncedHandleDelete = debounce(handleDelete, 300);
 .btn-text:hover { text-decoration: underline; }
 .btn-text.delete { color: #fc8181; }
 
-/* Modal Wrapper */
 .mcp-modal-wrapper {
   position: fixed;
   inset: 0;
@@ -678,7 +681,6 @@ const debouncedHandleDelete = debounce(handleDelete, 300);
   pointer-events: none;
 }
 
-/* Draggable Modal */
 .modal {
   position: fixed;
   background: var(--bg-panel, #1a202c);
@@ -815,7 +817,6 @@ textarea {
   border-radius: 0 0 8px 8px;
 }
 
-/* 加载动画 Spinner */
 .spinner {
   display: inline-block;
   width: 12px;

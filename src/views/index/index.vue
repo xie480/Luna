@@ -1235,7 +1235,6 @@ function togglePlan() {
   showPlan.value = !showPlan.value;
   if (showPlan.value) {
     uiEnter();
-    // 后台切前台时校准一次
     if (activePlanId) {
       planStore.syncGraphSnapshot(activePlanId).catch((e) => {
         console.error("[Plan] 打开面板时校准失败:", e);
@@ -1350,7 +1349,6 @@ onMounted(async () => {
 
       const eventType = toUpperEventType(event, data);
 
-      // 计划事件分流（含 planId 过滤在 store 内）
       if (eventType.startsWith("PLAN_") || eventType === "SKILL_ASYNC_RESULT") {
         planStore.applyEvent({
           ...(data || {}),
@@ -1358,7 +1356,6 @@ onMounted(async () => {
         });
 
         if ((eventType === "PLAN_NODE_FAILED" || eventType === "PLAN_PHASE_FINISHED" || eventType === "PLAN_REPORT_READY") && activePlanId) {
-          // 关键事件触发校准，避免乱序或丢事件
           planStore.syncGraphSnapshot(activePlanId).catch((e) => {
             console.error("[Plan] 关键事件校准失败:", e);
             schedulePlanSnapshotReconnect();
@@ -1436,7 +1433,6 @@ onMounted(async () => {
   await preloadExpressions();
   startBreath();
 
-  // 页面回到前台，若有活动计划则校准
   const onVisibility = () => {
     if (!document.hidden && activePlanId) {
       planStore.syncGraphSnapshot(activePlanId).catch((e) => {

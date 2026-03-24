@@ -141,7 +141,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from "vue";
+import { ref, computed, onBeforeUnmount } from "vue";
 import { planRun, openExternal } from "../api/index.js";
 
 const props = defineProps({
@@ -348,6 +348,12 @@ async function copyReportPath() {
     showFeedback("报告路径已复制", "success", 1400);
   }
 }
+
+onBeforeUnmount(() => {
+  if (feedbackTimer) clearTimeout(feedbackTimer);
+  stopDrag();
+  stopResize();
+});
 </script>
 
 <style scoped>

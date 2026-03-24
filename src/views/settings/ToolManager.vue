@@ -7,7 +7,6 @@
       </button>
     </div>
 
-    <!-- 工具列表 -->
     <div class="tool-list">
       <div v-if="loading" class="loading">加载中...</div>
       <div v-else-if="tools.length === 0" class="empty">暂无工具</div>
@@ -37,17 +36,14 @@
       </div>
     </div>
 
-    <!-- 使用 Teleport 将弹窗移动到 body，避免被父组件(SettingsPanel)的 overflow:hidden 裁剪 -->
     <Teleport to="body">
       <div v-if="showModal" class="mcp-modal-wrapper">
-        <!-- 编辑/新增 弹窗 (可拖拽) -->
         <div 
           class="modal"
           :style="{ left: modalX + 'px', top: modalY + 'px' }"
           @mouseenter="$emit('mouseenter')"
           @mouseleave="$emit('mouseleave')"
         >
-          <!-- 弹窗头部 (拖拽区域) -->
           <div class="modal-header" @mousedown="startDrag">
             <h3>{{ isEdit ? '编辑工具' : '注册新工具' }}</h3>
             <div class="header-actions">
@@ -58,9 +54,7 @@
             </div>
           </div>
           
-          <!-- 弹窗内容 (可滚动) -->
           <div class="modal-body">
-            <!-- 隐藏的文件输入框 -->
             <input type="file" ref="fileInput" accept=".json" style="display: none" @change="handleFileUpload" />
 
             <div class="form-group">
@@ -127,7 +121,6 @@
             </div>
           </div>
 
-          <!-- 弹窗底部操作区 -->
           <div class="modal-actions">
             <button class="btn-secondary" @click="debouncedCloseModal" :disabled="isSaving">取消</button>
             <button class="btn-primary" @click="debouncedHandleSave" :disabled="isSaving">
@@ -142,7 +135,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, reactive } from 'vue';
+import { ref, onMounted, reactive, onBeforeUnmount } from 'vue';
 
 const emit = defineEmits(['mouseenter', 'mouseleave']);
 
@@ -150,10 +143,9 @@ const tools = ref([]);
 const loading = ref(false);
 const showModal = ref(false);
 const isEdit = ref(false);
-const isSaving = ref(false); // 新增：保存狀態
+const isSaving = ref(false);
 const fileInput = ref(null);
 
-// 簡單的防抖函數
 function debounce(func, wait) {
   let timeout;
   return function(...args) {
@@ -163,14 +155,12 @@ function debounce(func, wait) {
   };
 }
 
-// 彈窗拖拽邏輯
 const modalX = ref(window.innerWidth / 2 - 250);
 const modalY = ref(window.innerHeight / 2 - 300);
 let isDragging = false;
 let dragOffset = { x: 0, y: 0 };
 
 function startDrag(e) {
-  // 排除關閉按鈕和導入按鈕
   if (e.target.closest('.close-btn') || e.target.closest('.btn-import')) return;
   isDragging = true;
   dragOffset.x = e.clientX - modalX.value;
@@ -181,8 +171,10 @@ function startDrag(e) {
 
 function onDrag(e) {
   if (!isDragging) return;
-  modalX.value = e.clientX - dragOffset.x;
-  modalY.value = e.clientY - dragOffset.y;
+  const maxX = window.innerWidth - 120;
+  const maxY = window.innerHeight - 80;
+  modalX.value = Math.min(Math.max(e.clientX - dragOffset.x, -360), maxX);
+  modalY.value = Math.min(Math.max(e.clientY - dragOffset.y, -420), maxY);
 }
 
 function stopDrag() {
@@ -191,7 +183,6 @@ function stopDrag() {
   window.removeEventListener('mouseup', stopDrag);
 }
 
-// 表單數據
 const form = reactive({
   id: '',
   name: '',
@@ -210,12 +201,14 @@ onMounted(() => {
   fetchTools();
 });
 
+onBeforeUnmount(() => {
+  stopDrag();
+});
+
 async function fetchTools() {
   loading.value = true;
   try {
-    // 調用後端獲取所有資源
     const resources = await window.mcpApi.listResources();
-    // 過濾出類型為 TOOL 的資源
     tools.value = resources.filter(r => r.type === 'TOOL');
   } catch (err) {
     console.error("Failed to fetch tools:", err);
@@ -228,7 +221,6 @@ async function fetchTools() {
 function openCreateModal() {
   isEdit.value = false;
   resetForm();
-  // 居中顯示
   modalX.value = window.innerWidth / 2 - 250;
   modalY.value = window.innerHeight / 2 - 300;
   showModal.value = true;
@@ -239,7 +231,6 @@ function openEditModal(tool) {
   isEdit.value = true;
   Object.assign(form, tool);
   
-  // 確保 Schema 是字符串顯示
   if (typeof form.inputSchema === 'object') {
     form.inputSchema = JSON.stringify(form.inputSchema, null, 2);
   }
@@ -247,7 +238,6 @@ function openEditModal(tool) {
     form.outputSchema = JSON.stringify(form.outputSchema, null, 2);
   }
   
-  // 居中顯示
   modalX.value = window.innerWidth / 2 - 250;
   modalY.value = window.innerHeight / 2 - 300;
   showModal.value = true;
@@ -255,7 +245,7 @@ function openEditModal(tool) {
 const debouncedOpenEditModal = debounce(openEditModal, 300);
 
 function closeModal() {
-  if (isSaving.value) return; // 保存中不允許關閉
+  if (isSaving.value) return;
   showModal.value = false;
 }
 const debouncedCloseModal = debounce(closeModal, 300);
@@ -288,7 +278,6 @@ function handleFileUpload(event) {
   reader.onload = (e) => {
     try {
       const json = JSON.parse(e.target.result);
-      // 自動填充表單
       if (json.name) form.name = json.name;
       if (json.description) form.description = json.description;
       if (json.beanName) form.beanName = json.beanName;
@@ -298,7 +287,6 @@ function handleFileUpload(event) {
       if (json.requiresApproval !== undefined) form.requiresApproval = json.requiresApproval;
       if (json.sensitivity) form.sensitivity = json.sensitivity;
       
-      // 處理 Schema，如果是對象則轉字符串
       if (json.inputSchema) {
         form.inputSchema = typeof json.inputSchema === 'object' 
           ? JSON.stringify(json.inputSchema, null, 2) 
@@ -316,7 +304,6 @@ function handleFileUpload(event) {
       console.error("JSON parse error:", err);
       alert("JSON 解析失败: " + err.message);
     } finally {
-      // 重置 input，以便下次可以選擇同一個文件
       event.target.value = '';
     }
   };
@@ -329,7 +316,6 @@ async function handleSave() {
     return;
   }
 
-  // 驗證 JSON 格式
   try {
     JSON.parse(form.inputSchema);
   } catch (e) {
@@ -346,7 +332,7 @@ async function handleSave() {
     }
   }
 
-  isSaving.value = true; // 開啟加載動畫
+  isSaving.value = true;
   try {
     if (isEdit.value) {
       await window.mcpApi.updateTool({ ...form });
@@ -361,7 +347,7 @@ async function handleSave() {
     console.error("Save failed:", err);
     alert("保存失败: " + err.message);
   } finally {
-    isSaving.value = false; // 關閉加載動畫
+    isSaving.value = false;
   }
 }
 const debouncedHandleSave = debounce(handleSave, 300);
@@ -497,7 +483,6 @@ const debouncedHandleDelete = debounce(handleDelete, 300);
   padding-top: 10px;
 }
 
-/* Buttons */
 .btn-primary {
   background: var(--primary, #319795);
   color: #000;
@@ -535,15 +520,13 @@ const debouncedHandleDelete = debounce(handleDelete, 300);
 .btn-text:hover { text-decoration: underline; }
 .btn-text.delete { color: #fc8181; }
 
-/* Modal Wrapper (Teleported) */
 .mcp-modal-wrapper {
   position: fixed;
   inset: 0;
-  z-index: 10000; /* 確保高于 SettingsPanel 的 9500 */
-  pointer-events: none; /* 允許點擊穿透背景 */
+  z-index: 10000;
+  pointer-events: none;
 }
 
-/* Draggable Modal */
 .modal {
   position: fixed;
   background: var(--bg-panel, #1a202c);
@@ -554,7 +537,7 @@ const debouncedHandleDelete = debounce(handleDelete, 300);
   flex-direction: column;
   border: 1px solid var(--border, #2d3748);
   box-shadow: 0 15px 40px rgba(0,0,0,0.8);
-  pointer-events: auto; /* 恢復彈窗本身的點擊交互 */
+  pointer-events: auto;
 }
 
 .modal-header {
@@ -697,7 +680,6 @@ textarea {
   border-radius: 0 0 8px 8px;
 }
 
-/* 加載動畫 Spinner */
 .spinner {
   display: inline-block;
   width: 12px;
@@ -712,7 +694,6 @@ textarea {
   to { transform: rotate(360deg); }
 }
 
-/* 滚动条美化 */
 .tool-list::-webkit-scrollbar,
 .modal-body::-webkit-scrollbar,
 textarea::-webkit-scrollbar {
@@ -727,12 +708,12 @@ textarea::-webkit-scrollbar-track {
 .tool-list::-webkit-scrollbar-thumb,
 .modal-body::-webkit-scrollbar-thumb,
 textarea::-webkit-scrollbar-thumb {
-  background: var(--border); /* 使用主題變量 */
+  background: var(--border);
   border-radius: 3px;
 }
 .tool-list::-webkit-scrollbar-thumb:hover,
 .modal-body::-webkit-scrollbar-thumb:hover,
 textarea::-webkit-scrollbar-thumb:hover {
-  background: var(--primary); /* 使用主題變量 */
+  background: var(--primary);
 }
 </style>
