@@ -1,60 +1,34 @@
 <template>
-  <div 
-    class="settings-panel" 
-    :style="{ left: x + 'px', top: y + 'px', width: width + 'px', height: height + 'px' }"
-    @mouseenter="$emit('mouseenter')" 
+  <div
+    class="settings-panel"
+    :class="{ fullscreen: isFullscreen, minimized: isMinimized }"
+    :style="panelStyle"
+    @mouseenter="$emit('mouseenter')"
     @mouseleave="$emit('mouseleave')"
   >
-    <!-- 標題欄 (可拖拽) -->
     <div class="panel-header" @mousedown="startDrag">
       <span>SYSTEM SETTINGS</span>
-      <button class="close-btn" @click="$emit('close')">×</button>
+      <div class="header-actions">
+        <button class="header-btn" @click.stop="toggleMinimize" :title="isMinimized ? '还原' : '最小化'">
+          {{ isMinimized ? "▢" : "—" }}
+        </button>
+        <button class="header-btn" @click.stop="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
+          {{ isFullscreen ? "🗗" : "🗖" }}
+        </button>
+        <button class="close-btn" @click="$emit('close')">×</button>
+      </div>
     </div>
 
-    <div class="panel-body">
-      <!-- 左側菜單 -->
+    <div v-show="!isMinimized" class="panel-body">
       <div class="sidebar">
-        <div 
-          class="menu-item" 
-          :class="{ active: activeTab === 'general' }"
-          @click="activeTab = 'general'"
-        >
-          通用設置
-        </div>
-        <div 
-          class="menu-item" 
-          :class="{ active: activeTab === 'appearance' }"
-          @click="activeTab = 'appearance'"
-        >
-          外貌定製
-        </div>
-        <div 
-          class="menu-item" 
-          :class="{ active: activeTab === 'system' }"
-          @click="activeTab = 'system'"
-        >
-          系統狀態
-        </div>
-        <div 
-          class="menu-item" 
-          :class="{ active: activeTab === 'tools' }"
-          @click="activeTab = 'tools'"
-        >
-          Tool管理
-        </div>
-        <div 
-          class="menu-item" 
-          :class="{ active: activeTab === 'skills' }"
-          @click="activeTab = 'skills'"
-        >
-          Skill管理
-        </div>
+        <div class="menu-item" :class="{ active: activeTab === 'general' }" @click="activeTab = 'general'">通用設置</div>
+        <div class="menu-item" :class="{ active: activeTab === 'appearance' }" @click="activeTab = 'appearance'">外貌定製</div>
+        <div class="menu-item" :class="{ active: activeTab === 'system' }" @click="activeTab = 'system'">系統狀態</div>
+        <div class="menu-item" :class="{ active: activeTab === 'tools' }" @click="activeTab = 'tools'">Tool管理</div>
+        <div class="menu-item" :class="{ active: activeTab === 'skills' }" @click="activeTab = 'skills'">Skill管理</div>
       </div>
 
-      <!-- 右側內容 -->
       <div class="content">
-        
-        <!-- 通用設置 -->
         <div v-if="activeTab === 'general'" class="tab-content">
           <div class="section">
             <div class="section-title">THEME / 主題</div>
@@ -69,11 +43,7 @@
           <div class="section">
             <div class="section-title">MODEL DISPLAY / 模型顯示</div>
             <label class="app-item">
-              <input 
-                type="checkbox" 
-                :checked="isModelVisible"
-                @change="$emit('toggle-model')"
-              />
+              <input type="checkbox" :checked="isModelVisible" @change="$emit('toggle-model')" />
               <span>顯示 Live2D 模型</span>
             </label>
           </div>
@@ -82,16 +52,10 @@
             <div class="section-title">INITIAL SETUP / 初始設定</div>
             <p class="desc">調整模型在屏幕上的初始位置和大小。</p>
             <div class="btn-group">
-              <button 
-                class="action-btn" 
-                :class="{ 'active-red': isSetupMode }"
-                @click="toggleSetupMode"
-              >
+              <button class="action-btn" :class="{ 'active-red': isSetupMode }" @click="toggleSetupMode">
                 {{ isSetupMode ? '設定完成' : '開始設定' }}
               </button>
-              <button class="action-btn secondary" @click="$emit('reset-setup')">
-                重置位置
-              </button>
+              <button class="action-btn secondary" @click="$emit('reset-setup')">重置位置</button>
             </div>
           </div>
 
@@ -99,16 +63,10 @@
             <div class="section-title">TRACKING / 視線追蹤</div>
             <p class="desc">點擊模型表面設置視線追蹤的參考中心點。</p>
             <div class="btn-group">
-              <button 
-                class="action-btn" 
-                :class="{ 'active-red': isTrackingSetupMode }"
-                @click="toggleTrackingSetup"
-              >
+              <button class="action-btn" :class="{ 'active-red': isTrackingSetupMode }" @click="toggleTrackingSetup">
                 {{ isTrackingSetupMode ? '設定完成' : '開始設定' }}
               </button>
-              <button class="action-btn secondary" @click="$emit('reset-tracking-setup')">
-                重置中心
-              </button>
+              <button class="action-btn secondary" @click="$emit('reset-tracking-setup')">重置中心</button>
             </div>
           </div>
 
@@ -117,17 +75,12 @@
           </div>
         </div>
 
-        <!-- 外貌定製 -->
         <div v-if="activeTab === 'appearance'" class="tab-content">
           <div class="section">
             <div class="section-title">ACCESSORIES / 配飾與表情</div>
             <div class="appearance-list">
               <label v-for="file in appearance.APPEARANCE_FILES" :key="file" class="app-item">
-                <input 
-                  type="checkbox" 
-                  v-model="appearance.appearanceEnabled.value[file]"
-                  @change="appearance.onAppearanceToggle(file, core)"
-                />
+                <input type="checkbox" v-model="appearance.appearanceEnabled.value[file]" @change="appearance.onAppearanceToggle(file, core)" />
                 <span>{{ appearance.displayAppearanceName(file) }}</span>
               </label>
             </div>
@@ -135,7 +88,6 @@
           </div>
         </div>
 
-        <!-- 系統狀態 -->
         <div v-if="activeTab === 'system'" class="tab-content">
           <div class="section">
             <div class="section-title">USER STATUS / 用戶狀態</div>
@@ -149,11 +101,7 @@
           <div class="section">
             <div class="section-title">WINDOW / 窗口設定</div>
             <label class="app-item">
-              <input 
-                type="checkbox" 
-                v-model="isAlwaysOnTop"
-                @change="toggleAlwaysOnTop"
-              />
+              <input type="checkbox" v-model="isAlwaysOnTop" @change="toggleAlwaysOnTop" />
               <span>窗口置頂 (Always On Top)</span>
             </label>
           </div>
@@ -161,70 +109,94 @@
           <div class="section">
             <div class="section-title">RHYTHM / 律動</div>
             <label class="app-item">
-              <input 
-                type="checkbox" 
-                :checked="rhythm.showSystemAudioListening.value"
-                @change="rhythm.toggleSystemAudio(core, { value: true })"
-              />
+              <input type="checkbox" :checked="rhythm.showSystemAudioListening.value" @change="rhythm.toggleSystemAudio(core, { value: true })" />
               <span>開啟系統音頻律動 (Beta)</span>
             </label>
           </div>
         </div>
 
-        <!-- Tool管理 -->
         <div v-if="activeTab === 'tools'" class="tab-content" style="height: 100%;">
           <ToolManager @mouseenter="$emit('mouseenter')" @mouseleave="$emit('mouseleave')" />
         </div>
 
-        <!-- Skill管理 -->
         <div v-if="activeTab === 'skills'" class="tab-content" style="height: 100%;">
           <SkillManager @mouseenter="$emit('mouseenter')" @mouseleave="$emit('mouseleave')" />
         </div>
-
       </div>
     </div>
 
-    <div class="resize-handle sw" @mousedown.stop="startResize($event, 'sw')"></div>
-    <div class="resize-handle se" @mousedown.stop="startResize($event, 'se')"></div>
+    <template v-if="!isFullscreen && !isMinimized">
+      <div class="resize-handle sw" @mousedown.stop="startResize($event, 'sw')"></div>
+      <div class="resize-handle se" @mousedown.stop="startResize($event, 'se')"></div>
+    </template>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue';
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue';
 import { useTheme } from '../composables/useTheme';
 import ToolManager from '../views/settings/ToolManager.vue';
 import SkillManager from '../views/settings/SkillManager.vue';
 
-const props = defineProps([
-  'core', 'model', 'appearance', 'rhythm', 
+defineProps([
+  'core', 'model', 'appearance', 'rhythm',
   'isLoggedIn', 'isSetupMode', 'isTrackingSetupMode',
   'isModelVisible'
 ]);
 const emit = defineEmits([
-  'close', 'reset-model', 'toggle-setup', 'toggle-tracking-setup', 
+  'close', 'reset-model', 'toggle-setup', 'toggle-tracking-setup',
   'reset-setup', 'reset-tracking-setup',
   'mouseenter', 'mouseleave', 'toggle-model', 'logout'
 ]);
 
 const x = ref(window.innerWidth / 2 - 320);
 const y = ref(window.innerHeight / 2 - 240);
-let isDragging = false;
-let dragOffset = { x: 0, y: 0 };
-
 const width = ref(640);
 const height = ref(480);
 const minWidth = 420;
 const minHeight = 320;
 
+const isMinimized = ref(false);
+const isFullscreen = ref(false);
+const prevRect = ref({ x: x.value, y: y.value, w: width.value, h: height.value });
+
+const panelStyle = computed(() => {
+  if (isFullscreen.value) return { left: '0px', top: '0px', width: '100vw', height: '100vh' };
+  return { left: x.value + 'px', top: y.value + 'px', width: width.value + 'px', height: isMinimized.value ? '52px' : height.value + 'px' };
+});
+
+function saveRect() {
+  prevRect.value = { x: x.value, y: y.value, w: width.value, h: height.value };
+}
+function toggleMinimize() {
+  isMinimized.value = !isMinimized.value;
+}
+function toggleFullscreen() {
+  if (!isFullscreen.value) {
+    saveRect();
+    isFullscreen.value = true;
+    isMinimized.value = false;
+  } else {
+    isFullscreen.value = false;
+    x.value = prevRect.value.x;
+    y.value = prevRect.value.y;
+    width.value = prevRect.value.w;
+    height.value = prevRect.value.h;
+  }
+}
+
+let isDragging = false;
+let dragOffset = { x: 0, y: 0 };
+
 function startDrag(e) {
-  if (e.target.closest('.close-btn')) return;
+  if (isFullscreen.value) return;
+  if (e.target.closest('.close-btn') || e.target.closest('.header-btn')) return;
   isDragging = true;
   dragOffset.x = e.clientX - x.value;
   dragOffset.y = e.clientY - y.value;
   window.addEventListener('mousemove', onDrag);
   window.addEventListener('mouseup', stopDrag);
 }
-
 function onDrag(e) {
   if (!isDragging) return;
   const maxX = window.innerWidth - 50;
@@ -232,7 +204,6 @@ function onDrag(e) {
   x.value = Math.min(Math.max(e.clientX - dragOffset.x, -500), maxX);
   y.value = Math.min(Math.max(e.clientY - dragOffset.y, -350), maxY);
 }
-
 function stopDrag() {
   isDragging = false;
   window.removeEventListener('mousemove', onDrag);
@@ -245,12 +216,13 @@ let initialPos = { x: 0, y: 0 };
 let resizeDir = '';
 
 function startResize(e, dir) {
+  if (isFullscreen.value || isMinimized.value) return;
   e.preventDefault();
   resizeDir = dir;
   resizeStart = { x: e.clientX, y: e.clientY };
   initialSize = { w: width.value, h: height.value };
   initialPos = { x: x.value, y: y.value };
-  
+
   window.addEventListener('mousemove', onResize);
   window.addEventListener('mouseup', stopResize);
 }
@@ -258,7 +230,7 @@ function startResize(e, dir) {
 function onResize(e) {
   const dx = e.clientX - resizeStart.x;
   const dy = e.clientY - resizeStart.y;
-  
+
   if (resizeDir === 'se') {
     width.value = Math.max(minWidth, initialSize.w + dx);
     height.value = Math.max(minHeight, initialSize.h + dy);
@@ -284,30 +256,25 @@ const themes = THEMES;
 function applyThemeSetting() {
   applyTheme(selectedTheme.value);
 }
-
 function toggleSetupMode() {
   emit('toggle-setup');
 }
-
 function toggleTrackingSetup() {
   emit('toggle-tracking-setup');
 }
-
 function quitApp() {
   window.desktopApi?.quit?.();
 }
 
 const isAlwaysOnTop = ref(true);
-
 function toggleAlwaysOnTop() {
-  window.desktopApi.setAlwaysOnTop(isAlwaysOnTop.value);
+  window.desktopApi?.setAlwaysOnTop?.(isAlwaysOnTop.value);
 }
 
 onMounted(async () => {
   try {
-    const win = window;
-    if (win?.desktopApi?.setAlwaysOnTop) {
-      win.desktopApi.setAlwaysOnTop(isAlwaysOnTop.value);
+    if (window?.desktopApi?.setAlwaysOnTop) {
+      window.desktopApi.setAlwaysOnTop(isAlwaysOnTop.value);
     }
   } catch {}
 });
@@ -332,7 +299,9 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(10px);
   overflow: hidden;
 }
-
+.settings-panel.fullscreen {
+  border-radius: 0;
+}
 .panel-header {
   padding: 12px 15px;
   background: rgba(0,0,0,0.2);
@@ -345,6 +314,21 @@ onBeforeUnmount(() => {
   color: var(--primary, #00ffc8);
   cursor: move;
   user-select: none;
+}
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.header-btn {
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.08);
+  color: var(--text-main, #fff);
+  width: 24px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  line-height: 1;
 }
 .close-btn { background: none; border: none; color: inherit; font-size: 20px; cursor: pointer; }
 

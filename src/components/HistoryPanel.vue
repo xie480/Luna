@@ -1,18 +1,25 @@
 <template>
-  <div 
-    class="history-panel" 
-    :style="{ left: x + 'px', top: y + 'px' }"
-    @mouseenter="$emit('mouseenter')" 
+  <div
+    class="history-panel"
+    :class="{ fullscreen: isFullscreen, minimized: isMinimized }"
+    :style="panelStyle"
+    @mouseenter="$emit('mouseenter')"
     @mouseleave="$emit('mouseleave')"
   >
-    <!-- 標題欄 (可拖拽) -->
     <div class="history-header" @mousedown="startDrag">
       <span class="title">MEMORY ARCHIVE</span>
-      <button class="close-btn" @click="$emit('close')">×</button>
+      <div class="header-actions">
+        <button class="header-btn" @click.stop="toggleMinimize" :title="isMinimized ? '还原' : '最小化'">
+          {{ isMinimized ? "▢" : "—" }}
+        </button>
+        <button class="header-btn" @click.stop="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
+          {{ isFullscreen ? "🗗" : "🗖" }}
+        </button>
+        <button class="close-btn" @click="$emit('close')">×</button>
+      </div>
     </div>
 
-    <div class="history-body">
-      <!-- 左側：日曆 -->
+    <div v-show="!isMinimized" class="history-body">
       <div class="calendar-section">
         <div class="cal-nav">
           <button @click="changeMonth(-1)">&lt;</button>
@@ -20,35 +27,31 @@
           <button @click="changeMonth(1)">&gt;</button>
         </div>
         <div class="cal-grid">
-          <div v-for="d in daysInMonth" :key="d.dateStr" 
-               class="cal-day"
-               :class="{ 
-                 'has-data': availableDates.has(d.dateStr),
-                 'selected': selectedDate === d.dateStr
-               }"
-               @click="selectDate(d.dateStr)"
+          <div
+            v-for="d in daysInMonth"
+            :key="d.dateStr"
+            class="cal-day"
+            :class="{
+              'has-data': availableDates.has(d.dateStr),
+              'selected': selectedDate === d.dateStr
+            }"
+            @click="selectDate(d.dateStr)"
           >
             {{ d.day }}
           </div>
         </div>
       </div>
 
-      <!-- 右側：聊天記錄 (Line 風格) -->
       <div class="chat-section">
         <div v-if="loading" class="loading-mask">LOADING...</div>
         <div class="chat-list" ref="chatListRef">
-          <div v-for="(msg, idx) in messages" :key="idx" 
-               class="chat-row" 
-               :class="msg.sender"
-          >
-            <!-- 系統消息 -->
+          <div v-for="(msg, idx) in messages" :key="idx" class="chat-row" :class="msg.sender">
             <div v-if="msg.sender === 'system'" class="system-msg">
               <span class="sys-line"></span>
               <span class="sys-text">{{ msg.content }}</span>
               <span class="sys-line"></span>
             </div>
 
-            <!-- 對話消息 (Line 風格) -->
             <div v-else class="line-msg-wrapper">
               <div class="line-bubble">{{ msg.content }}</div>
               <div class="line-time">{{ msg.time }}</div>
@@ -57,23 +60,66 @@
         </div>
       </div>
     </div>
+
+    <template v-if="!isFullscreen && !isMinimized">
+      <div class="resize-handle sw" @mousedown.stop="startResize($event, 'sw')"></div>
+      <div class="resize-handle se" @mousedown.stop="startResize($event, 'se')"></div>
+    </template>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, computed, nextTick, onBeforeUnmount } from 'vue';
 
-const props = defineProps(['visible']);
 const emit = defineEmits(['close', 'mouseenter', 'mouseleave']);
 
-// 拖拽邏輯
 const x = ref(window.innerWidth / 2 - 350);
 const y = ref(window.innerHeight / 2 - 250);
+const width = ref(700);
+const height = ref(550);
+const minWidth = 620;
+const minHeight = 420;
+
+const isMinimized = ref(false);
+const isFullscreen = ref(false);
+const prevRect = ref({ x: x.value, y: y.value, w: width.value, h: height.value });
+
+const panelStyle = computed(() => {
+  if (isFullscreen.value) return { left: '0px', top: '0px', width: '100vw', height: '100vh' };
+  return { left: x.value + 'px', top: y.value + 'px', width: width.value + 'px', height: isMinimized.value ? '52px' : height.value + 'px' };
+});
+
+function saveRect() {
+  prevRect.value = { x: x.value, y: y.value, w: width.value, h: height.value };
+}
+function toggleMinimize() {
+  isMinimized.value = !isMinimized.value;
+}
+function toggleFullscreen() {
+  if (!isFullscreen.value) {
+    saveRect();
+    isFullscreen.value = true;
+    isMinimized.value = false;
+  } else {
+    isFullscreen.value = false;
+    x.value = prevRect.value.x;
+    y.value = prevRect.value.y;
+    width.value = prevRect.value.w;
+    height.value = prevRect.value.h;
+  }
+}
+
 let isDragging = false;
 let dragOffset = { x: 0, y: 0 };
 
 function startDrag(e) {
-  if (e.target.closest('.close-btn') || e.target.closest('.chat-list') || e.target.closest('.calendar-section')) return;
+  if (isFullscreen.value) return;
+  if (
+    e.target.closest('.close-btn') ||
+    e.target.closest('.header-btn') ||
+    e.target.closest('.chat-list') ||
+    e.target.closest('.calendar-section')
+  ) return;
   isDragging = true;
   dragOffset.x = e.clientX - x.value;
   dragOffset.y = e.clientY - y.value;
@@ -83,7 +129,6 @@ function startDrag(e) {
 
 function onDrag(e) {
   if (!isDragging) return;
-  // [Fix] 增加邊界檢查
   const maxX = window.innerWidth - 50;
   const maxY = window.innerHeight - 50;
   x.value = Math.min(Math.max(e.clientX - dragOffset.x, -650), maxX);
@@ -96,7 +141,33 @@ function stopDrag() {
   window.removeEventListener('mouseup', stopDrag);
 }
 
-// 日曆邏輯
+let resizeDir = '';
+let resizeStart = { x: 0, y: 0 };
+let initial = { x: 0, y: 0, w: 0, h: 0 };
+function startResize(e, dir) {
+  if (isFullscreen.value || isMinimized.value) return;
+  resizeDir = dir;
+  resizeStart = { x: e.clientX, y: e.clientY };
+  initial = { x: x.value, y: y.value, w: width.value, h: height.value };
+  window.addEventListener('mousemove', onResize);
+  window.addEventListener('mouseup', stopResize);
+}
+function onResize(e) {
+  const dx = e.clientX - resizeStart.x;
+  const dy = e.clientY - resizeStart.y;
+  if (resizeDir.includes('e')) width.value = Math.max(minWidth, initial.w + dx);
+  if (resizeDir.includes('s')) height.value = Math.max(minHeight, initial.h + dy);
+  if (resizeDir.includes('w')) {
+    const nw = Math.max(minWidth, initial.w - dx);
+    x.value = initial.x + (initial.w - nw);
+    width.value = nw;
+  }
+}
+function stopResize() {
+  window.removeEventListener('mousemove', onResize);
+  window.removeEventListener('mouseup', stopResize);
+}
+
 const now = new Date();
 const currentYear = ref(now.getFullYear());
 const currentMonth = ref(now.getMonth());
@@ -119,7 +190,6 @@ const daysInMonth = computed(() => {
   return days;
 });
 
-// 格式化為 YYYY:MM:DD
 function formatDateStr(date) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -136,21 +206,17 @@ function changeMonth(delta) {
 }
 
 async function fetchAvailableDates() {
-  // 格式化為 YYYY:MM
   const year = currentYear.value;
   const month = String(currentMonth.value + 1).padStart(2, '0');
   const ym = `${year}:${month}`;
-  
+
   try {
     const res = await window.desktopApi.historyDate(ym);
-    console.log("Available dates raw:", res);
-    
-    // 转换逻辑：将 ['15', '09'] 转换为 ['2023:10:15', '2023:10:09']
     const formattedDates = (res || []).map(day => {
       const d = String(day).padStart(2, '0');
       return `${year}:${month}:${d}`;
     });
-    
+
     availableDates.value = new Set(formattedDates);
   } catch (e) {
     console.error("Fetch dates error", e);
@@ -158,51 +224,28 @@ async function fetchAvailableDates() {
   }
 }
 
-// 提取解析歷史記錄的邏輯，方便復用
 function parseHistory(res) {
   return (res || []).reduce((acc, rawLine) => {
     if (!rawLine) return acc;
     const line = typeof rawLine === 'string' ? rawLine : JSON.stringify(rawLine);
-
-    // [Fix] 使用 [\s\S]* 替代 .* 以支持多行文本（換行符），避免代碼塊或分段文本被丟棄
     const match = line.match(/^([A-Z_]+):([\s\S]*):(\d{1,2}:\d{2}:\d{2}(?:\.\d+)?)$/);
-    
+
     if (match) {
-      const [_, tag, content, time] = match;
-      
+      const [, tag, content, time] = match;
       let sender = 'system';
       if (tag === 'LUNA') sender = 'luna';
       else if (tag === 'USER') sender = 'user';
-      else if (tag === 'STARTUP') sender = 'system';
-      else if (tag === 'CONTEXT_SUMMARY') sender = 'system';
-      
-      acc.push({
-        sender,
-        content: content.trim(),
-        time // 直接使用字符串時間
-      });
+      acc.push({ sender, content: content.trim(), time });
     } else {
-      // [Fix] 增加容錯處理：如果沒有時間後綴，嘗試只匹配 TAG:Content
       const fallbackMatch = line.match(/^([A-Z_]+):([\s\S]*)$/);
       if (fallbackMatch) {
-        const [_, tag, content] = fallbackMatch;
+        const [, tag, content] = fallbackMatch;
         let sender = 'system';
         if (tag === 'LUNA') sender = 'luna';
         else if (tag === 'USER') sender = 'user';
-        
-        acc.push({
-          sender,
-          content: content.trim(),
-          time: ''
-        });
+        acc.push({ sender, content: content.trim(), time: '' });
       } else {
-        // [Fix] 如果完全不符合格式，作為系統消息顯示，防止任何信息遺漏
-        console.warn("[HistoryPanel] 無法解析的歷史記錄格式:", line);
-        acc.push({
-          sender: 'system',
-          content: line,
-          time: ''
-        });
+        acc.push({ sender: 'system', content: line, time: '' });
       }
     }
     return acc;
@@ -210,19 +253,13 @@ function parseHistory(res) {
 }
 
 async function selectDate(dateStr) {
-  // 優化：如果該日期沒有數據，則不執行任何操作
   if (!availableDates.value.has(dateStr)) return;
-
   selectedDate.value = dateStr;
   loading.value = true;
   messages.value = [];
   try {
-    // dateStr 已經是 YYYY:MM:DD 格式
     const res = await window.desktopApi.history(dateStr);
-    console.log("History raw:", res);
-    
     messages.value = parseHistory(res);
-
     await nextTick();
     scrollToBottom();
   } catch (e) {
@@ -240,36 +277,29 @@ function scrollToBottom() {
 
 onMounted(() => {
   fetchAvailableDates();
-  // 嘗試加載當天，如果當天沒數據，selectDate 內部的判斷會攔截，但這裡我們希望初始化時能顯示
-  // 為了體驗，可以不強制攔截初始化，或者在 fetchAvailableDates 後自動選擇最近的一天
-  // 這裡暫時保持默認選擇當天，如果當天沒數據則顯示空白
   const today = formatDateStr(new Date());
-  // 這裡手動調用一次 API 獲取當天數據，繞過 selectDate 的 has check，確保剛打開時能看到當天（如果有）
-  // 或者等待 availableDates 加載完。為了簡單，這裡直接調用：
   window.desktopApi.history(today).then(res => {
     if (res && res.length > 0) {
-      availableDates.value.add(today); // 確保當天被標記為有數據
+      availableDates.value.add(today);
       selectDate(today);
     }
   });
 });
 
-// 確保組件銷毀時（如關閉窗口）發送 mouseleave，防止窗口卡在不可穿透狀態
 onBeforeUnmount(() => {
+  stopDrag();
+  stopResize();
   emit('mouseleave');
 });
 
-// 獲取當前時間字符串 HH:MM:SS
 function getCurrentTimeStr() {
   const d = new Date();
   return d.toLocaleTimeString('en-GB', { hour12: false });
 }
 
-// 暴露給父組件調用，用於實時插入新消息或刷新
 defineExpose({
   pushMessage: (msg) => {
     if (selectedDate.value === formatDateStr(new Date())) {
-      // 確保消息有 time 字段
       const msgWithTime = {
         ...msg,
         time: msg.time || getCurrentTimeStr()
@@ -278,21 +308,19 @@ defineExpose({
       nextTick(scrollToBottom);
     }
   },
-  // [Fix] 新增 refresh 方法，用於重新獲取當天最新的歷史記錄
   refresh: async () => {
     const today = formatDateStr(new Date());
     const now = new Date();
-    
-    // 如果當前不在本月，切換到本月並刷新可用日期
+
     if (currentYear.value !== now.getFullYear() || currentMonth.value !== now.getMonth()) {
       currentYear.value = now.getFullYear();
       currentMonth.value = now.getMonth();
       await fetchAvailableDates();
     }
-    
+
     availableDates.value.add(today);
     selectedDate.value = today;
-    
+
     try {
       const res = await window.desktopApi.history(today);
       messages.value = parseHistory(res);
@@ -308,8 +336,6 @@ defineExpose({
 <style scoped>
 .history-panel {
   position: fixed;
-  width: 700px; /* 調整為剛好合適的寬度 */
-  height: 550px;
   background: var(--bg-panel, rgba(20, 22, 26, 0.98));
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
@@ -320,8 +346,11 @@ defineExpose({
   backdrop-filter: blur(12px);
   color: #dcddde;
   font-family: "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  overflow: hidden;
 }
-
+.history-panel.fullscreen {
+  border-radius: 0;
+}
 .history-header {
   padding: 14px 18px;
   background: rgba(0,0,0,0.3);
@@ -339,6 +368,21 @@ defineExpose({
   font-weight: 700;
   text-transform: uppercase;
 }
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.header-btn {
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.08);
+  color: var(--text-main, #fff);
+  width: 24px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  line-height: 1;
+}
 .close-btn {
   background: none;
   border: none;
@@ -355,7 +399,6 @@ defineExpose({
   overflow: hidden;
 }
 
-/* ===== 左側日曆 ===== */
 .calendar-section {
   width: 240px;
   flex-shrink: 0;
@@ -398,15 +441,11 @@ defineExpose({
   font-size: 12px;
   border-radius: 4px;
   transition: all 0.2s;
-  
-  /* 默認狀態：無數據，不可點擊，變暗 */
   opacity: 0.2;
   color: #fff;
   pointer-events: none;
   background: transparent;
 }
-
-/* 有數據的日期：高亮，可點擊 */
 .cal-day.has-data {
   opacity: 1;
   pointer-events: auto;
@@ -419,8 +458,6 @@ defineExpose({
   background: rgba(255,255,255,0.1);
   color: #fff;
 }
-
-/* 選中狀態 */
 .cal-day.selected {
   background: var(--primary, #00ffc8) !important;
   color: #000 !important;
@@ -428,14 +465,13 @@ defineExpose({
   box-shadow: 0 0 10px rgba(0, 255, 200, 0.3);
 }
 
-/* ===== 右側聊天記錄 (Line Style) ===== */
 .chat-section {
   flex: 1;
   position: relative;
   display: flex;
   flex-direction: column;
   background: transparent;
-  overflow: hidden; /* 防止整體溢出 */
+  overflow: hidden;
 }
 .loading-mask {
   position: absolute;
@@ -452,41 +488,25 @@ defineExpose({
 .chat-list {
   flex: 1;
   overflow-y: auto;
-  overflow-x: hidden; /* 隱藏橫向滾動條 */
+  overflow-x: hidden;
   padding: 20px 16px;
   display: flex;
   flex-direction: column;
-  gap: 16px; /* 氣泡之間的間距 */
+  gap: 16px;
 }
-
-/* 滾動條美化 */
 .chat-list::-webkit-scrollbar { width: 6px; }
 .chat-list::-webkit-scrollbar-track { background: transparent; }
 .chat-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 .chat-list::-webkit-scrollbar-thumb:hover { background: var(--primary); }
 
-/* 聊天行容器 */
 .chat-row {
   display: flex;
   width: 100%;
 }
+.chat-row.luna { justify-content: flex-start; }
+.chat-row.user { justify-content: flex-end; }
+.chat-row.system { justify-content: center; }
 
-/* LUNA 靠左 */
-.chat-row.luna {
-  justify-content: flex-start;
-}
-
-/* USER 靠右 */
-.chat-row.user {
-  justify-content: flex-end;
-}
-
-/* 系統消息居中 */
-.chat-row.system {
-  justify-content: center;
-}
-
-/* 系統消息樣式 */
 .system-msg {
   display: flex;
   align-items: center;
@@ -495,25 +515,20 @@ defineExpose({
   margin: 8px 0;
 }
 .sys-line { flex: 1; height: 1px; background: rgba(255,255,255,0.1); }
-.sys-text { 
-  font-size: 11px; 
-  color: rgba(255,255,255,0.4); 
+.sys-text {
+  font-size: 11px;
+  color: rgba(255,255,255,0.4);
 }
 
-/* Line 風格氣泡包裝器 */
 .line-msg-wrapper {
   display: flex;
-  align-items: flex-end; /* 讓時間對齊氣泡底部 */
+  align-items: flex-end;
   gap: 6px;
-  max-width: 85%; /* 限制氣泡最大寬度 */
+  max-width: 85%;
 }
-
-/* USER 的時間在左，氣泡在右 */
 .chat-row.user .line-msg-wrapper {
   flex-direction: row-reverse;
 }
-
-/* 氣泡本體 */
 .line-bubble {
   padding: 10px 14px;
   border-radius: 16px;
@@ -523,28 +538,32 @@ defineExpose({
   white-space: pre-wrap;
   box-shadow: 0 2px 5px rgba(0,0,0,0.2);
 }
-
-/* LUNA 氣泡樣式 (深色半透明) */
 .luna .line-bubble {
   background: rgba(255, 255, 255, 0.1);
   color: #e8fff8;
-  border-top-left-radius: 4px; /* 左上角直角，模擬小尾巴 */
+  border-top-left-radius: 4px;
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
-
-/* USER 氣泡樣式 (主題色) */
 .user .line-bubble {
   background: var(--primary, #00ffc8);
   color: #000;
-  border-top-right-radius: 4px; /* 右上角直角，模擬小尾巴 */
+  border-top-right-radius: 4px;
   font-weight: 500;
 }
-
-/* 時間標籤 */
 .line-time {
   font-size: 10px;
   color: rgba(255, 255, 255, 0.4);
-  margin-bottom: 2px; /* 微調對齊氣泡底部 */
+  margin-bottom: 2px;
   flex-shrink: 0;
 }
+
+.resize-handle {
+  position: absolute;
+  bottom: 0;
+  width: 15px;
+  height: 15px;
+  z-index: 20;
+}
+.resize-handle.sw { left: 0; cursor: sw-resize; }
+.resize-handle.se { right: 0; cursor: se-resize; }
 </style>

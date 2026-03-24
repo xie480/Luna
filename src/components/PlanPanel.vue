@@ -6,7 +6,8 @@
   >
     <div
       class="plan-panel"
-      :style="{ left: x + 'px', top: y + 'px', width: width + 'px', height: height + 'px' }"
+      :class="{ fullscreen: isFullscreen, minimized: isMinimized }"
+      :style="panelStyle"
     >
       <div class="panel-header" @mousedown="startDrag">
         <div class="title-wrap">
@@ -15,11 +16,17 @@
         </div>
         <div class="header-right">
           <span class="status-dot" :class="statusDotClass" :title="runtime?.status || 'IDLE'"></span>
+          <button class="header-btn" @click.stop="toggleMinimize" :title="isMinimized ? '还原' : '最小化'">
+            {{ isMinimized ? "▢" : "—" }}
+          </button>
+          <button class="header-btn" @click.stop="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
+            {{ isFullscreen ? "🗗" : "🗖" }}
+          </button>
           <button class="close-btn" @click="$emit('close')">×</button>
         </div>
       </div>
 
-      <div class="panel-body">
+      <div v-show="!isMinimized" class="panel-body">
         <div class="top-form card">
           <textarea
             v-model="userGoal"
@@ -55,7 +62,7 @@
           <span>更新时间：{{ formatTs(runtime.updatedAt) }}</span>
         </div>
 
-        <div class="graph card">
+        <div class="graph card auto-card">
           <div class="col-title">计划图谱（Phase 分栏）</div>
           <div class="graph-scroll">
             <div class="phase-lanes">
@@ -102,7 +109,7 @@
           </div>
         </div>
 
-        <div class="edges-box card">
+        <div class="edges-box card auto-card">
           <div class="col-title">边关系（from → to）</div>
           <div class="list">
             <div v-for="(e, idx) in runtimeEdges" :key="idx" class="item">
@@ -117,7 +124,7 @@
           </div>
         </div>
 
-        <div class="async-box card">
+        <div class="async-box card auto-card">
           <div class="col-title">异步技能事件</div>
           <div class="list">
             <div v-for="(e, idx) in asyncEvents" :key="idx" class="item">
@@ -133,8 +140,10 @@
         </div>
       </div>
 
-      <div class="resize-handle se" @mousedown.stop="startResize($event, 'se')"></div>
-      <div class="resize-handle sw" @mousedown.stop="startResize($event, 'sw')"></div>
+      <template v-if="!isFullscreen && !isMinimized">
+        <div class="resize-handle se" @mousedown.stop="startResize($event, 'se')"></div>
+        <div class="resize-handle sw" @mousedown.stop="startResize($event, 'sw')"></div>
+      </template>
     </div>
   </div>
 </template>
@@ -174,11 +183,45 @@ const height = ref(640);
 const minWidth = 780;
 const minHeight = 460;
 
+const isMinimized = ref(false);
+const isFullscreen = ref(false);
+const prevRect = ref({ x: x.value, y: y.value, w: width.value, h: height.value });
+
+const panelStyle = computed(() => {
+  if (isFullscreen.value) {
+    return { left: "0px", top: "0px", width: "100vw", height: "100vh" };
+  }
+  return { left: x.value + "px", top: y.value + "px", width: width.value + "px", height: isMinimized.value ? "52px" : height.value + "px" };
+});
+
+function saveRect() {
+  prevRect.value = { x: x.value, y: y.value, w: width.value, h: height.value };
+}
+
+function toggleMinimize() {
+  isMinimized.value = !isMinimized.value;
+}
+
+function toggleFullscreen() {
+  if (!isFullscreen.value) {
+    saveRect();
+    isFullscreen.value = true;
+    isMinimized.value = false;
+  } else {
+    isFullscreen.value = false;
+    x.value = prevRect.value.x;
+    y.value = prevRect.value.y;
+    width.value = prevRect.value.w;
+    height.value = prevRect.value.h;
+  }
+}
+
 let isDragging = false;
 let dragOffset = { x: 0, y: 0 };
 
 function startDrag(e) {
-  if (e.target.closest(".close-btn")) return;
+  if (isFullscreen.value) return;
+  if (e.target.closest(".close-btn") || e.target.closest(".header-btn")) return;
   isDragging = true;
   dragOffset.x = e.clientX - x.value;
   dragOffset.y = e.clientY - y.value;
@@ -201,6 +244,7 @@ let resizeStart = { x: 0, y: 0 };
 let initial = { x: 0, y: 0, w: 0, h: 0 };
 
 function startResize(e, dir) {
+  if (isFullscreen.value || isMinimized.value) return;
   resizeDir = dir;
   resizeStart = { x: e.clientX, y: e.clientY };
   initial = { x: x.value, y: y.value, w: width.value, h: height.value };
@@ -380,6 +424,12 @@ onBeforeUnmount(() => {
   overflow: hidden;
   pointer-events: auto;
 }
+.plan-panel.fullscreen {
+  border-radius: 0;
+}
+.plan-panel.minimized {
+  overflow: hidden;
+}
 
 .panel-header {
   padding: 12px 16px;
@@ -405,7 +455,17 @@ onBeforeUnmount(() => {
 .header-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+}
+.header-btn {
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.08);
+  color: var(--text-main, #fff);
+  width: 24px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  line-height: 1;
 }
 .status-dot {
   width: 9px;
@@ -434,13 +494,17 @@ onBeforeUnmount(() => {
   gap: 10px;
   min-height: 0;
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: auto;
 }
 
 .card {
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 8px;
   background: rgba(255,255,255,0.03);
+}
+.auto-card {
+  width: max-content;
+  min-width: 100%;
 }
 
 .top-form {
@@ -540,10 +604,11 @@ onBeforeUnmount(() => {
   gap: 10px;
   align-items: flex-start;
   min-height: 180px;
+  width: max-content;
 }
 .phase-lane {
   min-width: 260px;
-  max-width: 320px;
+  max-width: 420px;
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 8px;
   background: rgba(255,255,255,0.03);
@@ -620,12 +685,15 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 8px;
   overflow: auto;
+  width: max-content;
+  min-width: 100%;
 }
 .item {
   border: 1px solid rgba(255,255,255,0.08);
   background: rgba(255,255,255,0.03);
   border-radius: 6px;
   padding: 8px;
+  min-width: 420px;
 }
 .line {
   display: flex;

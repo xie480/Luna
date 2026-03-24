@@ -1,16 +1,25 @@
 <template>
   <div
     class="query-panel"
-    :style="{ left: x + 'px', top: y + 'px', width: width + 'px', height: height + 'px' }"
+    :class="{ fullscreen: isFullscreen, minimized: isMinimized }"
+    :style="panelStyle"
     @mouseenter="$emit('mouseenter')"
     @mouseleave="$emit('mouseleave')"
   >
     <div class="panel-header" @mousedown="startDrag">
       <span>DATA QUERY CENTER</span>
-      <button class="close-btn" @click="$emit('close')">×</button>
+      <div class="header-actions">
+        <button class="header-btn" @click.stop="toggleMinimize" :title="isMinimized ? '还原' : '最小化'">
+          {{ isMinimized ? "▢" : "—" }}
+        </button>
+        <button class="header-btn" @click.stop="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
+          {{ isFullscreen ? "🗗" : "🗖" }}
+        </button>
+        <button class="close-btn" @click="$emit('close')">×</button>
+      </div>
     </div>
 
-    <div class="panel-body">
+    <div v-show="!isMinimized" class="panel-body">
       <div class="sidebar">
         <div class="menu-item" :class="{ active: tab === 'kb' }" @click="switchTab('kb')">知识库</div>
         <div class="menu-item" :class="{ active: tab === 'pref' }" @click="switchTab('pref')">用户偏好</div>
@@ -72,18 +81,10 @@
               </tr>
               <tr v-for="(r, idx) in rows" :key="idx">
                 <td v-for="h in headers" :key="h">
-                  <div
-                    class="cell-content"
-                    :class="{ expanded: isExpanded(idx, h) }"
-                    :title="stringifyCell(r[h])"
-                  >
+                  <div class="cell-content" :class="{ expanded: isExpanded(idx, h) }" :title="stringifyCell(r[h])">
                     {{ getCellDisplayText(r[h], idx, h) }}
                   </div>
-                  <button
-                    v-if="shouldCollapse(r[h])"
-                    class="cell-toggle"
-                    @click="toggleExpand(idx, h)"
-                  >
+                  <button v-if="shouldCollapse(r[h])" class="cell-toggle" @click="toggleExpand(idx, h)">
                     {{ isExpanded(idx, h) ? "收起" : "展开" }}
                   </button>
                 </td>
@@ -109,10 +110,12 @@
       </div>
     </div>
 
-    <div class="resize-handle sw" @mousedown.stop="startResize($event, 'sw')"></div>
-    <div class="resize-handle se" @mousedown.stop="startResize($event, 'se')"></div>
-    <div class="resize-handle nw" @mousedown.stop="startResize($event, 'nw')"></div>
-    <div class="resize-handle ne" @mousedown.stop="startResize($event, 'ne')"></div>
+    <template v-if="!isFullscreen && !isMinimized">
+      <div class="resize-handle sw" @mousedown.stop="startResize($event, 'sw')"></div>
+      <div class="resize-handle se" @mousedown.stop="startResize($event, 'se')"></div>
+      <div class="resize-handle nw" @mousedown.stop="startResize($event, 'nw')"></div>
+      <div class="resize-handle ne" @mousedown.stop="startResize($event, 'ne')"></div>
+    </template>
   </div>
 </template>
 
@@ -133,11 +136,41 @@ const height = ref(640);
 const minWidth = 760;
 const minHeight = 460;
 
+const isMinimized = ref(false);
+const isFullscreen = ref(false);
+const prevRect = ref({ x: x.value, y: y.value, w: width.value, h: height.value });
+
+const panelStyle = computed(() => {
+  if (isFullscreen.value) return { left: "0px", top: "0px", width: "100vw", height: "100vh" };
+  return { left: x.value + "px", top: y.value + "px", width: width.value + "px", height: isMinimized.value ? "52px" : height.value + "px" };
+});
+
+function saveRect() {
+  prevRect.value = { x: x.value, y: y.value, w: width.value, h: height.value };
+}
+function toggleMinimize() {
+  isMinimized.value = !isMinimized.value;
+}
+function toggleFullscreen() {
+  if (!isFullscreen.value) {
+    saveRect();
+    isFullscreen.value = true;
+    isMinimized.value = false;
+  } else {
+    isFullscreen.value = false;
+    x.value = prevRect.value.x;
+    y.value = prevRect.value.y;
+    width.value = prevRect.value.w;
+    height.value = prevRect.value.h;
+  }
+}
+
 let isDragging = false;
 let dragOffset = { x: 0, y: 0 };
 
 function startDrag(e) {
-  if (e.target.closest(".close-btn")) return;
+  if (isFullscreen.value) return;
+  if (e.target.closest(".close-btn") || e.target.closest(".header-btn")) return;
   isDragging = true;
   dragOffset.x = e.clientX - x.value;
   dragOffset.y = e.clientY - y.value;
@@ -162,6 +195,7 @@ let resizeStart = { x: 0, y: 0 };
 let initial = { x: 0, y: 0, w: 0, h: 0 };
 
 function startResize(e, dir) {
+  if (isFullscreen.value || isMinimized.value) return;
   resizeDir = dir;
   resizeStart = { x: e.clientX, y: e.clientY };
   initial = { x: x.value, y: y.value, w: width.value, h: height.value };
@@ -309,6 +343,9 @@ async function query(pageNo = 1) {
   flex-direction: column;
   overflow: hidden;
 }
+.query-panel.fullscreen {
+  border-radius: 0;
+}
 .panel-header {
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
@@ -321,6 +358,21 @@ async function query(pageNo = 1) {
   letter-spacing: 1px;
   cursor: move;
   user-select: none;
+}
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.header-btn {
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.08);
+  color: var(--text-main, #fff);
+  width: 24px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  line-height: 1;
 }
 .close-btn {
   border: none;
