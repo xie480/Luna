@@ -49,6 +49,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
     @Override
     public String createAndRunPlan(String sessionId, String userGoal) {
+        String planId = null;
         try {
             if (sessionId == null || sessionId.isBlank()) {
                 return error("PLAN_INVALID_INPUT", "sessionId 不能为空");
@@ -57,7 +58,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 return error("PLAN_INVALID_INPUT", "userGoal 不能为空");
             }
 
-            String planId = "plan-" + SnowflakeIdUtil.nextIdStr();
+            planId = "plan-" + SnowflakeIdUtil.nextIdStr();
             int planVersion = 1;
 
             PlanInstance instance = PlanInstance.builder()
@@ -87,6 +88,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             );
             if (isError(saveResult)) {
                 markPlanFailed(planId, "保存蓝图失败");
+                emitPlanFinished(planId, "FAILED", "保存蓝图失败");
                 return saveResult;
             }
 
@@ -150,6 +152,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             List<PlanPhase> orderedPhases = loadOrderedPhases(planId);
             if (orderedPhases.isEmpty()) {
                 markPlanFailed(planId, "未找到可执行阶段");
+                emitPlanFinished(planId, "FAILED", "未找到可执行阶段");
                 return error("PLAN_PHASE_EMPTY", "未找到可执行阶段");
             }
 
@@ -185,6 +188,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
             if (hasPhaseFailure) {
                 updatePlanStatus(planId, PlanStatus.FAILED, "阶段执行失败");
+                emitPlanFinished(planId, "FAILED", "阶段执行失败");
                 merged.put("status", "error");
                 merged.put("message", "计划阶段执行失败，已生成报告");
                 return objectMapper.writeValueAsString(merged);
@@ -192,17 +196,23 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
             if (isError(reportResult)) {
                 updatePlanStatus(planId, PlanStatus.FAILED, "报告生成失败");
+                emitPlanFinished(planId, "FAILED", "报告生成失败");
                 merged.put("status", "error");
                 merged.put("message", "计划执行完成，但报告生成失败");
                 return objectMapper.writeValueAsString(merged);
             }
 
             updatePlanStatus(planId, PlanStatus.SUCCESS, null);
+            emitPlanFinished(planId, "SUCCESS", "计划多阶段执行成功并生成报告");
             merged.put("status", "success");
             merged.put("message", "计划多阶段执行成功并生成报告");
             return objectMapper.writeValueAsString(merged);
         } catch (Exception e) {
             log.error("createAndRunPlan 失败", e);
+            if (planId != null && !planId.isBlank()) {
+                updatePlanStatus(planId, PlanStatus.FAILED, "创建并执行计划失败: " + e.getMessage());
+                emitPlanFinished(planId, "FAILED", "创建并执行计划失败: " + e.getMessage());
+            }
             return error("PLAN_CREATE_RUN_FAILED", "创建并执行计划失败: " + e.getMessage());
         }
     }
@@ -744,6 +754,30 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             }
         } catch (Exception e) {
             log.warn("emitPlanEvent 失败, eventType={}, err={}", eventType, e.getMessage());
+        }
+    }
+
+    private void emitPlanFinished(String planId, String finalStatus, String message) {
+        try {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("eventType", "PLAN_FINISHED");
+            payload.put("planId", planId);
+            payload.put("phaseId", "");
+            payload.put("nodeId", "");
+            payload.put("status", finalStatus);
+            payload.put("message", message == null ? "" : message);
+            payload.put("timestamp", System.currentTimeMillis());
+
+            emitPlanEvent(
+                    "PLAN_FINISHED",
+                    "SUCCESS".equalsIgnoreCase(finalStatus) ? "INFO" : "WARN",
+                    planId,
+                    "",
+                    "",
+                    payload
+            );
+        } catch (Exception e) {
+            log.warn("emitPlanFinished 失败, planId={}, err={}", planId, e.getMessage());
         }
     }
 
