@@ -122,32 +122,26 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                         .build();
                 planNodeMapper.insert(node);
 
-                emitPlanEvent(
-                        "PLAN_CREATED",
-                        "INFO",
-                        planId,
-                        phaseId,
-                        node.getNodeId(),
-                        Map.of(
-                                "eventType", "PLAN_CREATED",
-                                "planId", planId,
-                                "phaseId", phaseId,
-                                "nodeId", node.getNodeId(),
-                                "status", "PENDING",
-                                "message", "阶段节点已创建",
-                                "skillName", node.getName(),
-                                "nodeType", node.getNodeType() != null ? node.getNodeType().getValue() : "",
-                                "failReason", "",
-                                "errorCode", "",
-                                "retryCount", node.getRetryCount() == null ? 0 : node.getRetryCount(),
-                                "costMs", 0,
-                                "outputForNext", Map.of(),
-                                "phaseOrder", phaseOrderOf(planId, phaseId),
-                                "successCount", 0,
-                                "failCount", 0,
-                                "timestamp", System.currentTimeMillis()
-                        )
-                );
+                Map<String, Object> createdPayload = new LinkedHashMap<>();
+                createdPayload.put("eventType", "PLAN_CREATED");
+                createdPayload.put("planId", planId);
+                createdPayload.put("phaseId", phaseId);
+                createdPayload.put("nodeId", node.getNodeId());
+                createdPayload.put("status", "PENDING");
+                createdPayload.put("message", "阶段节点已创建");
+                createdPayload.put("skillName", node.getName());
+                createdPayload.put("nodeType", node.getNodeType() != null ? node.getNodeType().getValue() : "");
+                createdPayload.put("failReason", "");
+                createdPayload.put("errorCode", "");
+                createdPayload.put("retryCount", node.getRetryCount() == null ? 0 : node.getRetryCount());
+                createdPayload.put("costMs", 0);
+                createdPayload.put("outputForNext", Map.of());
+                createdPayload.put("phaseOrder", phaseOrderOf(planId, phaseId));
+                createdPayload.put("successCount", 0);
+                createdPayload.put("failCount", 0);
+                createdPayload.put("timestamp", System.currentTimeMillis());
+
+                emitPlanEvent("PLAN_CREATED", "INFO", planId, phaseId, node.getNodeId(), createdPayload);
             }
 
             buildSimplePlanEdges(planId);
@@ -328,27 +322,27 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 }
 
                 emitPlanEvent(
-                    "PLAN_NODE_RUNNING",
-                    "INFO",
-                    planId,
-                    phaseId,
-                    nodeId,
-                    Map.of(
-                            "eventType", "PLAN_NODE_RUNNING",
-                            "planId", planId,
-                            "phaseId", phaseId,
-                            "nodeId", nodeId,
-                            "status", "RUNNING",
-                            "message", "节点执行中",
-                            "skillName", skillName,
-                            "nodeType", nodeType,
-                            "failReason", "",
-                            "errorCode", "",
-                            "retryCount", retryCount,
-                            "costMs", 0,
-                            "outputForNext", Map.of(),
-                            "timestamp", System.currentTimeMillis()
-                    )
+                        "PLAN_NODE_RUNNING",
+                        "INFO",
+                        planId,
+                        phaseId,
+                        nodeId,
+                        Map.of(
+                                "eventType", "PLAN_NODE_RUNNING",
+                                "planId", planId,
+                                "phaseId", phaseId,
+                                "nodeId", nodeId,
+                                "status", "RUNNING",
+                                "message", "节点执行中",
+                                "skillName", skillName,
+                                "nodeType", nodeType,
+                                "failReason", "",
+                                "errorCode", "",
+                                "retryCount", retryCount,
+                                "costMs", 0,
+                                "outputForNext", Map.of(),
+                                "timestamp", System.currentTimeMillis()
+                        )
                 );
 
                 Map<String, Object> output = new LinkedHashMap<>();
