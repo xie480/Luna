@@ -57,8 +57,8 @@ public class PlanEventTools extends BaseTool {
         try {
             PlanEventLog logEntity = PlanEventLog.builder()
                     .planId(planId)
-                    .phaseId(phaseId)
-                    .nodeId(nodeId)
+                    .phaseId(normalizeNullableId(phaseId))
+                    .nodeId(normalizeNullableId(nodeId))
                     .level(parseEventLevel(level))
                     .eventType(parseEventType(eventType))
                     .eventPayload(objectMapper.readValue(eventPayload, new TypeReference<>() {}))
@@ -105,7 +105,10 @@ public class PlanEventTools extends BaseTool {
             @RequestParam(value = "traceId", required = false) String traceId
     ) {
         try {
-            String record = recordPlanAuditLog(planId, phaseId, nodeId, level, eventType, payload, traceId);
+            String safePhaseId = normalizeNullableId(phaseId);
+            String safeNodeId = normalizeNullableId(nodeId);
+
+            String record = recordPlanAuditLog(planId, safePhaseId, safeNodeId, level, eventType, payload, traceId);
             String sse = emitPlanEventSse(clientId, eventType, payload);
 
             boolean recordError = isError(record);
@@ -181,5 +184,13 @@ public class PlanEventTools extends BaseTool {
         } catch (Exception e) {
             return json;
         }
+    }
+
+    private String normalizeNullableId(String value) {
+        if (value == null) {
+            return null;
+        }
+        String v = value.trim();
+        return v.isEmpty() ? null : v;
     }
 }
