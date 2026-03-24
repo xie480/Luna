@@ -14,6 +14,40 @@ body,
   max-width: none;
   font-weight: normal;
   background: transparent;
+  position: relative;
+  isolation: isolate;
+}
+
+/* 全局控件统一视觉（细节美化） */
+button,
+input,
+textarea,
+select {
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease,
+    transform 0.15s ease,
+    color 0.2s ease;
+}
+
+button:active:not(:disabled) {
+  transform: translateY(0.5px) scale(0.99);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: rgba(232, 255, 248, 0.45);
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: rgba(0, 255, 200, 0.55) !important;
+  box-shadow:
+    0 0 0 1px rgba(0, 255, 200, 0.28),
+    0 0 12px rgba(0, 255, 200, 0.12);
 }
 
 a,
@@ -21,4 +55,25 @@ a,
   text-decoration: none;
   color: inherit;
   transition: 0.2s;
+}
+
+/* 全局滚动条统一 */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(0, 255, 200, 0.45), rgba(0, 170, 255, 0.4));
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(0, 255, 200, 0.72), rgba(0, 170, 255, 0.65));
 }

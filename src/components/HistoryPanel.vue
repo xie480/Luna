@@ -328,17 +328,31 @@ defineExpose({
 <style scoped>
 .history-panel {
   position: fixed;
-  background: var(--bg-panel, rgba(20, 22, 26, 0.98));
+  background:
+    radial-gradient(circle at 12% 15%, rgba(0,255,200,0.08), transparent 34%),
+    radial-gradient(circle at 88% 80%, rgba(0,170,255,0.07), transparent 36%),
+    linear-gradient(145deg, rgba(12,16,26,0.98), rgba(8,12,20,0.98));
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
+  border-radius: 10px;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.9);
+  box-shadow:
+    0 20px 60px rgba(0,0,0,0.9),
+    0 0 22px rgba(0,255,200,0.14),
+    inset 0 0 16px rgba(255,255,255,0.02);
   z-index: 9999;
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px) saturate(118%);
   color: #dcddde;
   font-family: "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
   overflow: hidden;
+}
+.history-panel::before {
+  content: "";
+  position: absolute;
+  inset: -25% -20%;
+  background: conic-gradient(from 180deg, rgba(0,255,200,0.04), transparent 48%, rgba(0,170,255,0.04), transparent 82%);
+  animation: panelAura 12s linear infinite;
+  pointer-events: none;
 }
 .history-panel.fullscreen {
   border-radius: 0;
@@ -352,11 +366,12 @@ defineExpose({
   align-items: center;
   cursor: move;
   user-select: none;
+  z-index: 2;
 }
 .title {
   font-size: 12px;
   letter-spacing: 1.5px;
-  color: #72767d;
+  color: #9bb2c4;
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -374,6 +389,11 @@ defineExpose({
   border-radius: 4px;
   cursor: pointer;
   line-height: 1;
+  transition: 0.2s;
+}
+.header-btn:hover {
+  border-color: var(--primary, #00ffc8);
+  box-shadow: 0 0 8px rgba(0,255,200,0.22);
 }
 .close-btn {
   background: none;
@@ -381,14 +401,15 @@ defineExpose({
   color: #b9bbbe;
   font-size: 20px;
   cursor: pointer;
-  transition: color 0.2s;
+  transition: color 0.2s, transform 0.2s;
 }
-.close-btn:hover { color: #fff; }
+.close-btn:hover { color: #fff; transform: scale(1.08); }
 
 .history-body {
   flex: 1;
   display: flex;
   overflow: hidden;
+  z-index: 1;
 }
 
 .calendar-section {
@@ -416,9 +437,9 @@ defineExpose({
   cursor: pointer;
   padding: 4px 8px;
   font-size: 16px;
-  transition: color 0.2s;
+  transition: color 0.2s, transform 0.2s;
 }
-.cal-nav button:hover { color: #fff; }
+.cal-nav button:hover { color: #fff; transform: scale(1.08); }
 
 .cal-grid {
   display: grid;
@@ -509,7 +530,7 @@ defineExpose({
 .sys-line { flex: 1; height: 1px; background: rgba(255,255,255,0.1); }
 .sys-text {
   font-size: 11px;
-  color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.46);
 }
 
 .line-msg-wrapper {
@@ -529,6 +550,7 @@ defineExpose({
   word-wrap: break-word;
   white-space: pre-wrap;
   box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+  animation: bubbleIn 0.22s ease;
 }
 .luna .line-bubble {
   background: rgba(255, 255, 255, 0.1);
@@ -558,4 +580,14 @@ defineExpose({
 }
 .resize-handle.sw { left: 0; cursor: sw-resize; }
 .resize-handle.se { right: 0; cursor: se-resize; }
+
+@keyframes panelAura {
+  0% { transform: rotate(0deg); opacity: 0.65; }
+  50% { opacity: 1; }
+  100% { transform: rotate(360deg); opacity: 0.65; }
+}
+@keyframes bubbleIn {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
 </style>

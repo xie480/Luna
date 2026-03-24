@@ -280,23 +280,37 @@ onBeforeUnmount(() => {
 <style scoped>
 .settings-panel {
   position: fixed;
-  background: var(--bg-panel, rgba(5,10,19,0.95));
+  background:
+    radial-gradient(circle at top right, rgba(0,255,200,0.1), transparent 36%),
+    radial-gradient(circle at bottom left, rgba(0,170,255,0.08), transparent 32%),
+    linear-gradient(145deg, rgba(6,12,22,0.95), rgba(10,16,30,0.94));
   border: 1px solid var(--border, rgba(0,255,200,0.3));
-  border-radius: 8px;
+  border-radius: 10px;
   color: var(--text-main, #fff);
   display: flex;
   flex-direction: column;
   z-index: 9500;
-  box-shadow: 0 20px 50px rgba(0,0,0,0.8);
-  backdrop-filter: blur(10px);
+  box-shadow:
+    0 20px 50px rgba(0,0,0,0.8),
+    0 0 24px rgba(0,255,200,0.14),
+    inset 0 0 24px rgba(255,255,255,0.02);
+  backdrop-filter: blur(12px) saturate(115%);
   overflow: hidden;
+}
+.settings-panel::before {
+  content: "";
+  position: absolute;
+  inset: -35% -15%;
+  background: conic-gradient(from 90deg, rgba(0,255,200,0.05), transparent 45%, rgba(0,170,255,0.05), transparent 80%);
+  animation: panelAura 11s linear infinite;
+  pointer-events: none;
 }
 .settings-panel.fullscreen {
   border-radius: 0;
 }
 .panel-header {
   padding: 12px 15px;
-  background: rgba(0,0,0,0.2);
+  background: rgba(0,0,0,0.24);
   border-bottom: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
@@ -306,6 +320,7 @@ onBeforeUnmount(() => {
   color: var(--primary, #00ffc8);
   cursor: move;
   user-select: none;
+  z-index: 2;
 }
 .header-actions {
   display: flex;
@@ -321,18 +336,32 @@ onBeforeUnmount(() => {
   border-radius: 4px;
   cursor: pointer;
   line-height: 1;
+  transition: 0.2s;
 }
-.close-btn { background: none; border: none; color: inherit; font-size: 20px; cursor: pointer; }
+.header-btn:hover {
+  border-color: var(--primary, #00ffc8);
+  box-shadow: 0 0 8px rgba(0,255,200,0.25);
+}
+.close-btn {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 20px;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+.close-btn:hover { transform: scale(1.08); }
 
 .panel-body {
   flex: 1;
   display: flex;
   overflow: hidden;
+  z-index: 1;
 }
 
 .sidebar {
-  width: 140px;
-  background: var(--bg-sidebar, rgba(0,0,0,0.3));
+  width: 144px;
+  background: linear-gradient(180deg, rgba(0,0,0,0.36), rgba(0,0,0,0.22));
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -351,9 +380,10 @@ onBeforeUnmount(() => {
   color: var(--text-main);
 }
 .menu-item.active {
-  background: var(--hover, rgba(0,255,200,0.1));
+  background: linear-gradient(90deg, rgba(0,255,200,0.12), rgba(0,170,255,0.08));
   color: var(--primary);
   border-left-color: var(--primary);
+  box-shadow: inset 0 0 8px rgba(0,255,200,0.12);
 }
 
 .content {
@@ -375,14 +405,14 @@ onBeforeUnmount(() => {
 .section-title {
   font-size: 11px;
   color: var(--primary);
-  opacity: 0.8;
+  opacity: 0.88;
   margin-bottom: 10px;
   letter-spacing: 1px;
   font-weight: bold;
   border-bottom: 1px solid var(--border);
   padding-bottom: 4px;
 }
-.desc { font-size: 12px; opacity: 0.6; margin-bottom: 10px; }
+.desc { font-size: 12px; opacity: 0.66; margin-bottom: 10px; }
 
 .status-row { display: flex; align-items: center; gap: 8px; }
 .status-indicator {
@@ -433,6 +463,9 @@ select {
   font-weight: bold;
   border-radius: 4px;
 }
+.apply-btn:hover {
+  filter: brightness(1.08);
+}
 
 .btn-group {
   display: flex;
@@ -450,6 +483,9 @@ select {
   font-weight: bold;
   border-radius: 4px;
 }
+.action-btn:hover {
+  filter: brightness(1.06);
+}
 .action-btn.active-red {
   background: #dc3545;
 }
@@ -464,7 +500,7 @@ select {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 200px;
+  max-height: 220px;
   overflow-y: auto;
   margin-bottom: 10px;
   padding-right: 5px;
@@ -487,6 +523,9 @@ select {
   cursor: pointer;
   border-radius: 4px;
   width: 100%;
+}
+.reset-btn:hover {
+  border-color: var(--primary, #00ffc8);
 }
 
 .quit-btn {
@@ -537,5 +576,11 @@ select {
 .content::-webkit-scrollbar-thumb:hover,
 .appearance-list::-webkit-scrollbar-thumb:hover {
   background: var(--primary);
+}
+
+@keyframes panelAura {
+  0% { transform: rotate(0deg); opacity: 0.65; }
+  50% { opacity: 1; }
+  100% { transform: rotate(360deg); opacity: 0.65; }
 }
 </style>
