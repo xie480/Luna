@@ -82,7 +82,6 @@
       </div>
     </transition>
 
-    <!-- ===== 聊天氣泡容器 ===== -->
     <div
       class="bubble-stack"
       :style="{ left: bubbleAnchor.x + 'px', top: bubbleAnchor.y + 'px' }"
@@ -99,16 +98,12 @@
       </div>
     </div>
 
-    <!-- ===== 隱藏的測量用氣泡 (useBubble 必需) ===== -->
     <div
       ref="dummyBoxRef"
       class="css-chat-bubble"
       style="position: absolute; visibility: hidden; pointer-events: none; top: -9999px; left: -9999px; width: fit-content; max-width: 280px;"
     ></div>
 
-    <!-- ===== 新版 UI 組件 ===== -->
-
-    <!-- 聊天輸入框 (Ctrl+L 呼出) -->
     <transition name="fade">
       <ChatInput
         v-if="showChat"
@@ -128,7 +123,6 @@
       />
     </transition>
 
-    <!-- 歷史記錄面板 -->
     <transition name="fade">
       <HistoryPanel
         v-if="showHistory"
@@ -139,7 +133,6 @@
       />
     </transition>
 
-    <!-- 查询面板 -->
     <transition name="fade">
       <QueryPanel
         v-if="showQuery"
@@ -149,7 +142,6 @@
       />
     </transition>
 
-    <!-- 计划执行面板 -->
     <transition name="fade">
       <PlanPanel
         v-if="showPlan"
@@ -162,7 +154,6 @@
       />
     </transition>
 
-    <!-- 設置面板 -->
     <transition name="fade">
       <SettingsPanel
         v-if="showSettings"
@@ -187,7 +178,6 @@
       />
     </transition>
 
-    <!-- 審批彈窗 -->
     <transition name="fade">
       <ApprovalModal
         v-if="showApproval"
@@ -199,12 +189,10 @@
       />
     </transition>
 
-    <!-- ===== PIXI Canvas ===== -->
     <div ref="wrapperRef" class="interactive-wrapper">
       <canvas ref="canvasRef" @contextmenu.prevent></canvas>
     </div>
 
-    <!-- ===== Luna 入場遮罩 ===== -->
     <transition name="luna-intro">
       <div v-if="lunaIntroVisible" class="luna-intro-mask">
         <div class="luna-boot-screen">
@@ -265,11 +253,9 @@ import QueryPanel from "../../components/QueryPanel.vue";
 import PlanPanel from "../../components/PlanPanel.vue";
 import ApprovalModal from "../../components/ApprovalModal.vue";
 
-/* ================= DOM refs ================= */
 const canvasRef = ref(null);
 const wrapperRef = ref(null);
 
-/* ================= 基礎狀態 ================= */
 const bgParticlesVisible = ref(true);
 const showChat = ref(false);
 const showSettings = ref(false);
@@ -281,7 +267,6 @@ const trackingEnabled = ref(true);
 const lunaIntroVisible = ref(false);
 const lunaStatus = ref("");
 
-// Plan Graph Store
 const planStore = usePlanGraphStore();
 const planRuntime = computed(() => planStore.toPlanPanelRuntime());
 const planAsyncEvents = computed(() => planStore.asyncEvents.value);
@@ -294,6 +279,7 @@ const PLAN_RECONNECT_STEPS = [1000, 2000, 5000, 10000, 30000];
 async function handlePlanCreated({ planId }) {
   if (!planId) return;
   activePlanId = planId;
+  sessionStorage.setItem("luna:current-plan-id", planId);
   planReconnectAttempt = 0;
   clearTimeout(planReconnectTimer);
 
@@ -329,13 +315,11 @@ function schedulePlanSnapshotReconnect() {
   }, delay);
 }
 
-// 審批狀態
 const showApproval = ref(false);
 const approvalTask = ref(null);
 
 const { loadTheme } = useTheme();
 
-/* ================= SSE 狀態渲染隊列（最短顯示 1s） ================= */
 const STATUS_MIN_DISPLAY_MS = 1000;
 const statusQueue = [];
 let isConsumingStatusQueue = false;
@@ -402,7 +386,6 @@ async function consumeStatusQueue() {
   }
 }
 
-/* ================= SSE 事件標準化 ================= */
 function normalizeSseEventPayload(raw) {
   if (raw && typeof raw === "object" && Object.prototype.hasOwnProperty.call(raw, "event")) {
     return {
@@ -431,7 +414,19 @@ function toUpperEventType(event, data) {
   return e2.toUpperCase();
 }
 
-/* ================= 設定模式狀態 ================= */
+const PLAN_EVENTS = new Set([
+  "PLAN_CREATED",
+  "PLAN_PHASE_STARTED",
+  "PLAN_PHASE_FINISHED",
+  "PLAN_NODE_RUNNING",
+  "PLAN_NODE_SUCCESS",
+  "PLAN_NODE_FAILED",
+  "PLAN_FINISHED",
+  "PLAN_REPORT_READY",
+  "APPROVAL_RESULT",
+  "SKILL_ASYNC_RESULT",
+]);
+
 const isSetupMode = ref(false);
 const isTrackingSetupMode = ref(false);
 
@@ -444,7 +439,6 @@ let trackingMarker = null;
 
 const modelVisible = ref(localStorage.getItem(LUNA_VISIBLE_KEY) !== "false");
 
-/* ================= 登錄狀態 ================= */
 const loginVisible = ref(true);
 const loginLoading = ref(false);
 const loginError = ref("");
@@ -486,7 +480,6 @@ onBeforeUnmount(() => { clearInterval(hexTimer); });
 
 const currentEmotion = ref("neutral");
 
-/* ================= 登錄邏輯 ================= */
 async function performLogin() {
   if (!loginForm.value.username || !loginForm.value.password) {
     loginError.value = "用戶名或密碼不能為空";
@@ -518,6 +511,13 @@ async function performLogin() {
     setTimeout(() => {
       startBootSequence();
     }, 450);
+
+    const cachedPlanId = sessionStorage.getItem("luna:current-plan-id");
+    if (cachedPlanId) {
+      activePlanId = cachedPlanId;
+      planStore.reset(cachedPlanId);
+      planStore.syncGraphSnapshot(cachedPlanId).catch(() => {});
+    }
   } catch (e) {
     console.error("[Auth] 登錄請求失敗", e);
     loginError.value = "無法連接鑒權服務，請檢查網絡或服務状态";
@@ -531,7 +531,6 @@ function onLoginSubmit() {
   if (!loginLoading.value) performLogin();
 }
 
-/* ================= 登出邏輯 ================= */
 async function handleLogout() {
   try {
     await logoutApi(authToken.value);
@@ -549,6 +548,7 @@ async function handleLogout() {
     showApproval.value = false;
     approvalTask.value = null;
     activePlanId = "";
+    sessionStorage.removeItem("luna:current-plan-id");
     planStore.reset("");
 
     overUI = true;
@@ -579,25 +579,21 @@ let container = null;
 let model = null;
 const expressionCache = new Map();
 
-/* ================= 氣泡 ================= */
 const dummyBoxRef = ref(null);
 const alwaysShowBubbles = ref(false);
 const { chatBubbles, bubbleAnchor, registerBubble, sendReplyAsBubbles, splitReplyIntoChunks } = useBubble(dummyBoxRef, alwaysShowBubbles);
 
 bubbleAnchor.value = { x: window.innerWidth / 2, y: window.innerHeight - 150 };
 
-/* ================= 外貌 & 律動 ================= */
 const appearance = useAppearance();
 const rhythm = useRhythm();
 
 function getCoreModel() { return model?.internalModel?.coreModel ?? null; }
 
-/* ================= 聊天輸入 ================= */
 const isConnecting = ref(false);
 const isStreaming = ref(false);
 const streamText = ref("");
 
-/* ================= 響應處理 ================= */
 function normalizeResponse(res) {
   const data = res?.data ?? res;
   if (typeof data === "string") {
@@ -623,7 +619,6 @@ async function playDecryptionEffect(text) {
 }
 
 async function handleModelReply(res) {
-  console.log("[Luna] 模型已返回內容 (Raw):", res);
   if (!res) throw new Error("Empty response");
 
   let replyText = "";
@@ -634,21 +629,16 @@ async function handleModelReply(res) {
   } else {
     replyText = res.reply || res.text || res.message || res.content || res.answer || res.data || "";
     em = res.emotion || "";
-
     if (!replyText && typeof res === "object") {
-      console.warn("[Luna] 未找到標準文本字段，嘗試顯示原始對象");
       replyText = JSON.stringify(res);
     }
   }
 
-  if (!replyText) {
-    console.warn("[Luna] 無法從響應中提取任何文本");
-    throw new Error("No text content found in response");
-  }
+  if (!replyText) throw new Error("No text content found in response");
 
   if (em) {
     currentEmotion.value = em;
-    try { applyEmotionExpressions(em); } catch (e) { console.warn("[Luna] 表情應用失敗", e); }
+    try { applyEmotionExpressions(em); } catch {}
   }
 
   if (showHistory.value && historyPanelRef.value) {
@@ -668,7 +658,6 @@ function handleNetworkError() {
   appearance.showAppearanceHint("網絡請求失敗");
 }
 
-/* ================= 發送消息 ================= */
 async function onSend(text) {
   if (isConnecting.value || isStreaming.value) return;
   if (!text) return;
@@ -708,7 +697,6 @@ async function onSend(text) {
   }
 }
 
-/* ================= 審批處理 ================= */
 async function onApprove(approved) {
   if (!approvalTask.value) return;
 
@@ -723,8 +711,6 @@ async function onApprove(approved) {
       taskId: currentTaskId,
       approved,
     });
-
-    console.log("[Approval] Result:", res);
 
     if (res && typeof res === "object" && (res.reply || res.text || res.message || res.content || res.answer || res.data)) {
       isStreaming.value = true;
@@ -742,7 +728,6 @@ async function onApprove(approved) {
   }
 }
 
-/* ================= 啟動 / 關閉 ================= */
 async function callStartup() {
   isConnecting.value = true;
   try {
@@ -763,12 +748,10 @@ async function callShutdown() {
     isConnecting.value = false;
     handleModelReply(normalizeResponse(res));
   } catch (e) {
-    console.error("[Luna] 關閉失敗", e);
     isConnecting.value = false;
   }
 }
 
-/* ================= 穿透管理 ================= */
 let overUI = false;
 let overModel = false;
 
@@ -910,8 +893,6 @@ watch(modelVisible, (val) => {
   }
 });
 
-/* ================= 設定模式邏輯 ================= */
-
 function toggleSetupMode() {
   if (isTrackingSetupMode.value) isTrackingSetupMode.value = false;
   isSetupMode.value = !isSetupMode.value;
@@ -958,17 +939,6 @@ function resetModelTransform() {
     model.x = app.renderer.width / 2;
     model.y = app.renderer.height || window.innerHeight;
     model.scale.set(0.2);
-
-    console.log("[Debug] 强制重置执行完毕。当前模型状态:", {
-      alpha: model.alpha,
-      x: model.x,
-      y: model.y,
-      scale: model.scale.x,
-      width: model.width,
-      height: model.height,
-    });
-  } else {
-    console.warn("[Debug] 模型对象不存在，无法重置模型本体！");
   }
 
   saveModelTransform();
@@ -1009,7 +979,6 @@ function drawTrackingMarker() {
   trackingMarker.visible = true;
 }
 
-/* ================= 拖拽模型 ================= */
 let dragging = false;
 let lastPos = { x: 0, y: 0 };
 
@@ -1040,7 +1009,6 @@ function onPointerUp() {
   dragging = false;
 }
 
-/* ================= 滚轮缩放 ================= */
 function onWheel(ev) {
   if (!model || !app) return;
   if (!overModel) return;
@@ -1058,7 +1026,6 @@ function onWheel(ev) {
   container.position.y += globalPoint.y - newGlobal.y;
 }
 
-/* ================= 视线追踪 ================= */
 const PARAM_CONFIG = {
   HEAD_X: { param: "ParamAngleX", range: [-30, 30] },
   HEAD_Y: { param: "ParamAngleY", range: [-30, 30] },
@@ -1082,7 +1049,7 @@ function applyLookAt(dx, dy) {
     core.setParameterValueById(PARAM_CONFIG.EYE_Y.param, mapRange(ny, PARAM_CONFIG.EYE_Y.range));
     core.setParameterValueById(PARAM_CONFIG.HEAD_X.param, mapRange(nx, PARAM_CONFIG.HEAD_X.range));
     core.setParameterValueById(PARAM_CONFIG.HEAD_Y.param, mapRange(ny, PARAM_CONFIG.HEAD_Y.range));
-  } catch (e) { console.warn("[Luna] applyLookAt 失败", e); }
+  } catch {}
 }
 
 function onGlobalPointerMove(ev) {
@@ -1093,7 +1060,6 @@ function onGlobalPointerMove(ev) {
   applyLookAt(local.x, local.y);
 }
 
-/* ================= 呼吸动画 ================= */
 let breathTickerFn = null;
 function startBreath() {
   const breathStart = performance.now() / 1000;
@@ -1102,7 +1068,7 @@ function startBreath() {
     if (!core) return;
     const t = performance.now() / 1000 - breathStart;
     const val = 0.5 + Math.sin(t * 0.9 * Math.PI * 2) * 0.15;
-    try { core.setParameterValueById(PARAM_CONFIG.BREATH.param, val); } catch (e) { console.warn("[Luna] 呼吸参数失败", e); }
+    try { core.setParameterValueById(PARAM_CONFIG.BREATH.param, val); } catch {}
   };
   app.ticker.add(breathTickerFn);
 }
@@ -1113,7 +1079,6 @@ function stopBreath() {
   }
 }
 
-/* ================= 表情合成 ================= */
 const INITIAL_EMOTION = "Solemn";
 let currentEmotionMeta = {};
 
@@ -1125,9 +1090,7 @@ async function resetToSolemn() {
   for (const id of keys) {
     try {
       core.setParameterValueById(id, typeof currentEmotionMeta[id] === "number" ? currentEmotionMeta[id] : 0);
-    } catch (e) {
-      console.warn("[Luna] resetToSolemn 恢复失败:", id, e);
-    }
+    } catch {}
   }
   currentEmotionMeta = {};
   await new Promise((r) => requestAnimationFrame(r));
@@ -1178,7 +1141,6 @@ async function applyEmotionExpressions(emotion) {
   await appearance.applyAllEnabled(getCoreModel());
 }
 
-/* ================= 预加载表情文件 ================= */
 async function preloadExpressions() {
   const allFiles = [
     "眼-生气", "脸红2隐藏", "脸黑", "眼-哭哭", "眼-泪眼汪汪",
@@ -1197,14 +1159,11 @@ async function preloadExpressions() {
         }
 
         expressionCache.set(name, JSON.parse(text));
-      } catch (e) {
-        console.warn(`[Live2D] 表情文件加载跳过: ${name} - ${e.message}`);
-      }
+      } catch {}
     }),
   );
 }
 
-/* ================= 重置模型状态 ================= */
 async function resetModelState() {
   const core = getCoreModel();
   if (!core) return;
@@ -1216,7 +1175,6 @@ async function resetModelState() {
   appearance.showAppearanceHint("模型表情已重置");
 }
 
-/* ================= 打开设置面板 ================= */
 function openSettings() {
   showSettings.value = true;
 }
@@ -1236,14 +1194,11 @@ function togglePlan() {
   if (showPlan.value) {
     uiEnter();
     if (activePlanId) {
-      planStore.syncGraphSnapshot(activePlanId).catch((e) => {
-        console.error("[Plan] 打开面板时校准失败:", e);
-      });
+      planStore.syncGraphSnapshot(activePlanId).catch(() => {});
     }
   }
 }
 
-/* ================= 等待模型就绪 ================= */
 function waitForModelReady(timeout = 10000) {
   return new Promise((resolve) => {
     const start = performance.now();
@@ -1255,7 +1210,6 @@ function waitForModelReady(timeout = 10000) {
   });
 }
 
-/* ================= 启动序列 ================= */
 async function startBootSequence() {
   lunaIntroVisible.value = true;
 
@@ -1285,7 +1239,6 @@ async function startBootSequence() {
   await callStartup();
 }
 
-/* ================= 生命周期 ================= */
 onMounted(async () => {
   loadTheme();
 
@@ -1335,8 +1288,9 @@ onMounted(async () => {
   if (window.desktopApi && window.desktopApi.onStatusUpdate) {
     window.desktopApi.onStatusUpdate((rawPayload) => {
       const { event, data } = normalizeSseEventPayload(rawPayload);
+      const eventType = toUpperEventType(event, data);
 
-      if (event === "APPROVAL_REQUEST") {
+      if (eventType === "APPROVAL_REQUEST") {
         const task = data?.payload ? data.payload : data;
         approvalTask.value = task || null;
         showApproval.value = !!approvalTask.value;
@@ -1344,22 +1298,40 @@ onMounted(async () => {
           uiEnter();
           appearance.showAppearanceHint("收到敏感操作審批請求");
         }
+
+        planStore.applyEvent({
+          ...(data || {}),
+          eventType: "APPROVAL_REQUEST",
+          planId: data?.planId || activePlanId || "",
+        });
         return;
       }
 
-      const eventType = toUpperEventType(event, data);
-
-      if (eventType.startsWith("PLAN_") || eventType === "SKILL_ASYNC_RESULT") {
+      if (PLAN_EVENTS.has(eventType)) {
         planStore.applyEvent({
           ...(data || {}),
           eventType,
         });
 
-        if ((eventType === "PLAN_NODE_FAILED" || eventType === "PLAN_PHASE_FINISHED" || eventType === "PLAN_REPORT_READY") && activePlanId) {
-          planStore.syncGraphSnapshot(activePlanId).catch((e) => {
-            console.error("[Plan] 关键事件校准失败:", e);
+        if (eventType === "PLAN_CREATED" && data?.planId) {
+          activePlanId = data.planId;
+          sessionStorage.setItem("luna:current-plan-id", activePlanId);
+        }
+
+        if (eventType === "PLAN_FINISHED" && (data?.planId || activePlanId)) {
+          const pid = data?.planId || activePlanId;
+          planStore.lockPlanFinalState(pid);
+        }
+
+        if ((eventType === "PLAN_NODE_FAILED" || eventType === "PLAN_PHASE_FINISHED" || eventType === "PLAN_REPORT_READY" || eventType === "PLAN_FINISHED") && activePlanId) {
+          planStore.syncGraphSnapshot(activePlanId).catch(() => {
             schedulePlanSnapshotReconnect();
           });
+        }
+
+        if (eventType === "SKILL_ASYNC_RESULT") {
+          const ok = !!data?.success;
+          appearance.showAppearanceHint(ok ? "异步技能完成" : "异步技能失败");
         }
       }
 
@@ -1433,11 +1405,16 @@ onMounted(async () => {
   await preloadExpressions();
   startBreath();
 
+  const cachedPlanId = sessionStorage.getItem("luna:current-plan-id");
+  if (cachedPlanId) {
+    activePlanId = cachedPlanId;
+    planStore.reset(cachedPlanId);
+    planStore.syncGraphSnapshot(cachedPlanId).catch(() => {});
+  }
+
   const onVisibility = () => {
     if (!document.hidden && activePlanId) {
-      planStore.syncGraphSnapshot(activePlanId).catch((e) => {
-        console.error("[Plan] 前台校准失败:", e);
-      });
+      planStore.syncGraphSnapshot(activePlanId).catch(() => {});
     }
   };
   document.addEventListener("visibilitychange", onVisibility);

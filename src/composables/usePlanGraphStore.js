@@ -15,25 +15,27 @@ function normalizeStatus(s) {
   return t;
 }
 
+function normalizePlanStatusTransition(prevStatus, nextStatus, locked) {
+  const prev = normalizeStatus(prevStatus || "PENDING");
+  const next = normalizeStatus(nextStatus || prev);
+
+  if (locked) return prev;
+
+  // 终态锁定：SUCCESS/FAILED 不应被 RUNNING 回退
+  const terminal = ["SUCCESS", "FAILED"];
+  if (terminal.includes(prev) && next === "RUNNING") return prev;
+
+  return next;
+}
+
 function normalizeNodeStatusTransition(prevStatus, nextStatus) {
   const p = normalizeStatus(prevStatus);
   const n = normalizeStatus(nextStatus);
 
-  // 防止 SUCCESS 回退 RUNNING
   if (p === "SUCCESS" && n === "RUNNING") return p;
-  // 防止 FAILED 回退 RUNNING（除非有重试机制，这里保守不回退）
   if (p === "FAILED" && n === "RUNNING") return p;
 
   return n;
-}
-
-function readRecordsFromSnapshot(snapshot) {
-  const data = snapshot?.data ?? snapshot ?? {};
-  if (Array.isArray(data.records)) return data.records;
-  if (Array.isArray(data.nodes)) return data.nodes;
-  if (Array.isArray(data.items)) return data.items;
-  if (Array.isArray(data.phases)) return data.phases;
-  return [];
 }
 
 function normalizeSnapshot(snapshot, planIdHint = "") {
@@ -44,7 +46,6 @@ function normalizeSnapshot(snapshot, planIdHint = "") {
   const nodes = {};
   let edges = [];
 
-  // 兼容后端多种结构
   const phaseList = Array.isArray(data.phases) ? data.phases : [];
   const nodeList = Array.isArray(data.nodes) ? data.nodes : [];
   const rawEdges = Array.isArray(data.edges) ? data.edges : [];
@@ -106,7 +107,6 @@ function normalizeSnapshot(snapshot, planIdHint = "") {
     conditionExpr: e.conditionExpr || "",
   }));
 
-  // phaseOrder
   const phaseOrder = Object.values(phases)
     .sort((a, b) => (a.phaseOrder ?? 0) - (b.phaseOrder ?? 0))
     .map((p) => p.phaseId);
@@ -118,6 +118,10 @@ function normalizeSnapshot(snapshot, planIdHint = "") {
     nodes,
     edges,
     lastSyncAt: nowTs(),
+    status: normalizeStatus(data.status || "RUNNING"),
+    message: data.message || "",
+    reportPath: data.reportPath || "",
+    reportUrl: data.reportUrl || "",
   };
 }
 
@@ -134,7 +138,9 @@ export function usePlanGraphStore() {
   const asyncEvents = ref([]);
   const report = ref({ ready: false, reportPath: "", reportUrl: "" });
   const runtimeStatus = ref("IDLE");
+  const runtimeMessage = ref("");
   const errors = ref([]);
+  const locked = ref(false);
 
   function reset(planId = "") {
     graph.value = {
@@ -148,13 +154,37 @@ export function usePlanGraphStore() {
     asyncEvents.value = [];
     report.value = { ready: false, reportPath: "", reportUrl: "" };
     runtimeStatus.value = planId ? "RUNNING" : "IDLE";
+    runtimeMessage.value = "";
     errors.value = [];
+    locked.value = false;
+  }
+
+  function lockPlanFinalState(planId = "") {
+    if (planId && graph.value.planId && graph.value.planId !== planId) return;
+    locked.value = true;
   }
 
   function replaceFromSnapshot(snapshot, planIdHint = "") {
     const next = normalizeSnapshot(snapshot, planIdHint);
-    graph.value = next;
-    if (next.planId) runtimeStatus.value = "RUNNING";
+    graph.value = {
+      planId: next.planId,
+      phases: next.phases,
+      phaseOrder: next.phaseOrder,
+      nodes: next.nodes,
+      edges: next.edges,
+      lastSyncAt: next.lastSyncAt,
+    };
+
+    runtimeStatus.value = normalizePlanStatusTransition(runtimeStatus.value, next.status, locked.value);
+    runtimeMessage.value = next.message || runtimeMessage.value || "";
+
+    if (next.reportPath || next.reportUrl) {
+      report.value = {
+        ready: true,
+        reportPath: next.reportPath || "",
+        reportUrl: next.reportUrl || "",
+      };
+    }
   }
 
   async function syncGraphSnapshot(planId) {
@@ -239,13 +269,15 @@ export function usePlanGraphStore() {
     const p = toObj(eventPayload);
     const eventType = String(p.eventType || p.type || "").toUpperCase();
     const planId = p.planId || graph.value.planId;
-    if (!planId) return;
+    if (!planId && eventType.startsWith("PLAN_")) return;
 
-    if (!graph.value.planId) graph.value.planId = planId;
-    if (graph.value.planId !== planId) return;
+    if (planId && !graph.value.planId) graph.value.planId = planId;
+    if (planId && graph.value.planId !== planId) return;
+
+    if (p.message) runtimeMessage.value = String(p.message);
 
     if (eventType === "PLAN_CREATED") {
-      runtimeStatus.value = "RUNNING";
+      runtimeStatus.value = normalizePlanStatusTransition(runtimeStatus.value, "RUNNING", locked.value);
       graph.value.lastSyncAt = nowTs();
       return;
     }
@@ -266,14 +298,14 @@ export function usePlanGraphStore() {
         .sort((a, b) => (a.phaseOrder ?? 0) - (b.phaseOrder ?? 0))
         .map((x) => x.phaseId);
 
-      runtimeStatus.value = "RUNNING";
+      runtimeStatus.value = normalizePlanStatusTransition(runtimeStatus.value, "RUNNING", locked.value);
       graph.value.lastSyncAt = nowTs();
       return;
     }
 
     if (eventType === "PLAN_NODE_RUNNING") {
       upsertNode(p, "RUNNING");
-      runtimeStatus.value = "RUNNING";
+      runtimeStatus.value = normalizePlanStatusTransition(runtimeStatus.value, "RUNNING", locked.value);
       graph.value.lastSyncAt = nowTs();
       return;
     }
@@ -324,13 +356,32 @@ export function usePlanGraphStore() {
       return;
     }
 
+    if (eventType === "PLAN_FINISHED") {
+      const next = normalizeStatus(p.status || "SUCCESS");
+      runtimeStatus.value = normalizePlanStatusTransition(runtimeStatus.value, next, false);
+      lockPlanFinalState(planId);
+      graph.value.lastSyncAt = nowTs();
+      return;
+    }
+
     if (eventType === "PLAN_REPORT_READY") {
       report.value = {
         ready: true,
         reportPath: p.reportPath || report.value.reportPath || "",
         reportUrl: p.reportUrl || report.value.reportUrl || "",
       };
-      runtimeStatus.value = "REPORT_READY";
+      graph.value.lastSyncAt = nowTs();
+      return;
+    }
+
+    if (eventType === "APPROVAL_REQUEST") {
+      runtimeStatus.value = normalizePlanStatusTransition(runtimeStatus.value, "APPROVAL_PENDING", locked.value);
+      graph.value.lastSyncAt = nowTs();
+      return;
+    }
+
+    if (eventType === "APPROVAL_RESULT") {
+      runtimeStatus.value = normalizePlanStatusTransition(runtimeStatus.value, "RUNNING", locked.value);
       graph.value.lastSyncAt = nowTs();
       return;
     }
@@ -356,6 +407,8 @@ export function usePlanGraphStore() {
     return {
       planId: graph.value.planId,
       status: runtimeStatus.value,
+      locked: locked.value,
+      message: runtimeMessage.value,
       createdAt: 0,
       updatedAt: graph.value.lastSyncAt,
       phases: graph.value.phases,
@@ -372,8 +425,11 @@ export function usePlanGraphStore() {
     asyncEvents,
     report,
     runtimeStatus,
+    runtimeMessage,
     errors,
+    locked,
     reset,
+    lockPlanFinalState,
     syncGraphSnapshot,
     replaceFromSnapshot,
     applyEvent,

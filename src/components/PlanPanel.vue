@@ -11,7 +11,7 @@
       <div class="panel-header" @mousedown="startDrag">
         <div class="title-wrap">
           <span class="title-main">OPENCLAW PLAN CENTER</span>
-          <span class="title-sub">MVP Runtime Console</span>
+          <span class="title-sub">Event Driven Runtime Console</span>
         </div>
         <div class="header-right">
           <span class="status-dot" :class="statusDotClass" :title="runtime?.status || 'IDLE'"></span>
@@ -23,12 +23,12 @@
         <div class="top-form card">
           <textarea
             v-model="userGoal"
-            :disabled="isRunning"
+            :disabled="isRunning || runtime?.locked"
             placeholder="请输入用户目标（userGoal），例如：帮我整理项目并生成报告"
           ></textarea>
 
           <div class="form-actions">
-            <button class="btn-primary" :disabled="isRunning || !userGoal.trim()" @click="runPlan">
+            <button class="btn-primary" :disabled="isRunning || runtime?.locked || !userGoal.trim()" @click="runPlan">
               <span v-if="isRunning" class="btn-spinner"></span>
               {{ isRunning ? "执行中..." : "执行计划" }}
             </button>
@@ -50,6 +50,8 @@
         <div class="summary card">
           <span>计划ID：{{ runtime.planId || "-" }}</span>
           <span>状态：{{ runtime.status || "-" }}</span>
+          <span>锁定：{{ runtime.locked ? "是" : "否" }}</span>
+          <span>消息：{{ runtime.message || "-" }}</span>
           <span>更新时间：{{ formatTs(runtime.updatedAt) }}</span>
         </div>
 
@@ -82,12 +84,9 @@
                       <b>{{ node.skillName || node.nodeName || node.nodeId }}</b>
                       <span class="badge" :class="badgeClass(node.status)">{{ node.status || "PENDING" }}</span>
                     </div>
-                    <div class="node-sub">
-                      nodeId: {{ node.nodeId }}
-                    </div>
-                    <div class="node-sub">
-                      costMs: {{ node.costMs ?? 0 }} · retry: {{ node.retryCount ?? 0 }}
-                    </div>
+                    <div class="node-sub">nodeId: {{ node.nodeId }}</div>
+                    <div class="node-sub">nodeType: {{ node.nodeType || "-" }}</div>
+                    <div class="node-sub">costMs: {{ node.costMs ?? 0 }} · retry: {{ node.retryCount ?? 0 }}</div>
                     <div v-if="node.status === 'FAILED'" class="fail-reason">
                       失败原因：{{ node.failReason || node.errorCode || node.message || "-" }}
                     </div>
@@ -251,6 +250,7 @@ const statusDotClass = computed(() => {
   if (["SUCCESS", "COMPLETED", "FINISHED", "REPORT_READY"].includes(s)) return "ok";
   if (["FAILED", "ERROR"].includes(s)) return "err";
   if (["RUNNING", "THINKING"].includes(s)) return "run";
+  if (["APPROVAL_PENDING"].includes(s)) return "wait";
   return "";
 });
 
@@ -268,6 +268,7 @@ function badgeClass(status) {
   if (["SUCCESS", "COMPLETED", "FINISHED", "REPORT_READY"].includes(s)) return "ok";
   if (["FAILED", "ERROR"].includes(s)) return "err";
   if (["RUNNING", "THINKING"].includes(s)) return "run";
+  if (["APPROVAL_PENDING"].includes(s)) return "wait";
   return "";
 }
 
@@ -416,6 +417,7 @@ onBeforeUnmount(() => {
 .status-dot.ok { background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,0.65); }
 .status-dot.err { background: #ef4444; box-shadow: 0 0 8px rgba(239,68,68,0.65); }
 .status-dot.run { background: #3b82f6; box-shadow: 0 0 8px rgba(59,130,246,0.65); }
+.status-dot.wait { background: #f59e0b; box-shadow: 0 0 8px rgba(245,158,11,0.65); }
 
 .close-btn {
   border: none;
@@ -582,6 +584,7 @@ onBeforeUnmount(() => {
 .node-card.run { border-color: rgba(59,130,246,0.5); }
 .node-card.ok { border-color: rgba(34,197,94,0.5); }
 .node-card.err { border-color: rgba(239,68,68,0.5); }
+.node-card.wait { border-color: rgba(245,158,11,0.5); }
 
 .node-top {
   display: flex;
@@ -650,6 +653,7 @@ onBeforeUnmount(() => {
 .badge.ok { color: #9ae6b4; border-color: rgba(0,255,120,0.5); }
 .badge.err { color: #fc8181; border-color: rgba(255,0,0,0.5); }
 .badge.run { color: #63b3ed; border-color: rgba(0,150,255,0.5); }
+.badge.wait { color: #fcd34d; border-color: rgba(245,158,11,0.5); }
 
 .empty {
   color: var(--text-dim, #888);
