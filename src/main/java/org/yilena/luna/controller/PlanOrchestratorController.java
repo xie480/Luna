@@ -42,7 +42,6 @@ public class PlanOrchestratorController {
                 ));
             }
 
-            // 优先使用 JWT jti 作为稳定 sessionId
             String jwtJti = AuthContextHolder.getSessionId();
             String sessionId = (jwtJti != null && !jwtJti.isBlank())
                     ? jwtJti
@@ -107,6 +106,30 @@ public class PlanOrchestratorController {
                     "status", "error",
                     "errorCode", "PLAN_FINALIZE_FAILED",
                     "message", e.getMessage() == null ? "计划收尾失败" : e.getMessage()
+            ));
+        }
+    }
+
+    @GetMapping("/graph/{planId}")
+    @Operation(summary = "获取计划图谱快照")
+    public ResponseEntity<Object> getPlanGraph(@PathVariable("planId") String planId) {
+        try {
+            if (isBlank(planId)) {
+                return ResponseEntity.badRequest().body(Map.of(
+                        "status", "error",
+                        "errorCode", "INVALID_REQUEST",
+                        "message", "planId 不能为空"
+                ));
+            }
+
+            String result = planOrchestratorService.getPlanGraph(planId.trim());
+            return ResponseEntity.ok(parseOrRaw(result));
+        } catch (Exception e) {
+            log.error("getPlanGraph 失败", e);
+            return ResponseEntity.internalServerError().body(Map.of(
+                    "status", "error",
+                    "errorCode", "PLAN_GRAPH_FAILED",
+                    "message", e.getMessage() == null ? "获取计划图谱失败" : e.getMessage()
             ));
         }
     }

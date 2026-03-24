@@ -31,4 +31,11 @@ public interface PlanOrchestratorService {
      * @return 结果JSON字符串
      */
     String finalizeAndReport(String planId);
+
+    /**
+     * 获取计划可视化图谱快照（phase -> node）
+     * @param planId 计划ID
+     * @return 结果JSON字符串
+     */
+    String getPlanGraph(String planId);
 }

@@ -23,6 +23,7 @@ import java.util.Map;
  * Plan 事件与审计工具：
  * - record_plan_audit_log
  * - emit_plan_event_sse
+ * - emit_plan_event（SSE + DB 双写封装）
  */
 @Slf4j
 @Component
@@ -87,6 +88,47 @@ public class PlanEventTools extends BaseTool {
         } catch (Exception e) {
             log.error("emit_plan_event_sse 失败", e);
             return error("emit_plan_event_sse 失败: " + e.getMessage());
+        }
+    }
+
+    @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "发送并落库计划事件")
+    public String emitPlanEvent(
+            @RequestParam(value = "clientId", required = false) String clientId,
+            @RequestParam("planId") String planId,
+            @RequestParam(value = "phaseId", required = false) String phaseId,
+            @RequestParam(value = "nodeId", required = false) String nodeId,
+            @RequestParam("level") String level,
+            @RequestParam("eventType") String eventType,
+            @RequestParam("payload") String payload,
+            @RequestParam(value = "traceId", required = false) String traceId
+    ) {
+        try {
+            String record = recordPlanAuditLog(planId, phaseId, nodeId, level, eventType, payload, traceId);
+            if (isError(record)) {
+                return record;
+            }
+            String sse = emitPlanEventSse(clientId, eventType, payload);
+            if (isError(sse)) {
+                return sse;
+            }
+            return success(Map.of("record", objectMapper.readValue(record, Object.class), "sse", objectMapper.readValue(sse, Object.class)));
+        } catch (Exception e) {
+            log.error("emit_plan_event 失败", e);
+            return error("emit_plan_event 失败: " + e.getMessage());
+        }
+    }
+
+    private boolean isError(String json) {
+        try {
+            Object obj = objectMapper.readValue(json, Object.class);
+            if (obj instanceof Map<?, ?> map) {
+                Object status = map.get("status");
+                return status != null && "error".equalsIgnoreCase(String.valueOf(status));
+            }
+            return false;
+        } catch (Exception e) {
+            return false;
         }
     }
 }

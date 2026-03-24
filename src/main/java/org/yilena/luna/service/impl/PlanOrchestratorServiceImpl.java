@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.entity.PlanEdge;
 import org.yilena.luna.entity.PlanInstance;
 import org.yilena.luna.entity.PlanNode;
 import org.yilena.luna.entity.PlanPhase;
@@ -13,6 +14,7 @@ import org.yilena.luna.enums.PlanNodeType;
 import org.yilena.luna.enums.PlanPhaseStatus;
 import org.yilena.luna.enums.PlanRiskLevel;
 import org.yilena.luna.enums.PlanStatus;
+import org.yilena.luna.mapper.PlanEdgeMapper;
 import org.yilena.luna.mapper.PlanInstanceMapper;
 import org.yilena.luna.mapper.PlanNodeMapper;
 import org.yilena.luna.mapper.PlanPhaseMapper;
@@ -28,11 +30,6 @@ import java.util.*;
 
 /**
  * OpenClaw 计划编排服务实现（MVP）
- *
- * 设计目标：
- * 1) 提供“可执行、可观测、可收尾”的最小闭环；
- * 2) 支持“基于 plan_phase 表的真实阶段顺序执行”；
- * 3) 保持日志充分，便于问题定位与复盘。
  */
 @Slf4j
 @Service
@@ -43,8 +40,8 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
     private final PlanInstanceMapper planInstanceMapper;
     private final PlanNodeMapper planNodeMapper;
     private final PlanPhaseMapper planPhaseMapper;
+    private final PlanEdgeMapper planEdgeMapper;
 
-    // 复用现有 Tool 实现（最小入侵）
     private final PlanBlueprintTools planBlueprintTools;
     private final PlanNodeTools planNodeTools;
     private final PlanEventTools planEventTools;
@@ -63,9 +60,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             String planId = "plan-" + SnowflakeIdUtil.nextIdStr();
             int planVersion = 1;
 
-            log.info("开始创建计划, planId={}, sessionId={}, userGoal={}", planId, sessionId, userGoal);
-
-            // 0) 先落 plan_instance，满足 blueprint 外键依赖
             PlanInstance instance = PlanInstance.builder()
                     .planId(planId)
                     .sessionId(sessionId)
@@ -77,19 +71,13 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     .startedAt(LocalDateTime.now())
                     .build();
             planInstanceMapper.insert(instance);
-            log.info("已创建计划实例, planId={}", planId);
 
-            // 1) 构造最小蓝图（支持多阶段）
             Map<String, Object> blueprint = buildMvpBlueprint(planId, sessionId, userGoal);
-
-            // 2) 蓝图结构校验
             String validateErr = validateBlueprint(blueprint);
             if (validateErr != null) {
-                log.warn("蓝图校验失败, planId={}, err={}", planId, validateErr);
                 return error("PLAN_BLUEPRINT_INVALID", validateErr);
             }
 
-            // 3) 保存蓝图
             String saveResult = planBlueprintTools.savePlanBlueprint(
                     planId,
                     planVersion,
@@ -98,12 +86,10 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     LocalDateTime.now().toString()
             );
             if (isError(saveResult)) {
-                log.error("保存蓝图失败, planId={}, saveResult={}", planId, saveResult);
                 markPlanFailed(planId, "保存蓝图失败");
                 return saveResult;
             }
 
-            // 4) 写入 plan_phase 表（真实阶段顺序来源）
             List<String> phaseIdsFromBlueprint = extractPhaseIds(blueprint);
             if (phaseIdsFromBlueprint.isEmpty()) {
                 phaseIdsFromBlueprint = List.of(defaultPhaseId(planId, 1));
@@ -120,10 +106,8 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                         .status(PlanPhaseStatus.PENDING)
                         .build();
                 planPhaseMapper.insert(phase);
-                log.info("已写入阶段定义, planId={}, phaseId={}, order={}", planId, phaseId, i + 1);
             }
 
-            // 5) 初始化阶段节点（每阶段一个最小占位节点）
             for (String phaseId : phaseIdsFromBlueprint) {
                 PlanNode node = PlanNode.builder()
                         .nodeId("node-" + SnowflakeIdUtil.nextIdStr())
@@ -138,38 +122,51 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                         .build();
                 planNodeMapper.insert(node);
 
-                emitEvent("PLAN_CREATED", Map.of(
-                        "planId", planId,
-                        "phaseId", phaseId,
-                        "nodeId", node.getNodeId(),
-                        "status", "PENDING",
-                        "message", "阶段节点已创建",
-                        "timestamp", System.currentTimeMillis()
-                ));
+                emitPlanEvent(
+                        "PLAN_CREATED",
+                        "INFO",
+                        planId,
+                        phaseId,
+                        node.getNodeId(),
+                        Map.of(
+                                "eventType", "PLAN_CREATED",
+                                "planId", planId,
+                                "phaseId", phaseId,
+                                "nodeId", node.getNodeId(),
+                                "status", "PENDING",
+                                "message", "阶段节点已创建",
+                                "skillName", node.getName(),
+                                "nodeType", node.getNodeType() != null ? node.getNodeType().getValue() : "",
+                                "failReason", "",
+                                "errorCode", "",
+                                "retryCount", node.getRetryCount() == null ? 0 : node.getRetryCount(),
+                                "costMs", 0,
+                                "outputForNext", Map.of(),
+                                "phaseOrder", phaseOrderOf(planId, phaseId),
+                                "successCount", 0,
+                                "failCount", 0,
+                                "timestamp", System.currentTimeMillis()
+                        )
+                );
             }
 
-            // 6) 从 plan_phase 表读取真实阶段顺序并执行
+            buildSimplePlanEdges(planId);
+            updatePlanStatus(planId, PlanStatus.RUNNING, null);
+
             List<PlanPhase> orderedPhases = loadOrderedPhases(planId);
             if (orderedPhases.isEmpty()) {
                 markPlanFailed(planId, "未找到可执行阶段");
                 return error("PLAN_PHASE_EMPTY", "未找到可执行阶段");
             }
 
-            // 标记计划运行中
-            updatePlanStatus(planId, PlanStatus.RUNNING, null);
-
             List<Map<String, Object>> phaseResults = new ArrayList<>();
             boolean hasPhaseFailure = false;
 
             for (PlanPhase phase : orderedPhases) {
                 String phaseId = phase.getPhaseId();
-
-                // 标记阶段 RUNNING
                 markPhaseStatus(phase, PlanPhaseStatus.RUNNING, true, false);
 
-                log.info("准备执行阶段, planId={}, phaseId={}, order={}", planId, phaseId, phase.getPhaseOrder());
                 String phaseResult = runPhase(planId, phaseId);
-
                 phaseResults.add(Map.of(
                         "phaseId", phaseId,
                         "phaseOrder", phase.getPhaseOrder() == null ? 0 : phase.getPhaseOrder(),
@@ -179,14 +176,12 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 if (isError(phaseResult)) {
                     hasPhaseFailure = true;
                     markPhaseStatus(phase, PlanPhaseStatus.FAILED, false, true);
-                    log.warn("阶段执行失败，停止后续阶段, planId={}, failedPhaseId={}", planId, phaseId);
                     break;
                 } else {
                     markPhaseStatus(phase, PlanPhaseStatus.SUCCESS, false, true);
                 }
             }
 
-            // 7) 收尾与报告（无论阶段成功失败都执行）
             String reportResult = finalizeAndReport(planId);
 
             Map<String, Object> merged = new LinkedHashMap<>();
@@ -225,11 +220,8 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 return error("PHASE_INVALID_INPUT", "planId 和 phaseId 不能为空");
             }
 
-            log.info("开始执行阶段, planId={}, phaseId={}", planId, phaseId);
-
             String listResult = planNodeTools.listPhaseNodes(planId, phaseId);
             if (isError(listResult)) {
-                log.warn("查询阶段节点失败, planId={}, phaseId={}, result={}", planId, phaseId, listResult);
                 return listResult;
             }
 
@@ -241,135 +233,275 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             );
 
             if (nodes.isEmpty()) {
-                log.warn("阶段下无节点, planId={}, phaseId={}", planId, phaseId);
                 return error("PHASE_EMPTY", "阶段下无可执行节点");
             }
 
             long phaseStart = System.currentTimeMillis();
             int successCount = 0;
             int failCount = 0;
+            int phaseOrder = phaseOrderOf(planId, phaseId);
 
-            emitEvent("PLAN_PHASE_STARTED", Map.of(
-                    "planId", planId,
-                    "phaseId", phaseId,
-                    "status", "RUNNING",
-                    "message", "阶段开始执行",
-                    "timestamp", System.currentTimeMillis()
-            ));
+            emitPlanEvent(
+                    "PLAN_PHASE_STARTED",
+                    "INFO",
+                    planId,
+                    phaseId,
+                    "",
+                    Map.of(
+                            "eventType", "PLAN_PHASE_STARTED",
+                            "planId", planId,
+                            "phaseId", phaseId,
+                            "nodeId", "",
+                            "status", "RUNNING",
+                            "message", "阶段开始执行",
+                            "phaseOrder", phaseOrder,
+                            "successCount", 0,
+                            "failCount", 0,
+                            "timestamp", System.currentTimeMillis()
+                    )
+            );
 
             for (PlanNode node : nodes) {
                 long nodeStart = System.currentTimeMillis();
+                String nodeId = node.getNodeId();
+                String skillName = node.getName() == null ? "" : node.getName();
+                String nodeType = node.getNodeType() == null ? "" : node.getNodeType().getValue();
+                int retryCount = node.getRetryCount() == null ? 0 : node.getRetryCount();
 
                 if (!canTransitToRunning(node.getStatus())) {
-                    log.warn("节点状态流转不合法，跳过执行, nodeId={}, currentStatus={}",
-                            node.getNodeId(), node.getStatus() == null ? "null" : node.getStatus().getValue());
                     failCount++;
+                    emitPlanEvent(
+                            "PLAN_NODE_FAILED",
+                            "WARN",
+                            planId,
+                            phaseId,
+                            nodeId,
+                            Map.of(
+                                    "eventType", "PLAN_NODE_FAILED",
+                                    "planId", planId,
+                                    "phaseId", phaseId,
+                                    "nodeId", nodeId,
+                                    "status", "FAILED",
+                                    "message", "节点状态流转不合法",
+                                    "skillName", skillName,
+                                    "nodeType", nodeType,
+                                    "failReason", "非法状态流转",
+                                    "errorCode", "NODE_INVALID_TRANSITION",
+                                    "retryCount", retryCount,
+                                    "costMs", 0,
+                                    "outputForNext", Map.of(),
+                                    "timestamp", System.currentTimeMillis()
+                            )
+                    );
                     continue;
                 }
 
                 String running = planNodeTools.updateNodeStatus(
-                        planId, node.getNodeId(), "RUNNING", null, null, node.getRetryCount()
+                        planId, nodeId, "RUNNING", null, null, retryCount
                 );
                 if (isError(running)) {
-                    log.error("更新节点 RUNNING 失败, nodeId={}, result={}", node.getNodeId(), running);
                     failCount++;
+                    emitPlanEvent(
+                            "PLAN_NODE_FAILED",
+                            "ERROR",
+                            planId,
+                            phaseId,
+                            nodeId,
+                            Map.of(
+                                    "eventType", "PLAN_NODE_FAILED",
+                                    "planId", planId,
+                                    "phaseId", phaseId,
+                                    "nodeId", nodeId,
+                                    "status", "FAILED",
+                                    "message", "更新节点运行状态失败",
+                                    "skillName", skillName,
+                                    "nodeType", nodeType,
+                                    "failReason", "update_node_status RUNNING failed",
+                                    "errorCode", "NODE_RUNNING_UPDATE_FAILED",
+                                    "retryCount", retryCount,
+                                    "costMs", System.currentTimeMillis() - nodeStart,
+                                    "outputForNext", Map.of(),
+                                    "timestamp", System.currentTimeMillis()
+                            )
+                    );
                     continue;
                 }
 
-                emitEvent("PLAN_NODE_RUNNING", Map.of(
-                        "planId", planId,
-                        "phaseId", phaseId,
-                        "nodeId", node.getNodeId(),
-                        "status", "RUNNING",
-                        "message", "节点执行中",
-                        "timestamp", System.currentTimeMillis()
-                ));
+                emitPlanEvent(
+                        "PLAN_NODE_RUNNING",
+                        "INFO",
+                        planId,
+                        phaseId,
+                        nodeId,
+                        Map.of(
+                                "eventType", "PLAN_NODE_RUNNING",
+                                "planId", planId,
+                                "phaseId", phaseId,
+                                "nodeId", nodeId,
+                                "status", "RUNNING",
+                                "message", "节点执行中",
+                                "skillName", skillName,
+                                "nodeType", nodeType,
+                                "failReason", "",
+                                "errorCode", "",
+                                "retryCount", retryCount,
+                                "costMs", 0,
+                                "outputForNext", Map.of(),
+                                "timestamp", System.currentTimeMillis()
+                        )
+                );
 
                 Map<String, Object> output = new LinkedHashMap<>();
                 output.put("nodeName", node.getName());
                 output.put("result", "ok");
                 output.put("phaseId", phaseId);
 
+                Map<String, Object> outputForNext = new LinkedHashMap<>();
+                outputForNext.put("result", "ok");
+
                 String append = planNodeTools.appendNodeOutput(
                         planId,
-                        node.getNodeId(),
+                        nodeId,
                         objectMapper.writeValueAsString(output),
-                        objectMapper.writeValueAsString(Map.of("result", "ok"))
+                        objectMapper.writeValueAsString(outputForNext)
                 );
-                if (isError(append)) {
-                    String fail = planNodeTools.updateNodeStatus(
-                            planId,
-                            node.getNodeId(),
-                            "FAILED",
-                            System.currentTimeMillis() - nodeStart,
-                            "append_node_output failed",
-                            node.getRetryCount()
-                    );
-                    log.error("节点输出写入失败, nodeId={}, appendResult={}, failUpdate={}", node.getNodeId(), append, fail);
 
-                    emitEvent("PLAN_NODE_FAILED", Map.of(
-                            "planId", planId,
-                            "phaseId", phaseId,
-                            "nodeId", node.getNodeId(),
-                            "status", "FAILED",
-                            "message", "节点输出写入失败",
-                            "errorCode", "NODE_OUTPUT_APPEND_FAILED",
-                            "retryCount", node.getRetryCount() == null ? 0 : node.getRetryCount(),
-                            "timestamp", System.currentTimeMillis()
-                    ));
+                if (isError(append)) {
+                    long cost = System.currentTimeMillis() - nodeStart;
+                    planNodeTools.updateNodeStatus(
+                            planId,
+                            nodeId,
+                            "FAILED",
+                            cost,
+                            "append_node_output failed",
+                            retryCount
+                    );
+
                     failCount++;
+                    emitPlanEvent(
+                            "PLAN_NODE_FAILED",
+                            "ERROR",
+                            planId,
+                            phaseId,
+                            nodeId,
+                            Map.of(
+                                    "eventType", "PLAN_NODE_FAILED",
+                                    "planId", planId,
+                                    "phaseId", phaseId,
+                                    "nodeId", nodeId,
+                                    "status", "FAILED",
+                                    "message", "节点输出写入失败",
+                                    "skillName", skillName,
+                                    "nodeType", nodeType,
+                                    "failReason", "append_node_output failed",
+                                    "errorCode", "NODE_OUTPUT_APPEND_FAILED",
+                                    "retryCount", retryCount,
+                                    "costMs", cost,
+                                    "outputForNext", Map.of(),
+                                    "timestamp", System.currentTimeMillis()
+                            )
+                    );
                     continue;
                 }
 
+                long cost = System.currentTimeMillis() - nodeStart;
                 String success = planNodeTools.updateNodeStatus(
                         planId,
-                        node.getNodeId(),
+                        nodeId,
                         "SUCCESS",
-                        System.currentTimeMillis() - nodeStart,
+                        cost,
                         null,
-                        node.getRetryCount()
+                        retryCount
                 );
+
                 if (isError(success)) {
-                    log.error("更新节点 SUCCESS 失败, nodeId={}, result={}", node.getNodeId(), success);
                     failCount++;
+                    emitPlanEvent(
+                            "PLAN_NODE_FAILED",
+                            "ERROR",
+                            planId,
+                            phaseId,
+                            nodeId,
+                            Map.of(
+                                    "eventType", "PLAN_NODE_FAILED",
+                                    "planId", planId,
+                                    "phaseId", phaseId,
+                                    "nodeId", nodeId,
+                                    "status", "FAILED",
+                                    "message", "更新节点成功状态失败",
+                                    "skillName", skillName,
+                                    "nodeType", nodeType,
+                                    "failReason", "update_node_status SUCCESS failed",
+                                    "errorCode", "NODE_SUCCESS_UPDATE_FAILED",
+                                    "retryCount", retryCount,
+                                    "costMs", cost,
+                                    "outputForNext", buildOutputSummary(outputForNext),
+                                    "timestamp", System.currentTimeMillis()
+                            )
+                    );
                     continue;
                 }
 
-                emitEvent("PLAN_NODE_SUCCESS", Map.of(
-                        "planId", planId,
-                        "phaseId", phaseId,
-                        "nodeId", node.getNodeId(),
-                        "status", "SUCCESS",
-                        "message", "节点执行成功",
-                        "costMs", System.currentTimeMillis() - nodeStart,
-                        "retryCount", node.getRetryCount() == null ? 0 : node.getRetryCount(),
-                        "timestamp", System.currentTimeMillis()
-                ));
-
                 successCount++;
+                emitPlanEvent(
+                        "PLAN_NODE_SUCCESS",
+                        "INFO",
+                        planId,
+                        phaseId,
+                        nodeId,
+                        Map.of(
+                                "eventType", "PLAN_NODE_SUCCESS",
+                                "planId", planId,
+                                "phaseId", phaseId,
+                                "nodeId", nodeId,
+                                "status", "SUCCESS",
+                                "message", "节点执行成功",
+                                "skillName", skillName,
+                                "nodeType", nodeType,
+                                "failReason", "",
+                                "errorCode", "",
+                                "retryCount", retryCount,
+                                "costMs", cost,
+                                "outputForNext", buildOutputSummary(outputForNext),
+                                "timestamp", System.currentTimeMillis()
+                        )
+                );
             }
 
             String progress = planNodeTools.queryPlanProgress(planId);
+            long phaseCost = System.currentTimeMillis() - phaseStart;
+
+            emitPlanEvent(
+                    "PLAN_PHASE_FINISHED",
+                    failCount > 0 ? "WARN" : "INFO",
+                    planId,
+                    phaseId,
+                    "",
+                    Map.of(
+                            "eventType", "PLAN_PHASE_FINISHED",
+                            "planId", planId,
+                            "phaseId", phaseId,
+                            "nodeId", "",
+                            "status", failCount > 0 ? "FAILED" : "SUCCESS",
+                            "message", failCount > 0 ? "阶段执行结束（含失败）" : "阶段执行完成",
+                            "phaseOrder", phaseOrder,
+                            "successCount", successCount,
+                            "failCount", failCount,
+                            "costMs", phaseCost,
+                            "timestamp", System.currentTimeMillis()
+                    )
+            );
 
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("status", failCount > 0 ? "error" : "success");
             out.put("planId", planId);
             out.put("phaseId", phaseId);
+            out.put("phaseOrder", phaseOrder);
             out.put("successCount", successCount);
             out.put("failCount", failCount);
-            out.put("costMs", System.currentTimeMillis() - phaseStart);
+            out.put("costMs", phaseCost);
             out.put("progress", safeParse(progress));
 
-            emitEvent("PLAN_PHASE_FINISHED", Map.of(
-                    "planId", planId,
-                    "phaseId", phaseId,
-                    "status", failCount > 0 ? "FAILED" : "SUCCESS",
-                    "message", failCount > 0 ? "阶段执行结束（含失败）" : "阶段执行完成",
-                    "costMs", System.currentTimeMillis() - phaseStart,
-                    "timestamp", System.currentTimeMillis()
-            ));
-
-            log.info("阶段执行完成, planId={}, phaseId={}, successCount={}, failCount={}", planId, phaseId, successCount, failCount);
             return objectMapper.writeValueAsString(out);
         } catch (Exception e) {
             log.error("runPhase 失败", e);
@@ -383,8 +515,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             if (planId == null || planId.isBlank()) {
                 return error("PLAN_INVALID_INPUT", "planId 不能为空");
             }
-
-            log.info("开始收尾并生成报告, planId={}", planId);
 
             String loaded = planBlueprintTools.loadPlanBlueprint(planId, null);
             Map<String, Object> loadedObj = safeParse(loaded);
@@ -409,7 +539,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     "./data/reports"
             );
             if (isError(writeResult)) {
-                log.error("写报告失败, planId={}, writeResult={}", planId, writeResult);
                 return writeResult;
             }
 
@@ -426,13 +555,23 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 openResult = planReportTools.openBrowserWithFile(reportPath);
             }
 
-            emitEvent("PLAN_REPORT_READY", Map.of(
-                    "planId", planId,
-                    "status", "SUCCESS",
-                    "message", "报告已生成",
-                    "reportPath", reportPath,
-                    "timestamp", System.currentTimeMillis()
-            ));
+            emitPlanEvent(
+                    "PLAN_REPORT_READY",
+                    "INFO",
+                    planId,
+                    "",
+                    "",
+                    Map.of(
+                            "eventType", "PLAN_REPORT_READY",
+                            "planId", planId,
+                            "phaseId", "",
+                            "nodeId", "",
+                            "status", "SUCCESS",
+                            "message", "报告已生成",
+                            "reportPath", reportPath,
+                            "timestamp", System.currentTimeMillis()
+                    )
+            );
 
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("status", "success");
@@ -441,7 +580,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             out.put("writeResult", safeParse(writeResult));
             out.put("openResult", safeParse(openResult));
 
-            log.info("计划报告生成完成, planId={}, finalStatus={}, reportPath={}", planId, finalStatus, reportPath);
             return objectMapper.writeValueAsString(out);
         } catch (Exception e) {
             log.error("finalizeAndReport 失败", e);
@@ -449,12 +587,203 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         }
     }
 
+    @Override
+    public String getPlanGraph(String planId) {
+        try {
+            if (planId == null || planId.isBlank()) {
+                return error("PLAN_INVALID_INPUT", "planId 不能为空");
+            }
+
+            List<PlanPhase> phases = planPhaseMapper.selectList(
+                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<PlanPhase>()
+                            .eq(PlanPhase::getPlanId, planId)
+                            .orderByAsc(PlanPhase::getPhaseOrder)
+                            .orderByAsc(PlanPhase::getPhaseId)
+            );
+
+            List<Map<String, Object>> phaseList = new ArrayList<>();
+            for (PlanPhase phase : phases) {
+                List<PlanNode> nodes = planNodeMapper.selectList(
+                        new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<PlanNode>()
+                                .eq(PlanNode::getPlanId, planId)
+                                .eq(PlanNode::getPhaseId, phase.getPhaseId())
+                                .orderByAsc(PlanNode::getNodeId)
+                );
+
+                List<Map<String, Object>> nodeList = new ArrayList<>();
+                for (PlanNode n : nodes) {
+                    nodeList.add(Map.of(
+                            "nodeId", n.getNodeId() == null ? "" : n.getNodeId(),
+                            "nodeName", n.getName() == null ? "" : n.getName(),
+                            "skillName", n.getName() == null ? "" : n.getName(),
+                            "nodeType", n.getNodeType() == null ? "" : n.getNodeType().getValue(),
+                            "status", n.getStatus() == null ? "PENDING" : n.getStatus().getValue(),
+                            "failReason", n.getFailReason() == null ? "" : n.getFailReason(),
+                            "outputForNext", buildOutputSummary(n.getOutputForNext()),
+                            "costMs", n.getCostMs() == null ? 0L : n.getCostMs()
+                    ));
+                }
+
+                phaseList.add(Map.of(
+                        "phaseId", phase.getPhaseId() == null ? "" : phase.getPhaseId(),
+                        "phaseOrder", phase.getPhaseOrder() == null ? 0 : phase.getPhaseOrder(),
+                        "name", phase.getName() == null ? "" : phase.getName(),
+                        "status", phase.getStatus() == null ? "PENDING" : phase.getStatus().getValue(),
+                        "nodes", nodeList
+                ));
+            }
+
+            List<PlanEdge> edges = planEdgeMapper.selectList(
+                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<PlanEdge>()
+                            .eq(PlanEdge::getPlanId, planId)
+                            .orderByAsc(PlanEdge::getId)
+            );
+
+            List<Map<String, Object>> edgeList = new ArrayList<>();
+            for (PlanEdge e : edges) {
+                edgeList.add(Map.of(
+                        "fromNodeId", e.getFromNodeId() == null ? "" : e.getFromNodeId(),
+                        "toNodeId", e.getToNodeId() == null ? "" : e.getToNodeId(),
+                        "conditionExpr", e.getConditionExpr() == null ? "" : e.getConditionExpr()
+                ));
+            }
+
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("planId", planId);
+            data.put("phases", phaseList);
+            data.put("edges", edgeList);
+
+            return objectMapper.writeValueAsString(Map.of(
+                    "status", "success",
+                    "data", data
+            ));
+        } catch (Exception e) {
+            log.error("getPlanGraph 失败", e);
+            return error("PLAN_GRAPH_FAILED", "获取计划图谱失败: " + e.getMessage());
+        }
+    }
+
+    private void buildSimplePlanEdges(String planId) {
+        try {
+            planEdgeMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<PlanEdge>()
+                    .eq(PlanEdge::getPlanId, planId));
+
+            List<PlanPhase> phases = loadOrderedPhases(planId);
+            if (phases.isEmpty()) {
+                return;
+            }
+
+            String prevPhaseTailNodeId = null;
+
+            for (PlanPhase phase : phases) {
+                List<PlanNode> nodes = planNodeMapper.selectList(
+                        new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<PlanNode>()
+                                .eq(PlanNode::getPlanId, planId)
+                                .eq(PlanNode::getPhaseId, phase.getPhaseId())
+                                .orderByAsc(PlanNode::getNodeId)
+                );
+
+                String currentPhaseHeadNodeId = null;
+                String currentPhaseTailNodeId = null;
+
+                for (int i = 0; i < nodes.size(); i++) {
+                    PlanNode current = nodes.get(i);
+                    if (i == 0) currentPhaseHeadNodeId = current.getNodeId();
+                    currentPhaseTailNodeId = current.getNodeId();
+
+                    if (i > 0) {
+                        PlanNode prev = nodes.get(i - 1);
+                        insertEdge(planId, prev.getNodeId(), current.getNodeId(), "");
+                    }
+                }
+
+                if (prevPhaseTailNodeId != null && currentPhaseHeadNodeId != null) {
+                    insertEdge(planId, prevPhaseTailNodeId, currentPhaseHeadNodeId, "PHASE_FLOW");
+                }
+
+                if (currentPhaseTailNodeId != null) {
+                    prevPhaseTailNodeId = currentPhaseTailNodeId;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("构建 plan_edge 失败, planId={}, err={}", planId, e.getMessage());
+        }
+    }
+
+    private void insertEdge(String planId, String fromNodeId, String toNodeId, String conditionExpr) {
+        if (fromNodeId == null || toNodeId == null) return;
+        if (fromNodeId.equals(toNodeId)) return;
+
+        PlanEdge edge = PlanEdge.builder()
+                .planId(planId)
+                .fromNodeId(fromNodeId)
+                .toNodeId(toNodeId)
+                .conditionExpr(conditionExpr)
+                .build();
+        planEdgeMapper.insert(edge);
+    }
+
+    private int phaseOrderOf(String planId, String phaseId) {
+        PlanPhase phase = planPhaseMapper.selectOne(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<PlanPhase>()
+                        .eq(PlanPhase::getPlanId, planId)
+                        .eq(PlanPhase::getPhaseId, phaseId)
+                        .last("LIMIT 1")
+        );
+        return phase == null || phase.getPhaseOrder() == null ? 0 : phase.getPhaseOrder();
+    }
+
+    private Map<String, Object> buildOutputSummary(Map<String, Object> outputForNext) {
+        if (outputForNext == null || outputForNext.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<String, Object> summary = new LinkedHashMap<>();
+        List<String> keys = new ArrayList<>(outputForNext.keySet());
+        summary.put("keys", keys.size() > 20 ? keys.subList(0, 20) : keys);
+
+        String raw;
+        try {
+            raw = objectMapper.writeValueAsString(outputForNext);
+        } catch (Exception e) {
+            raw = String.valueOf(outputForNext);
+        }
+
+        if (raw.length() > 500) {
+            raw = raw.substring(0, 500) + "...";
+        }
+        summary.put("preview", raw);
+        return summary;
+    }
+
+    private void emitPlanEvent(String eventType,
+                               String level,
+                               String planId,
+                               String phaseId,
+                               String nodeId,
+                               Map<String, Object> payload) {
+        try {
+            String payloadJson = objectMapper.writeValueAsString(payload);
+            planEventTools.recordPlanAuditLog(
+                    planId,
+                    (phaseId == null || phaseId.isBlank()) ? null : phaseId,
+                    (nodeId == null || nodeId.isBlank()) ? null : nodeId,
+                    level,
+                    eventType,
+                    payloadJson,
+                    "plan-" + planId
+            );
+
+            planEventTools.emitPlanEventSse("default", eventType, payloadJson);
+        } catch (Exception e) {
+            log.warn("emitPlanEvent 失败, eventType={}, err={}", eventType, e.getMessage());
+        }
+    }
+
     private void updatePlanStatus(String planId, PlanStatus status, String errorMessage) {
         try {
             PlanInstance instance = planInstanceMapper.selectById(planId);
-            if (instance == null) {
-                return;
-            }
+            if (instance == null) return;
             instance.setStatus(status);
             if (errorMessage != null && !errorMessage.isBlank()) {
                 instance.setErrorMessage(errorMessage);
@@ -491,7 +820,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 phase.setFinishedAt(LocalDateTime.now());
             }
             planPhaseMapper.updateById(phase);
-            log.info("阶段状态更新完成, planId={}, phaseId={}, status={}", phase.getPlanId(), phase.getPhaseId(), status.getValue());
         } catch (Exception e) {
             log.warn("阶段状态更新失败, planId={}, phaseId={}, status={}, err={}",
                     phase.getPlanId(), phase.getPhaseId(), status.getValue(), e.getMessage());
@@ -627,14 +955,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         }
         html.append("</ul></body></html>");
         return html.toString();
-    }
-
-    private void emitEvent(String eventType, Map<String, Object> payload) {
-        try {
-            planEventTools.emitPlanEventSse("default", eventType, objectMapper.writeValueAsString(payload));
-        } catch (Exception e) {
-            log.warn("emitEvent 失败, eventType={}, err={}", eventType, e.getMessage());
-        }
     }
 
     private boolean isError(String json) {
