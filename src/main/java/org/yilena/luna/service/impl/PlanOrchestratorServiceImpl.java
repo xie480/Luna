@@ -270,21 +270,11 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                             planId,
                             phaseId,
                             nodeId,
-                            Map.of(
-                                    "eventType", "PLAN_NODE_FAILED",
-                                    "planId", planId,
-                                    "phaseId", phaseId,
-                                    "nodeId", nodeId,
-                                    "status", "FAILED",
-                                    "message", "节点状态流转不合法",
-                                    "skillName", skillName,
-                                    "nodeType", nodeType,
-                                    "failReason", "非法状态流转",
-                                    "errorCode", "NODE_INVALID_TRANSITION",
-                                    "retryCount", retryCount,
-                                    "costMs", 0,
-                                    "outputForNext", Map.of(),
-                                    "timestamp", System.currentTimeMillis()
+                            buildNodeEventPayload(
+                                    "PLAN_NODE_FAILED", planId, phaseId, nodeId, "FAILED",
+                                    "节点状态流转不合法", skillName, nodeType,
+                                    "非法状态流转", "NODE_INVALID_TRANSITION",
+                                    retryCount, 0L, Map.of(), System.currentTimeMillis()
                             )
                     );
                     continue;
@@ -301,21 +291,11 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                             planId,
                             phaseId,
                             nodeId,
-                            Map.of(
-                                    "eventType", "PLAN_NODE_FAILED",
-                                    "planId", planId,
-                                    "phaseId", phaseId,
-                                    "nodeId", nodeId,
-                                    "status", "FAILED",
-                                    "message", "更新节点运行状态失败",
-                                    "skillName", skillName,
-                                    "nodeType", nodeType,
-                                    "failReason", "update_node_status RUNNING failed",
-                                    "errorCode", "NODE_RUNNING_UPDATE_FAILED",
-                                    "retryCount", retryCount,
-                                    "costMs", System.currentTimeMillis() - nodeStart,
-                                    "outputForNext", Map.of(),
-                                    "timestamp", System.currentTimeMillis()
+                            buildNodeEventPayload(
+                                    "PLAN_NODE_FAILED", planId, phaseId, nodeId, "FAILED",
+                                    "更新节点运行状态失败", skillName, nodeType,
+                                    "update_node_status RUNNING failed", "NODE_RUNNING_UPDATE_FAILED",
+                                    retryCount, System.currentTimeMillis() - nodeStart, Map.of(), System.currentTimeMillis()
                             )
                     );
                     continue;
@@ -327,21 +307,10 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                         planId,
                         phaseId,
                         nodeId,
-                        Map.of(
-                                "eventType", "PLAN_NODE_RUNNING",
-                                "planId", planId,
-                                "phaseId", phaseId,
-                                "nodeId", nodeId,
-                                "status", "RUNNING",
-                                "message", "节点执行中",
-                                "skillName", skillName,
-                                "nodeType", nodeType,
-                                "failReason", "",
-                                "errorCode", "",
-                                "retryCount", retryCount,
-                                "costMs", 0,
-                                "outputForNext", Map.of(),
-                                "timestamp", System.currentTimeMillis()
+                        buildNodeEventPayload(
+                                "PLAN_NODE_RUNNING", planId, phaseId, nodeId, "RUNNING",
+                                "节点执行中", skillName, nodeType,
+                                "", "", retryCount, 0L, Map.of(), System.currentTimeMillis()
                         )
                 );
 
@@ -378,21 +347,11 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                             planId,
                             phaseId,
                             nodeId,
-                            Map.of(
-                                    "eventType", "PLAN_NODE_FAILED",
-                                    "planId", planId,
-                                    "phaseId", phaseId,
-                                    "nodeId", nodeId,
-                                    "status", "FAILED",
-                                    "message", "节点输出写入失败",
-                                    "skillName", skillName,
-                                    "nodeType", nodeType,
-                                    "failReason", "append_node_output failed",
-                                    "errorCode", "NODE_OUTPUT_APPEND_FAILED",
-                                    "retryCount", retryCount,
-                                    "costMs", cost,
-                                    "outputForNext", Map.of(),
-                                    "timestamp", System.currentTimeMillis()
+                            buildNodeEventPayload(
+                                    "PLAN_NODE_FAILED", planId, phaseId, nodeId, "FAILED",
+                                    "节点输出写入失败", skillName, nodeType,
+                                    "append_node_output failed", "NODE_OUTPUT_APPEND_FAILED",
+                                    retryCount, cost, Map.of(), System.currentTimeMillis()
                             )
                     );
                     continue;
@@ -416,21 +375,11 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                             planId,
                             phaseId,
                             nodeId,
-                            Map.of(
-                                    "eventType", "PLAN_NODE_FAILED",
-                                    "planId", planId,
-                                    "phaseId", phaseId,
-                                    "nodeId", nodeId,
-                                    "status", "FAILED",
-                                    "message", "更新节点成功状态失败",
-                                    "skillName", skillName,
-                                    "nodeType", nodeType,
-                                    "failReason", "update_node_status SUCCESS failed",
-                                    "errorCode", "NODE_SUCCESS_UPDATE_FAILED",
-                                    "retryCount", retryCount,
-                                    "costMs", cost,
-                                    "outputForNext", buildOutputSummary(outputForNext),
-                                    "timestamp", System.currentTimeMillis()
+                            buildNodeEventPayload(
+                                    "PLAN_NODE_FAILED", planId, phaseId, nodeId, "FAILED",
+                                    "更新节点成功状态失败", skillName, nodeType,
+                                    "update_node_status SUCCESS failed", "NODE_SUCCESS_UPDATE_FAILED",
+                                    retryCount, cost, buildOutputSummary(outputForNext), System.currentTimeMillis()
                             )
                     );
                     continue;
@@ -443,21 +392,10 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                         planId,
                         phaseId,
                         nodeId,
-                        Map.of(
-                                "eventType", "PLAN_NODE_SUCCESS",
-                                "planId", planId,
-                                "phaseId", phaseId,
-                                "nodeId", nodeId,
-                                "status", "SUCCESS",
-                                "message", "节点执行成功",
-                                "skillName", skillName,
-                                "nodeType", nodeType,
-                                "failReason", "",
-                                "errorCode", "",
-                                "retryCount", retryCount,
-                                "costMs", cost,
-                                "outputForNext", buildOutputSummary(outputForNext),
-                                "timestamp", System.currentTimeMillis()
+                        buildNodeEventPayload(
+                                "PLAN_NODE_SUCCESS", planId, phaseId, nodeId, "SUCCESS",
+                                "节点执行成功", skillName, nodeType,
+                                "", "", retryCount, cost, buildOutputSummary(outputForNext), System.currentTimeMillis()
                         )
                 );
             }
@@ -748,6 +686,38 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         }
         summary.put("preview", raw);
         return summary;
+    }
+
+    private Map<String, Object> buildNodeEventPayload(String eventType,
+                                                      String planId,
+                                                      String phaseId,
+                                                      String nodeId,
+                                                      String status,
+                                                      String message,
+                                                      String skillName,
+                                                      String nodeType,
+                                                      String failReason,
+                                                      String errorCode,
+                                                      int retryCount,
+                                                      long costMs,
+                                                      Map<String, Object> outputForNext,
+                                                      long timestamp) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("eventType", eventType);
+        payload.put("planId", planId);
+        payload.put("phaseId", phaseId);
+        payload.put("nodeId", nodeId);
+        payload.put("status", status);
+        payload.put("message", message);
+        payload.put("skillName", skillName == null ? "" : skillName);
+        payload.put("nodeType", nodeType == null ? "" : nodeType);
+        payload.put("failReason", failReason == null ? "" : failReason);
+        payload.put("errorCode", errorCode == null ? "" : errorCode);
+        payload.put("retryCount", retryCount);
+        payload.put("costMs", costMs);
+        payload.put("outputForNext", outputForNext == null ? Map.of() : outputForNext);
+        payload.put("timestamp", timestamp);
+        return payload;
     }
 
     private void emitPlanEvent(String eventType,
