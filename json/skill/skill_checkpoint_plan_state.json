@@ -1,0 +1,38 @@
+{
+  "name": "checkpoint_plan_state",
+  "description": "在计划执行关键节点创建可恢复检查点，持久化快照数据并返回 checkpointId 与快照哈希，用于中断恢复与回滚。",
+  "version": "1.1.0",
+  "owner": "openclaw",
+  "beanName": "planCheckpointTools",
+  "methodName": "checkpointPlanState",
+  "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"planId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"计划ID\"},\"phaseId\":{\"type\":\"string\",\"description\":\"阶段ID，可选\"},\"nodeId\":{\"type\":\"string\",\"description\":\"节点ID，可选\"},\"checkpointData\":{\"type\":\"string\",\"minLength\":2,\"description\":\"检查点快照JSON字符串\"},\"createdBy\":{\"type\":\"string\",\"description\":\"创建人或来源标识，可选\"}},\"required\":[\"planId\",\"checkpointData\"]}",
+  "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\",\"description\":\"执行状态\"},\"data\":{\"type\":\"object\",\"properties\":{\"checkpointId\":{\"type\":\"string\"},\"snapshotHash\":{\"type\":\"string\"}}},\"message\":{\"type\":\"string\"}}}",
+  "runMode": "SYNC",
+  "requiredCapabilities": [
+    "CHECKPOINT_PLAN_STATE",
+    "RECORD_PLAN_AUDIT_LOG",
+    "EMIT_PLAN_EVENT_SSE"
+  ],
+  "toolSlots": [
+    {
+      "slot": "save_checkpoint",
+      "capability": "CHECKPOINT_PLAN_STATE",
+      "required": true
+    },
+    {
+      "slot": "audit_log",
+      "capability": "RECORD_PLAN_AUDIT_LOG",
+      "required": true
+    },
+    {
+      "slot": "emit_event",
+      "capability": "EMIT_PLAN_EVENT_SSE",
+      "required": false
+    }
+  ],
+  "thoughtChain": [
+    "接收并校验检查点快照输入",
+    "持久化检查点并生成快照哈希",
+    "记录审计并按需推送检查点事件"
+  ]
+}
