@@ -144,9 +144,9 @@
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue';
-import { useTheme } from '../../composables/useTheme';
-import ToolManager from '../../views/settings/ToolManager.vue';
-import SkillManager from '../../views/settings/SkillManager.vue';
+import { useTheme } from '../composables/useTheme';
+import ToolManager from '../views/settings/ToolManager.vue';
+import SkillManager from '../views/settings/SkillManager.vue';
 
 const props = defineProps([
   'core', 'model', 'appearance', 'rhythm',
