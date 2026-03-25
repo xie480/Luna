@@ -262,7 +262,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                                     "节点状态流转不合法", skillName, declaredNodeType,
                                     "非法状态流转", "NODE_INVALID_TRANSITION",
                                     retryCount, 0L, Map.of(), System.currentTimeMillis(),
-                                    resourceHintText, inputJsonText
+                                    resourceHintText, inputJsonText, "", ""
                             )
                     );
                     continue;
@@ -290,7 +290,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                                     "更新节点运行状态失败", skillName, declaredNodeType,
                                     "update_node_status RUNNING failed", "NODE_RUNNING_UPDATE_FAILED",
                                     retryCount, costMs, Map.of(), System.currentTimeMillis(),
-                                    resourceHintText, inputJsonText
+                                    resourceHintText, inputJsonText, "", ""
                             )
                     );
                     continue;
@@ -306,7 +306,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                                 "PLAN_NODE_RUNNING", planId, phaseId, nodeId, "RUNNING",
                                 "节点执行中", skillName, declaredNodeType,
                                 "", "", retryCount, 0L, Map.of(), System.currentTimeMillis(),
-                                resourceHintText, inputJsonText
+                                resourceHintText, inputJsonText, "", ""
                         )
                 );
 
@@ -353,7 +353,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                                         "节点输出落库失败", skillName, declaredNodeType,
                                         "append_node_output failed", "NODE_OUTPUT_APPEND_FAILED",
                                         retryCount, nodeCostMs, outputForNext, System.currentTimeMillis(),
-                                        resourceHintText, inputJsonText
+                                        resourceHintText, inputJsonText, "", ""
                                 )
                         );
                         continue;
@@ -380,7 +380,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                                         "更新节点成功状态失败", skillName, declaredNodeType,
                                         "update_node_status SUCCESS failed", "NODE_SUCCESS_UPDATE_FAILED",
                                         retryCount, nodeCostMs, outputForNext, System.currentTimeMillis(),
-                                        resourceHintText, inputJsonText
+                                        resourceHintText, inputJsonText, "", ""
                                 )
                         );
                     } else {
@@ -399,7 +399,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                                         "PLAN_NODE_SUCCESS", planId, phaseId, nodeId, "SUCCESS",
                                         "节点执行成功", skillName, declaredNodeType,
                                         "", "", retryCount, nodeCostMs, outputForNext, System.currentTimeMillis(),
-                                        resourceHintText, inputJsonText
+                                        resourceHintText, inputJsonText, "", ""
                                 )
                         );
                     }
@@ -408,6 +408,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
                 String failReason = extractErrorMessage(agentResult);
                 String failCode = extractErrorCode(agentResult);
+                String failedSkillName = extractSkillName(agentResult);
+                String missingToolSlot = extractMissingToolSlot(agentResult);
+                String missingCapability = extractMissingCapability(agentResult);
 
                 boolean recovered = false;
                 for (int r = retryCount + 1; r <= maxRetry; r++) {
@@ -459,19 +462,30 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                                         "PLAN_NODE_SUCCESS", planId, phaseId, nodeId, "SUCCESS",
                                         "节点重试后成功", skillName, declaredNodeType,
                                         "", "", r, System.currentTimeMillis() - nodeStart, retryOutputForNext, System.currentTimeMillis(),
-                                        resourceHintText, inputJsonText
+                                        resourceHintText, inputJsonText, "", ""
                                 )
                         );
                         break;
                     } else {
                         failReason = extractErrorMessage(retryResult);
                         failCode = extractErrorCode(retryResult);
+                        failedSkillName = extractSkillName(retryResult);
+                        missingToolSlot = extractMissingToolSlot(retryResult);
+                        missingCapability = extractMissingCapability(retryResult);
                     }
                 }
 
                 if (!recovered) {
                     failCount++;
                     long finalCostMs = System.currentTimeMillis() - nodeStart;
+
+                    if ("SKILL_TOOL_MISSING".equalsIgnoreCase(failCode)) {
+                        String skillDisplay = (failedSkillName == null || failedSkillName.isBlank()) ? skillName : failedSkillName;
+                        failReason = "skill=" + skillDisplay
+                                + " 缺少 capability=" + (missingCapability == null ? "" : missingCapability)
+                                + " (slot=" + (missingToolSlot == null ? "" : missingToolSlot) + ")";
+                    }
+
                     planNodeTools.updateNodeStatus(
                             planId, nodeId, "FAILED", finalCostMs, failReason, maxRetry
                     );
@@ -482,6 +496,17 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     );
                     logPotentialToolSkillMismatch(planId, phaseId, phaseOrder, nodeId, skillName, declaredNodeType, failCode, failReason);
                     logInvalidSkillConfig(planId, phaseId, phaseOrder, nodeId, skillName, declaredNodeType, failCode, failReason, resourceHintText, inputJsonText);
+
+                    if ("SKILL_TOOL_MISSING".equalsIgnoreCase(failCode)) {
+                        log.error(
+                                "plan skill 缺少工具, planId={}, phaseId={}, phaseOrder={}, nodeId={}, nodeName={}, declaredNodeType={}, failedSkillName={}, missingToolSlot={}, missingCapability={}, failReason={}",
+                                planId, phaseId, phaseOrder, nodeId, skillName, declaredNodeType,
+                                failedSkillName == null ? "" : failedSkillName,
+                                missingToolSlot == null ? "" : missingToolSlot,
+                                missingCapability == null ? "" : missingCapability,
+                                failReason
+                        );
+                    }
 
                     emitPlanEvent(
                             "PLAN_NODE_FAILED",
@@ -494,7 +519,8 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                                     "节点执行失败", skillName, declaredNodeType,
                                     failReason, failCode,
                                     maxRetry, finalCostMs, outputForNext, System.currentTimeMillis(),
-                                    resourceHintText, inputJsonText
+                                    resourceHintText, inputJsonText,
+                                    failedSkillName, missingToolSlot == null ? "" : missingToolSlot + "|" + (missingCapability == null ? "" : missingCapability)
                             )
                     );
                 }
@@ -1058,7 +1084,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             Map<String, Object> outputForNext,
             long ts,
             String resourceHint,
-            String nodeInput
+            String nodeInput,
+            String failedSkillName,
+            String missingToolInfo
     ) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("eventType", eventType);
@@ -1069,6 +1097,8 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         payload.put("message", message);
         payload.put("skillName", skillName);
         payload.put("declaredNodeType", declaredNodeType);
+        payload.put("failedSkillName", failedSkillName == null ? "" : failedSkillName);
+        payload.put("missingTool", missingToolInfo == null ? "" : missingToolInfo);
         payload.put("failReason", failReason == null ? "" : failReason);
         payload.put("errorCode", errorCode == null ? "" : errorCode);
         payload.put("retryCount", retryCount);
@@ -1118,6 +1148,27 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         if (n == null) return "UNKNOWN_ERROR";
         if (n.has("errorCode")) return n.get("errorCode").asText("UNKNOWN_ERROR");
         return "UNKNOWN_ERROR";
+    }
+
+    private String extractSkillName(String result) {
+        JsonNode n = safeNode(result);
+        if (n == null) return "";
+        if (n.has("skillName")) return n.get("skillName").asText("");
+        return "";
+    }
+
+    private String extractMissingToolSlot(String result) {
+        JsonNode n = safeNode(result);
+        if (n == null) return "";
+        if (n.has("missingToolSlot")) return n.get("missingToolSlot").asText("");
+        return "";
+    }
+
+    private String extractMissingCapability(String result) {
+        JsonNode n = safeNode(result);
+        if (n == null) return "";
+        if (n.has("missingCapability")) return n.get("missingCapability").asText("");
+        return "";
     }
 
     private int phaseOrderOf(String planId, String phaseId) {

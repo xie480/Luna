@@ -107,7 +107,7 @@ public class SkillExecutor {
 
             if (slots.isEmpty()) {
                 log.warn("Skill 配置缺失 toolSlots，无法执行，skillName={}", skill.getName());
-                return error("SKILL_CONFIG_INVALID", "技能未配置 toolSlots，无法执行 step loop", skill.getName());
+                return error("SKILL_CONFIG_INVALID", "技能未配置 toolSlots，无法执行 step loop", skill.getName(), null, null);
             }
 
             Map<String, Object> state = new LinkedHashMap<>();
@@ -138,7 +138,8 @@ public class SkillExecutor {
 
                     if (matchedTool == null) {
                         if (Boolean.TRUE.equals(slot.getRequired())) {
-                            throw new IllegalStateException("未匹配到必需能力的工具: " + slot.getCapability());
+                            String missingMsg = "未匹配到必需能力的工具: capability=" + slot.getCapability() + ", slot=" + slot.getSlot();
+                            throw new IllegalStateException(missingMsg);
                         } else {
                             step.put("status", "SKIPPED");
                             step.put("message", "可选槽位未匹配到工具，已跳过");
@@ -203,11 +204,27 @@ public class SkillExecutor {
             result.put("state", state);
 
             if (hasRequiredFailure) {
+                Map<String, Object> firstRequiredFailure = stepResults.stream()
+                        .filter(s -> "FAILED".equals(s.get("status")) && Boolean.TRUE.equals(findRequiredBySlot(slots, String.valueOf(s.get("slot")))))
+                        .findFirst()
+                        .orElse(Map.of());
+
+                String missingSlot = String.valueOf(firstRequiredFailure.getOrDefault("slot", ""));
+                String missingCapability = String.valueOf(firstRequiredFailure.getOrDefault("capability", ""));
+
+                String message = "技能执行失败：必需步骤缺少可用工具";
+                result.put("errorCode", "SKILL_TOOL_MISSING");
+                result.put("message", message);
+                result.put("missingToolSlot", missingSlot);
+                result.put("missingCapability", missingCapability);
+
                 statusPublisher.publish(
                         LunaStatusPublisher.DEFAULT_CLIENT_ID,
                         LunaStateConstant.STATUS_THINKING,
                         "技能执行失败：" + skill.getName()
                 );
+
+                return objectMapper.writeValueAsString(result);
             } else {
                 statusPublisher.publish(
                         LunaStatusPublisher.DEFAULT_CLIENT_ID,
@@ -219,7 +236,7 @@ public class SkillExecutor {
             return objectMapper.writeValueAsString(result);
         } catch (Exception e) {
             log.error("Skill 执行异常，skillName={}, err={}", skill.getName(), e.getMessage(), e);
-            return error("SKILL_EXECUTION_EXCEPTION", "技能执行异常: " + e.getMessage(), skill.getName());
+            return error("SKILL_EXECUTION_EXCEPTION", "技能执行异常: " + e.getMessage(), skill.getName(), null, null);
         } finally {
             statusPublisher.publish(
                     LunaStatusPublisher.DEFAULT_CLIENT_ID,
@@ -299,39 +316,54 @@ public class SkillExecutor {
         }
     }
 
-    private String error(String errorCode, String message, String skillName) {
-        return String.format(
-                "{\"status\":\"error\", \"errorCode\":\"%s\", \"skillName\":\"%s\", \"message\":\"%s\"}",
-                errorCode,
-                skillName == null ? "" : skillName,
-                message == null ? "" : message.replace("\"", "\\\"")
-        );
+    private String error(String errorCode, String message, String skillName, String missingToolSlot, String missingCapability) {
+        try {
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("status", "error");
+            out.put("errorCode", errorCode);
+            out.put("skillName", skillName == null ? "" : skillName);
+            out.put("message", message == null ? "" : message);
+            if (missingToolSlot != null) {
+                out.put("missingToolSlot", missingToolSlot);
+            }
+            if (missingCapability != null) {
+                out.put("missingCapability", missingCapability);
+            }
+            return objectMapper.writeValueAsString(out);
+        } catch (Exception e) {
+            return String.format(
+                    "{\"status\":\"error\", \"errorCode\":\"%s\", \"skillName\":\"%s\", \"message\":\"%s\"}",
+                    errorCode,
+                    skillName == null ? "" : skillName,
+                    message == null ? "" : message.replace("\"", "\\\"")
+            );
+        }
     }
 
     private String validateExecutableSkill(Resource skill) {
         if (skill == null) {
-            return error("SKILL_CONFIG_INVALID", "skill 不能为空", "");
+            return error("SKILL_CONFIG_INVALID", "skill 不能为空", "", null, null);
         }
         if (skill.getName() == null || skill.getName().isBlank()) {
-            return error("SKILL_CONFIG_INVALID", "skillName 不能为空", "");
+            return error("SKILL_CONFIG_INVALID", "skillName 不能为空", "", null, null);
         }
         if (skill.getToolSlots() == null || skill.getToolSlots().isEmpty()) {
-            return error("SKILL_CONFIG_INVALID", "技能未配置 toolSlots", skill.getName());
+            return error("SKILL_CONFIG_INVALID", "技能未配置 toolSlots", skill.getName(), null, null);
         }
 
         Set<String> slotNames = new HashSet<>();
         for (Resource.ToolSlotDto slot : skill.getToolSlots()) {
             if (slot == null) {
-                return error("SKILL_CONFIG_INVALID", "toolSlots 不能包含空元素", skill.getName());
+                return error("SKILL_CONFIG_INVALID", "toolSlots 不能包含空元素", skill.getName(), null, null);
             }
             if (slot.getSlot() == null || slot.getSlot().isBlank()) {
-                return error("SKILL_CONFIG_INVALID", "toolSlots.slot 不能为空", skill.getName());
+                return error("SKILL_CONFIG_INVALID", "toolSlots.slot 不能为空", skill.getName(), null, null);
             }
             if (!slotNames.add(slot.getSlot())) {
-                return error("SKILL_CONFIG_INVALID", "toolSlots.slot 重复: " + slot.getSlot(), skill.getName());
+                return error("SKILL_CONFIG_INVALID", "toolSlots.slot 重复: " + slot.getSlot(), skill.getName(), null, null);
             }
             if (slot.getCapability() == null || slot.getCapability().isBlank()) {
-                return error("SKILL_CONFIG_INVALID", "toolSlots.capability 不能为空", skill.getName());
+                return error("SKILL_CONFIG_INVALID", "toolSlots.capability 不能为空", skill.getName(), null, null);
             }
         }
 
@@ -349,10 +381,10 @@ public class SkillExecutor {
 
             for (String c : skill.getRequiredCapabilities()) {
                 if (c == null || c.isBlank()) {
-                    return error("SKILL_CONFIG_INVALID", "requiredCapabilities 不能包含空值", skill.getName());
+                    return error("SKILL_CONFIG_INVALID", "requiredCapabilities 不能包含空值", skill.getName(), null, null);
                 }
                 if (!capInSlots.contains(c.trim())) {
-                    return error("SKILL_CONFIG_INVALID", "requiredCapabilities 未在 toolSlots 中声明: " + c, skill.getName());
+                    return error("SKILL_CONFIG_INVALID", "requiredCapabilities 未在 toolSlots 中声明: " + c, skill.getName(), null, null);
                 }
             }
         }
@@ -363,7 +395,7 @@ public class SkillExecutor {
     private String ensureThoughtChainConsistency(Resource skill) {
         List<String> chain = skill.getThoughtChain() == null ? Collections.emptyList() : skill.getThoughtChain();
         if (!chain.isEmpty() && chain.size() != skill.getToolSlots().size()) {
-            return error("SKILL_CONFIG_INVALID", "thoughtChain 长度必须与 toolSlots 一致", skill.getName());
+            return error("SKILL_CONFIG_INVALID", "thoughtChain 长度必须与 toolSlots 一致", skill.getName(), null, null);
         }
         return null;
     }
