@@ -65,10 +65,12 @@ public class PlanEventTools extends BaseTool {
                     .traceId(traceId)
                     .build();
             planEventLogMapper.insert(logEntity);
-            log.info("record_plan_audit_log 完成, planId={}, eventType={}", planId, eventType);
+            log.info("record_plan_audit_log 完成, planId={}, phaseId={}, nodeId={}, eventType={}, level={}, traceId={}, eventId={}",
+                    planId, phaseId, nodeId, eventType, level, traceId, logEntity.getEventId());
             return success(Map.of("eventId", logEntity.getEventId()));
         } catch (Exception e) {
-            log.error("record_plan_audit_log 失败", e);
+            log.error("record_plan_audit_log 失败, planId={}, phaseId={}, nodeId={}, eventType={}, level={}, traceId={}",
+                    planId, phaseId, nodeId, eventType, level, traceId, e);
             return error("record_plan_audit_log 失败: " + e.getMessage());
         }
     }
@@ -87,7 +89,7 @@ public class PlanEventTools extends BaseTool {
             log.info("emit_plan_event_sse 完成, clientId={}, eventType={}, sent={}", cid, eventType, sent);
             return success(Map.of("sent", sent, "clientId", cid, "eventType", eventType));
         } catch (Exception e) {
-            log.error("emit_plan_event_sse 失败", e);
+            log.error("emit_plan_event_sse 失败, clientId={}, eventType={}", clientId, eventType, e);
             return error("emit_plan_event_sse 失败: " + e.getMessage());
         }
     }
@@ -121,22 +123,29 @@ public class PlanEventTools extends BaseTool {
             out.put("sseOk", !sseError);
 
             if (!recordError && !sseError) {
+                log.info("emit_plan_event 全成功, planId={}, phaseId={}, nodeId={}, eventType={}, level={}, traceId={}",
+                        planId, safePhaseId, safeNodeId, eventType, level, traceId);
                 return success(out);
             }
 
             if (recordError && !sseError) {
-                log.warn("emit_plan_event 部分成功：DB失败但SSE成功, planId={}, eventType={}", planId, eventType);
+                log.warn("emit_plan_event 部分成功：DB失败但SSE成功, planId={}, phaseId={}, nodeId={}, eventType={}, level={}, traceId={}",
+                        planId, safePhaseId, safeNodeId, eventType, level, traceId);
                 return success(out);
             }
 
             if (!recordError) {
-                log.warn("emit_plan_event 部分成功：DB成功但SSE失败, planId={}, eventType={}", planId, eventType);
+                log.warn("emit_plan_event 部分成功：DB成功但SSE失败, planId={}, phaseId={}, nodeId={}, eventType={}, level={}, traceId={}",
+                        planId, safePhaseId, safeNodeId, eventType, level, traceId);
                 return error("emit_plan_event 部分失败: SSE发送失败");
             }
 
+            log.error("emit_plan_event 全失败：DB落库和SSE发送均失败, planId={}, phaseId={}, nodeId={}, eventType={}, level={}, traceId={}",
+                    planId, safePhaseId, safeNodeId, eventType, level, traceId);
             return error("emit_plan_event 失败: DB落库和SSE发送均失败");
         } catch (Exception e) {
-            log.error("emit_plan_event 失败", e);
+            log.error("emit_plan_event 失败, planId={}, phaseId={}, nodeId={}, eventType={}, level={}, traceId={}",
+                    planId, phaseId, nodeId, eventType, level, traceId, e);
             return error("emit_plan_event 失败: " + e.getMessage());
         }
     }

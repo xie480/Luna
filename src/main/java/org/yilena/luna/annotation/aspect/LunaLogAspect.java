@@ -18,6 +18,7 @@ import org.yilena.luna.constants.RocketMqConstant;
 import org.yilena.luna.enums.LogType;
 import org.yilena.luna.exception.impl.NeedApprovalException;
 import org.yilena.luna.mq.dto.LogMessage;
+import org.yilena.luna.utils.AuthContextHolder;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -99,6 +100,12 @@ public class LunaLogAspect {
                 errorStack = sw.toString();
             }
 
+            String traceId = UUID.randomUUID().toString();
+            String sessionId = AuthContextHolder.getSessionId();
+            String planId = tryGetAsString(requestData, "planId");
+            String phaseId = tryGetAsString(requestData, "phaseId");
+            String nodeId = tryGetAsString(requestData, "nodeId");
+
             // 構建 DTO 發送 MQ
             LogMessage msg = LogMessage.builder()
                     .logType(logType)
@@ -110,8 +117,12 @@ public class LunaLogAspect {
                     .errorMessage(errorMessage)
                     .errorStack(errorStack)
                     .costTime(costTime)
-                    .traceId(UUID.randomUUID().toString())
+                    .traceId(traceId)
                     .createTime(System.currentTimeMillis())
+                    .sessionId(sessionId)
+                    .planId(planId)
+                    .phaseId(phaseId)
+                    .nodeId(nodeId)
                     .build();
 
             rocketMQTemplate.convertAndSend(RocketMqConstant.TOPIC_LOG, msg);
@@ -128,6 +139,13 @@ public class LunaLogAspect {
             log.error("發送日誌 MQ 失敗", e);
             LOG_RESPONSE_OVERRIDE.remove();
         }
+    }
+
+    private String tryGetAsString(Map<String, Object> data, String key) {
+        if (data == null || key == null) return "";
+        Object val = data.get(key);
+        if (val == null) return "";
+        return String.valueOf(val);
     }
 
     private boolean isFilterObject(Object arg) {
