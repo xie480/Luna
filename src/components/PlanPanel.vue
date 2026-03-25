@@ -114,7 +114,7 @@
 
           <div
             class="bottom-grid"
-            :style="{ gridTemplateColumns: panelSplit.leftWidth + 'fr ' + panelSplit.rightWidth + 'fr' }"
+            :style="{ gridTemplateColumns: panelSplit.leftWidth + 'fr 8px ' + panelSplit.rightWidth + 'fr' }"
           >
             <div class="edges-box card neon-card">
               <div class="col-title">边关系（from → to）</div>
