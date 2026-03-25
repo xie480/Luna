@@ -690,18 +690,24 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         List<Map<String, Object>> phaseDefs = asListOfMap(blueprint.get("phases"));
         List<Map<String, Object>> nodeDefs = asListOfMap(blueprint.get("nodes"));
 
+        Map<String, String> phaseIdMap = new LinkedHashMap<>();
         Map<String, List<String>> phaseNodeIds = new LinkedHashMap<>();
 
+        int phaseIdx = 1;
         for (Map<String, Object> p : phaseDefs) {
-            String phaseId = text(p.get("phaseId"));
-            if (phaseId.isBlank()) {
-                phaseId = planId + ":phase-" + (intVal(p.get("phaseOrder"), 1));
+            String rawPhaseId = text(p.get("phaseId"));
+            if (rawPhaseId.isBlank()) {
+                rawPhaseId = "phase-" + phaseIdx;
             }
+            String phaseId = normalizeScopedId(planId, rawPhaseId);
+
+            phaseIdMap.put(rawPhaseId, phaseId);
+            phaseIdMap.put(phaseId, phaseId);
 
             PlanPhase phase = PlanPhase.builder()
                     .phaseId(phaseId)
                     .planId(planId)
-                    .phaseOrder(intVal(p.get("phaseOrder"), 1))
+                    .phaseOrder(intVal(p.get("phaseOrder"), phaseIdx))
                     .name(text(p.get("name")))
                     .objective(text(p.get("objective")))
                     .entryCriteria(text(p.get("entryCriteria")))
@@ -710,18 +716,43 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     .build();
             planPhaseMapper.insert(phase);
             phaseNodeIds.put(phaseId, new ArrayList<>());
+            phaseIdx++;
         }
 
-        for (Map<String, Object> n : nodeDefs) {
-            String nodeId = text(n.get("nodeId"));
-            if (nodeId.isBlank()) {
-                nodeId = "node-" + SnowflakeIdUtil.nextIdStr();
-            }
+        if (phaseNodeIds.isEmpty()) {
+            String fallbackPhaseId = normalizeScopedId(planId, "phase-1");
+            PlanPhase fallback = PlanPhase.builder()
+                    .phaseId(fallbackPhaseId)
+                    .planId(planId)
+                    .phaseOrder(1)
+                    .name("PHASE-1")
+                    .objective("默认阶段")
+                    .status(PlanPhaseStatus.PENDING)
+                    .build();
+            planPhaseMapper.insert(fallback);
+            phaseNodeIds.put(fallbackPhaseId, new ArrayList<>());
+            phaseIdMap.put("phase-1", fallbackPhaseId);
+            phaseIdMap.put(fallbackPhaseId, fallbackPhaseId);
+        }
 
-            String phaseId = text(n.get("phaseId"));
-            if (phaseId.isBlank() || !phaseNodeIds.containsKey(phaseId)) {
-                // 回退到第一个 phase
-                phaseId = phaseNodeIds.keySet().stream().findFirst().orElse(planId + ":phase-1");
+        String defaultPhaseId = phaseNodeIds.keySet().stream().findFirst().orElse(normalizeScopedId(planId, "phase-1"));
+
+        Map<String, String> nodeIdMap = new LinkedHashMap<>();
+        int nodeIdx = 1;
+        for (Map<String, Object> n : nodeDefs) {
+            String rawNodeId = text(n.get("nodeId"));
+            if (rawNodeId.isBlank()) {
+                rawNodeId = "node-" + nodeIdx;
+            }
+            String nodeId = normalizeScopedId(planId, rawNodeId);
+
+            nodeIdMap.put(rawNodeId, nodeId);
+            nodeIdMap.put(nodeId, nodeId);
+
+            String rawPhaseId = text(n.get("phaseId"));
+            String phaseId = phaseIdMap.get(rawPhaseId);
+            if (phaseId == null || !phaseNodeIds.containsKey(phaseId)) {
+                phaseId = defaultPhaseId;
             }
 
             String nodeTypeStr = text(n.get("nodeType"));
@@ -735,7 +766,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     .nodeType(nodeType)
                     .inputJson(asMap(n.get("inputJson")))
                     .expectedOutputSchema(asMap(n.get("expectedOutputSchema")))
-                    .dependencies(asStringList(n.get("dependencies")))
+                    .dependencies(remapStringListIds(asStringList(n.get("dependencies")), nodeIdMap, planId, "node"))
                     .parallelGroup(text(n.get("parallelGroup")))
                     .status(PlanNodeStatus.PENDING)
                     .retryPolicy(asMap(n.get("retryPolicy")))
@@ -748,6 +779,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
             planNodeMapper.insert(node);
             phaseNodeIds.computeIfAbsent(phaseId, k -> new ArrayList<>()).add(nodeId);
+            nodeIdx++;
         }
 
         // 回写 phase.nodeIds
@@ -758,15 +790,42 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 planPhaseMapper.updateById(phase);
             }
         }
+
+        // 把重写后的 id 映射放回 blueprint，供 buildEdgesFromBlueprint 使用
+        blueprint.put("__phaseIdMap", phaseIdMap);
+        blueprint.put("__nodeIdMap", nodeIdMap);
     }
 
     private void buildEdgesFromBlueprint(String planId, Map<String, Object> blueprint) {
         try {
             List<Map<String, Object>> edges = asListOfMap(blueprint.get("edges"));
+            Map<String, String> phaseIdMap = asStringMap(blueprint.get("__phaseIdMap"));
+            Map<String, String> nodeIdMap = asStringMap(blueprint.get("__nodeIdMap"));
+
             for (Map<String, Object> e : edges) {
-                String from = text(e.get("fromNodeId"));
-                String to = text(e.get("toNodeId"));
+                String rawFrom = text(e.get("fromNodeId"));
+                String rawTo = text(e.get("toNodeId"));
+
+                String from = resolveMappedOrScopedId(nodeIdMap, planId, rawFrom, "node");
+                String to = resolveMappedOrScopedId(nodeIdMap, planId, rawTo, "node");
+
                 if (from.isBlank() || to.isBlank()) {
+                    continue;
+                }
+
+                // 必须是当前 plan 下真实存在的节点
+                boolean fromExists = planNodeMapper.selectCount(
+                        new LambdaQueryWrapper<PlanNode>()
+                                .eq(PlanNode::getPlanId, planId)
+                                .eq(PlanNode::getNodeId, from)
+                ) > 0;
+                boolean toExists = planNodeMapper.selectCount(
+                        new LambdaQueryWrapper<PlanNode>()
+                                .eq(PlanNode::getPlanId, planId)
+                                .eq(PlanNode::getNodeId, to)
+                ) > 0;
+
+                if (!fromExists || !toExists) {
                     continue;
                 }
 
@@ -1116,6 +1175,20 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         }
     }
 
+    private Map<String, String> asStringMap(Object obj) {
+        if (obj == null) return Collections.emptyMap();
+        try {
+            Map<String, Object> raw = objectMapper.convertValue(obj, new TypeReference<Map<String, Object>>() {});
+            Map<String, String> out = new LinkedHashMap<>();
+            for (Map.Entry<String, Object> e : raw.entrySet()) {
+                out.put(e.getKey(), e.getValue() == null ? "" : String.valueOf(e.getValue()));
+            }
+            return out;
+        } catch (Exception e) {
+            return Collections.emptyMap();
+        }
+    }
+
     private List<String> asStringList(Object obj) {
         if (obj == null) return null;
         try {
@@ -1124,6 +1197,37 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private List<String> remapStringListIds(List<String> rawIds, Map<String, String> idMap, String planId, String defaultPrefix) {
+        if (rawIds == null || rawIds.isEmpty()) return rawIds;
+        List<String> out = new ArrayList<>();
+        for (String raw : rawIds) {
+            out.add(resolveMappedOrScopedId(idMap, planId, raw, defaultPrefix));
+        }
+        return out;
+    }
+
+    private String resolveMappedOrScopedId(Map<String, String> idMap, String planId, String rawId, String defaultPrefix) {
+        String v = rawId == null ? "" : rawId.trim();
+        if (v.isBlank()) {
+            return normalizeScopedId(planId, defaultPrefix + "-" + SnowflakeIdUtil.nextIdStr());
+        }
+        if (idMap != null && idMap.containsKey(v)) {
+            return idMap.get(v);
+        }
+        return normalizeScopedId(planId, v);
+    }
+
+    private String normalizeScopedId(String planId, String rawId) {
+        String rid = rawId == null ? "" : rawId.trim();
+        if (rid.isBlank()) {
+            return planId + ":" + SnowflakeIdUtil.nextIdStr();
+        }
+        if (rid.startsWith(planId + ":")) {
+            return rid;
+        }
+        return planId + ":" + rid;
     }
 
     private String text(Object o) {
