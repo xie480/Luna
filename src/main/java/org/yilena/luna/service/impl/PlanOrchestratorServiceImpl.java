@@ -19,25 +19,25 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * OpenClaw 计划编排服务实现（Master Planner 版）
+ * OpenClaw 計劃編排服務實現（Master Planner 版）
  *
- * 职责划分：
- * - 本类负责计划生命周期管理：创建、持久化、状态流转、报告生成
- * - 阶段内节点调度委托给 {@link PhaseExecutionService}
- * - 事件推送通过 {@link PlanEventTools} 统一处理
+ * 職責劃分：
+ * - 本類負責計劃生命週期管理：創建、持久化、狀態流轉、報告生成
+ * - 階段內節點調度委託給 {@link PhaseExecutionService}
+ * - 事件推送通過 {@link PlanEventTools} 統一處理
  *
- * 执行流程：
- * 1. 接收用户目标 -> 调用 MasterPlanningService 生成全局蓝图
- * 2. 校验蓝图 -> 物化 Phase/Node/Edge 到数据库
- * 3. 按阶段顺序调用 PhaseExecutionService 执行
- * 4. 全部阶段完成后调用 PlanReportTools 生成报告
+ * 執行流程：
+ * 1. 接收用戶目標 -> 調用 MasterPlanningService 生成全局藍圖
+ * 2. 校驗藍圖 -> 物化 Phase/Node/Edge 到數據庫
+ * 3. 按階段順序調用 PhaseExecutionService 執行
+ * 4. 全部階段完成後調用 PlanReportTools 生成報告
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
-    // ---- 默认值 ----
+    // ---- 默認值 ----
     private static final int DEFAULT_MAX_RETRY = 1;
 
     // ---- Mapper ----
@@ -59,27 +59,27 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
     private final PhaseExecutionService phaseExecutionService;
 
     // =========================================================
-    // 1. 创建并执行计划（完整生命周期入口）
+    // 1. 創建並執行計劃（完整生命週期入口）
     // =========================================================
 
     @Override
     public String createAndRunPlan(String sessionId, String userGoal) {
         String planId = null;
         try {
-            // --- 输入校验 ---
+            // --- 輸入校驗 ---
             if (sessionId == null || sessionId.isBlank()) {
-                return error("PLAN_INVALID_INPUT", "sessionId 不能为空");
+                return error("PLAN_INVALID_INPUT", "sessionId 不能為空");
             }
             if (userGoal == null || userGoal.isBlank()) {
-                return error("PLAN_INVALID_INPUT", "userGoal 不能为空");
+                return error("PLAN_INVALID_INPUT", "userGoal 不能為空");
             }
 
             planId = "plan-" + SnowflakeIdUtil.nextIdStr();
             int planVersion = 1;
 
-            log.info("[Plan] 创建计划, planId={}, sessionId={}, userGoal={}", planId, sessionId, userGoal);
+            log.info("[Plan] 創建計劃, planId={}, sessionId={}, userGoal={}", planId, sessionId, userGoal);
 
-            // --- 持久化计划实例 ---
+            // --- 持久化計劃實例 ---
             PlanInstance instance = PlanInstance.builder()
                     .planId(planId)
                     .sessionId(sessionId)
@@ -95,22 +95,22 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             emitPlanEvent(planId, "", "", "PLAN_CREATED", "INFO",
                     Map.of("planId", planId, "sessionId", sessionId, "userGoal", userGoal,
                             "planVersion", planVersion, "status", "PENDING",
-                            "message", "计划已创建", "timestamp", System.currentTimeMillis()));
+                            "message", "計劃已創建", "timestamp", System.currentTimeMillis()));
 
-            // --- 全局规划（BigModel 一次性任务）---
-            log.info("[Plan] 调用 MasterPlanningService 生成全局蓝图, planId={}", planId);
+            // --- 全局規劃（BigModel 一次性任務）---
+            log.info("[Plan] 調用 MasterPlanningService 生成全局藍圖, planId={}", planId);
             Map<String, Object> blueprint = masterPlanningService.generateBlueprint(planId, sessionId, userGoal);
 
-            // --- 蓝图校验 ---
+            // --- 藍圖校驗 ---
             String validateErr = blueprintValidationService.validate(blueprint);
             if (validateErr != null) {
-                log.error("[Plan] 蓝图校验失败, planId={}, err={}", planId, validateErr);
+                log.error("[Plan] 藍圖校驗失敗, planId={}, err={}", planId, validateErr);
                 updatePlanStatus(planId, PlanStatus.FAILED, validateErr);
                 emitPlanFinished(planId, "FAILED", validateErr);
                 return error("PLAN_BLUEPRINT_INVALID", validateErr);
             }
 
-            // --- 保存蓝图 ---
+            // --- 保存藍圖 ---
             String saveResult = planBlueprintTools.savePlanBlueprint(
                     planId, planVersion,
                     objectMapper.writeValueAsString(blueprint),
@@ -118,9 +118,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     LocalDateTime.now().toString()
             );
             if (isError(saveResult)) {
-                log.error("[Plan] 保存蓝图失败, planId={}, result={}", planId, saveResult);
-                markPlanFailed(planId, "保存蓝图失败");
-                emitPlanFinished(planId, "FAILED", "保存蓝图失败");
+                log.error("[Plan] 保存藍圖失敗, planId={}, result={}", planId, saveResult);
+                markPlanFailed(planId, "保存藍圖失敗");
+                emitPlanFinished(planId, "FAILED", "保存藍圖失敗");
                 return saveResult;
             }
 
@@ -130,16 +130,16 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
             updatePlanStatus(planId, PlanStatus.RUNNING, null);
 
-            // --- 按阶段顺序执行 ---
+            // --- 按階段順序執行 ---
             List<PlanPhase> orderedPhases = loadOrderedPhases(planId);
             if (orderedPhases.isEmpty()) {
-                log.error("[Plan] 未找到可执行阶段, planId={}", planId);
-                markPlanFailed(planId, "未找到可执行阶段");
-                emitPlanFinished(planId, "FAILED", "未找到可执行阶段");
-                return error("PLAN_PHASE_EMPTY", "未找到可执行阶段");
+                log.error("[Plan] 未找到可執行階段, planId={}", planId);
+                markPlanFailed(planId, "未找到可執行階段");
+                emitPlanFinished(planId, "FAILED", "未找到可執行階段");
+                return error("PLAN_PHASE_EMPTY", "未找到可執行階段");
             }
 
-            log.info("[Plan] 开始按阶段执行, planId={}, phaseCount={}", planId, orderedPhases.size());
+            log.info("[Plan] 開始按階段執行, planId={}, phaseCount={}", planId, orderedPhases.size());
 
             List<Map<String, Object>> phaseResults = new ArrayList<>();
             boolean hasPhaseFailure = false;
@@ -148,17 +148,17 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 String phaseId = phase.getPhaseId();
                 int phaseOrder = phase.getPhaseOrder() == null ? 0 : phase.getPhaseOrder();
 
-                log.info("[Plan] 开始阶段, planId={}, phaseId={}, phaseOrder={}, name={}",
+                log.info("[Plan] 開始階段, planId={}, phaseId={}, phaseOrder={}, name={}",
                         planId, phaseId, phaseOrder, phase.getName());
 
                 markPhaseStatus(phase, PlanPhaseStatus.RUNNING, true, false);
 
                 emitPlanEvent(planId, phaseId, "", "PLAN_PHASE_STARTED", "INFO",
                         Map.of("planId", planId, "phaseId", phaseId, "phaseOrder", phaseOrder,
-                                "status", "RUNNING", "message", "阶段开始执行",
+                                "status", "RUNNING", "message", "階段開始執行",
                                 "timestamp", System.currentTimeMillis()));
 
-                // 委托给 PhaseExecutionService 执行
+                // 委託給 PhaseExecutionService 執行
                 String phaseResult = phaseExecutionService.executePhase(planId, phase, sessionId);
 
                 phaseResults.add(Map.of(
@@ -174,24 +174,24 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
                     emitPlanEvent(planId, phaseId, "", "PLAN_PHASE_FINISHED", "WARN",
                             Map.of("planId", planId, "phaseId", phaseId, "phaseOrder", phaseOrder,
-                                    "status", "FAILED", "message", "阶段执行失败",
+                                    "status", "FAILED", "message", "階段執行失敗",
                                     "timestamp", System.currentTimeMillis()));
 
-                    log.error("[Plan] 阶段执行失败，终止计划, planId={}, phaseId={}", planId, phaseId);
+                    log.error("[Plan] 階段執行失敗，終止後續階段, planId={}, phaseId={}", planId, phaseId);
                     break;
                 } else {
                     markPhaseStatus(phase, PlanPhaseStatus.SUCCESS, false, true);
 
                     emitPlanEvent(planId, phaseId, "", "PLAN_PHASE_FINISHED", "INFO",
                             Map.of("planId", planId, "phaseId", phaseId, "phaseOrder", phaseOrder,
-                                    "status", "SUCCESS", "message", "阶段执行成功",
+                                    "status", "SUCCESS", "message", "階段執行成功",
                                     "timestamp", System.currentTimeMillis()));
 
-                    log.info("[Plan] 阶段执行成功, planId={}, phaseId={}, phaseOrder={}", planId, phaseId, phaseOrder);
+                    log.info("[Plan] 階段執行成功, planId={}, phaseId={}, phaseOrder={}", planId, phaseId, phaseOrder);
                 }
             }
 
-            // --- 收尾报告（无论成功失败都执行）---
+            // --- 收尾報告（無論成功失敗都執行）---
             String reportResult = finalizeAndReport(planId);
 
             Map<String, Object> merged = new LinkedHashMap<>();
@@ -200,48 +200,48 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             merged.put("reportResult", safeParse(reportResult));
 
             if (hasPhaseFailure) {
-                updatePlanStatus(planId, PlanStatus.FAILED, "阶段执行失败");
-                emitPlanFinished(planId, "FAILED", "阶段执行失败，已生成报告");
+                updatePlanStatus(planId, PlanStatus.FAILED, "階段執行失敗");
+                emitPlanFinished(planId, "FAILED", "階段執行失敗，已生成報告");
                 merged.put("status", "error");
-                merged.put("message", "计划阶段执行失败，已生成报告");
+                merged.put("message", "計劃階段執行失敗，已生成報告");
             } else {
                 updatePlanStatus(planId, PlanStatus.SUCCESS, null);
-                emitPlanFinished(planId, "SUCCESS", "计划执行成功并生成报告");
+                emitPlanFinished(planId, "SUCCESS", "計劃執行成功並生成報告");
                 merged.put("status", "success");
-                merged.put("message", "计划多阶段执行成功并生成报告");
+                merged.put("message", "計劃多階段執行成功並生成報告");
             }
 
-            log.info("[Plan] 计划执行完毕, planId={}, status={}", planId, merged.get("status"));
+            log.info("[Plan] 計劃執行完畢, planId={}, status={}", planId, merged.get("status"));
             return objectMapper.writeValueAsString(merged);
 
         } catch (Exception e) {
-            log.error("[Plan] createAndRunPlan 发生未捕获异常, planId={}, err={}", planId, e.getMessage(), e);
+            log.error("[Plan] createAndRunPlan 發生未捕獲異常, planId={}, err={}", planId, e.getMessage(), e);
             if (planId != null) {
-                updatePlanStatus(planId, PlanStatus.FAILED, "创建并执行计划失败: " + e.getMessage());
-                emitPlanFinished(planId, "FAILED", "创建并执行计划失败: " + e.getMessage());
+                updatePlanStatus(planId, PlanStatus.FAILED, "創建並執行計劃失敗: " + e.getMessage());
+                emitPlanFinished(planId, "FAILED", "創建並執行計劃失敗: " + e.getMessage());
             }
-            return error("PLAN_CREATE_RUN_FAILED", "创建并执行计划失败: " + e.getMessage());
+            return error("PLAN_CREATE_RUN_FAILED", "創建並執行計劃失敗: " + e.getMessage());
         }
     }
 
     // =========================================================
-    // 2. 执行单阶段（外部可单独调用）
+    // 2. 執行單階段（外部可單獨調用）
     // =========================================================
 
     @Override
     public String runPhase(String planId, String phaseId) {
         try {
             if (planId == null || planId.isBlank() || phaseId == null || phaseId.isBlank()) {
-                return error("PHASE_INVALID_INPUT", "planId 和 phaseId 不能为空");
+                return error("PHASE_INVALID_INPUT", "planId 和 phaseId 不能為空");
             }
 
             PlanPhase phase = planPhaseMapper.selectById(phaseId);
             if (phase == null || !planId.equals(phase.getPlanId())) {
-                return error("PHASE_NOT_FOUND", "阶段不存在或不属于该计划");
+                return error("PHASE_NOT_FOUND", "階段不存在或不屬於該計劃");
             }
 
             String sessionId = resolveSessionId(planId);
-            log.info("[Plan] 单独执行阶段, planId={}, phaseId={}, sessionId={}", planId, phaseId, sessionId);
+            log.info("[Plan] 單獨執行階段, planId={}, phaseId={}, sessionId={}", planId, phaseId, sessionId);
 
             markPhaseStatus(phase, PlanPhaseStatus.RUNNING, true, false);
             String result = phaseExecutionService.executePhase(planId, phase, sessionId);
@@ -254,25 +254,25 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
             return result;
         } catch (Exception e) {
-            log.error("[Plan] runPhase 异常, planId={}, phaseId={}, err={}", planId, phaseId, e.getMessage(), e);
-            return error("PHASE_EXECUTION_FAILED", "阶段执行失败: " + e.getMessage());
+            log.error("[Plan] runPhase 異常, planId={}, phaseId={}, err={}", planId, phaseId, e.getMessage(), e);
+            return error("PHASE_EXECUTION_FAILED", "階段執行失敗: " + e.getMessage());
         }
     }
 
     // =========================================================
-    // 3. 收尾并生成报告
+    // 3. 收尾並生成報告
     // =========================================================
 
     @Override
     public String finalizeAndReport(String planId) {
         try {
             if (planId == null || planId.isBlank()) {
-                return error("PLAN_INVALID_INPUT", "planId 不能为空");
+                return error("PLAN_INVALID_INPUT", "planId 不能為空");
             }
 
             PlanInstance instance = planInstanceMapper.selectById(planId);
             if (instance == null) {
-                return error("PLAN_NOT_FOUND", "计划不存在: " + planId);
+                return error("PLAN_NOT_FOUND", "計劃不存在: " + planId);
             }
 
             List<PlanPhase> phases = planPhaseMapper.selectList(
@@ -303,7 +303,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 finalStatusText = "FAILED";
             }
 
-            log.info("[Plan] 生成报告, planId={}, finalStatus={}, nodeTotal={}, success={}, failed={}, skipped={}",
+            log.info("[Plan] 生成報告, planId={}, finalStatus={}, nodeTotal={}, success={}, failed={}, skipped={}",
                     planId, finalStatusText, nodes.size(), success, failed, skipped);
 
             String html = buildReportHtml(instance, phases, nodes, finalStatusText);
@@ -311,7 +311,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     planId, html, planId + ".html", "./data/reports"
             );
             if (isError(writeResult)) {
-                log.error("[Plan] 写入报告文件失败, planId={}, result={}", planId, writeResult);
+                log.error("[Plan] 寫入報告文件失敗, planId={}, result={}", planId, writeResult);
                 return writeResult;
             }
 
@@ -319,26 +319,26 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             String reportPath = asText(writePayload.get("reportPath"));
             String reportUrl = asText(writePayload.get("reportUrl"));
 
-            // 尝试打开浏览器（失败不中断）
+            // 嘗試打開瀏覽器（失敗不中斷）
             String openFlag = "FAILED";
             try {
                 String openResult = planReportTools.openBrowserWithFile(reportPath);
                 Map<String, Object> openPayload = extractDataPayload(openResult);
                 openFlag = asText(openPayload.getOrDefault("openResult", "FAILED"));
             } catch (Exception e) {
-                log.warn("[Plan] 打开浏览器失败（不中断）, planId={}, err={}", planId, e.getMessage());
+                log.warn("[Plan] 打開瀏覽器失敗（不中斷）, planId={}, err={}", planId, e.getMessage());
             }
 
-            // 更新计划最终状态
+            // 更新計劃最終狀態
             instance.setFinalStatus(finalStatus);
             instance.setFinishedAt(LocalDateTime.now());
             instance.setStatus(PlanFinalStatus.SUCCESS.equals(finalStatus) ? PlanStatus.SUCCESS : PlanStatus.FAILED);
             planInstanceMapper.updateById(instance);
 
-            // 推送报告就绪事件
+            // 推送報告就緒事件
             emitPlanEvent(planId, "", "", "PLAN_REPORT_READY", "INFO",
                     Map.of("planId", planId, "status", "SUCCESS",
-                            "message", "任务报告已生成",
+                            "message", "任務報告已生成",
                             "reportPath", reportPath, "reportUrl", reportUrl,
                             "openResult", openFlag,
                             "timestamp", System.currentTimeMillis()));
@@ -355,29 +355,29 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             out.put("nodeFailed", failed);
             out.put("nodeSkipped", skipped);
 
-            log.info("[Plan] 报告生成完毕, planId={}, reportPath={}, openResult={}", planId, reportPath, openFlag);
+            log.info("[Plan] 報告生成完畢, planId={}, reportPath={}, openResult={}", planId, reportPath, openFlag);
             return objectMapper.writeValueAsString(out);
 
         } catch (Exception e) {
-            log.error("[Plan] finalizeAndReport 异常, planId={}, err={}", planId, e.getMessage(), e);
-            return error("PLAN_REPORT_FAILED", "报告生成失败: " + e.getMessage());
+            log.error("[Plan] finalizeAndReport 異常, planId={}, err={}", planId, e.getMessage(), e);
+            return error("PLAN_REPORT_FAILED", "報告生成失敗: " + e.getMessage());
         }
     }
 
     // =========================================================
-    // 4. 获取计划可视化图谱
+    // 4. 獲取計劃可視化圖譜
     // =========================================================
 
     @Override
     public String getPlanGraph(String planId) {
         try {
             if (planId == null || planId.isBlank()) {
-                return error("PLAN_INVALID_INPUT", "planId 不能为空");
+                return error("PLAN_INVALID_INPUT", "planId 不能為空");
             }
 
             PlanInstance instance = planInstanceMapper.selectById(planId);
             if (instance == null) {
-                return error("PLAN_NOT_FOUND", "计划不存在: " + planId);
+                return error("PLAN_NOT_FOUND", "計劃不存在: " + planId);
             }
 
             List<PlanPhase> phases = planPhaseMapper.selectList(
@@ -427,6 +427,551 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 m.put("costMs", n.getCostMs() == null ? 0 : n.getCostMs());
                 m.put("failReason", n.getFailReason() == null ? "" : n.getFailReason());
                 m.put("dependencies", n.getDependencies() == null ? List.of() : n.getDependencies());
-                `outputForNext` 的写入已在上方。现在继续完成 `graph.put("nodes", ...)` 之后的剩余部分，以及所有辅助方法。
+                m.put("outputForNext", n.getOutputForNext() == null ? Map.of() : n.getOutputForNext());
+                return m;
+            }).toList());
 
-src\main\java\org\yilena\luna\service\impl\PlanOrchestratorServiceImpl.java
+            graph.put("edges", edges.stream().map(e -> {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("fromNodeId", e.getFromNodeId());
+                m.put("toNodeId", e.getToNodeId());
+                m.put("conditionExpr", e.getConditionExpr() == null ? "" : e.getConditionExpr());
+                return m;
+            }).toList());
+
+            Map<String, Long> nodeStats = nodes.stream().collect(Collectors.groupingBy(
+                    n -> n.getStatus() == null ? "PENDING" : n.getStatus().getValue(),
+                    Collectors.counting()
+            ));
+            graph.put("nodeStats", nodeStats);
+
+            return objectMapper.writeValueAsString(graph);
+        } catch (Exception e) {
+            log.error("[Plan] getPlanGraph 異常, planId={}, err={}", planId, e.getMessage(), e);
+            return error("PLAN_GRAPH_FAILED", "獲取計劃圖譜失敗: " + e.getMessage());
+        }
+    }
+
+    // =========================================================
+    // 藍圖物化：Phase / Node / Edge
+    // =========================================================
+
+    /**
+     * 將藍圖中的 phases 和 nodes 物化為數據庫記錄
+     * 同時在 blueprint 中注入 __phaseIdMap 和 __nodeIdMap 供後續 edge 使用
+     */
+    private void materializePhasesAndNodes(String planId, Map<String, Object> blueprint) throws Exception {
+        List<Map<String, Object>> phaseDefs = asListOfMap(blueprint.get("phases"));
+        List<Map<String, Object>> nodeDefs = asListOfMap(blueprint.get("nodes"));
+
+        // phase 原始 ID -> 實際 DB ID 映射
+        Map<String, String> phaseIdMap = new LinkedHashMap<>();
+        // phaseId -> 節點ID列表
+        Map<String, List<String>> phaseNodeIds = new LinkedHashMap<>();
+
+        int phaseIdx = 1;
+        for (Map<String, Object> p : phaseDefs) {
+            String rawPhaseId = text(p.get("phaseId"));
+            if (rawPhaseId.isBlank()) rawPhaseId = "phase-" + phaseIdx;
+            String phaseId = normalizeScopedId(planId, rawPhaseId);
+
+            phaseIdMap.put(rawPhaseId, phaseId);
+            phaseIdMap.put(phaseId, phaseId);
+
+            PlanPhase phase = PlanPhase.builder()
+                    .phaseId(phaseId)
+                    .planId(planId)
+                    .phaseOrder(intVal(p.get("phaseOrder"), phaseIdx))
+                    .name(text(p.get("name")))
+                    .objective(text(p.get("objective")))
+                    .entryCriteria(text(p.get("entryCriteria")))
+                    .exitCriteria(text(p.get("exitCriteria")))
+                    .status(PlanPhaseStatus.PENDING)
+                    .build();
+            planPhaseMapper.insert(phase);
+            phaseNodeIds.put(phaseId, new ArrayList<>());
+            phaseIdx++;
+        }
+
+        // 如果藍圖未提供階段，創建默認階段
+        if (phaseNodeIds.isEmpty()) {
+            String fallbackPhaseId = normalizeScopedId(planId, "phase-1");
+            PlanPhase fallback = PlanPhase.builder()
+                    .phaseId(fallbackPhaseId).planId(planId).phaseOrder(1)
+                    .name("PHASE-1").objective("默認階段").status(PlanPhaseStatus.PENDING).build();
+            planPhaseMapper.insert(fallback);
+            phaseNodeIds.put(fallbackPhaseId, new ArrayList<>());
+            phaseIdMap.put("phase-1", fallbackPhaseId);
+            phaseIdMap.put(fallbackPhaseId, fallbackPhaseId);
+        }
+
+        String defaultPhaseId = phaseNodeIds.keySet().stream().findFirst()
+                .orElse(normalizeScopedId(planId, "phase-1"));
+
+        Map<String, String> nodeIdMap = new LinkedHashMap<>();
+        int nodeIdx = 1;
+        for (Map<String, Object> n : nodeDefs) {
+            String rawNodeId = text(n.get("nodeId"));
+            if (rawNodeId.isBlank()) rawNodeId = "node-" + nodeIdx;
+            String nodeId = normalizeScopedId(planId, rawNodeId);
+
+            nodeIdMap.put(rawNodeId, nodeId);
+            nodeIdMap.put(nodeId, nodeId);
+
+            String rawPhaseId = text(n.get("phaseId"));
+            String phaseId = phaseIdMap.getOrDefault(rawPhaseId, defaultPhaseId);
+            if (!phaseNodeIds.containsKey(phaseId)) phaseId = defaultPhaseId;
+
+            PlanNode node = PlanNode.builder()
+                    .nodeId(nodeId)
+                    .planId(planId)
+                    .phaseId(phaseId)
+                    .name(text(n.get("name")))
+                    .nodeType(parseNodeType(text(n.get("nodeType"))))
+                    .inputJson(asMap(n.get("inputJson")))
+                    .expectedOutputSchema(asMap(n.get("expectedOutputSchema")))
+                    .dependencies(remapStringListIds(asStringList(n.get("dependencies")), nodeIdMap, planId))
+                    .parallelGroup(text(n.get("parallelGroup")))
+                    .status(PlanNodeStatus.PENDING)
+                    .retryPolicy(asMap(n.get("retryPolicy")))
+                    .retryCount(intVal(n.get("retryCount"), 0))
+                    .maxRetry(intVal(n.get("maxRetry"), DEFAULT_MAX_RETRY))
+                    .modelHint(parseModelHint(text(n.get("modelHint"))))
+                    .resourceHint(asMap(n.get("resourceHint")))
+                    .riskLevel(parseRiskLevel(text(n.get("riskLevel"))))
+                    .build();
+
+            planNodeMapper.insert(node);
+            phaseNodeIds.computeIfAbsent(phaseId, k -> new ArrayList<>()).add(nodeId);
+            nodeIdx++;
+        }
+
+        // 回寫 nodeIds 到 phase
+        for (Map.Entry<String, List<String>> e : phaseNodeIds.entrySet()) {
+            PlanPhase phase = planPhaseMapper.selectById(e.getKey());
+            if (phase != null) {
+                phase.setNodeIds(e.getValue());
+                planPhaseMapper.updateById(phase);
+            }
+        }
+
+        // 注入映射供 edge 使用
+        blueprint.put("__phaseIdMap", phaseIdMap);
+        blueprint.put("__nodeIdMap", nodeIdMap);
+    }
+
+    /**
+     * 從藍圖 edges 字段構建節點依賴邊並持久化
+     */
+    private void buildEdgesFromBlueprint(String planId, Map<String, Object> blueprint) {
+        try {
+            List<Map<String, Object>> edges = asListOfMap(blueprint.get("edges"));
+            Map<String, String> nodeIdMap = asStringMap(blueprint.get("__nodeIdMap"));
+
+            for (Map<String, Object> e : edges) {
+                String rawFrom = text(e.get("fromNodeId"));
+                String rawTo = text(e.get("toNodeId"));
+                String from = resolveMappedOrScopedId(nodeIdMap, planId, rawFrom);
+                String to = resolveMappedOrScopedId(nodeIdMap, planId, rawTo);
+
+                if (from.isBlank() || to.isBlank()) continue;
+
+                // 校驗節點存在
+                boolean fromExists = planNodeMapper.selectCount(
+                        new LambdaQueryWrapper<PlanNode>()
+                                .eq(PlanNode::getPlanId, planId)
+                                .eq(PlanNode::getNodeId, from)) > 0;
+                boolean toExists = planNodeMapper.selectCount(
+                        new LambdaQueryWrapper<PlanNode>()
+                                .eq(PlanNode::getPlanId, planId)
+                                .eq(PlanNode::getNodeId, to)) > 0;
+                if (!fromExists || !toExists) {
+                    log.warn("[Plan] 邊引用的節點不存在，跳過, planId={}, from={}, to={}", planId, from, to);
+                    continue;
+                }
+
+                // 去重
+                long exists = planEdgeMapper.selectCount(
+                        new LambdaQueryWrapper<PlanEdge>()
+                                .eq(PlanEdge::getPlanId, planId)
+                                .eq(PlanEdge::getFromNodeId, from)
+                                .eq(PlanEdge::getToNodeId, to));
+                if (exists == 0) {
+                    planEdgeMapper.insert(PlanEdge.builder()
+                            .planId(planId)
+                            .fromNodeId(from)
+                            .toNodeId(to)
+                            .conditionExpr(text(e.get("conditionExpr")))
+                            .build());
+                }
+            }
+            log.info("[Plan] 構建邊完成, planId={}, edgeCount={}", planId, edges.size());
+        } catch (Exception ex) {
+            log.warn("[Plan] buildEdgesFromBlueprint 失敗（不中斷）, planId={}, err={}", planId, ex.getMessage());
+        }
+    }
+
+    // =========================================================
+    // 計劃狀態管理
+    // =========================================================
+
+    /**
+     * 更新計劃運行狀態
+     */
+    private void updatePlanStatus(String planId, PlanStatus status, String errMsg) {
+        PlanInstance p = planInstanceMapper.selectById(planId);
+        if (p == null) return;
+        p.setStatus(status);
+        p.setErrorMessage(errMsg);
+        if (PlanStatus.SUCCESS.equals(status) || PlanStatus.FAILED.equals(status) || PlanStatus.CANCELLED.equals(status)) {
+            p.setFinishedAt(LocalDateTime.now());
+        }
+        planInstanceMapper.updateById(p);
+        log.info("[Plan] 計劃狀態更新, planId={}, status={}, errMsg={}", planId, status, errMsg);
+    }
+
+    /**
+     * 標記計劃失敗
+     */
+    private void markPlanFailed(String planId, String reason) {
+        updatePlanStatus(planId, PlanStatus.FAILED, reason);
+    }
+
+    /**
+     * 更新階段狀態
+     */
+    private void markPhaseStatus(PlanPhase phase, PlanPhaseStatus status, boolean markStart, boolean markFinish) {
+        if (phase == null) return;
+        phase.setStatus(status);
+        if (markStart && phase.getStartedAt() == null) phase.setStartedAt(LocalDateTime.now());
+        if (markFinish) phase.setFinishedAt(LocalDateTime.now());
+        planPhaseMapper.updateById(phase);
+    }
+
+    /**
+     * 按 phaseOrder 升序加載所有階段
+     */
+    private List<PlanPhase> loadOrderedPhases(String planId) {
+        return planPhaseMapper.selectList(
+                new LambdaQueryWrapper<PlanPhase>()
+                        .eq(PlanPhase::getPlanId, planId)
+                        .orderByAsc(PlanPhase::getPhaseOrder)
+        );
+    }
+
+    /**
+     * 從計劃實例中解析 sessionId
+     */
+    private String resolveSessionId(String planId) {
+        PlanInstance p = planInstanceMapper.selectById(planId);
+        if (p == null || p.getSessionId() == null || p.getSessionId().isBlank()) return "plan-default-session";
+        return p.getSessionId();
+    }
+
+    // =========================================================
+    // 事件推送
+    // =========================================================
+
+    /**
+     * 推送計劃事件（SSE + DB 雙寫），異常不中斷主流程
+     */
+    private void emitPlanEvent(String planId, String phaseId, String nodeId,
+                                String eventType, String level, Map<String, Object> payload) {
+        try {
+            planEventTools.emitPlanEvent(
+                    "default",
+                    planId == null ? "" : planId,
+                    phaseId == null ? "" : phaseId,
+                    nodeId == null ? "" : nodeId,
+                    level == null ? "INFO" : level,
+                    eventType,
+                    objectMapper.writeValueAsString(payload == null ? Map.of() : payload),
+                    UUID.randomUUID().toString()
+            );
+        } catch (Exception e) {
+            log.warn("[Plan] emitPlanEvent 失敗（不中斷）, planId={}, eventType={}, err={}", planId, eventType, e.getMessage());
+        }
+    }
+
+    /**
+     * 推送計劃結束事件
+     */
+    private void emitPlanFinished(String planId, String finalStatus, String message) {
+        PlanInstance p = planInstanceMapper.selectById(planId);
+        int planVersion = p == null || p.getPlanVersion() == null ? 0 : p.getPlanVersion();
+        String sessionId = p == null || p.getSessionId() == null ? "" : p.getSessionId();
+
+        emitPlanEvent(planId, "", "", "PLAN_FINISHED", "INFO",
+                Map.of("planId", planId, "status", finalStatus, "message", message,
+                        "planVersion", planVersion, "sessionId", sessionId,
+                        "timestamp", System.currentTimeMillis()));
+    }
+
+    // =========================================================
+    // 報告生成
+    // =========================================================
+
+    /**
+     * 構建 HTML 任務報告
+     */
+    private String buildReportHtml(PlanInstance instance, List<PlanPhase> phases, List<PlanNode> nodes, String finalStatus) {
+        long success = nodes.stream().filter(n -> n.getStatus() == PlanNodeStatus.SUCCESS).count();
+        long failed = nodes.stream().filter(n -> n.getStatus() == PlanNodeStatus.FAILED).count();
+        long skipped = nodes.stream().filter(n -> n.getStatus() == PlanNodeStatus.SKIPPED).count();
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"UTF-8\"/>")
+                .append("<title>OpenClaw 任務報告 - ").append(instance.getPlanId()).append("</title>")
+                .append("<style>")
+                .append("body{font-family:Arial,Helvetica,sans-serif;padding:24px;background:#f7f8fa;color:#1f2937}")
+                .append("h1,h2{margin:8px 0}.card{background:#fff;border-radius:10px;padding:16px;margin:12px 0;box-shadow:0 2px 8px rgba(0,0,0,.06)}")
+                .append("table{border-collapse:collapse;width:100%}th,td{border:1px solid #e5e7eb;padding:8px;text-align:left;font-size:13px}")
+                .append(".ok{color:#16a34a}.bad{color:#dc2626}.warn{color:#d97706}")
+                .append("</style></head><body>");
+
+        sb.append("<h1>OpenClaw 任務報告</h1>");
+        sb.append("<div class='card'>")
+                .append("<p><b>計劃ID：</b>").append(escapeHtml(instance.getPlanId())).append("</p>")
+                .append("<p><b>會話ID：</b>").append(escapeHtml(instance.getSessionId())).append("</p>")
+                .append("<p><b>用戶目標：</b>").append(escapeHtml(instance.getUserGoal())).append("</p>")
+                .append("<p><b>最終狀態：</b>").append(escapeHtml(finalStatus)).append("</p>")
+                .append("<p><b>創建時間：</b>").append(instance.getCreatedAt() == null ? "" : instance.getCreatedAt()).append("</p>")
+                .append("<p><b>結束時間：</b>").append(LocalDateTime.now()).append("</p>")
+                .append("</div>");
+
+        sb.append("<div class='card'><h2>節點統計</h2>")
+                .append("<p>總節點：").append(nodes.size())
+                .append("，<span class='ok'>成功：").append(success).append("</span>")
+                .append("，<span class='bad'>失敗：").append(failed).append("</span>")
+                .append("，<span class='warn'>跳過：").append(skipped).append("</span></p>")
+                .append("</div>");
+
+        sb.append("<div class='card'><h2>階段總覽</h2><table><thead><tr>")
+                .append("<th>階段順序</th><th>階段ID</th><th>名稱</th><th>目標</th><th>狀態</th>")
+                .append("</tr></thead><tbody>");
+        for (PlanPhase p : phases) {
+            sb.append("<tr>")
+                    .append("<td>").append(p.getPhaseOrder() == null ? "" : p.getPhaseOrder()).append("</td>")
+                    .append("<td>").append(escapeHtml(p.getPhaseId())).append("</td>")
+                    .append("<td>").append(escapeHtml(p.getName())).append("</td>")
+                    .append("<td>").append(escapeHtml(p.getObjective())).append("</td>")
+                    .append("<td>").append(p.getStatus() == null ? "" : p.getStatus().getValue()).append("</td>")
+                    .append("</tr>");
+        }
+        sb.append("</tbody></table></div>");
+
+        sb.append("<div class='card'><h2>節點明細</h2><table><thead><tr>")
+                .append("<th>節點ID</th><th>階段ID</th><th>名稱</th><th>類型</th><th>狀態</th>")
+                .append("<th>重試</th><th>耗時(ms)</th><th>失敗原因</th><th>輸出給下游</th>")
+                .append("</tr></thead><tbody>");
+        for (PlanNode n : nodes) {
+            sb.append("<tr>")
+                    .append("<td>").append(escapeHtml(n.getNodeId())).append("</td>")
+                    .append("<td>").append(escapeHtml(n.getPhaseId())).append("</td>")
+                    .append("<td>").append(escapeHtml(n.getName())).append("</td>")
+                    .append("<td>").append(n.getNodeType() == null ? "" : n.getNodeType().getValue()).append("</td>")
+                    .append("<td>").append(n.getStatus() == null ? "" : n.getStatus().getValue()).append("</td>")
+                    .append("<td>").append(n.getRetryCount() == null ? 0 : n.getRetryCount())
+                    .append("/").append(n.getMaxRetry() == null ? DEFAULT_MAX_RETRY : n.getMaxRetry()).append("</td>")
+                    .append("<td>").append(n.getCostMs() == null ? 0 : n.getCostMs()).append("</td>")
+                    .append("<td>").append(escapeHtml(n.getFailReason())).append("</td>")
+                    .append("<td><pre style='white-space:pre-wrap;font-size:11px;'>")
+                    .append(escapeHtml(toJsonQuiet(n.getOutputForNext())))
+                    .append("</pre></td>")
+                    .append("</tr>");
+        }
+        sb.append("</tbody></table></div></body></html>");
+        return sb.toString();
+    }
+
+    // =========================================================
+    // 工具方法
+    // =========================================================
+
+    /**
+     * 判斷 JSON 結果是否為錯誤狀態
+     */
+    private boolean isError(String jsonText) {
+        if (jsonText == null || jsonText.isBlank()) return true;
+        try {
+            JsonNode node = objectMapper.readTree(jsonText);
+            if (node.has("status")) {
+                String s = node.get("status").asText("");
+                return "error".equalsIgnoreCase(s) || "failed".equalsIgnoreCase(s);
+            }
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * 嘗試將字符串解析為 JSON 節點，失敗則原樣返回
+     */
+    private Object safeParse(String text) {
+        if (text == null || text.isBlank()) return "";
+        try {
+            return objectMapper.readTree(text);
+        } catch (Exception e) {
+            return text;
+        }
+    }
+
+    /**
+     * 從工具返回的 JSON 中提取 data 載荷
+     */
+    private Map<String, Object> extractDataPayload(String toolJsonResult) {
+        try {
+            JsonNode n = objectMapper.readTree(toolJsonResult);
+            if (n.has("data")) return objectMapper.convertValue(n.get("data"), new TypeReference<>() {});
+            return objectMapper.convertValue(n, new TypeReference<>() {});
+        } catch (Exception e) {
+            return Map.of();
+        }
+    }
+
+    private String asText(Object o) {
+        return o == null ? "" : String.valueOf(o);
+    }
+
+    private String text(Object o) {
+        return o == null ? "" : String.valueOf(o).trim();
+    }
+
+    private int intVal(Object o, int def) {
+        try {
+            if (o == null) return def;
+            if (o instanceof Number num) return num.intValue();
+            return Integer.parseInt(String.valueOf(o).trim());
+        } catch (Exception e) {
+            return def;
+        }
+    }
+
+    private String toJsonQuiet(Object obj) {
+        if (obj == null) return "{}";
+        try {
+            return objectMapper.writeValueAsString(obj);
+        } catch (Exception e) {
+            return String.valueOf(obj);
+        }
+    }
+
+    private String escapeHtml(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
+    }
+
+    /**
+     * 構建統一錯誤 JSON
+     */
+    private String error(String code, String message) {
+        try {
+            return objectMapper.writeValueAsString(Map.of(
+                    "status", "error",
+                    "errorCode", code == null ? "" : code,
+                    "message", message == null ? "" : message
+            ));
+        } catch (Exception e) {
+            return "{\"status\":\"error\",\"errorCode\":\"" + code + "\",\"message\":\"" + message + "\"}";
+        }
+    }
+
+    /**
+     * 生成帶 planId 前綴的作用域 ID，確保跨計劃唯一性
+     */
+    private String normalizeScopedId(String planId, String rawId) {
+        String rid = rawId == null ? "" : rawId.trim();
+        if (rid.isBlank()) return planId + ":" + SnowflakeIdUtil.nextIdStr();
+        if (rid.startsWith(planId + ":")) return rid;
+        return planId + ":" + rid;
+    }
+
+    /**
+     * 從 nodeIdMap 中解析映射 ID，找不到則生成作用域 ID
+     */
+    private String resolveMappedOrScopedId(Map<String, String> idMap, String planId, String rawId) {
+        String v = rawId == null ? "" : rawId.trim();
+        if (v.isBlank()) return normalizeScopedId(planId, SnowflakeIdUtil.nextIdStr());
+        if (idMap != null && idMap.containsKey(v)) return idMap.get(v);
+        return normalizeScopedId(planId, v);
+    }
+
+    /**
+     * 將原始依賴 ID 列表重新映射為作用域 ID
+     */
+    private List<String> remapStringListIds(List<String> rawIds, Map<String, String> idMap, String planId) {
+        if (rawIds == null || rawIds.isEmpty()) return rawIds;
+        return rawIds.stream()
+                .map(raw -> resolveMappedOrScopedId(idMap, planId, raw))
+                .toList();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> asListOfMap(Object obj) {
+        if (obj == null) return Collections.emptyList();
+        try {
+            return objectMapper.convertValue(obj, new TypeReference<>() {});
+        } catch (Exception e) {
+            return Collections.emptyList();
+        }
+    }
+
+    private Map<String, Object> asMap(Object obj) {
+        if (obj == null) return null;
+        try {
+            return objectMapper.convertValue(obj, new TypeReference<>() {});
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Map<String, String> asStringMap(Object obj) {
+        if (obj == null) return Collections.emptyMap();
+        try {
+            Map<String, Object> raw = objectMapper.convertValue(obj, new TypeReference<>() {});
+            Map<String, String> out = new LinkedHashMap<>();
+            raw.forEach((k, v) -> out.put(k, v == null ? "" : String.valueOf(v)));
+            return out;
+        } catch (Exception e) {
+            return Collections.emptyMap();
+        }
+    }
+
+    private List<String> asStringList(Object obj) {
+        if (obj == null) return null;
+        try {
+            List<Object> raw = objectMapper.convertValue(obj, new TypeReference<>() {});
+            return raw.stream().map(String::valueOf).toList();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private PlanNodeType parseNodeType(String text) {
+        if (text == null || text.isBlank()) return PlanNodeType.TOOL;
+        try {
+            return PlanNodeType.valueOf(text.trim().toUpperCase(Locale.ROOT));
+        } catch (Exception e) {
+            return PlanNodeType.TOOL;
+        }
+    }
+
+    private PlanRiskLevel parseRiskLevel(String text) {
+        if (text == null || text.isBlank()) return PlanRiskLevel.LOW;
+        try {
+            return PlanRiskLevel.valueOf(text.trim().toUpperCase(Locale.ROOT));
+        } catch (Exception e) {
+            return PlanRiskLevel.LOW;
+        }
+    }
+
+    private PlanModelHint parseModelHint(String text) {
+        if (text == null || text.isBlank()) return null;
+        try {
+            return PlanModelHint.valueOf(text.trim().toUpperCase(Locale.ROOT));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+}
