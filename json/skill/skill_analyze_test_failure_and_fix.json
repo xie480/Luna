@@ -1,0 +1,50 @@
+{
+  "name": "analyze_test_failure_and_fix",
+  "description": "分析测试失败报告并生成修复补丁，执行修复后再次测试验证。",
+  "version": "1.1.0",
+  "owner": "openclaw",
+  "beanName": "codeOpsTools",
+  "methodName": "collectTestReport",
+  "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"reportDirs\":{\"type\":\"string\",\"minLength\":1,\"description\":\"测试报告目录，支持逗号分隔或JSON数组字符串\"},\"parserType\":{\"type\":\"string\",\"description\":\"报告解析器类型\"}},\"required\":[\"reportDirs\"]}",
+  "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"data\":{\"type\":\"object\",\"properties\":{\"passed\":{\"type\":\"integer\"},\"failed\":{\"type\":\"integer\"},\"skipped\":{\"type\":\"integer\"},\"total\":{\"type\":\"integer\"},\"failedCases\":{\"type\":\"array\"}}},\"message\":{\"type\":\"string\"}}}",
+  "runMode": "SYNC",
+  "requiredCapabilities": [
+    "COLLECT_TEST_REPORT",
+    "READ_SOURCE_FILE",
+    "APPLY_UNIFIED_PATCH",
+    "RUN_TEST_COMMAND",
+    "GIT_ROLLBACK_CHECKPOINT"
+  ],
+  "toolSlots": [
+    {
+      "slot": "collect_test_report",
+      "capability": "COLLECT_TEST_REPORT",
+      "required": true
+    },
+    {
+      "slot": "read_source",
+      "capability": "READ_SOURCE_FILE",
+      "required": true
+    },
+    {
+      "slot": "apply_fix_patch",
+      "capability": "APPLY_UNIFIED_PATCH",
+      "required": true
+    },
+    {
+      "slot": "rerun_tests",
+      "capability": "RUN_TEST_COMMAND",
+      "required": true
+    },
+    {
+      "slot": "rollback_if_needed",
+      "capability": "GIT_ROLLBACK_CHECKPOINT",
+      "required": false
+    }
+  ],
+  "thoughtChain": [
+    "解析失败测试并定位根因",
+    "生成并应用修复补丁",
+    "重新执行测试并在必要时回滚"
+  ]
+}

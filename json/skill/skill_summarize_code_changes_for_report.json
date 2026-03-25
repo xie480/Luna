@@ -1,0 +1,50 @@
+{
+  "name": "summarize_code_changes_for_report",
+  "description": "聚合本次代码变更、测试结果与执行日志，生成用于任务报告的代码变更摘要。",
+  "version": "1.1.0",
+  "owner": "openclaw",
+  "beanName": "planOrchestratorServiceImpl",
+  "methodName": "finalizeAndReport",
+  "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"planId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"计划ID\"}},\"required\":[\"planId\"]}",
+  "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"planId\":{\"type\":\"string\"},\"finalStatus\":{\"type\":\"string\"},\"reportPath\":{\"type\":\"string\"},\"reportUrl\":{\"type\":\"string\"},\"openResult\":{\"type\":\"string\"},\"message\":{\"type\":\"string\"}}}",
+  "runMode": "SYNC",
+  "requiredCapabilities": [
+    "QUERY_PLAN_PROGRESS",
+    "RECORD_PLAN_AUDIT_LOG",
+    "WRITE_HTML_REPORT_FILE",
+    "OPEN_BROWSER_WITH_FILE",
+    "EMIT_PLAN_EVENT_SSE"
+  ],
+  "toolSlots": [
+    {
+      "slot": "query_progress",
+      "capability": "QUERY_PLAN_PROGRESS",
+      "required": true
+    },
+    {
+      "slot": "audit_log",
+      "capability": "RECORD_PLAN_AUDIT_LOG",
+      "required": true
+    },
+    {
+      "slot": "write_report",
+      "capability": "WRITE_HTML_REPORT_FILE",
+      "required": true
+    },
+    {
+      "slot": "open_report",
+      "capability": "OPEN_BROWSER_WITH_FILE",
+      "required": false
+    },
+    {
+      "slot": "emit_event",
+      "capability": "EMIT_PLAN_EVENT_SSE",
+      "required": true
+    }
+  ],
+  "thoughtChain": [
+    "汇总代码节点执行结果与测试指标",
+    "组织代码改动摘要并注入报告内容",
+    "写入并打开报告，推送报告就绪事件"
+  ]
+}

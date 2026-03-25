@@ -1,0 +1,44 @@
+{
+  "name": "generate_test_cases",
+  "description": "为代码改动生成并写入测试用例，随后执行测试并输出结构化结果。",
+  "version": "1.1.0",
+  "owner": "openclaw",
+  "beanName": "codeOpsTools",
+  "methodName": "runTestCommand",
+  "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"workDir\":{\"type\":\"string\",\"minLength\":1,\"description\":\"项目目录\"},\"command\":{\"type\":\"string\",\"minLength\":1,\"description\":\"测试命令\"},\"timeoutSec\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":3600,\"description\":\"超时时间秒\"}},\"required\":[\"workDir\",\"command\"]}",
+  "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"data\":{\"type\":\"object\",\"properties\":{\"exitCode\":{\"type\":\"integer\"},\"stdoutTail\":{\"type\":\"string\"},\"stderrTail\":{\"type\":\"string\"},\"costMs\":{\"type\":\"integer\"}}},\"message\":{\"type\":\"string\"}}}",
+  "runMode": "SYNC",
+  "requiredCapabilities": [
+    "WRITE_SOURCE_FILE",
+    "RUN_TEST_COMMAND",
+    "COLLECT_TEST_REPORT",
+    "RECORD_PLAN_AUDIT_LOG"
+  ],
+  "toolSlots": [
+    {
+      "slot": "write_test_file",
+      "capability": "WRITE_SOURCE_FILE",
+      "required": true
+    },
+    {
+      "slot": "run_tests",
+      "capability": "RUN_TEST_COMMAND",
+      "required": true
+    },
+    {
+      "slot": "collect_report",
+      "capability": "COLLECT_TEST_REPORT",
+      "required": true
+    },
+    {
+      "slot": "audit_log",
+      "capability": "RECORD_PLAN_AUDIT_LOG",
+      "required": false
+    }
+  ],
+  "thoughtChain": [
+    "写入新增或修改后的测试用例文件",
+    "执行测试命令获取原始结果",
+    "收集测试报告并输出结构化摘要"
+  ]
+}

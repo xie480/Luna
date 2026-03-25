@@ -1,0 +1,50 @@
+{
+  "name": "generate_code_patch",
+  "description": "根据任务目标读取源文件并生成可应用补丁，支持检查点与回滚保障。",
+  "version": "1.1.0",
+  "owner": "openclaw",
+  "beanName": "codeOpsTools",
+  "methodName": "applyUnifiedPatch",
+  "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"repoPath\":{\"type\":\"string\",\"minLength\":1,\"description\":\"仓库路径\"},\"patchText\":{\"type\":\"string\",\"minLength\":1,\"description\":\"unified diff文本\"},\"checkOnly\":{\"type\":\"boolean\",\"description\":\"仅检查不应用\"}},\"required\":[\"repoPath\",\"patchText\"]}",
+  "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"data\":{\"type\":\"object\",\"properties\":{\"checkOnly\":{\"type\":\"boolean\"},\"checkOnlyResult\":{\"type\":\"string\"},\"appliedFiles\":{\"type\":\"array\"},\"failedFiles\":{\"type\":\"array\"},\"exitCode\":{\"type\":\"integer\"},\"stdoutTail\":{\"type\":\"string\"},\"stderrTail\":{\"type\":\"string\"}}},\"message\":{\"type\":\"string\"}}}",
+  "runMode": "SYNC",
+  "requiredCapabilities": [
+    "READ_SOURCE_FILE",
+    "WRITE_SOURCE_FILE",
+    "APPLY_UNIFIED_PATCH",
+    "GIT_CREATE_CHECKPOINT",
+    "GIT_ROLLBACK_CHECKPOINT"
+  ],
+  "toolSlots": [
+    {
+      "slot": "read_source",
+      "capability": "READ_SOURCE_FILE",
+      "required": true
+    },
+    {
+      "slot": "write_source",
+      "capability": "WRITE_SOURCE_FILE",
+      "required": false
+    },
+    {
+      "slot": "create_checkpoint",
+      "capability": "GIT_CREATE_CHECKPOINT",
+      "required": true
+    },
+    {
+      "slot": "apply_patch",
+      "capability": "APPLY_UNIFIED_PATCH",
+      "required": true
+    },
+    {
+      "slot": "rollback_checkpoint",
+      "capability": "GIT_ROLLBACK_CHECKPOINT",
+      "required": false
+    }
+  ],
+  "thoughtChain": [
+    "读取目标文件并生成补丁内容",
+    "创建代码检查点以保障可回滚",
+    "执行补丁应用并在失败时回滚"
+  ]
+}

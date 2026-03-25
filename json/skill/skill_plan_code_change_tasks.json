@@ -1,0 +1,50 @@
+{
+  "name": "plan_code_change_tasks",
+  "description": "将代码需求拆解为可执行子任务，产出代码修改、构建测试、回滚与报告节点规划。",
+  "version": "1.1.0",
+  "owner": "openclaw",
+  "beanName": "planOrchestratorServiceImpl",
+  "methodName": "createAndRunPlan",
+  "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"sessionId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"稳定会话ID\"},\"userGoal\":{\"type\":\"string\",\"minLength\":1,\"description\":\"代码任务目标\"}},\"required\":[\"sessionId\",\"userGoal\"]}",
+  "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"planId\":{\"type\":\"string\"},\"phaseResults\":{\"type\":\"array\"},\"reportResult\":{\"type\":\"object\"},\"message\":{\"type\":\"string\"}}}",
+  "runMode": "SYNC",
+  "requiredCapabilities": [
+    "READ_REPO_TREE",
+    "SEARCH_SYMBOL_REFERENCES",
+    "SAVE_PLAN_BLUEPRINT",
+    "EMIT_PLAN_EVENT_SSE",
+    "RECORD_PLAN_AUDIT_LOG"
+  ],
+  "toolSlots": [
+    {
+      "slot": "read_repo",
+      "capability": "READ_REPO_TREE",
+      "required": true
+    },
+    {
+      "slot": "search_refs",
+      "capability": "SEARCH_SYMBOL_REFERENCES",
+      "required": false
+    },
+    {
+      "slot": "save_blueprint",
+      "capability": "SAVE_PLAN_BLUEPRINT",
+      "required": true
+    },
+    {
+      "slot": "emit_event",
+      "capability": "EMIT_PLAN_EVENT_SSE",
+      "required": true
+    },
+    {
+      "slot": "audit_log",
+      "capability": "RECORD_PLAN_AUDIT_LOG",
+      "required": true
+    }
+  ],
+  "thoughtChain": [
+    "读取代码仓结构与关键符号依赖",
+    "将需求拆分为代码改动与验证节点",
+    "落库计划蓝图并推送计划创建事件"
+  ]
+}

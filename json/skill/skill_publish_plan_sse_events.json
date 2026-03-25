@@ -1,0 +1,32 @@
+{
+  "name": "publish_plan_sse_events",
+  "description": "统一封装计划执行过程中的SSE事件发布与审计落库，支持阶段/节点事件的标准化推送。",
+  "version": "1.1.0",
+  "owner": "openclaw",
+  "beanName": "planEventTools",
+  "methodName": "emitPlanEvent",
+  "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"clientId\":{\"type\":\"string\",\"description\":\"客户端ID，默认default\"},\"planId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"计划ID\"},\"phaseId\":{\"type\":\"string\",\"description\":\"阶段ID，可空\"},\"nodeId\":{\"type\":\"string\",\"description\":\"节点ID，可空\"},\"level\":{\"type\":\"string\",\"enum\":[\"INFO\",\"WARN\",\"ERROR\"],\"description\":\"事件级别\"},\"eventType\":{\"type\":\"string\",\"minLength\":1,\"description\":\"事件类型\"},\"payload\":{\"type\":\"object\",\"description\":\"事件载荷\"},\"traceId\":{\"type\":\"string\",\"description\":\"链路ID，可选\"}},\"required\":[\"planId\",\"level\",\"eventType\",\"payload\"]}",
+  "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"data\":{\"type\":\"object\",\"properties\":{\"record\":{\"type\":\"object\"},\"sse\":{\"type\":\"object\"},\"recordOk\":{\"type\":\"boolean\"},\"sseOk\":{\"type\":\"boolean\"}}},\"message\":{\"type\":\"string\"}}}",
+  "runMode": "SYNC",
+  "requiredCapabilities": [
+    "EMIT_PLAN_EVENT_SSE",
+    "RECORD_PLAN_AUDIT_LOG"
+  ],
+  "toolSlots": [
+    {
+      "slot": "emit_event",
+      "capability": "EMIT_PLAN_EVENT_SSE",
+      "required": true
+    },
+    {
+      "slot": "audit_log",
+      "capability": "RECORD_PLAN_AUDIT_LOG",
+      "required": true
+    }
+  ],
+  "thoughtChain": [
+    "标准化组装事件载荷与上下文信息",
+    "先落审计日志再推送SSE事件",
+    "返回双通道执行结果并标记成功率"
+  ]
+}
