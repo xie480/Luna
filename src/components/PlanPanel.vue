@@ -59,80 +59,94 @@
           <span>更新时间：{{ formatTs(runtime.updatedAt) }}</span>
         </div>
 
-        <div class="graph card neon-card">
-          <div class="col-title">计划图谱（Phase 分栏）</div>
-          <div class="graph-scroll">
-            <div class="phase-lanes">
-              <div
-                v-for="phase in orderedPhases"
-                :key="phase.phaseId"
-                class="phase-lane"
-              >
-                <div class="phase-head">
-                  <div class="phase-name">{{ phase.name || phase.phaseId }}</div>
-                  <div class="phase-meta">
-                    <span>#{{ phase.phaseOrder ?? "-" }}</span>
-                    <span class="badge" :class="badgeClass(phase.status)">{{ phase.status || "PENDING" }}</span>
+        <div class="resizable-layout">
+          <div
+            class="graph card neon-card"
+            :style="{ minHeight: panelSplit.graphHeight + 'px' }"
+          >
+            <div class="col-title">计划图谱（Phase 分栏）</div>
+            <div class="graph-scroll">
+              <div class="phase-lanes">
+                <div
+                  v-for="phase in orderedPhases"
+                  :key="phase.phaseId"
+                  class="phase-lane"
+                >
+                  <div class="phase-head">
+                    <div class="phase-name">{{ phase.name || phase.phaseId }}</div>
+                    <div class="phase-meta">
+                      <span>#{{ phase.phaseOrder ?? "-" }}</span>
+                      <span class="badge" :class="badgeClass(phase.status)">{{ phase.status || "PENDING" }}</span>
+                    </div>
+                    <div class="phase-count">S: {{ phase.successCount ?? 0 }} / F: {{ phase.failCount ?? 0 }}</div>
                   </div>
-                  <div class="phase-count">S: {{ phase.successCount ?? 0 }} / F: {{ phase.failCount ?? 0 }}</div>
+
+                  <div class="phase-nodes">
+                    <div
+                      v-for="node in getNodesByPhase(phase.phaseId)"
+                      :key="node.nodeId"
+                      class="node-card"
+                      :class="badgeClass(node.status)"
+                    >
+                      <div class="node-top">
+                        <b>{{ node.skillName || node.nodeName || node.nodeId }}</b>
+                        <span class="badge" :class="badgeClass(node.status)">{{ node.status || "PENDING" }}</span>
+                      </div>
+                      <div class="node-sub">nodeId: {{ node.nodeId }}</div>
+                      <div class="node-sub">nodeType: {{ node.nodeType || "-" }}</div>
+                      <div class="node-sub">costMs: {{ node.costMs ?? 0 }} · retry: {{ node.retryCount ?? 0 }}</div>
+                      <div v-if="node.status === 'FAILED'" class="fail-reason">
+                        失败原因：{{ node.failReason || node.errorCode || node.message || "-" }}
+                      </div>
+                      <div v-else class="output-summary">
+                        输出摘要：{{ summarizeOutput(node.outputForNext) }}
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                <div class="phase-nodes">
-                  <div
-                    v-for="node in getNodesByPhase(phase.phaseId)"
-                    :key="node.nodeId"
-                    class="node-card"
-                    :class="badgeClass(node.status)"
-                  >
-                    <div class="node-top">
-                      <b>{{ node.skillName || node.nodeName || node.nodeId }}</b>
-                      <span class="badge" :class="badgeClass(node.status)">{{ node.status || "PENDING" }}</span>
-                    </div>
-                    <div class="node-sub">nodeId: {{ node.nodeId }}</div>
-                    <div class="node-sub">nodeType: {{ node.nodeType || "-" }}</div>
-                    <div class="node-sub">costMs: {{ node.costMs ?? 0 }} · retry: {{ node.retryCount ?? 0 }}</div>
-                    <div v-if="node.status === 'FAILED'" class="fail-reason">
-                      失败原因：{{ node.failReason || node.errorCode || node.message || "-" }}
-                    </div>
-                    <div v-else class="output-summary">
-                      输出摘要：{{ summarizeOutput(node.outputForNext) }}
-                    </div>
+                <div v-if="orderedPhases.length === 0" class="empty">暂无图谱数据</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="splitter horizontal" @mousedown="startSplitResize($event, 'horizontal')" title="拖拽调整上下区域高度"></div>
+
+          <div
+            class="bottom-grid"
+            :style="{ gridTemplateColumns: panelSplit.leftWidth + 'fr ' + panelSplit.rightWidth + 'fr' }"
+          >
+            <div class="edges-box card neon-card">
+              <div class="col-title">边关系（from → to）</div>
+              <div class="list">
+                <div v-for="(e, idx) in runtimeEdges" :key="idx" class="item">
+                  <div class="line">
+                    <b>{{ e.fromNodeId || "-" }}</b>
+                    <span>→</span>
+                    <b>{{ e.toNodeId || "-" }}</b>
                   </div>
+                  <div class="sub">condition: {{ e.conditionExpr || "-" }}</div>
                 </div>
+                <div v-if="runtimeEdges.length === 0" class="empty">暂无边关系</div>
               </div>
-
-              <div v-if="orderedPhases.length === 0" class="empty">暂无图谱数据</div>
             </div>
-          </div>
-        </div>
 
-        <div class="edges-box card neon-card">
-          <div class="col-title">边关系（from → to）</div>
-          <div class="list">
-            <div v-for="(e, idx) in runtimeEdges" :key="idx" class="item">
-              <div class="line">
-                <b>{{ e.fromNodeId || "-" }}</b>
-                <span>→</span>
-                <b>{{ e.toNodeId || "-" }}</b>
+            <div class="splitter vertical" @mousedown="startSplitResize($event, 'vertical')" title="拖拽调整左右区域宽度"></div>
+
+            <div class="async-box card neon-card">
+              <div class="col-title">异步技能事件</div>
+              <div class="list">
+                <div v-for="(e, idx) in asyncEvents" :key="idx" class="item">
+                  <div class="line">
+                    <b>{{ e.skillName || "-" }}</b>
+                    <span class="badge" :class="badgeClass(e.status)">{{ e.status || "-" }}</span>
+                  </div>
+                  <div class="sub">taskId: {{ e.taskId || "-" }} · costMs: {{ e.costMs ?? "-" }}</div>
+                  <div class="msg">{{ e.message || e.errorCode || e.error || "-" }}</div>
+                </div>
+                <div v-if="asyncEvents.length === 0" class="empty">暂无异步事件</div>
               </div>
-              <div class="sub">condition: {{ e.conditionExpr || "-" }}</div>
             </div>
-            <div v-if="runtimeEdges.length === 0" class="empty">暂无边关系</div>
-          </div>
-        </div>
-
-        <div class="async-box card neon-card">
-          <div class="col-title">异步技能事件</div>
-          <div class="list">
-            <div v-for="(e, idx) in asyncEvents" :key="idx" class="item">
-              <div class="line">
-                <b>{{ e.skillName || "-" }}</b>
-                <span class="badge" :class="badgeClass(e.status)">{{ e.status || "-" }}</span>
-              </div>
-              <div class="sub">taskId: {{ e.taskId || "-" }} · costMs: {{ e.costMs ?? "-" }}</div>
-              <div class="msg">{{ e.message || e.errorCode || e.error || "-" }}</div>
-            </div>
-            <div v-if="asyncEvents.length === 0" class="empty">暂无异步事件</div>
           </div>
         </div>
       </div>
@@ -258,6 +272,67 @@ function onResize(e) {
 function stopResize() {
   window.removeEventListener("mousemove", onResize);
   window.removeEventListener("mouseup", stopResize);
+}
+
+const panelSplit = ref({
+  graphHeight: 260,
+  leftWidth: 1,
+  rightWidth: 1,
+});
+
+let splitResizing = "";
+let splitStart = { x: 0, y: 0 };
+let splitInitial = { graphHeight: 260, leftWidth: 1, rightWidth: 1 };
+
+function startSplitResize(e, type) {
+  splitResizing = type;
+  splitStart = { x: e.clientX, y: e.clientY };
+  splitInitial = {
+    graphHeight: panelSplit.value.graphHeight,
+    leftWidth: panelSplit.value.leftWidth,
+    rightWidth: panelSplit.value.rightWidth,
+  };
+  window.addEventListener("mousemove", onSplitResize);
+  window.addEventListener("mouseup", stopSplitResize);
+}
+
+function onSplitResize(e) {
+  if (!splitResizing) return;
+
+  if (splitResizing === "horizontal") {
+    const dy = e.clientY - splitStart.y;
+    const next = splitInitial.graphHeight + dy;
+    panelSplit.value.graphHeight = Math.min(600, Math.max(140, next));
+    return;
+  }
+
+  if (splitResizing === "vertical") {
+    const dx = e.clientX - splitStart.x;
+    const delta = dx / 220;
+    let nextLeft = splitInitial.leftWidth + delta;
+    let nextRight = splitInitial.rightWidth - delta;
+
+    const minFr = 0.6;
+    if (nextLeft < minFr) {
+      const diff = minFr - nextLeft;
+      nextLeft = minFr;
+      nextRight -= diff;
+    }
+    if (nextRight < minFr) {
+      const diff = minFr - nextRight;
+      nextRight = minFr;
+      nextLeft -= diff;
+    }
+
+    panelSplit.value.leftWidth = Math.max(minFr, nextLeft);
+    panelSplit.value.rightWidth = Math.max(minFr, nextRight);
+  }
+}
+
+function stopSplitResize() {
+  splitResizing = "";
+  window.removeEventListener("mousemove", onSplitResize);
+  window.removeEventListener("mouseup", stopSplitResize);
 }
 
 const orderedPhases = computed(() => {
@@ -389,6 +464,7 @@ onBeforeUnmount(() => {
   if (feedbackTimer) clearTimeout(feedbackTimer);
   stopDrag();
   stopResize();
+  stopSplitResize();
 });
 </script>
 
@@ -599,6 +675,21 @@ onBeforeUnmount(() => {
   color: #fca5a5;
 }
 
+.resizable-layout {
+  display: grid;
+  grid-template-rows: auto 8px minmax(140px, 1fr);
+  gap: 8px;
+  min-height: 0;
+  flex: 1;
+}
+
+.bottom-grid {
+  display: grid;
+  grid-template-columns: 1fr 8px 1fr;
+  gap: 8px;
+  min-height: 0;
+}
+
 .graph,
 .edges-box,
 .async-box {
@@ -608,15 +699,6 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-.graph {
-  flex: 1.6;
-}
-.edges-box {
-  flex: 1;
-}
-.async-box {
-  flex: 1;
 }
 
 .col-title {
@@ -761,6 +843,25 @@ onBeforeUnmount(() => {
 .badge.err { color: #fc8181; border-color: rgba(255,0,0,0.5); }
 .badge.run { color: #63b3ed; border-color: rgba(0,150,255,0.5); }
 .badge.wait { color: #fcd34d; border-color: rgba(245,158,11,0.5); }
+
+.splitter {
+  position: relative;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+.splitter:hover {
+  background: rgba(0, 255, 200, 0.22);
+  box-shadow: 0 0 10px rgba(0, 255, 200, 0.24);
+}
+.splitter.horizontal {
+  height: 8px;
+  cursor: row-resize;
+}
+.splitter.vertical {
+  width: 8px;
+  cursor: col-resize;
+}
 
 .empty {
   color: var(--text-dim, #888);
