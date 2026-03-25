@@ -188,6 +188,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
             String listResult = planNodeTools.listPhaseNodes(planId, phaseId);
             if (isError(listResult)) {
+                log.error("runPhase 列出节点失败, planId={}, phaseId={}", planId, phaseId);
                 return listResult;
             }
 
@@ -199,6 +200,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             );
 
             if (nodes.isEmpty()) {
+                log.warn("runPhase 阶段无节点, planId={}, phaseId={}", planId, phaseId);
                 return error("PHASE_EMPTY", "阶段下无可执行节点");
             }
 
@@ -206,6 +208,8 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             int successCount = 0;
             int failCount = 0;
             int phaseOrder = phaseOrderOf(planId, phaseId);
+
+            log.info("runPhase 开始执行, planId={}, phaseId={}, phaseOrder={}, nodeTotal={}", planId, phaseId, phaseOrder, nodes.size());
 
             Map<String, Object> phaseStartPayload = new LinkedHashMap<>();
             phaseStartPayload.put("eventType", "PLAN_PHASE_STARTED");
@@ -236,8 +240,15 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 int retryCount = node.getRetryCount() == null ? 0 : node.getRetryCount();
                 int maxRetry = node.getMaxRetry() == null ? DEFAULT_MAX_RETRY : node.getMaxRetry();
 
+                logNodeStart(planId, phaseId, phaseOrder, nodeId, skillName, nodeType, retryCount, maxRetry);
+
                 if (!canTransitToRunning(node.getStatus())) {
                     failCount++;
+                    logNodeFailure(
+                            planId, phaseId, phaseOrder, nodeId, skillName, nodeType,
+                            retryCount, maxRetry, 0L,
+                            "节点状态流转不合法", "NODE_INVALID_TRANSITION"
+                    );
                     emitPlanEvent(
                             "PLAN_NODE_FAILED",
                             "WARN",
@@ -259,6 +270,12 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 );
                 if (isError(running)) {
                     failCount++;
+                    long costMs = System.currentTimeMillis() - nodeStart;
+                    logNodeFailure(
+                            planId, phaseId, phaseOrder, nodeId, skillName, nodeType,
+                            retryCount, maxRetry, costMs,
+                            "更新节点运行状态失败", "NODE_RUNNING_UPDATE_FAILED"
+                    );
                     emitPlanEvent(
                             "PLAN_NODE_FAILED",
                             "ERROR",
@@ -269,7 +286,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                                     "PLAN_NODE_FAILED", planId, phaseId, nodeId, "FAILED",
                                     "更新节点运行状态失败", skillName, nodeType,
                                     "update_node_status RUNNING failed", "NODE_RUNNING_UPDATE_FAILED",
-                                    retryCount, System.currentTimeMillis() - nodeStart, Map.of(), System.currentTimeMillis()
+                                    retryCount, costMs, Map.of(), System.currentTimeMillis()
                             )
                     );
                     continue;
@@ -315,6 +332,11 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     if (isError(appendRet)) {
                         failCount++;
                         planNodeTools.updateNodeStatus(planId, nodeId, "FAILED", nodeCostMs, "append_node_output failed", retryCount);
+                        logNodeFailure(
+                                planId, phaseId, phaseOrder, nodeId, skillName, nodeType,
+                                retryCount, maxRetry, nodeCostMs,
+                                "节点输出落库失败", "NODE_OUTPUT_APPEND_FAILED"
+                        );
                         emitPlanEvent(
                                 "PLAN_NODE_FAILED",
                                 "ERROR",
@@ -336,6 +358,11 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     );
                     if (isError(successRet)) {
                         failCount++;
+                        logNodeFailure(
+                                planId, phaseId, phaseOrder, nodeId, skillName, nodeType,
+                                retryCount, maxRetry, nodeCostMs,
+                                "更新节点成功状态失败", "NODE_SUCCESS_UPDATE_FAILED"
+                        );
                         emitPlanEvent(
                                 "PLAN_NODE_FAILED",
                                 "ERROR",
@@ -351,6 +378,10 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                         );
                     } else {
                         successCount++;
+                        log.info(
+                                "plan node 执行成功, planId={}, phaseId={}, phaseOrder={}, nodeId={}, nodeName={}, nodeType={}, retryCount={}/{}, costMs={}",
+                                planId, phaseId, phaseOrder, nodeId, skillName, nodeType, retryCount, maxRetry, nodeCostMs
+                        );
                         emitPlanEvent(
                                 "PLAN_NODE_SUCCESS",
                                 "INFO",
@@ -373,8 +404,17 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
                 boolean recovered = false;
                 for (int r = retryCount + 1; r <= maxRetry; r++) {
+                    log.warn(
+                            "plan node 准备重试, planId={}, phaseId={}, phaseOrder={}, nodeId={}, nodeName={}, nodeType={}, nextRetry={}/{}, lastFailReason={}, lastErrorCode={}",
+                            planId, phaseId, phaseOrder, nodeId, skillName, nodeType, r, maxRetry, failReason, failCode
+                    );
                     String retryRun = planNodeTools.updateNodeStatus(planId, nodeId, "RUNNING", null, null, r);
                     if (isError(retryRun)) {
+                        logNodeFailure(
+                                planId, phaseId, phaseOrder, nodeId, skillName, nodeType,
+                                r, maxRetry, System.currentTimeMillis() - nodeStart,
+                                "重试前更新 RUNNING 状态失败", "NODE_RETRY_RUNNING_UPDATE_FAILED"
+                        );
                         break;
                     }
                     String retryResult = agentService.processToolCalling(sessionId, nodeGoal);
@@ -398,6 +438,10 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
                         successCount++;
                         recovered = true;
+                        log.info(
+                                "plan node 重试成功, planId={}, phaseId={}, phaseOrder={}, nodeId={}, nodeName={}, nodeType={}, retryCount={}/{}, costMs={}",
+                                planId, phaseId, phaseOrder, nodeId, skillName, nodeType, r, maxRetry, System.currentTimeMillis() - nodeStart
+                        );
                         emitPlanEvent(
                                 "PLAN_NODE_SUCCESS",
                                 "INFO",
@@ -419,8 +463,14 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
                 if (!recovered) {
                     failCount++;
+                    long finalCostMs = System.currentTimeMillis() - nodeStart;
                     planNodeTools.updateNodeStatus(
-                            planId, nodeId, "FAILED", System.currentTimeMillis() - nodeStart, failReason, maxRetry
+                            planId, nodeId, "FAILED", finalCostMs, failReason, maxRetry
+                    );
+                    logNodeFailure(
+                            planId, phaseId, phaseOrder, nodeId, skillName, nodeType,
+                            maxRetry, maxRetry, finalCostMs,
+                            failReason, failCode
                     );
                     emitPlanEvent(
                             "PLAN_NODE_FAILED",
@@ -432,7 +482,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                                     "PLAN_NODE_FAILED", planId, phaseId, nodeId, "FAILED",
                                     "节点执行失败", skillName, nodeType,
                                     failReason, failCode,
-                                    maxRetry, System.currentTimeMillis() - nodeStart, outputForNext, System.currentTimeMillis()
+                                    maxRetry, finalCostMs, outputForNext, System.currentTimeMillis()
                             )
                     );
                 }
@@ -461,6 +511,11 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     phaseId,
                     "",
                     phaseFinishPayload
+            );
+
+            log.info(
+                    "runPhase 执行完成, planId={}, phaseId={}, phaseOrder={}, status={}, successCount={}, failCount={}, costMs={}",
+                    planId, phaseId, phaseOrder, phaseStatus, successCount, failCount, phaseCostMs
             );
 
             Map<String, Object> out = new LinkedHashMap<>();
@@ -1289,5 +1344,50 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         } catch (Exception e) {
             return Map.of();
         }
+    }
+
+    private void logNodeStart(
+            String planId,
+            String phaseId,
+            int phaseOrder,
+            String nodeId,
+            String nodeName,
+            String nodeType,
+            int retryCount,
+            int maxRetry
+    ) {
+        log.info(
+                "plan node 开始执行, planId={}, phaseId={}, phaseOrder={}, nodeId={}, nodeName={}, nodeType={}, retryCount={}/{}, status=RUNNING",
+                planId, phaseId, phaseOrder, nodeId, nodeName, nodeType, retryCount, maxRetry
+        );
+    }
+
+    private void logNodeFailure(
+            String planId,
+            String phaseId,
+            int phaseOrder,
+            String nodeId,
+            String nodeName,
+            String nodeType,
+            int retryCount,
+            int maxRetry,
+            long costMs,
+            String failReason,
+            String errorCode
+    ) {
+        log.error(
+                "plan node 执行失败, planId={}, phaseId={}, phaseOrder={}, nodeId={}, nodeName={}, nodeType={}, retryCount={}/{}, costMs={}, failReason={}, errorCode={}",
+                planId,
+                phaseId,
+                phaseOrder,
+                nodeId,
+                nodeName,
+                nodeType,
+                retryCount,
+                maxRetry,
+                costMs,
+                failReason == null ? "" : failReason,
+                errorCode == null ? "" : errorCode
+        );
     }
 }
