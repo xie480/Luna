@@ -761,7 +761,6 @@ let uiLeaveTimer = null;
 
 function hasBlockingUiPanels() {
   return (
-    loginVisible.value ||
     showSettings.value ||
     showHistory.value ||
     showQuery.value ||
@@ -775,7 +774,6 @@ function getUiHoverSelector() {
     ".chat-bar-wrapper:not(.fade-leave-active):hover",
     ".settings-panel:not(.fade-leave-active):hover",
     ".login-terminal:hover",
-    ".login-mask:hover",
     ".history-panel:not(.fade-leave-active):hover",
     ".query-panel:not(.fade-leave-active):hover",
     ".plan-panel-shell:not(.fade-leave-active) .plan-panel:hover",
@@ -1264,6 +1262,7 @@ onMounted(async () => {
 
   if (window.pet && window.pet.onToggleChat) {
     window.pet.onToggleChat(() => {
+      if (loginVisible.value) return;
       showChat.value = !showChat.value;
 
       if (!showChat.value) {
@@ -1500,6 +1499,7 @@ html, body {
   justify-content: center;
   background: transparent;
   font-family: "Courier New", "Consolas", monospace;
+  pointer-events: none;
 }
 .login-terminal {
   width: 520px;
@@ -1516,6 +1516,7 @@ html, body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  pointer-events: auto;
 }
 .login-terminal.collapsed {
   width: 280px;
