@@ -390,7 +390,47 @@ public class CodeOpsTools extends BaseTool {
             @RequestParam(value = "ecosystem", required = false) String ecosystem,
             @RequestParam(value = "failOnSeverity", required = false) String failOnSeverity
     ) {
-        return error("当前环境未启用SCA依赖漏洞扫描器，请参阅 docs/openclaw_tool_dependency_guide.md 完成依赖安装后再启用。");
+        try {
+            Path repo = resolveSafePath(repoPath, true);
+            String eco = ecosystem == null ? "" : ecosystem.trim().toLowerCase(Locale.ROOT);
+
+            List<String> cmd = buildScaCommand(repo, eco);
+            if (cmd == null || cmd.isEmpty()) {
+                return error("无法识别项目生态，请传 ecosystem=maven|gradle|npm|pnpm|yarn|python");
+            }
+
+            ProcessResult pr = runCommandInternal(repo.toFile(), cmd, 1800);
+
+            List<Path> reportCandidates = findSCAReports(repo, eco);
+            Map<String, Object> summary = summarizeScaReports(reportCandidates);
+
+            String normalizedSeverity = normalizeSeverity(failOnSeverity);
+            boolean thresholdReached = isThresholdReached(summary, normalizedSeverity);
+
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("repoPath", repo.toString());
+            out.put("ecosystem", detectEcoLabel(repo, eco));
+            out.put("command", String.join(" ", cmd));
+            out.put("exitCode", pr.exitCode);
+            out.put("stdoutTail", pr.stdoutTail);
+            out.put("stderrTail", pr.stderrTail);
+            out.put("costMs", pr.costMs);
+            out.put("reportFiles", reportCandidates.stream().map(Path::toString).toList());
+            out.put("summary", summary);
+            out.put("failOnSeverity", normalizedSeverity);
+            out.put("thresholdReached", thresholdReached);
+
+            if (pr.exitCode != 0) {
+                return error("依赖漏洞扫描执行失败，exitCode=" + pr.exitCode + "，stderr=" + pr.stderrTail);
+            }
+            if (thresholdReached) {
+                return error("依赖漏洞扫描发现达到阈值的风险（" + normalizedSeverity + "及以上）");
+            }
+            return success(out);
+        } catch (Exception e) {
+            log.error("scan_dependency_vulnerabilities 失败", e);
+            return error("scan_dependency_vulnerabilities 失败: " + e.getMessage());
+        }
     }
 
     private String runCommand(String workDir, String command, Integer timeoutSec) {
@@ -518,6 +558,146 @@ public class CodeOpsTools extends BaseTool {
             throw new IllegalArgumentException("目录不存在: " + target);
         }
         return target;
+    }
+
+    private List<String> buildScaCommand(Path repo, String ecosystem) {
+        String eco = detectEcoLabel(repo, ecosystem);
+        if ("maven".equals(eco)) {
+            return List.of(
+                    "mvn",
+                    "-B",
+                    "-DskipTests",
+                    "org.owasp:dependency-check-maven:check"
+            );
+        }
+        if ("gradle".equals(eco)) {
+            return List.of(
+                    "gradle",
+                    "dependencyCheckAnalyze",
+                    "--no-daemon"
+            );
+        }
+        if ("npm".equals(eco) || "pnpm".equals(eco) || "yarn".equals(eco)) {
+            return List.of(eco, "audit", "--json");
+        }
+        if ("python".equals(eco)) {
+            return List.of("pip-audit", "-f", "json");
+        }
+        return null;
+    }
+
+    private String detectEcoLabel(Path repo, String requestedEco) {
+        if (requestedEco != null && !requestedEco.isBlank()) {
+            return requestedEco.trim().toLowerCase(Locale.ROOT);
+        }
+        if (Files.exists(repo.resolve("pom.xml"))) return "maven";
+        if (Files.exists(repo.resolve("build.gradle")) || Files.exists(repo.resolve("build.gradle.kts"))) return "gradle";
+        if (Files.exists(repo.resolve("package-lock.json")) || Files.exists(repo.resolve("package.json"))) return "npm";
+        if (Files.exists(repo.resolve("pnpm-lock.yaml"))) return "pnpm";
+        if (Files.exists(repo.resolve("yarn.lock"))) return "yarn";
+        if (Files.exists(repo.resolve("requirements.txt")) || Files.exists(repo.resolve("pyproject.toml"))) return "python";
+        return "";
+    }
+
+    private List<Path> findSCAReports(Path repo, String eco) {
+        List<Path> reports = new ArrayList<>();
+        try {
+            String actualEco = detectEcoLabel(repo, eco);
+            if ("maven".equals(actualEco) || "gradle".equals(actualEco)) {
+                Path targetReport = repo.resolve("target").resolve("dependency-check-report.json");
+                if (Files.exists(targetReport)) reports.add(targetReport);
+                Path buildReport = repo.resolve("build").resolve("reports").resolve("dependency-check-report.json");
+                if (Files.exists(buildReport)) reports.add(buildReport);
+            } else if ("npm".equals(actualEco) || "pnpm".equals(actualEco) || "yarn".equals(actualEco)) {
+                Path npmAudit = repo.resolve("npm-audit.json");
+                if (Files.exists(npmAudit)) reports.add(npmAudit);
+            } else if ("python".equals(actualEco)) {
+                Path pipAudit = repo.resolve("pip-audit-report.json");
+                if (Files.exists(pipAudit)) reports.add(pipAudit);
+            }
+        } catch (Exception ignored) {
+        }
+        return reports;
+    }
+
+    private Map<String, Object> summarizeScaReports(List<Path> reportFiles) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("critical", 0);
+        summary.put("high", 0);
+        summary.put("medium", 0);
+        summary.put("low", 0);
+        summary.put("unknown", 0);
+        summary.put("dependencies", 0);
+        summary.put("vulnerabilities", 0);
+
+        int critical = 0, high = 0, medium = 0, low = 0, unknown = 0, deps = 0;
+
+        for (Path report : reportFiles) {
+            try {
+                JsonNode root = objectMapper.readTree(Files.readString(report, StandardCharsets.UTF_8));
+                if (root.has("dependencies") && root.get("dependencies").isArray()) {
+                    for (JsonNode dep : root.get("dependencies")) {
+                        deps++;
+                        JsonNode vulns = dep.get("vulnerabilities");
+                        if (vulns != null && vulns.isArray()) {
+                            for (JsonNode v : vulns) {
+                                String severity = v.path("severity").asText("").toUpperCase(Locale.ROOT);
+                                switch (severity) {
+                                    case "CRITICAL" -> critical++;
+                                    case "HIGH" -> high++;
+                                    case "MEDIUM" -> medium++;
+                                    case "LOW" -> low++;
+                                    default -> unknown++;
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("解析漏洞报告失败: {}, err={}", report, e.getMessage());
+            }
+        }
+
+        summary.put("critical", critical);
+        summary.put("high", high);
+        summary.put("medium", medium);
+        summary.put("low", low);
+        summary.put("unknown", unknown);
+        summary.put("dependencies", deps);
+        summary.put("vulnerabilities", critical + high + medium + low + unknown);
+        return summary;
+    }
+
+    private String normalizeSeverity(String severity) {
+        if (severity == null || severity.isBlank()) return "HIGH";
+        String s = severity.trim().toUpperCase(Locale.ROOT);
+        if (!Set.of("CRITICAL", "HIGH", "MEDIUM", "LOW").contains(s)) return "HIGH";
+        return s;
+    }
+
+    private boolean isThresholdReached(Map<String, Object> summary, String severity) {
+        int critical = intOf(summary.get("critical"));
+        int high = intOf(summary.get("high"));
+        int medium = intOf(summary.get("medium"));
+        int low = intOf(summary.get("low"));
+
+        return switch (severity) {
+            case "CRITICAL" -> critical > 0;
+            case "HIGH" -> critical + high > 0;
+            case "MEDIUM" -> critical + high + medium > 0;
+            case "LOW" -> critical + high + medium + low > 0;
+            default -> critical + high > 0;
+        };
+    }
+
+    private int intOf(Object v) {
+        if (v == null) return 0;
+        if (v instanceof Number n) return n.intValue();
+        try {
+            return Integer.parseInt(String.valueOf(v));
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     private record ProcessResult(int exitCode, String stdoutTail, String stderrTail, long costMs) {
