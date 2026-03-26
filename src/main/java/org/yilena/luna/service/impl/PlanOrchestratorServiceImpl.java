@@ -23,6 +23,7 @@ import org.yilena.luna.mapper.PlanEdgeMapper;
 import org.yilena.luna.mapper.PlanInstanceMapper;
 import org.yilena.luna.mapper.PlanNodeMapper;
 import org.yilena.luna.mapper.PlanPhaseMapper;
+import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.service.BlueprintValidationService;
 import org.yilena.luna.service.ChatService;
 import org.yilena.luna.service.MasterPlanningService;
@@ -490,15 +491,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             AuthContextHolder.setSessionId(sessionId);
 
             ChatRequest req = new ChatRequest();
-            String prompt = """
-                    你是 Luna，需要根据给定的任务执行结果 JSON，用自然、温柔、可靠的人设口吻回复用户。
-                    要求：
-                    1) 先给结论（成功/失败/部分成功）
-                    2) 再给关键结果（阶段数、失败点、报告路径/链接）
-                    3) 语气自然，不要输出 JSON，不要编造不存在字段
-                    4) 若失败，给出简短下一步建议
-                    以下是结果 JSON：
-                    """ + finalResultJson;
+            String prompt = PromptTemplates.PLAN_FINAL_RESULT_TO_LUNA_PROMPT.formatted(finalResultJson);
 
             // 兼容 ChatRequest 可能不存在 setMessage 字段的情况
             // 优先尝试 setMessage，其次 fallback 到 setContent / setPrompt

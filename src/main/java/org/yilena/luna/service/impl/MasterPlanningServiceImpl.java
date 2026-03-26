@@ -9,6 +9,7 @@ import org.yilena.luna.enums.ModelType;
 import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
 import org.yilena.luna.llm.LlmResponse;
+import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.service.MasterPlanningService;
 import org.yilena.luna.utils.LlmClientUtil;
@@ -79,42 +80,7 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
     }
 
     private String buildPlanningPrompt(String planId, String sessionId, String userGoal) {
-        return """
-你是 OpenClaw Master Planner。
-你的任务是根据用户目标，一次性输出可执行的计划蓝图 JSON。
-
-硬性要求：
-1) 只输出一个合法 JSON 对象，不要 markdown，不要解释。
-2) 你必须决定阶段数量（可为1..N），并给出每个阶段 objective。
-3) nodes 必须归属到 phases，edges 必须引用存在的 nodeId。
-4) nodeType 仅可使用：ANALYZE, TOOL, SKILL, VALIDATE, SUMMARIZE, REPORT, CODE
-5) riskLevel 仅可使用：LOW, MEDIUM, HIGH
-6) 必须包含字段：planId, sessionId, userGoal, createdAt, phases, nodes, edges
-7) 每个 phase 必须有：phaseId, name, objective, phaseOrder
-8) 每个 node 必须有：nodeId, phaseId, name, nodeType, riskLevel
-
-输入：
-planId=%s
-sessionId=%s
-userGoal=%s
-
-输出结构示例（仅结构参考）：
-{
-  "planId": "...",
-  "sessionId": "...",
-  "userGoal": "...",
-  "createdAt": "...",
-  "phases": [
-    {"phaseId":"...","name":"...","objective":"...","phaseOrder":1}
-  ],
-  "nodes": [
-    {"nodeId":"...","phaseId":"...","name":"...","nodeType":"TOOL","riskLevel":"LOW","resourceHint":{"intent":"search"}}
-  ],
-  "edges": [
-    {"fromNodeId":"...","toNodeId":"...","conditionExpr":""}
-  ]
-}
-""".formatted(planId, sessionId, userGoal);
+        return PromptTemplates.MASTER_PLANNING_PROMPT.formatted(planId, sessionId, userGoal);
     }
 
     private String cleanJsonFence(String text) {
