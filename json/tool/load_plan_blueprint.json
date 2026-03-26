@@ -1,6 +1,6 @@
 {
   "name": "load_plan_blueprint",
-  "description": "读取并校验指定计划蓝图版本。若传入 planVersion 则精确读取该版本；不传则读取最新版本。返回包含 blueprintJson、来源信息与校验结果。校验失败会返回错误信息，并写入审计事件（PLAN_BLUEPRINT_INVALID）；校验通过会写入 PLAN_BLUEPRINT_VALIDATED，并可通过 SSE 推送结果。",
+  "description": "读取并校验计划蓝图。传入 planId 必选，planVersion 可选：若传则读取指定版本，不传则读取最新版本。读取后会执行结构校验（如阶段/节点必填字段、依赖关系与 DAG 有效性等），并将结果写入审计链路；校验通过返回蓝图与元信息，校验失败返回错误信息并记录失败事件。适用于执行前预检、蓝图回放、可视化加载等场景。",
   "version": "1.1.0",
   "owner": "System",
   "beanName": "planBlueprintTools",
@@ -8,8 +8,14 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "planId": { "type": "string", "description": "计划ID（必填）" },
-      "planVersion": { "type": "integer", "description": "计划版本（可选）" }
+      "planId": {
+        "type": "string",
+        "description": "计划ID（必填）。用于定位目标计划蓝图。"
+      },
+      "planVersion": {
+        "type": "integer",
+        "description": "计划版本（可选）。不传时默认读取最新版本。"
+      }
     },
     "required": ["planId"]
   },

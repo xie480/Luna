@@ -1,6 +1,6 @@
 {
   "name": "list_phase_nodes",
-  "description": "按 planId 与 phaseId 列出阶段内节点清单。适用于前端流程图渲染、阶段执行器拉取待执行节点、故障排查时查看当前阶段状态。返回内容通常包含节点标识、状态、依赖、重试信息等。建议与 query_plan_progress 结合使用：前者看明细，后者看聚合统计。",
+  "description": "按计划与阶段查询节点明细列表。用于阶段执行前拉取待执行节点、前端渲染流程图、故障排查定位具体节点状态。返回结果通常包含节点ID、类型、状态、依赖关系、重试信息等字段，是阶段调度与可观测面板的基础数据来源。建议与 query_plan_progress 结合使用：前者看节点级明细，后者看全局状态聚合。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "planNodeTools",
@@ -8,8 +8,14 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "planId": { "type": "string" },
-      "phaseId": { "type": "string" }
+      "planId": {
+        "type": "string",
+        "description": "计划ID（必填）。用于限定查询范围到指定计划。"
+      },
+      "phaseId": {
+        "type": "string",
+        "description": "阶段ID（必填）。用于定位计划中的具体阶段。"
+      }
     },
     "required": ["planId", "phaseId"]
   },

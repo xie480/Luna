@@ -1,6 +1,6 @@
 {
   "name": "run_lint_command",
-  "description": "执行静态检查命令（lint/检查规则工具）。适用于提前发现风格与潜在缺陷问题，降低后续测试失败概率。建议结合 CI 规则使用统一命令模板，并通过 timeoutSec 控制执行时长。返回结果可用于问题列表提取与自动修复策略决策。",
+  "description": "执行静态检查命令（lint/规则扫描），用于在构建和测试前提前发现风格问题与潜在缺陷。适合接入自动修复流水线和 CI 质量门禁。建议统一命令模板并设置 timeoutSec 控制执行时长。返回结果可用于提取问题清单，驱动后续修复策略决策。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",
@@ -8,9 +8,18 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "workDir": { "type": "string" },
-      "command": { "type": "string" },
-      "timeoutSec": { "type": "integer" }
+      "workDir": {
+        "type": "string",
+        "description": "执行目录（必填）。通常为项目根目录或模块目录。"
+      },
+      "command": {
+        "type": "string",
+        "description": "静态检查命令（必填）。需符合系统命令白名单策略。"
+      },
+      "timeoutSec": {
+        "type": "integer",
+        "description": "超时秒数（可选）。超时将中断执行并返回错误。"
+      }
     },
     "required": ["workDir", "command"]
   },

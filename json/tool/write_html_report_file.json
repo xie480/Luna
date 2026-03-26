@@ -1,6 +1,6 @@
 {
   "name": "write_html_report_file",
-  "description": "将任务报告 HTML 写入本地文件，并返回可访问路径。适用于计划结束后的统一报告落地（成功/失败都可生成）。支持自定义 fileName/outputDir；若未传则使用系统默认目录。可选传 finalStatus/openResult 以写入真实执行结果，未传则使用安全默认值。建议上层先完成内容脱敏与安全检查，再调用本工具落盘。",
+  "description": "将任务报告 HTML 内容写入本地文件并落库存档，返回 reportPath/reportUrl 供展示与追踪。适用于计划结束后的统一报告落地（成功、失败、部分成功均可）。支持自定义 fileName/outputDir，可选传 finalStatus/openResult 写入真实执行结果；未传时使用安全默认值。建议上层在调用前完成内容脱敏、路径规范化与敏感信息审查。",
   "version": "1.1.0",
   "owner": "System",
   "beanName": "planReportTools",
@@ -8,12 +8,32 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "planId": { "type": "string" },
-      "htmlContent": { "type": "string" },
-      "fileName": { "type": "string" },
-      "outputDir": { "type": "string" },
-      "finalStatus": { "type": "string", "enum": ["SUCCESS", "FAILED", "PARTIAL", "CANCELLED"] },
-      "openResult": { "type": "string", "enum": ["SUCCESS", "FAILED", "NOT_SUPPORTED"] }
+      "planId": {
+        "type": "string",
+        "description": "计划ID（必填）。用于命名与关联报告记录。"
+      },
+      "htmlContent": {
+        "type": "string",
+        "description": "HTML 报告内容（必填）。建议包含阶段、节点、统计、错误摘要等信息。"
+      },
+      "fileName": {
+        "type": "string",
+        "description": "报告文件名（可选）。不传时默认使用 {planId}.html。"
+      },
+      "outputDir": {
+        "type": "string",
+        "description": "输出目录（可选）。不传时使用系统默认报告目录。"
+      },
+      "finalStatus": {
+        "type": "string",
+        "enum": ["SUCCESS", "FAILED", "PARTIAL", "CANCELLED"],
+        "description": "计划最终状态（可选）。用于报告记录与后续统计。"
+      },
+      "openResult": {
+        "type": "string",
+        "enum": ["SUCCESS", "FAILED", "NOT_SUPPORTED"],
+        "description": "报告打开结果（可选）。用于记录展示环节执行情况。"
+      }
     },
     "required": ["planId", "htmlContent"]
   },

@@ -1,6 +1,6 @@
 {
   "name": "git_rollback_checkpoint",
-  "description": "回滚代码仓库到指定检查点。用于自动修复失败后的快速恢复或高风险改动撤销。调用时需提供 checkpointId，mode 可指定 hard/soft/mixed。建议在执行前进行审批或二次确认，避免误回滚造成工作区丢失。",
+  "description": "将代码仓库回滚到指定检查点，用于自动修复失败后的快速恢复或高风险改动撤销。调用时需提供 checkpointId，mode 可选 hard/soft/mixed，分别对应不同回滚强度。建议在生产链路接入审批或二次确认，避免误回滚造成工作区损失。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",
@@ -8,9 +8,19 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "repoPath": { "type": "string" },
-      "checkpointId": { "type": "string" },
-      "mode": { "type": "string", "enum": ["hard", "soft", "mixed"] }
+      "repoPath": {
+        "type": "string",
+        "description": "仓库路径（必填）。用于执行 git reset。"
+      },
+      "checkpointId": {
+        "type": "string",
+        "description": "检查点ID（必填）。可为 commit hash、tag 等可解析标识。"
+      },
+      "mode": {
+        "type": "string",
+        "enum": ["hard", "soft", "mixed"],
+        "description": "回滚模式（可选）。hard=强制回滚工作区，soft/mixed=保留部分改动。"
+      }
     },
     "required": ["repoPath", "checkpointId"]
   },

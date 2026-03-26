@@ -1,6 +1,6 @@
 {
   "name": "query_plan_progress",
-  "description": "查询计划级执行进度统计，返回节点总数与按状态分布数据。适用于前端看板轮询、任务总览页、SSE 丢失后的状态补偿。该接口偏聚合视角，不替代节点明细查询；建议配合 list_phase_nodes 与事件流一起使用。",
+  "description": "查询计划级执行进度聚合信息，返回节点总数与按状态分布统计。适用于前端看板轮询、任务总览页展示、SSE 丢包后的状态补偿。该工具强调全局视角，不替代节点明细查询；建议与 list_phase_nodes、事件流共同使用以获得完整可观测性。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "planNodeTools",
@@ -8,7 +8,10 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "planId": { "type": "string" }
+      "planId": {
+        "type": "string",
+        "description": "计划ID（必填）。用于统计该计划下所有节点状态。"
+      }
     },
     "required": ["planId"]
   },

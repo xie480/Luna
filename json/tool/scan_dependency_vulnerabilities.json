@@ -1,6 +1,6 @@
 {
   "name": "scan_dependency_vulnerabilities",
-  "description": "执行依赖漏洞扫描（SCA），用于识别项目依赖中的已知安全风险。支持指定生态（maven/gradle/npm/pnpm/yarn/python/auto）与失败阈值（failOnSeverity）。当前实现会根据生态自动选择扫描命令并尝试汇总报告，返回 summary 与 thresholdReached 供上层决策。",
+  "description": "执行依赖漏洞扫描（SCA），识别项目依赖中的已知安全风险并输出风险汇总。支持指定生态（maven/gradle/npm/pnpm/yarn/python/auto）与失败阈值（failOnSeverity），可用于发布前安全门禁。当前实现会按生态选择扫描命令并尝试汇总报告文件，返回漏洞分级统计与 thresholdReached 结果，便于上层做阻断、告警或自动修复决策。",
   "version": "1.1.0",
   "owner": "System",
   "beanName": "codeOpsTools",
@@ -8,9 +8,20 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "repoPath": { "type": "string" },
-      "ecosystem": { "type": "string", "enum": ["maven", "gradle", "npm", "pnpm", "yarn", "python", "auto"] },
-      "failOnSeverity": { "type": "string", "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"] }
+      "repoPath": {
+        "type": "string",
+        "description": "仓库路径（必填）。用于检测生态并执行扫描命令。"
+      },
+      "ecosystem": {
+        "type": "string",
+        "enum": ["maven", "gradle", "npm", "pnpm", "yarn", "python", "auto"],
+        "description": "项目生态（可选）。传 auto 或不传时由系统自动识别。"
+      },
+      "failOnSeverity": {
+        "type": "string",
+        "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"],
+        "description": "失败阈值（可选）。达到该级别及以上漏洞时返回错误状态。"
+      }
     },
     "required": ["repoPath"]
   },

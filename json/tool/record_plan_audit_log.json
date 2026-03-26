@@ -1,6 +1,6 @@
 {
   "name": "record_plan_audit_log",
-  "description": "记录计划执行审计事件。用于沉淀阶段切换、节点执行、重规划、审批请求与结果等关键轨迹，支撑可视化回放、问题排查与合规审计。eventType 与 level 必须使用系统枚举；eventPayload 建议传结构化 JSON，便于后续检索与统计分析。",
+  "description": "记录计划执行审计事件并持久化到事件日志表。用于沉淀阶段切换、节点状态流转、重规划、检查点、审批请求与结果等关键轨迹，支撑可视化回放、问题排查与合规审计。调用时应使用标准 eventType 与 level 枚举；eventPayload 建议传结构化 JSON 字符串，便于后续检索、聚合统计与告警分析。",
   "version": "1.1.0",
   "owner": "System",
   "beanName": "planEventTools",
@@ -8,10 +8,23 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "planId": { "type": "string" },
-      "phaseId": { "type": "string" },
-      "nodeId": { "type": "string" },
-      "level": { "type": "string", "enum": ["INFO", "WARN", "ERROR"] },
+      "planId": {
+        "type": "string",
+        "description": "计划ID（必填）。审计事件归属的主键。"
+      },
+      "phaseId": {
+        "type": "string",
+        "description": "阶段ID（可选）。当事件与特定阶段相关时填写。"
+      },
+      "nodeId": {
+        "type": "string",
+        "description": "节点ID（可选）。当事件与特定节点相关时填写。"
+      },
+      "level": {
+        "type": "string",
+        "enum": ["INFO", "WARN", "ERROR"],
+        "description": "事件级别（必填）。用于区分普通信息、告警与错误。"
+      },
       "eventType": {
         "type": "string",
         "enum": [
@@ -31,10 +44,17 @@
           "PLAN_CHECKPOINT_CREATED",
           "PLAN_BLUEPRINT_VALIDATED",
           "PLAN_BLUEPRINT_INVALID"
-        ]
+        ],
+        "description": "事件类型（必填）。必须使用系统支持的计划事件枚举。"
       },
-      "eventPayload": { "type": "string", "description": "JSON字符串" },
-      "traceId": { "type": "string" }
+      "eventPayload": {
+        "type": "string",
+        "description": "事件载荷JSON字符串（必填）。建议包含上下文字段，如状态、耗时、原因等。"
+      },
+      "traceId": {
+        "type": "string",
+        "description": "链路追踪ID（可选）。用于跨服务日志关联。"
+      }
     },
     "required": ["planId", "level", "eventType", "eventPayload"]
   },

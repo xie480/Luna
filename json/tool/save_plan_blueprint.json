@@ -1,6 +1,6 @@
 {
   "name": "save_plan_blueprint",
-  "description": "保存全局规划蓝图（PlanBlueprint）到持久层。适用于大模型完成一次性全局任务规划后，将阶段划分、节点拓扑、资源计划与风险矩阵进行版本化落库。该工具支持按 planId + planVersion 的幂等写入：若同版本已存在则更新，不存在则插入。建议在规划阶段结束后立即调用，以便后续阶段执行器按冻结版本推进。",
+  "description": "保存全局规划蓝图（PlanBlueprint）到持久层，支持按 planId + planVersion 幂等写入。适用于大模型完成一次性全局规划后，将阶段划分、节点拓扑、资源提示与风险信息版本化落库。若同版本已存在则执行更新，不存在则执行插入。建议在规划阶段结束后立即调用，确保后续执行器按冻结版本推进。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "planBlueprintTools",
@@ -8,11 +8,26 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "planId": { "type": "string", "description": "计划ID（必填）" },
-      "planVersion": { "type": "integer", "description": "计划版本（必填）" },
-      "blueprintJson": { "type": "string", "description": "蓝图JSON字符串（必填）" },
-      "generatedByModel": { "type": "string", "description": "生成模型标识（可选）" },
-      "generatedAt": { "type": "string", "description": "生成时间（可选，ISO格式）" }
+      "planId": {
+        "type": "string",
+        "description": "计划ID（必填）。用于标识蓝图归属计划。"
+      },
+      "planVersion": {
+        "type": "integer",
+        "description": "计划版本号（必填）。用于版本控制与回溯。"
+      },
+      "blueprintJson": {
+        "type": "string",
+        "description": "蓝图JSON字符串（必填）。包含 phases/nodes/edges 等核心结构。"
+      },
+      "generatedByModel": {
+        "type": "string",
+        "description": "生成模型标识（可选）。用于审计与效果分析。"
+      },
+      "generatedAt": {
+        "type": "string",
+        "description": "生成时间（可选，建议ISO时间格式）。"
+      }
     },
     "required": ["planId", "planVersion", "blueprintJson"]
   },

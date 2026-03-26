@@ -1,6 +1,6 @@
 {
   "name": "open_browser_with_file",
-  "description": "调用系统默认浏览器打开本地报告文件。通常与 write_html_report_file 联动：先写文件，再打开。若运行环境不支持桌面能力或文件不存在，工具会返回失败信息但不应中断主任务链。",
+  "description": "调用系统默认浏览器打开本地报告文件，用于在报告生成后快速展示结果。通常与 write_html_report_file 联动：先写文件，再尝试打开。若运行环境不支持桌面能力（如无图形界面）或文件不存在，工具会返回失败标记但不应中断主任务链，方便上层继续以链接方式提供访问。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "planReportTools",
@@ -8,7 +8,10 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "reportPath": { "type": "string" }
+      "reportPath": {
+        "type": "string",
+        "description": "本地报告文件路径（必填）。应为可访问的 HTML 文件绝对或相对路径。"
+      }
     },
     "required": ["reportPath"]
   },

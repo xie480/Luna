@@ -1,6 +1,6 @@
 {
   "name": "append_node_output",
-  "description": "写入节点执行产物。outputJson 用于保存完整输出，outputForNext 用于保存下游节点消费的精简关键字段。适合在节点成功后调用，保证可追溯性与可恢复性。若输出体较大，建议上层先做裁剪或摘要再写入，以降低存储与网络开销。",
+  "description": "写入节点执行产物，区分完整输出与下游可消费输出。outputJson 用于保存完整执行结果以便审计与复盘；outputForNext 用于保存精简关键字段供后续节点直接消费。适合在节点成功后调用，也可在失败时写入错误上下文辅助重规划。若输出体较大，建议上层先做裁剪或摘要以降低存储与网络开销。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "planNodeTools",
@@ -8,10 +8,22 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "planId": { "type": "string" },
-      "nodeId": { "type": "string" },
-      "outputJson": { "type": "string", "description": "JSON字符串" },
-      "outputForNext": { "type": "string", "description": "JSON字符串（可选）" }
+      "planId": {
+        "type": "string",
+        "description": "计划ID（必填）。用于定位节点所属计划。"
+      },
+      "nodeId": {
+        "type": "string",
+        "description": "节点ID（必填）。用于定位写入目标节点。"
+      },
+      "outputJson": {
+        "type": "string",
+        "description": "完整输出JSON字符串（必填）。建议包含执行结果、日志摘要、关键指标等。"
+      },
+      "outputForNext": {
+        "type": "string",
+        "description": "下游消费JSON字符串（可选）。建议仅保留后续节点真正需要的字段。"
+      }
     },
     "required": ["planId", "nodeId", "outputJson"]
   },

@@ -1,6 +1,6 @@
 {
   "name": "git_create_checkpoint",
-  "description": "创建代码检查点（commit/stash/tag 语义），用于在高风险修改前保存可回退状态。建议在应用补丁前、批量改动前与自动修复循环开始前调用。当前实现已支持三种模式：commit（自动 add + commit）、stash（包含未跟踪文件）、tag（轻量标记），并返回可用于回滚的 checkpointId。",
+  "description": "创建代码检查点（commit/stash/tag），用于高风险修改前保存可回退状态。建议在补丁应用前、批量改动前、自动修复循环开始前调用。支持三种模式：commit（自动 add+commit）、stash（含未跟踪文件）、tag（轻量标记）。返回 checkpointId 可直接用于 git_rollback_checkpoint。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",
@@ -8,9 +8,19 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "repoPath": { "type": "string" },
-      "mode": { "type": "string", "enum": ["commit", "stash", "tag"] },
-      "message": { "type": "string" }
+      "repoPath": {
+        "type": "string",
+        "description": "仓库路径（必填）。需为有效 git 仓库目录。"
+      },
+      "mode": {
+        "type": "string",
+        "enum": ["commit", "stash", "tag"],
+        "description": "检查点模式（必填）。commit/stash/tag 三选一。"
+      },
+      "message": {
+        "type": "string",
+        "description": "检查点说明（必填）。建议包含任务ID或操作意图，便于追踪。"
+      }
     },
     "required": ["repoPath", "mode", "message"]
   },

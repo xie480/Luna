@@ -1,6 +1,6 @@
 {
   "name": "update_node_status",
-  "description": "更新任务节点运行状态与执行元数据。用于调度器在节点开始/结束/失败时落盘状态，支持写入耗时(costMs)、失败原因(failReason)、重试次数(retryCount)。状态值必须使用系统约定枚举，以保证前端状态机、重试逻辑与审计链路一致。建议仅由执行引擎调用，避免外部任意改写导致状态漂移。",
+  "description": "更新计划节点状态与执行元数据。适用于调度器在节点开始、成功、失败、跳过等关键时机落盘状态，保障状态机一致性与可追溯性。支持附带耗时（costMs）、失败原因（failReason）、重试次数（retryCount）等字段，便于报表统计与失败重规划。建议仅由执行引擎调用，避免外部任意改写导致状态漂移。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "planNodeTools",
@@ -8,15 +8,31 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "planId": { "type": "string" },
-      "nodeId": { "type": "string" },
+      "planId": {
+        "type": "string",
+        "description": "计划ID（必填）。用于限定节点归属计划。"
+      },
+      "nodeId": {
+        "type": "string",
+        "description": "节点ID（必填）。用于定位需要更新的节点。"
+      },
       "status": {
         "type": "string",
-        "enum": ["PENDING", "RUNNING", "SUCCESS", "FAILED", "BLOCKED", "APPROVAL_PENDING", "SKIPPED"]
+        "enum": ["PENDING", "RUNNING", "SUCCESS", "FAILED", "BLOCKED", "APPROVAL_PENDING", "SKIPPED"],
+        "description": "目标状态（必填）。必须使用系统约定枚举值。"
       },
-      "costMs": { "type": "integer" },
-      "failReason": { "type": "string" },
-      "retryCount": { "type": "integer" }
+      "costMs": {
+        "type": "integer",
+        "description": "执行耗时毫秒（可选）。通常在节点结束时回填。"
+      },
+      "failReason": {
+        "type": "string",
+        "description": "失败原因（可选）。当状态为 FAILED 时建议提供。"
+      },
+      "retryCount": {
+        "type": "integer",
+        "description": "当前重试次数（可选）。用于重试策略与审计分析。"
+      }
     },
     "required": ["planId", "nodeId", "status"]
   },

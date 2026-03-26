@@ -1,6 +1,6 @@
 {
   "name": "read_source_file",
-  "description": "读取源码文件内容，供代码理解、补丁生成、测试修复等步骤使用。支持指定 encoding 与 maxBytes，防止读取超大文件导致性能问题。建议调用方先通过 read_repo_tree 确认路径，再按需读取具体文件。",
+  "description": "读取源码文件内容，供代码理解、补丁生成、失败分析与测试修复步骤使用。支持 encoding 与 maxBytes，避免大文件读取导致性能问题或上下文超限。建议调用前先通过 read_repo_tree 确认路径，再按需精确读取目标文件。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",
@@ -8,9 +8,18 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "filePath": { "type": "string" },
-      "encoding": { "type": "string" },
-      "maxBytes": { "type": "integer" }
+      "filePath": {
+        "type": "string",
+        "description": "文件路径（必填）。需位于受控工作区内。"
+      },
+      "encoding": {
+        "type": "string",
+        "description": "文件编码（可选）。默认 UTF-8。"
+      },
+      "maxBytes": {
+        "type": "integer",
+        "description": "最大读取字节数（可选）。超过限制将返回错误。"
+      }
     },
     "required": ["filePath"]
   },

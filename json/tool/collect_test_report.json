@@ -1,6 +1,6 @@
 {
   "name": "collect_test_report",
-  "description": "聚合测试报告目录并输出结构化统计结果。用于将 surefire/junit 等多来源测试结果统一为机器可读格式，供报告生成、失败归因与自动修复循环使用。当前实现已支持基础 XML 解析（tests/failures/errors/skipped）与失败用例提取，输入支持 JSON 数组字符串或逗号分隔目录。",
+  "description": "聚合测试报告目录并输出结构化统计结果。用于将 surefire/junit 等多来源测试结果统一为机器可读格式，支撑报告生成、失败归因与自动修复循环。当前实现支持基础 XML 解析（tests/failures/errors/skipped）与失败用例提取，输入支持 JSON 数组字符串或逗号分隔目录，便于与不同构建系统集成。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",
@@ -8,8 +8,15 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "reportDirs": { "type": "string", "description": "目录列表JSON字符串或逗号分隔" },
-      "parserType": { "type": "string", "enum": ["junit", "surefire", "auto"] }
+      "reportDirs": {
+        "type": "string",
+        "description": "报告目录列表（必填）。支持 JSON 数组字符串或逗号分隔路径。"
+      },
+      "parserType": {
+        "type": "string",
+        "enum": ["junit", "surefire", "auto"],
+        "description": "解析器类型（可选）。auto 会按内容自动识别。"
+      }
     },
     "required": ["reportDirs"]
   },

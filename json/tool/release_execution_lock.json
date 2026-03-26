@@ -1,6 +1,6 @@
 {
   "name": "release_execution_lock",
-  "description": "释放执行锁。应与 acquire_execution_lock 成对使用，并携带同一 owner，避免误释放他人锁。建议调用方在节点执行完成、失败补偿或超时清理阶段都尝试释放，减少锁泄漏风险。",
+  "description": "释放分布式执行锁。用于在任务完成、失败补偿、超时回收等时机主动解锁，避免后续流程被锁阻塞。该接口要求 lockKey 与 owner 同时匹配，防止误释放其他执行实例持有的锁。建议与 acquire_execution_lock 严格配对，并在业务 finally 块中调用；即使主流程失败也应尝试释放，以保障系统可用性与调度吞吐。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "executionLockTools",
@@ -8,8 +8,14 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "lockKey": { "type": "string" },
-      "owner": { "type": "string" }
+      "lockKey": {
+        "type": "string",
+        "description": "锁键（必填）。需与加锁时使用的 lockKey 完全一致。"
+      },
+      "owner": {
+        "type": "string",
+        "description": "锁持有者标识（必填）。需与加锁时 owner 一致，否则不会释放。"
+      }
     },
     "required": ["lockKey", "owner"]
   },

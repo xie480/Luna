@@ -1,6 +1,6 @@
 {
   "name": "emit_plan_event_sse",
-  "description": "向指定 SSE 客户端发送计划执行事件。用于实时推送节点状态变化、阶段推进、审批事件、测试结果等消息给前端。payload 建议采用结构化 JSON，并携带 planId/phaseId/nodeId 以便前端精确定位更新目标。",
+  "description": "向 SSE 客户端推送计划执行事件，实现前端实时可视化更新。适用于节点状态变化、阶段开始/结束、审批事件、测试结果、报告就绪等场景。payload 建议使用结构化 JSON 字符串并携带 planId/phaseId/nodeId 等定位字段，便于前端精准刷新目标卡片或图谱节点。若指定 clientId 不存在，具体行为由服务端会话管理策略决定。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "planEventTools",
@@ -8,9 +8,18 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "clientId": { "type": "string", "description": "默认 default" },
-      "eventType": { "type": "string" },
-      "payload": { "type": "string", "description": "JSON字符串" }
+      "clientId": {
+        "type": "string",
+        "description": "客户端ID（可选）。不传时默认使用 default。"
+      },
+      "eventType": {
+        "type": "string",
+        "description": "事件类型（必填）。建议使用与审计一致的计划事件枚举名称。"
+      },
+      "payload": {
+        "type": "string",
+        "description": "事件载荷JSON字符串（必填）。用于前端渲染事件详情。"
+      }
     },
     "required": ["eventType", "payload"]
   },

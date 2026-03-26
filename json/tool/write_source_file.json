@@ -1,6 +1,6 @@
 {
   "name": "write_source_file",
-  "description": "写入源码文件内容，支持备份原文件。适用于生成代码、应用修复结果、重写测试文件等场景。建议在高风险改动前启用 backup=true，以便快速回滚。调用方应确保 filePath 在受控仓库目录内，避免路径越界写入。",
+  "description": "写入源码文件内容，支持可选备份原文件。适用于生成代码、落地修复结果、更新测试文件等场景。为降低风险，建议在高风险改动前设置 backup=true，并确保 filePath 位于受控仓库目录内，避免路径越界写入。该工具适合与 git_create_checkpoint、apply_unified_patch 联合使用，形成可回滚改动链路。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",
@@ -8,9 +8,18 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "filePath": { "type": "string" },
-      "content": { "type": "string" },
-      "backup": { "type": "boolean" }
+      "filePath": {
+        "type": "string",
+        "description": "目标文件路径（必填）。若目录不存在会自动创建父目录。"
+      },
+      "content": {
+        "type": "string",
+        "description": "写入内容（必填）。将以 UTF-8 覆盖写入。"
+      },
+      "backup": {
+        "type": "boolean",
+        "description": "是否先备份原文件（可选）。true 时会生成带时间戳的 .bak 文件。"
+      }
     },
     "required": ["filePath", "content"]
   },

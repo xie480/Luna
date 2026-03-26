@@ -1,6 +1,6 @@
 {
   "name": "acquire_execution_lock",
-  "description": "获取执行锁以避免并行冲突。适用于同一资源（窗口、文件、应用实例）不可重入场景。调用方应提供 lockKey 与 owner，必要时设置 ttlSec 防止死锁。当前实现已接入 Redis 分布式锁（SET NX EX），并返回锁到期时间，失败时会返回 currentOwner 供上层调度重试。",
+  "description": "获取分布式执行锁，避免同一资源被并发重复执行。适用于阶段调度、节点执行、外部资源操作（文件/窗口/任务实例）等不可重入场景。调用方需提供 lockKey 与 owner，系统会尝试以原子方式占锁并返回是否成功、过期时间与占用者信息；当锁已被占用时不会报错中断，而是返回 acquired=false 和 currentOwner，便于上层做重试、排队或降级决策。建议与 release_execution_lock 成对使用，并在 finally/补偿逻辑中释放锁以降低锁泄漏风险。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "executionLockTools",
@@ -8,9 +8,18 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "lockKey": { "type": "string" },
-      "owner": { "type": "string" },
-      "ttlSec": { "type": "integer" }
+      "lockKey": {
+        "type": "string",
+        "description": "锁键（必填）。建议使用具有业务语义且稳定唯一的键，如 plan:{planId}:phase:{phaseId}。"
+      },
+      "owner": {
+        "type": "string",
+        "description": "锁持有者标识（必填）。建议传执行实例ID/会话ID，释放时必须与此值一致。"
+      },
+      "ttlSec": {
+        "type": "integer",
+        "description": "锁过期秒数（可选）。用于防止死锁；不传时使用系统默认值。"
+      }
     },
     "required": ["lockKey", "owner"]
   },

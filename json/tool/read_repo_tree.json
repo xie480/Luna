@@ -1,6 +1,6 @@
 {
   "name": "read_repo_tree",
-  "description": "读取代码仓库目录树结构，用于代码任务规划、影响面分析与文件定位。支持 maxDepth 限制遍历深度，可选 includeHidden 控制是否包含隐藏文件。工具会忽略常见大型目录（如 .git、node_modules、target）以提升性能。",
+  "description": "读取代码仓库目录树结构，用于任务规划、影响面评估与文件定位。支持 maxDepth 限制遍历深度，支持 includeHidden 控制是否包含隐藏文件。工具会忽略常见大型目录（如 .git、node_modules、target）以提升性能。适用于代码任务前置理解阶段，帮助模型快速掌握模块边界与目录布局。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",
@@ -8,9 +8,18 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "repoPath": { "type": "string" },
-      "maxDepth": { "type": "integer" },
-      "includeHidden": { "type": "boolean" }
+      "repoPath": {
+        "type": "string",
+        "description": "仓库根路径（必填）。需位于受控工作区内。"
+      },
+      "maxDepth": {
+        "type": "integer",
+        "description": "最大遍历深度（可选）。用于控制扫描范围与性能开销。"
+      },
+      "includeHidden": {
+        "type": "boolean",
+        "description": "是否包含隐藏文件/目录（可选）。true=包含，false=忽略。"
+      }
     },
     "required": ["repoPath"]
   },

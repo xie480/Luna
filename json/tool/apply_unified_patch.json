@@ -1,6 +1,6 @@
 {
   "name": "apply_unified_patch",
-  "description": "应用 unified diff 补丁到目标仓库。用于在代码修复链路中将模型生成的 patch 安全落地。支持 checkOnly 预检模式：仅校验补丁可应用性，不实际修改文件。当前实现已基于 git apply 落地，返回 checkOnlyResult、exitCode、stdoutTail、stderrTail 等关键字段，便于上层自动决策。",
+  "description": "将 unified diff 补丁应用到目标仓库，支持预检模式。适用于自动修复链路中把模型生成 patch 安全落地。checkOnly=true 时仅执行可应用性检查，不实际改写文件；正式模式会执行真实补丁应用。返回包含 exitCode、stdout/stderr 尾部、checkOnlyResult 等信息，便于上层做自动决策、失败回滚与审计记录。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",
@@ -8,9 +8,18 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "repoPath": { "type": "string" },
-      "patchText": { "type": "string" },
-      "checkOnly": { "type": "boolean" }
+      "repoPath": {
+        "type": "string",
+        "description": "仓库路径（必填）。补丁将在该目录执行 git apply。"
+      },
+      "patchText": {
+        "type": "string",
+        "description": "unified diff 文本（必填）。建议包含完整文件头与变更块。"
+      },
+      "checkOnly": {
+        "type": "boolean",
+        "description": "是否仅检查可应用性（可选）。true=仅检查，false=实际应用。"
+      }
     },
     "required": ["repoPath", "patchText"]
   },

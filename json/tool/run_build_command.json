@@ -1,6 +1,6 @@
 {
   "name": "run_build_command",
-  "description": "执行项目构建命令（如 mvn/gradle）。用于验证代码改动后是否可成功编译打包。调用方应提供受控命令与工作目录，并设置合理 timeoutSec。返回值包含 exitCode 与输出尾部，便于快速定位构建失败原因。",
+  "description": "执行项目构建命令（如 mvn/gradle），用于验证代码改动后是否可成功编译打包。该工具适合放在补丁应用后或提交前的质量门禁步骤。调用方应提供受控工作目录与命令，并设置 timeoutSec 防止长时间阻塞。返回 exitCode 与输出摘要，便于快速定位构建失败原因。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",
@@ -8,9 +8,18 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "workDir": { "type": "string" },
-      "command": { "type": "string" },
-      "timeoutSec": { "type": "integer" }
+      "workDir": {
+        "type": "string",
+        "description": "执行目录（必填）。通常为项目根目录。"
+      },
+      "command": {
+        "type": "string",
+        "description": "构建命令（必填）。需符合系统命令白名单策略。"
+      },
+      "timeoutSec": {
+        "type": "integer",
+        "description": "超时秒数（可选）。超过后将强制终止进程。"
+      }
     },
     "required": ["workDir", "command"]
   },

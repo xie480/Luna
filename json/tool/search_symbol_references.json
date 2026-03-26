@@ -1,6 +1,6 @@
 {
   "name": "search_symbol_references",
-  "description": "按符号名查找代码引用关系，用于评估改动影响范围、识别下游依赖与重构风险。适用于修改函数签名、删除字段、替换实现前的安全检查。当前实现已提供基础文件扫描能力，返回 file/line/snippet 结构化结果，可作为后续 LSP/ctags 精确检索的降级路径。",
+  "description": "按符号名扫描代码引用关系，辅助评估改动影响面与重构风险。适用于修改函数签名、删除字段、替换实现前的安全检查。当前实现提供基础文本检索能力，返回 file/line/snippet 结构化结果，可作为后续更精确语义索引（如 LSP/ctags）的降级路径。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",
@@ -8,9 +8,18 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "repoPath": { "type": "string" },
-      "symbol": { "type": "string" },
-      "language": { "type": "string" }
+      "repoPath": {
+        "type": "string",
+        "description": "仓库路径（必填）。用于限定搜索范围。"
+      },
+      "symbol": {
+        "type": "string",
+        "description": "目标符号（必填）。可为类名、方法名、常量名等。"
+      },
+      "language": {
+        "type": "string",
+        "description": "语言标识（可选）。用于上层筛选或后续扩展精准解析。"
+      }
     },
     "required": ["repoPath", "symbol"]
   },

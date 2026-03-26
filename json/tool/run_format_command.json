@@ -1,6 +1,6 @@
 {
   "name": "run_format_command",
-  "description": "执行代码格式化命令，统一代码风格并减少无效差异。常用于补丁应用后或提交前清理格式问题。调用时应明确 workDir 与格式化命令，并配置 timeoutSec 以避免大仓库长时间阻塞。",
+  "description": "执行代码格式化命令，统一代码风格并减少无效 diff。常用于补丁应用后、提交前或自动修复闭环中的收尾步骤。调用时应明确 workDir 与格式化命令，并设置 timeoutSec 防止大仓库阻塞。输出可用于判断格式化是否成功及后续是否需要再次构建/测试。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "codeOpsTools",
@@ -8,9 +8,18 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "workDir": { "type": "string" },
-      "command": { "type": "string" },
-      "timeoutSec": { "type": "integer" }
+      "workDir": {
+        "type": "string",
+        "description": "执行目录（必填）。通常为项目根目录或目标模块目录。"
+      },
+      "command": {
+        "type": "string",
+        "description": "格式化命令（必填）。需符合系统命令白名单策略。"
+      },
+      "timeoutSec": {
+        "type": "integer",
+        "description": "超时秒数（可选）。用于控制长任务执行时间。"
+      }
     },
     "required": ["workDir", "command"]
   },
