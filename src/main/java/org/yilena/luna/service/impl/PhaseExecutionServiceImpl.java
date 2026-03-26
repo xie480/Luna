@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.yilena.luna.entity.PlanNode;
 import org.yilena.luna.entity.PlanPhase;
 import org.yilena.luna.enums.PlanNodeStatus;
+import org.yilena.luna.exception.impl.NeedApprovalException;
 import org.yilena.luna.mapper.PlanNodeMapper;
 import org.yilena.luna.service.AgentService;
 import org.yilena.luna.service.PhaseExecutionService;
@@ -14,7 +15,6 @@ import org.yilena.luna.sse.LunaStatusPublisher;
 import org.yilena.luna.tools.PlanEventTools;
 import org.yilena.luna.tools.PlanNodeTools;
 
-import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
@@ -62,7 +62,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         List<PlanNode> nodes = loadPhaseNodes(planId, phaseId);
         if (nodes.isEmpty()) {
             log.warn("[Phase] 阶段无节点, planId={}, phaseId={}", planId, phaseId);
-            return buildPhaseResult(planId, phaseId, phaseOrder, 0, 0,
+            return buildPhaseResult(planId, phaseId, phaseOrder, 0, 0, 0,
                     System.currentTimeMillis() - phaseStart, "阶段下无节点");
         }
 
@@ -83,6 +83,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         // 3. 逐批次执行
         int totalSuccess = 0;
         int totalFail = 0;
+        int totalPendingApproval = 0;
 
         for (int batchIdx = 0; batchIdx < batches.size(); batchIdx++) {
             List<PlanNode> batch = batches.get(batchIdx);
@@ -93,20 +94,25 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
             BatchResult result = executeBatch(planId, phaseId, phaseOrder, batch, sessionId, batchIdx + 1, batches.size());
             totalSuccess += result.successCount();
             totalFail += result.failCount();
+            totalPendingApproval += result.pendingApprovalCount();
 
             // 若批次中有关键节点失败，终止阶段
             if (result.hasCriticalFailure()) {
-                log.error("[Phase] 批次 {}/{} 存在关键节点失败，终止阶段, planId={}, phaseId={}",
-                        batchIdx + 1, batches.size(), planId, phaseId);
+                log.warn("[Phase] 批次 {}/{} 触发中断（失败或待审批），终止后续批次, planId={}, phaseId={}, failCount={}, pendingApprovalCount={}",
+                        batchIdx + 1, batches.size(), planId, phaseId, result.failCount(), result.pendingApprovalCount());
                 break;
             }
         }
 
         long phaseCostMs = System.currentTimeMillis() - phaseStart;
-        log.info("[Phase] 阶段执行完成, planId={}, phaseId={}, phaseOrder={}, success={}, fail={}, costMs={}",
-                planId, phaseId, phaseOrder, totalSuccess, totalFail, phaseCostMs);
+        log.info("[Phase] 阶段执行完成, planId={}, phaseId={}, phaseOrder={}, success={}, fail={}, pendingApproval={}, costMs={}",
+                planId, phaseId, phaseOrder, totalSuccess, totalFail, totalPendingApproval, phaseCostMs);
 
-        return buildPhaseResult(planId, phaseId, phaseOrder, totalSuccess, totalFail, phaseCostMs, null);
+        if (totalPendingApproval > 0) {
+            return buildErrorResult("PHASE_PENDING_APPROVAL", "阶段存在待审批节点，执行已暂停");
+        }
+
+        return buildPhaseResult(planId, phaseId, phaseOrder, totalSuccess, totalFail, totalPendingApproval, phaseCostMs, null);
     }
 
     // =========================================================
@@ -207,7 +213,8 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
             NodeResult nr = executeNode(planId, phaseId, phaseOrder, batch.get(0), sessionId);
             return new BatchResult(
                     nr.success() ? 1 : 0,
-                    nr.success() ? 0 : 1,
+                    nr.success() ? 0 : (nr.approvalPending() ? 0 : 1),
+                    nr.approvalPending() ? 1 : 0,
                     !nr.success()
             );
         }
@@ -224,6 +231,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
 
             int successCount = 0;
             int failCount = 0;
+            int pendingApprovalCount = 0;
             boolean hasCriticalFailure = false;
 
             for (int i = 0; i < futures.size(); i++) {
@@ -232,6 +240,9 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                     NodeResult nr = futures.get(i).get(BATCH_TIMEOUT_SEC, TimeUnit.SECONDS);
                     if (nr.success()) {
                         successCount++;
+                    } else if (nr.approvalPending()) {
+                        pendingApprovalCount++;
+                        hasCriticalFailure = true;
                     } else {
                         failCount++;
                         hasCriticalFailure = true;
@@ -243,6 +254,37 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                     log.error("[Batch] 节点执行超时, nodeId={}, planId={}, phaseId={}", node.getNodeId(), planId, phaseId);
                     safeUpdateNodeStatus(planId, node.getNodeId(), PlanNodeStatus.FAILED,
                             (long) BATCH_TIMEOUT_SEC * 1000, "执行超时", node.getRetryCount() == null ? 0 : node.getRetryCount());
+                } catch (ExecutionException e) {
+                    Throwable root = unwrapRootCause(e);
+                    if (root instanceof NeedApprovalException needApprovalException) {
+                        pendingApprovalCount++;
+                        hasCriticalFailure = true;
+                        String taskId = extractApprovalTaskId(needApprovalException);
+                        safeUpdateNodeStatus(planId, node.getNodeId(), PlanNodeStatus.APPROVAL_PENDING,
+                                null, "等待审批, taskId=" + taskId, node.getRetryCount() == null ? 0 : node.getRetryCount());
+
+                        emitNodeEvent(planId, phaseId, node.getNodeId(), "PLAN_NODE_APPROVAL_PENDING", "APPROVAL_PENDING", "INFO",
+                                "节点需要审批，执行暂停", "NEED_APPROVAL",
+                                node.getName() == null ? "" : node.getName(),
+                                node.getNodeType() == null ? "" : node.getNodeType().getValue(),
+                                node.getRetryCount() == null ? 0 : node.getRetryCount(),
+                                node.getMaxRetry() == null ? DEFAULT_MAX_RETRY : node.getMaxRetry(),
+                                0L, Map.of("taskId", taskId));
+
+                        log.warn("[Batch] 节点进入审批等待, nodeId={}, planId={}, phaseId={}, taskId={}",
+                                node.getNodeId(), planId, phaseId, taskId);
+                    } else {
+                        failCount++;
+                        hasCriticalFailure = true;
+                        log.error("[Batch] 节点 Future 获取异常, nodeId={}, planId={}, phaseId={}, err={}",
+                                node.getNodeId(), planId, phaseId, root != null ? root.getMessage() : e.getMessage(), e);
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    failCount++;
+                    hasCriticalFailure = true;
+                    log.error("[Batch] 等待节点结果被中断, nodeId={}, planId={}, phaseId={}",
+                            node.getNodeId(), planId, phaseId);
                 } catch (Exception e) {
                     failCount++;
                     hasCriticalFailure = true;
@@ -251,10 +293,10 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                 }
             }
 
-            log.info("[Batch] 并行批次执行完成, batchIdx={}/{}, success={}, fail={}, planId={}, phaseId={}",
-                    batchIdx, totalBatches, successCount, failCount, planId, phaseId);
+            log.info("[Batch] 并行批次执行完成, batchIdx={}/{}, success={}, fail={}, pendingApproval={}, planId={}, phaseId={}",
+                    batchIdx, totalBatches, successCount, failCount, pendingApprovalCount, planId, phaseId);
 
-            return new BatchResult(successCount, failCount, hasCriticalFailure);
+            return new BatchResult(successCount, failCount, pendingApprovalCount, hasCriticalFailure);
         }
     }
 
@@ -280,7 +322,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
             emitNodeEvent(planId, phaseId, nodeId, "PLAN_NODE_FAILED", "FAILED", "INFO",
                     "节点状态流转不合法", "NODE_INVALID_TRANSITION", nodeName, nodeType,
                     retryCount, maxRetry, 0L, Map.of());
-            return new NodeResult(false, nodeId);
+            return new NodeResult(false, nodeId, false);
         }
 
         // 更新节点为 RUNNING
@@ -293,9 +335,29 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         // 构建节点目标描述
         String nodeGoal = buildNodeGoal(planId, phaseId, node);
 
-        // 执行（含重试）
-        String agentResult = agentService.processToolCalling(sessionId, nodeGoal);
-        boolean success = !isErrorResult(agentResult);
+        String agentResult;
+        boolean success;
+
+        try {
+            // 执行（含重试）
+            agentResult = agentService.processToolCalling(sessionId, nodeGoal);
+            success = !isErrorResult(agentResult);
+        } catch (NeedApprovalException e) {
+            String taskId = extractApprovalTaskId(e);
+            long costMs = System.currentTimeMillis() - nodeStart;
+
+            safeUpdateNodeStatus(planId, nodeId, PlanNodeStatus.APPROVAL_PENDING, costMs,
+                    "等待审批, taskId=" + taskId, retryCount);
+
+            emitNodeEvent(planId, phaseId, nodeId, "PLAN_NODE_APPROVAL_PENDING", "APPROVAL_PENDING", "INFO",
+                    "节点需要审批，执行暂停", "NEED_APPROVAL", nodeName, nodeType,
+                    retryCount, maxRetry, costMs, Map.of("taskId", taskId));
+
+            log.warn("[Node] 节点触发审批，进入等待状态, nodeId={}, planId={}, phaseId={}, taskId={}",
+                    nodeId, planId, phaseId, taskId);
+
+            return new NodeResult(false, nodeId, true);
+        }
 
         if (!success) {
             // 首次失败，尝试重试
@@ -306,7 +368,26 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                         r, nodeId, planId, phaseId, errCode, errMsg);
 
                 safeUpdateNodeStatus(planId, nodeId, PlanNodeStatus.RUNNING, null, null, r);
-                agentResult = agentService.processToolCalling(sessionId, nodeGoal);
+
+                try {
+                    agentResult = agentService.processToolCalling(sessionId, nodeGoal);
+                } catch (NeedApprovalException e) {
+                    String taskId = extractApprovalTaskId(e);
+                    long costMs = System.currentTimeMillis() - nodeStart;
+
+                    safeUpdateNodeStatus(planId, nodeId, PlanNodeStatus.APPROVAL_PENDING, costMs,
+                            "等待审批, taskId=" + taskId, r);
+
+                    emitNodeEvent(planId, phaseId, nodeId, "PLAN_NODE_APPROVAL_PENDING", "APPROVAL_PENDING", "INFO",
+                            "节点需要审批，执行暂停", "NEED_APPROVAL", nodeName, nodeType,
+                            r, maxRetry, costMs, Map.of("taskId", taskId));
+
+                    log.warn("[Node] 节点重试过程中触发审批，进入等待状态, nodeId={}, planId={}, phaseId={}, taskId={}, retry={}",
+                            nodeId, planId, phaseId, taskId, r);
+
+                    return new NodeResult(false, nodeId, true);
+                }
+
                 success = !isErrorResult(agentResult);
 
                 if (success) {
@@ -343,7 +424,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                     failReason, errorCode, nodeName, nodeType, maxRetry, maxRetry, costMs, Map.of());
         }
 
-        return new NodeResult(success, nodeId);
+        return new NodeResult(success, nodeId, false);
     }
 
     // =========================================================
@@ -421,7 +502,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
      * 安全地更新节点状态，异常不抛出，只记录日志
      */
     private void safeUpdateNodeStatus(String planId, String nodeId, PlanNodeStatus status,
-                                       Long costMs, String failReason, int retryCount) {
+                                      Long costMs, String failReason, int retryCount) {
         try {
             planNodeTools.updateNodeStatus(
                     planId, nodeId, status.getValue(), costMs, failReason, retryCount
@@ -436,7 +517,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
      * 安全地写入节点输出，异常不抛出，只记录日志
      */
     private void safeAppendNodeOutput(String planId, String nodeId,
-                                       Map<String, Object> output, Map<String, Object> outputForNext) {
+                                      Map<String, Object> output, Map<String, Object> outputForNext) {
         try {
             planNodeTools.appendNodeOutput(
                     planId, nodeId,
@@ -452,11 +533,11 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
      * 推送节点级 SSE 事件并落库
      */
     private void emitNodeEvent(String planId, String phaseId, String nodeId,
-                                String eventType, String status, String level,
-                                String message, String errorCode,
-                                String nodeName, String nodeType,
-                                int retryCount, int maxRetry, long costMs,
-                                Map<String, Object> outputForNext) {
+                               String eventType, String status, String level,
+                               String message, String errorCode,
+                               String nodeName, String nodeType,
+                               int retryCount, int maxRetry, long costMs,
+                               Map<String, Object> outputForNext) {
         try {
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("eventType", eventType);
@@ -490,17 +571,30 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
      * 构建阶段执行结果 JSON
      */
     private String buildPhaseResult(String planId, String phaseId, int phaseOrder,
-                                     int successCount, int failCount, long costMs, String note) {
+                                    int successCount, int failCount, int pendingApprovalCount, long costMs, String note) {
         try {
             Map<String, Object> out = new LinkedHashMap<>();
-            out.put("status", failCount > 0 ? "error" : "success");
+            out.put("status", (failCount > 0 || pendingApprovalCount > 0) ? "error" : "success");
             out.put("planId", planId);
             out.put("phaseId", phaseId);
             out.put("phaseOrder", phaseOrder);
             out.put("successCount", successCount);
             out.put("failCount", failCount);
+            out.put("pendingApprovalCount", pendingApprovalCount);
             out.put("costMs", costMs);
-            out.put("message", note != null ? note : (failCount > 0 ? "阶段存在失败节点" : "阶段执行成功"));
+
+            String msg;
+            if (note != null) {
+                msg = note;
+            } else if (pendingApprovalCount > 0) {
+                msg = "阶段存在待审批节点，执行已暂停";
+            } else if (failCount > 0) {
+                msg = "阶段存在失败节点";
+            } else {
+                msg = "阶段执行成功";
+            }
+            out.put("message", msg);
+
             return objectMapper.writeValueAsString(out);
         } catch (Exception e) {
             return "{\"status\":\"error\",\"message\":\"结果序列化失败\"}";
@@ -622,6 +716,24 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         }
     }
 
+    private Throwable unwrapRootCause(Throwable t) {
+        Throwable cur = t;
+        while (cur != null && cur.getCause() != null) {
+            cur = cur.getCause();
+        }
+        return cur;
+    }
+
+    private String extractApprovalTaskId(NeedApprovalException e) {
+        try {
+            if (e != null && e.getApprovalTask() != null && e.getApprovalTask().getTaskId() != null) {
+                return e.getApprovalTask().getTaskId();
+            }
+        } catch (Exception ignore) {
+        }
+        return "unknown";
+    }
+
     // =========================================================
     // 内部值对象
     // =========================================================
@@ -629,10 +741,10 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
     /**
      * 单节点执行结果
      */
-    private record NodeResult(boolean success, String nodeId) {}
+    private record NodeResult(boolean success, String nodeId, boolean approvalPending) {}
 
     /**
      * 批次执行结果
      */
-    private record BatchResult(int successCount, int failCount, boolean hasCriticalFailure) {}
+    private record BatchResult(int successCount, int failCount, int pendingApprovalCount, boolean hasCriticalFailure) {}
 }
