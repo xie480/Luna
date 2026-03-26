@@ -458,7 +458,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
     private void sendFinalResultToLuna(String sessionId, String finalResultJson) {
         try {
-            String prompt = """
+            ChatRequest req = new ChatRequest();
+            req.setSessionId(sessionId);
+            req.setMessage("""
                     你是 Luna，需要根据给定的任务执行结果 JSON，用自然、温柔、可靠的人设口吻回复用户。
                     要求：
                     1) 先给结论（成功/失败/部分成功）
@@ -466,8 +468,8 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     3) 语气自然，不要输出 JSON，不要编造不存在字段
                     4) 若失败，给出简短下一步建议
                     以下是结果 JSON：
-                    """ + finalResultJson;
-            chatService.chat(sessionId, prompt);
+                    """ + finalResultJson);
+            chatService.chat(req);
             log.info("[Plan] 最终结果已交由 Luna 生成人設化回复, sessionId={}", sessionId);
         } catch (Exception e) {
             log.warn("[Plan] 最终结果交给 Luna 失败（不中斷）, sessionId={}, err={}", sessionId, e.getMessage());
