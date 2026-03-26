@@ -1286,7 +1286,7 @@ onMounted(async () => {
   });
 
   if (app.ticker) {
-    app.ticker.maxFPS = 30;
+    app.ticker.maxFPS = 45;
   }
 
   container = new PIXI.Container();
