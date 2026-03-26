@@ -31,8 +31,8 @@
     }
   ],
   "thoughtChain": [
-    "调用【save_blueprint】蓝图保存工具，要干什么：将大模型输出的全局计划蓝图 JSON 持久化到数据库；怎么做：传入 planId、planVersion、blueprintJson 与生成模型标识，执行 upsert 操作，确保蓝图落库成功后再继续后续流程。",
-    "调用【audit_log】审计日志工具，要干什么：记录计划创建事件到审计链路，确保每次规划行为可追溯；怎么做：以 PLAN_CREATED 事件类型、INFO 级别写入 planId、sessionId、userGoal 等关键字段，生成唯一 traceId。",
-    "调用【emit_event】SSE 事件推送工具，要干什么：向前端实时推送计划创建与执行状态变更事件；怎么做：以 PLAN_CREATED / PLAN_FINISHED 等事件类型封装 payload，通过 SSE 通道推送给订阅客户端，确保前端可视化界面及时更新。"
+    "调用【save_blueprint】蓝图保存工具，将大模型输出的全局计划蓝图 JSON 持久化到数据库；传入 planId、planVersion、blueprintJson 与生成模型标识，执行 upsert 操作，确保蓝图落库成功后再继续后续流程。",
+    "调用【audit_log】审计日志工具，记录计划创建事件到审计链路确保每次规划行为可追溯；以 PLAN_CREATED 事件类型、INFO 级别写入 planId、sessionId、userGoal 等关键字段，生成唯一 traceId。",
+    "调用【emit_event】SSE 事件推送工具，向前端实时推送计划创建与执行状态变更事件；以 PLAN_CREATED / PLAN_FINISHED 等事件类型封装 payload，通过 SSE 通道推送给订阅客户端，确保前端可视化界面及时更新。"
   ]
 }

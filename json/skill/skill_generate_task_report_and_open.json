@@ -37,9 +37,9 @@
     }
   ],
   "thoughtChain": [
-    "调用【write_report】HTML报告写入工具，要干什么：将汇总好的计划执行结果渲染为完整 HTML 报告并持久化到磁盘；怎么做：以 planId 为文件名，将包含节点统计、阶段详情、耗时与错误信息的 HTML 字符串原子写入 outputDir 目录，同时将报告路径与内容落库存档，返回 reportPath 与 reportUrl。",
-    "调用【open_report】浏览器唤起工具，要干什么：尝试在本机浏览器中自动打开生成的 HTML 报告，提升结果可见性；怎么做：以 reportPath 为参数调用系统 Desktop API 唤起默认浏览器，若桌面环境不支持则记录 FAILED 标记但不中断主流程，此槽位为可选步骤。",
-    "调用【audit_log】审计日志工具，要干什么：将报告生成事件记录到计划审计链路，确保收尾操作可追溯；怎么做：以 PLAN_REPORT_READY 事件类型、INFO 级别写入 planId、finalStatus、reportPath 等字段，生成唯一 traceId 并落库。",
-    "调用【emit_report_event】SSE事件推送工具，要干什么：向前端实时推送报告就绪通知，触发前端可视化界面刷新；怎么做：以 PLAN_REPORT_READY 事件类型封装 planId、reportUrl、openResult、finalStatus 等字段，通过 SSE 通道推送给订阅客户端。"
+    "调用【write_report】HTML报告写入工具，将汇总好的计划执行结果渲染为完整 HTML 报告并持久化到磁盘；以 planId 为文件名，将包含节点统计、阶段详情、耗时与错误信息的 HTML 字符串原子写入 outputDir 目录，同时将报告路径与内容落库存档，返回 reportPath 与 reportUrl。",
+    "调用【open_report】浏览器唤起工具，尝试在本机浏览器中自动打开生成的 HTML 报告以提升结果可见性；以 reportPath 为参数调用系统 Desktop API 唤起默认浏览器，若桌面环境不支持则记录 FAILED 标记但不中断主流程，此槽位为可选步骤。",
+    "调用【audit_log】审计日志工具，将报告生成事件记录到计划审计链路确保收尾操作可追溯；以 PLAN_REPORT_READY 事件类型、INFO 级别写入 planId、finalStatus、reportPath 等字段，生成唯一 traceId 并落库。",
+    "调用【emit_report_event】SSE事件推送工具，向前端实时推送报告就绪通知以触发可视化界面刷新；以 PLAN_REPORT_READY 事件类型封装 planId、reportUrl、openResult、finalStatus 等字段，通过 SSE 通道推送给订阅客户端。"
   ]
 }

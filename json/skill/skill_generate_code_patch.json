@@ -43,10 +43,14 @@
     }
   ],
   "thoughtChain": [
-    "调用【read_source】源码读取工具，要干什么：读取补丁涉及的目标源文件内容，为大模型提供变更前的完整代码上下文；怎么做：解析 patchText 中的文件路径列表，逐一调用 READ_SOURCE_FILE 能力读取文件内容，设置 maxBytes 限制防止超大文件导致上下文溢出，将内容提供给大模型作为生成或审核补丁的参考依据。",
-    "调用【write_source】源码写入工具，要干什么：在补丁应用前将大模型修订后的文件版本预写入磁盘（可选预处理）；怎么做：当需要对补丁内容进行格式规范化或预处理时，将修订后的文件内容以 backup=true 模式写入，保留原始文件备份到 .bak 文件，此槽位为可选步骤，不需要预处理时直接跳过。",
-    "调用【create_checkpoint】Git检查点创建工具，要干什么：在应用补丁前为代码仓库创建可回滚的 Git 快照，确保变更操作有安全退路；怎么做：以 commit 模式执行 git add -A && git commit，生成包含当前变更前状态的提交，记录返回的 checkpointId（commit hash）作为回滚目标，确保补丁应用失败时有明确的恢复点。",
-    "调用【apply_patch】补丁应用工具，要干什么：将 unified diff 格式的补丁内容两阶段原子应用到目标代码仓库；怎么做：先以 checkOnly=true 调用 git apply --check 进行 dry-run 验证补丁合法性与冲突情况，验证通过后再以正式模式执行 git apply --whitespace=nowarn，记录应用成功与失败的文件列表，返回 exitCode 与 stdout/stderr 摘要。",
-    "调用【rollback_checkpoint】Git回滚工具，要干什么：当补丁应用失败时将代码库回退到检查点状态，确保仓库现场干净可继续后续流程；怎么做：以 hard 模式执行 git reset 到 create_checkpoint 返回的 checkpointId，强制恢复所有文件到快照状态，记录 currentHead 确认回滚成功，此槽位为可选步骤，仅在 apply_patch 失败时触发。"
+    "调用【read_source】源码读取工具，读取补丁涉及的目标源文件内容以为大模型提供变更前的完整代码上下文；解析 patchText 中的文件路径列表，逐一调用 READ_SOURCE_FILE 能力读取文件内容，设置 maxBytes 限制防止超大文件导致上下文溢出，将内容提供给大模型作为生成或审核补丁的参考依据。",
+    "调用【write_source】源码写入工具，在补丁应用前将大模型修订后的文件版本预写入磁盘进行可选预处理；当需要对补丁内容进行格式规范化或预处理时，将修订后的文件内容以 backup=true 模式写入，保留原始文件备份到 .bak 文件，此槽位为可选步骤，不需要预处理时直接跳过。",
+    "调用【create_checkpoint】Git检查点创建工具，在应用补丁前为代码仓库创建可回滚的 Git 快照确保变更操作有安全退路；以 commit 模式执行 git add -A && git commit，生成包含当前变更前状态的提交，记录返回的 checkpointId（commit hash）作为回滚目标，确保补丁应用失败时有明确的恢复点。",
+    "调用【apply_patch】补丁应用工具，将 unified diff 格式的补丁内容两阶段原子应用到目标代码仓库；先以 checkOnly=true 调用 git apply --check 进行 dry-run 验证补丁合法性与冲突情况，验证通过后再以正式模式执行 git apply --whitespace=nowarn，记录应用成功与失败的文件列表，返回 exitCode 与 stdout/stderr 摘要。",
+    "调用【rollback_checkpoint】Git回滚工具，当补丁应用失败时将代码库回退到检查点状态确保仓库现场干净可继续后续流程；以 hard 模式执行 git reset 到 create_checkpoint 返回的 checkpointId，强制恢复所有文件到快照状态，记录 currentHead 确认回滚成功，此槽位为可选步骤，仅在 apply_patch 失败时触发。"
   ]
 }
+
+---
+
+json\skill\skill_execute_plan_phase.json
