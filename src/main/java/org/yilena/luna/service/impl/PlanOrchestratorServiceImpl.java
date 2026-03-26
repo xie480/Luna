@@ -37,36 +37,27 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
-    // ---- 默認值 ----
     private static final int DEFAULT_MAX_RETRY = 1;
 
-    // ---- Mapper ----
     private final ObjectMapper objectMapper;
     private final PlanInstanceMapper planInstanceMapper;
     private final PlanNodeMapper planNodeMapper;
     private final PlanPhaseMapper planPhaseMapper;
     private final PlanEdgeMapper planEdgeMapper;
 
-    // ---- Tools ----
     private final PlanBlueprintTools planBlueprintTools;
     private final PlanNodeTools planNodeTools;
     private final PlanEventTools planEventTools;
     private final PlanReportTools planReportTools;
 
-    // ---- Services ----
     private final MasterPlanningService masterPlanningService;
     private final BlueprintValidationService blueprintValidationService;
     private final PhaseExecutionService phaseExecutionService;
-
-    // =========================================================
-    // 1. 創建並執行計劃（完整生命週期入口）
-    // =========================================================
 
     @Override
     public String createAndRunPlan(String sessionId, String userGoal) {
         String planId = null;
         try {
-            // --- 輸入校驗 ---
             if (sessionId == null || sessionId.isBlank()) {
                 return error("PLAN_INVALID_INPUT", "sessionId 不能為空");
             }
@@ -79,7 +70,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
             log.info("[Plan] 創建計劃, planId={}, sessionId={}, userGoal={}", planId, sessionId, userGoal);
 
-            // --- 持久化計劃實例 ---
             PlanInstance instance = PlanInstance.builder()
                     .planId(planId)
                     .sessionId(sessionId)
@@ -97,11 +87,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                             "planVersion", planVersion, "status", "PENDING",
                             "message", "計劃已創建", "timestamp", System.currentTimeMillis()));
 
-            // --- 全局規劃（BigModel 一次性任務）---
             log.info("[Plan] 調用 MasterPlanningService 生成全局藍圖, planId={}", planId);
             Map<String, Object> blueprint = masterPlanningService.generateBlueprint(planId, sessionId, userGoal);
 
-            // --- 藍圖校驗 ---
             String validateErr = blueprintValidationService.validate(blueprint);
             if (validateErr != null) {
                 log.error("[Plan] 藍圖校驗失敗, planId={}, err={}", planId, validateErr);
@@ -110,7 +98,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 return error("PLAN_BLUEPRINT_INVALID", validateErr);
             }
 
-            // --- 保存藍圖 ---
             String saveResult = planBlueprintTools.savePlanBlueprint(
                     planId, planVersion,
                     objectMapper.writeValueAsString(blueprint),
@@ -124,13 +111,11 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 return saveResult;
             }
 
-            // --- 物化 Phase / Node / Edge ---
             materializePhasesAndNodes(planId, blueprint);
             buildEdgesFromBlueprint(planId, blueprint);
 
             updatePlanStatus(planId, PlanStatus.RUNNING, null);
 
-            // --- 按階段順序執行 ---
             List<PlanPhase> orderedPhases = loadOrderedPhases(planId);
             if (orderedPhases.isEmpty()) {
                 log.error("[Plan] 未找到可執行階段, planId={}", planId);
@@ -158,7 +143,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                                 "status", "RUNNING", "message", "階段開始執行",
                                 "timestamp", System.currentTimeMillis()));
 
-                // 委託給 PhaseExecutionService 執行
                 String phaseResult = phaseExecutionService.executePhase(planId, phase, sessionId);
 
                 phaseResults.add(Map.of(
@@ -177,7 +161,12 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                                     "status", "FAILED", "message", "階段執行失敗",
                                     "timestamp", System.currentTimeMillis()));
 
-                    log.error("[Plan] 階段執行失敗，終止後續階段, planId={}, phaseId={}", planId, phaseId);
+                    String phaseErrMsg = extractErrorMessage(phaseResult);
+                    String phaseErrCode = extractErrorCode(phaseResult);
+                    Object phaseErrData = extractDataObj(phaseResult);
+
+                    log.error("[Plan] 階段執行失敗，終止後續階段, planId={}, phaseId={}, phaseOrder={}, errorCode={}, errorMessage={}, rawResult={}, data={}",
+                            planId, phaseId, phaseOrder, phaseErrCode, phaseErrMsg, phaseResult, toJsonQuiet(phaseErrData));
                     break;
                 } else {
                     markPhaseStatus(phase, PlanPhaseStatus.SUCCESS, false, true);
@@ -191,7 +180,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 }
             }
 
-            // --- 收尾報告（無論成功失敗都執行）---
             String reportResult = finalizeAndReport(planId);
 
             Map<String, Object> merged = new LinkedHashMap<>();
@@ -224,10 +212,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         }
     }
 
-    // =========================================================
-    // 2. 執行單階段（外部可單獨調用）
-    // =========================================================
-
     @Override
     public String runPhase(String planId, String phaseId) {
         try {
@@ -247,6 +231,11 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             String result = phaseExecutionService.executePhase(planId, phase, sessionId);
 
             if (isError(result)) {
+                String errMsg = extractErrorMessage(result);
+                String errCode = extractErrorCode(result);
+                Object errData = extractDataObj(result);
+                log.error("[Plan] runPhase 返回錯誤, planId={}, phaseId={}, errorCode={}, errorMessage={}, rawResult={}, data={}",
+                        planId, phaseId, errCode, errMsg, result, toJsonQuiet(errData));
                 markPhaseStatus(phase, PlanPhaseStatus.FAILED, false, true);
             } else {
                 markPhaseStatus(phase, PlanPhaseStatus.SUCCESS, false, true);
@@ -258,10 +247,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             return error("PHASE_EXECUTION_FAILED", "階段執行失敗: " + e.getMessage());
         }
     }
-
-    // =========================================================
-    // 3. 收尾並生成報告
-    // =========================================================
 
     @Override
     public String finalizeAndReport(String planId) {
@@ -319,7 +304,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             String reportPath = asText(writePayload.get("reportPath"));
             String reportUrl = asText(writePayload.get("reportUrl"));
 
-            // 嘗試打開瀏覽器（失敗不中斷）
             String openFlag = "FAILED";
             try {
                 String openResult = planReportTools.openBrowserWithFile(reportPath);
@@ -329,13 +313,11 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 log.warn("[Plan] 打開瀏覽器失敗（不中斷）, planId={}, err={}", planId, e.getMessage());
             }
 
-            // 更新計劃最終狀態
             instance.setFinalStatus(finalStatus);
             instance.setFinishedAt(LocalDateTime.now());
             instance.setStatus(PlanFinalStatus.SUCCESS.equals(finalStatus) ? PlanStatus.SUCCESS : PlanStatus.FAILED);
             planInstanceMapper.updateById(instance);
 
-            // 推送報告就緒事件
             emitPlanEvent(planId, "", "", "PLAN_REPORT_READY", "INFO",
                     Map.of("planId", planId, "status", "SUCCESS",
                             "message", "任務報告已生成",
@@ -363,10 +345,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             return error("PLAN_REPORT_FAILED", "報告生成失敗: " + e.getMessage());
         }
     }
-
-    // =========================================================
-    // 4. 獲取計劃可視化圖譜
-    // =========================================================
 
     @Override
     public String getPlanGraph(String planId) {
@@ -452,21 +430,11 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         }
     }
 
-    // =========================================================
-    // 藍圖物化：Phase / Node / Edge
-    // =========================================================
-
-    /**
-     * 將藍圖中的 phases 和 nodes 物化為數據庫記錄
-     * 同時在 blueprint 中注入 __phaseIdMap 和 __nodeIdMap 供後續 edge 使用
-     */
     private void materializePhasesAndNodes(String planId, Map<String, Object> blueprint) throws Exception {
         List<Map<String, Object>> phaseDefs = asListOfMap(blueprint.get("phases"));
         List<Map<String, Object>> nodeDefs = asListOfMap(blueprint.get("nodes"));
 
-        // phase 原始 ID -> 實際 DB ID 映射
         Map<String, String> phaseIdMap = new LinkedHashMap<>();
-        // phaseId -> 節點ID列表
         Map<String, List<String>> phaseNodeIds = new LinkedHashMap<>();
 
         int phaseIdx = 1;
@@ -493,7 +461,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             phaseIdx++;
         }
 
-        // 如果藍圖未提供階段，創建默認階段
         if (phaseNodeIds.isEmpty()) {
             String fallbackPhaseId = normalizeScopedId(planId, "phase-1");
             PlanPhase fallback = PlanPhase.builder()
@@ -546,7 +513,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             nodeIdx++;
         }
 
-        // 回寫 nodeIds 到 phase
         for (Map.Entry<String, List<String>> e : phaseNodeIds.entrySet()) {
             PlanPhase phase = planPhaseMapper.selectById(e.getKey());
             if (phase != null) {
@@ -555,14 +521,10 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             }
         }
 
-        // 注入映射供 edge 使用
         blueprint.put("__phaseIdMap", phaseIdMap);
         blueprint.put("__nodeIdMap", nodeIdMap);
     }
 
-    /**
-     * 從藍圖 edges 字段構建節點依賴邊並持久化
-     */
     private void buildEdgesFromBlueprint(String planId, Map<String, Object> blueprint) {
         try {
             List<Map<String, Object>> edges = asListOfMap(blueprint.get("edges"));
@@ -576,7 +538,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
                 if (from.isBlank() || to.isBlank()) continue;
 
-                // 校驗節點存在
                 boolean fromExists = planNodeMapper.selectCount(
                         new LambdaQueryWrapper<PlanNode>()
                                 .eq(PlanNode::getPlanId, planId)
@@ -590,7 +551,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     continue;
                 }
 
-                // 去重
                 long exists = planEdgeMapper.selectCount(
                         new LambdaQueryWrapper<PlanEdge>()
                                 .eq(PlanEdge::getPlanId, planId)
@@ -611,13 +571,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         }
     }
 
-    // =========================================================
-    // 計劃狀態管理
-    // =========================================================
-
-    /**
-     * 更新計劃運行狀態
-     */
     private void updatePlanStatus(String planId, PlanStatus status, String errMsg) {
         PlanInstance p = planInstanceMapper.selectById(planId);
         if (p == null) return;
@@ -630,16 +583,10 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         log.info("[Plan] 計劃狀態更新, planId={}, status={}, errMsg={}", planId, status, errMsg);
     }
 
-    /**
-     * 標記計劃失敗
-     */
     private void markPlanFailed(String planId, String reason) {
         updatePlanStatus(planId, PlanStatus.FAILED, reason);
     }
 
-    /**
-     * 更新階段狀態
-     */
     private void markPhaseStatus(PlanPhase phase, PlanPhaseStatus status, boolean markStart, boolean markFinish) {
         if (phase == null) return;
         phase.setStatus(status);
@@ -648,9 +595,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         planPhaseMapper.updateById(phase);
     }
 
-    /**
-     * 按 phaseOrder 升序加載所有階段
-     */
     private List<PlanPhase> loadOrderedPhases(String planId) {
         return planPhaseMapper.selectList(
                 new LambdaQueryWrapper<PlanPhase>()
@@ -659,24 +603,14 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         );
     }
 
-    /**
-     * 從計劃實例中解析 sessionId
-     */
     private String resolveSessionId(String planId) {
         PlanInstance p = planInstanceMapper.selectById(planId);
         if (p == null || p.getSessionId() == null || p.getSessionId().isBlank()) return "plan-default-session";
         return p.getSessionId();
     }
 
-    // =========================================================
-    // 事件推送
-    // =========================================================
-
-    /**
-     * 推送計劃事件（SSE + DB 雙寫），異常不中斷主流程
-     */
     private void emitPlanEvent(String planId, String phaseId, String nodeId,
-                                String eventType, String level, Map<String, Object> payload) {
+                               String eventType, String level, Map<String, Object> payload) {
         try {
             planEventTools.emitPlanEvent(
                     "default",
@@ -693,9 +627,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         }
     }
 
-    /**
-     * 推送計劃結束事件
-     */
     private void emitPlanFinished(String planId, String finalStatus, String message) {
         PlanInstance p = planInstanceMapper.selectById(planId);
         int planVersion = p == null || p.getPlanVersion() == null ? 0 : p.getPlanVersion();
@@ -707,13 +638,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                         "timestamp", System.currentTimeMillis()));
     }
 
-    // =========================================================
-    // 報告生成
-    // =========================================================
-
-    /**
-     * 構建 HTML 任務報告
-     */
     private String buildReportHtml(PlanInstance instance, List<PlanPhase> phases, List<PlanNode> nodes, String finalStatus) {
         long success = nodes.stream().filter(n -> n.getStatus() == PlanNodeStatus.SUCCESS).count();
         long failed = nodes.stream().filter(n -> n.getStatus() == PlanNodeStatus.FAILED).count();
@@ -784,13 +708,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         return sb.toString();
     }
 
-    // =========================================================
-    // 工具方法
-    // =========================================================
-
-    /**
-     * 判斷 JSON 結果是否為錯誤狀態
-     */
     private boolean isError(String jsonText) {
         if (jsonText == null || jsonText.isBlank()) return true;
         try {
@@ -805,9 +722,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         }
     }
 
-    /**
-     * 嘗試將字符串解析為 JSON 節點，失敗則原樣返回
-     */
     private Object safeParse(String text) {
         if (text == null || text.isBlank()) return "";
         try {
@@ -817,14 +731,46 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         }
     }
 
-    /**
-     * 從工具返回的 JSON 中提取 data 載荷
-     */
     private Map<String, Object> extractDataPayload(String toolJsonResult) {
         try {
             JsonNode n = objectMapper.readTree(toolJsonResult);
             if (n.has("data")) return objectMapper.convertValue(n.get("data"), new TypeReference<>() {});
             return objectMapper.convertValue(n, new TypeReference<>() {});
+        } catch (Exception e) {
+            return Map.of();
+        }
+    }
+
+    private String extractErrorMessage(String jsonText) {
+        if (jsonText == null || jsonText.isBlank()) return "";
+        try {
+            JsonNode node = objectMapper.readTree(jsonText);
+            if (node.has("message")) return node.get("message").asText("");
+            return "";
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private String extractErrorCode(String jsonText) {
+        if (jsonText == null || jsonText.isBlank()) return "";
+        try {
+            JsonNode node = objectMapper.readTree(jsonText);
+            if (node.has("errorCode")) return node.get("errorCode").asText("");
+            return "";
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private Object extractDataObj(String jsonText) {
+        if (jsonText == null || jsonText.isBlank()) return Map.of();
+        try {
+            JsonNode node = objectMapper.readTree(jsonText);
+            if (node.has("data")) {
+                return objectMapper.convertValue(node.get("data"), new TypeReference<>() {});
+            }
+            return Map.of();
         } catch (Exception e) {
             return Map.of();
         }
@@ -862,9 +808,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
     }
 
-    /**
-     * 構建統一錯誤 JSON
-     */
     private String error(String code, String message) {
         try {
             return objectMapper.writeValueAsString(Map.of(
@@ -877,9 +820,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         }
     }
 
-    /**
-     * 生成帶 planId 前綴的作用域 ID，確保跨計劃唯一性
-     */
     private String normalizeScopedId(String planId, String rawId) {
         String rid = rawId == null ? "" : rawId.trim();
         if (rid.isBlank()) return planId + ":" + SnowflakeIdUtil.nextIdStr();
@@ -887,9 +827,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         return planId + ":" + rid;
     }
 
-    /**
-     * 從 nodeIdMap 中解析映射 ID，找不到則生成作用域 ID
-     */
     private String resolveMappedOrScopedId(Map<String, String> idMap, String planId, String rawId) {
         String v = rawId == null ? "" : rawId.trim();
         if (v.isBlank()) return normalizeScopedId(planId, SnowflakeIdUtil.nextIdStr());
@@ -897,9 +834,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         return normalizeScopedId(planId, v);
     }
 
-    /**
-     * 將原始依賴 ID 列表重新映射為作用域 ID
-     */
     private List<String> remapStringListIds(List<String> rawIds, Map<String, String> idMap, String planId) {
         if (rawIds == null || rawIds.isEmpty()) return rawIds;
         return rawIds.stream()
