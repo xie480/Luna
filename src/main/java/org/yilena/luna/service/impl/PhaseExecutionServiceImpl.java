@@ -102,10 +102,14 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
             totalFail += result.failCount();
             totalPendingApproval += result.pendingApprovalCount();
 
-            // 若批次中有关键节点失败，终止阶段
-            if (result.hasCriticalFailure()) {
-                log.warn("[Phase] 批次 {}/{} 触发中断（失败或待审批），终止后续批次, planId={}, phaseId={}, failCount={}, pendingApprovalCount={}",
-                        batchIdx + 1, batches.size(), planId, phaseId, result.failCount(), result.pendingApprovalCount());
+            if (result.interruptReason() == InterruptReason.FAILURE) {
+                log.error("[Phase] 批次 {}/{} 存在失败节点，终止后续批次, planId={}, phaseId={}, failCount={}",
+                        batchIdx + 1, batches.size(), planId, phaseId, result.failCount());
+                break;
+            }
+            if (result.interruptReason() == InterruptReason.PENDING_APPROVAL) {
+                log.warn("[Phase] 批次 {}/{} 存在待审批节点，阶段暂停并终止后续批次, planId={}, phaseId={}, pendingApprovalCount={}",
+                        batchIdx + 1, batches.size(), planId, phaseId, result.pendingApprovalCount());
                 break;
             }
         }
@@ -217,12 +221,19 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         if (batch.size() == 1) {
             // 单节点直接同步执行，避免线程开销
             NodeResult nr = executeNode(planId, phaseId, phaseOrder, batch.get(0), sessionId);
-            return new BatchResult(
-                    nr.success() ? 1 : 0,
-                    nr.success() ? 0 : (nr.approvalPending() ? 0 : 1),
-                    nr.approvalPending() ? 1 : 0,
-                    !nr.success()
-            );
+
+            int successCount = nr.success() ? 1 : 0;
+            int failCount = nr.success() ? 0 : (nr.approvalPending() ? 0 : 1);
+            int pendingApprovalCount = nr.approvalPending() ? 1 : 0;
+
+            InterruptReason reason = InterruptReason.NONE;
+            if (pendingApprovalCount > 0) {
+                reason = InterruptReason.PENDING_APPROVAL;
+            } else if (failCount > 0) {
+                reason = InterruptReason.FAILURE;
+            }
+
+            return new BatchResult(successCount, failCount, pendingApprovalCount, reason);
         }
 
         // 多节点并行执行（虚拟线程）
@@ -238,7 +249,6 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
             int successCount = 0;
             int failCount = 0;
             int pendingApprovalCount = 0;
-            boolean hasCriticalFailure = false;
 
             for (int i = 0; i < futures.size(); i++) {
                 PlanNode node = batch.get(i);
@@ -248,14 +258,11 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                         successCount++;
                     } else if (nr.approvalPending()) {
                         pendingApprovalCount++;
-                        hasCriticalFailure = true;
                     } else {
                         failCount++;
-                        hasCriticalFailure = true;
                     }
                 } catch (TimeoutException e) {
                     failCount++;
-                    hasCriticalFailure = true;
                     futures.get(i).cancel(true);
                     log.error("[Batch] 节点执行超时, nodeId={}, planId={}, phaseId={}", node.getNodeId(), planId, phaseId);
                     safeUpdateNodeStatus(planId, node.getNodeId(), PlanNodeStatus.FAILED,
@@ -264,7 +271,6 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                     NeedApprovalException needApprovalException = findNeedApprovalException(e);
                     if (needApprovalException != null || isNeedApprovalMessage(e)) {
                         pendingApprovalCount++;
-                        hasCriticalFailure = true;
                         String taskId = needApprovalException != null
                                 ? extractApprovalTaskId(needApprovalException)
                                 : extractApprovalTaskIdFromMessage(e.getMessage());
@@ -284,7 +290,6 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                                 node.getNodeId(), planId, phaseId, taskId);
                     } else {
                         failCount++;
-                        hasCriticalFailure = true;
                         Throwable root = unwrapRootCause(e);
                         log.error("[Batch] 节点 Future 获取异常, nodeId={}, planId={}, phaseId={}, err={}",
                                 node.getNodeId(), planId, phaseId, root != null ? root.getMessage() : e.getMessage(), e);
@@ -292,14 +297,12 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     failCount++;
-                    hasCriticalFailure = true;
                     log.error("[Batch] 等待节点结果被中断, nodeId={}, planId={}, phaseId={}",
                             node.getNodeId(), planId, phaseId);
                 } catch (Exception e) {
                     NeedApprovalException needApprovalException = findNeedApprovalException(e);
                     if (needApprovalException != null || isNeedApprovalMessage(e)) {
                         pendingApprovalCount++;
-                        hasCriticalFailure = true;
                         String taskId = needApprovalException != null
                                 ? extractApprovalTaskId(needApprovalException)
                                 : extractApprovalTaskIdFromMessage(e.getMessage());
@@ -319,17 +322,23 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                                 node.getNodeId(), planId, phaseId, taskId);
                     } else {
                         failCount++;
-                        hasCriticalFailure = true;
                         log.error("[Batch] 节点 Future 获取异常, nodeId={}, planId={}, phaseId={}, err={}",
                                 node.getNodeId(), planId, phaseId, e.getMessage(), e);
                     }
                 }
             }
 
-            log.info("[Batch] 并行批次执行完成, batchIdx={}/{}, success={}, fail={}, pendingApproval={}, planId={}, phaseId={}",
-                    batchIdx, totalBatches, successCount, failCount, pendingApprovalCount, planId, phaseId);
+            InterruptReason reason = InterruptReason.NONE;
+            if (pendingApprovalCount > 0) {
+                reason = InterruptReason.PENDING_APPROVAL;
+            } else if (failCount > 0) {
+                reason = InterruptReason.FAILURE;
+            }
 
-            return new BatchResult(successCount, failCount, pendingApprovalCount, hasCriticalFailure);
+            log.info("[Batch] 并行批次执行完成, batchIdx={}/{}, success={}, fail={}, pendingApproval={}, interruptReason={}, planId={}, phaseId={}",
+                    batchIdx, totalBatches, successCount, failCount, pendingApprovalCount, reason, planId, phaseId);
+
+            return new BatchResult(successCount, failCount, pendingApprovalCount, reason);
         }
     }
 
@@ -810,6 +819,12 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
     // 内部值对象
     // =========================================================
 
+    private enum InterruptReason {
+        NONE,
+        FAILURE,
+        PENDING_APPROVAL
+    }
+
     /**
      * 单节点执行结果
      */
@@ -818,5 +833,5 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
     /**
      * 批次执行结果
      */
-    private record BatchResult(int successCount, int failCount, int pendingApprovalCount, boolean hasCriticalFailure) {}
+    private record BatchResult(int successCount, int failCount, int pendingApprovalCount, InterruptReason interruptReason) {}
 }
