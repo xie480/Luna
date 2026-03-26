@@ -1,6 +1,6 @@
 {
   "name": "intel_research_pipeline",
-  "description": "全网情报检索与汇总技能。针对一个主题并行执行网页与新闻检索，必要时抓取正文并产出结构化情报摘要。",
+  "description": "全网情报检索与多源汇总技能。接收用户指定的情报主题，并行调用网页搜索与新闻搜索工具构建候选来源池，对高分来源进行深度正文抓取，经过事实归并与去重后调用情报汇总工具生成结构化情报产出，支持要点列表、报告体、时间线三种输出风格。适用于竞品动态跟踪、行业政策研究、热点事件快速聚合、投资标的情报收集等场景，最终输出可直接用于前端展示或下游分析的标准化情报摘要。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "orchestrationSkills",
@@ -34,15 +34,11 @@
       "required": true
     }
   ],
-  "thought_chain": [
-    "解析 topic、timeRange、maxSources、needDeepScrape、outputStyle，并填充默认值（timeRange=7D，maxSources=12，needDeepScrape=true，outputStyle=BULLET）。",
-    "并行调用【web】与【news】槽位构建候选情报源池。",
-    "按主题相关性、来源可信度、发布时间和去重规则进行打分排序，保留前 maxSources 条。",
-    "当 needDeepScrape=true 时，调用【fetch】槽位抓取高分来源正文，并记录抓取成功/失败状态。",
-    "对摘要与正文做事实归并：抽取关键事件、主体、时间、数字与观点，标记冲突信息与不确定项。",
-    "调用【summarize】槽位生成情报产出：summary 主文、highlights 要点、sources 来源清单；输出风格按 BULLET/REPORT/TIMELINE 组织。",
-    "若来源不足或抓取大面积失败，返回部分成功结果并明确缺口，不伪造事实。",
-    "返回结构化结果（status、summary、sources、highlights），确保可直接用于前端展示或后续分析。"
+  "thoughtChain": [
+    "调用【web】网页搜索工具，要干什么：以 topic 为关键词在全网范围内检索相关内容来源；怎么做：结合 timeRange 参数限定时间窗口，提取搜索结果的标题、摘要与链接，按相关性与可信度初步排序，形成候选来源池 A。",
+    "调用【news】新闻搜索工具，要干什么：针对同一主题专项检索新闻媒体渠道的最新报道；怎么做：以相同 topic 与 timeRange 调用新闻搜索接口，补充网页搜索未覆盖的权威媒体来源，合并去重后形成扩展候选来源池 B，合并 A+B 并按发布时间与来源权重排序，保留前 maxSources 条。",
+    "调用【fetch】网页抓取工具，要干什么：对排名靠前的候选来源抓取完整正文以提升情报深度；怎么做：当 needDeepScrape=true 时，对高分来源逐一发起抓取请求，提取正文段落并过滤广告与导航噪音，记录抓取成功与失败状态，失败来源降级为仅使用摘要，此槽位为可选步骤。",
+    "调用【summarize】情报汇总工具，要干什么：对归并后的全量内容进行事实提炼并生成结构化情报产出；怎么做：将正文与摘要内容输入汇总模型，抽取关键事件、主体、时间、数字与核心观点，标记冲突信息与不确定项，按 outputStyle（BULLET/REPORT/TIMELINE）组织输出，生成 summary 主文、highlights 要点列表与 sources 来源清单。"
   ],
   "inputSchema": {
     "type": "object",

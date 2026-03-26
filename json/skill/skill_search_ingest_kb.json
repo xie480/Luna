@@ -1,6 +1,6 @@
 {
   "name": "search_ingest_kb",
-  "description": "搜索即入库技能。先搜索并抓取目标内容，再按规则清洗并写入知识库，形成可持续复用的 RAG 资产。",
+  "description": "搜索即入库技能。接收用户指定的检索主题与目标知识库名称，先通过网页搜索工具获取候选内容来源，再对高价值来源调用网页抓取工具提取完整正文，经过去重与清洗后将结构化内容批量写入知识库，最终形成可供 RAG 检索复用的持久化知识资产。适用于主动扩充领域知识库、竞品情报积累、研究资料归档等场景。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "orchestrationSkills",
@@ -28,13 +28,9 @@
       "required": true
     }
   ],
-  "thought_chain": [
-    "解析 query、kbTitle、sourceType、maxFetch、deduplicate，补全默认值。",
-    "调用【search】槽位对应的搜索能力获取候选来源。",
-    "筛选候选来源，按相关性、时效性、可访问性和重复度截断。",
-    "对需要深度内容的来源调用【fetch】槽位提取正文。",
-    "清洗正文并进行去重，生成入库标题。",
-    "调用【kb】槽位对应的写入能力批量入库。",
-    "返回 insertedCount、skippedCount 和 sourceList。"
+  "thoughtChain": [
+    "调用【search】搜索工具，要干什么：以 query、sourceType、timeRange 为参数发起全网检索，获取候选来源列表；怎么做：提取结果中的标题、摘要、链接，按相关性与时效性排序，截断至 maxFetch 条。",
+    "调用【fetch】网页抓取工具，要干什么：对筛选后的高价值来源逐一抓取完整正文内容；怎么做：提取正文段落并过滤导航栏、广告等噪音，记录抓取成功与失败状态，失败来源标记跳过。",
+    "调用【kb】知识库写入工具，要干什么：将清洗去重后的正文批量写入指定知识库；怎么做：为每条内容生成入库标题与来源元数据，调用 KB_INSERT 能力执行插入，返回 insertedCount、skippedCount 与 sourceList。"
   ]
 }
