@@ -1080,8 +1080,15 @@ function applyLookAt(dx, dy) {
   } catch {}
 }
 
+const LOOKAT_THROTTLE_MS = 33;
+let lastLookAtAt = 0;
 function onGlobalPointerMove(ev) {
   if (!trackingEnabled.value || !model || !modelVisible.value) return;
+
+  const now = performance.now();
+  if (now - lastLookAtAt < LOOKAT_THROTTLE_MS) return;
+  lastLookAtAt = now;
+
   const rect = canvasRef.value.getBoundingClientRect();
   const world = new PIXI.Point(ev.clientX - rect.left, ev.clientY - rect.top);
   const local = container.toLocal(world, app.stage);
@@ -1281,12 +1288,12 @@ onMounted(async () => {
     view: canvasRef.value,
     backgroundAlpha: 0,
     resizeTo: window,
-    resolution: 1,
-    autoDensity: false,
+    resolution: Math.min(window.devicePixelRatio || 1, 1.5),
+    autoDensity: true,
   });
 
   if (app.ticker) {
-    app.ticker.maxFPS = 45;
+    app.ticker.maxFPS = 60;
   }
 
   container = new PIXI.Container();
