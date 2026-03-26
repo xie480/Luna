@@ -49,6 +49,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
     private final PlanNodeTools planNodeTools;
     private final PlanEventTools planEventTools;
     private final PlanReportTools planReportTools;
+    private final ChatService chatService;
 
     private final MasterPlanningService masterPlanningService;
     private final BlueprintValidationService blueprintValidationService;
@@ -199,8 +200,11 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 merged.put("message", "計劃多階段執行成功並生成報告");
             }
 
+            String finalResultJson = objectMapper.writeValueAsString(merged);
+            sendFinalResultToLuna(sessionId, finalResultJson);
+
             log.info("[Plan] 計劃執行完畢, planId={}, status={}", planId, merged.get("status"));
-            return objectMapper.writeValueAsString(merged);
+            return finalResultJson;
 
         } catch (Exception e) {
             log.error("[Plan] createAndRunPlan 發生未捕獲異常, planId={}, err={}", planId, e.getMessage(), e);
@@ -208,7 +212,15 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 updatePlanStatus(planId, PlanStatus.FAILED, "創建並執行計劃失敗: " + e.getMessage());
                 emitPlanFinished(planId, "FAILED", "創建並執行計劃失敗: " + e.getMessage());
             }
-            return error("PLAN_CREATE_RUN_FAILED", "創建並執行計劃失敗: " + e.getMessage());
+            String errJson = error("PLAN_CREATE_RUN_FAILED", "創建並執行計劃失敗: " + e.getMessage());
+            try {
+                if (sessionId != null && !sessionId.isBlank()) {
+                    sendFinalResultToLuna(sessionId, errJson);
+                }
+            } catch (Exception ex) {
+                log.warn("[Plan] 發送最終失敗結果給 Luna 失敗（不中斷）, sessionId={}, err={}", sessionId, ex.getMessage());
+            }
+            return errJson;
         }
     }
 
@@ -427,6 +439,24 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         } catch (Exception e) {
             log.error("[Plan] getPlanGraph 異常, planId={}, err={}", planId, e.getMessage(), e);
             return error("PLAN_GRAPH_FAILED", "獲取計劃圖譜失敗: " + e.getMessage());
+        }
+    }
+
+    private void sendFinalResultToLuna(String sessionId, String finalResultJson) {
+        try {
+            String prompt = """
+                    你是 Luna，需要根据给定的任务执行结果 JSON，用自然、温柔、可靠的人设口吻回复用户。
+                    要求：
+                    1) 先给结论（成功/失败/部分成功）
+                    2) 再给关键结果（阶段数、失败点、报告路径/链接）
+                    3) 语气自然，不要输出 JSON，不要编造不存在字段
+                    4) 若失败，给出简短下一步建议
+                    以下是结果 JSON：
+                    """ + finalResultJson;
+            chatService.chat(sessionId, prompt);
+            log.info("[Plan] 最终结果已交由 Luna 生成人设化回复, sessionId={}", sessionId);
+        } catch (Exception e) {
+            log.warn("[Plan] 最终结果交给 Luna 失败（不中斷）, sessionId={}, err={}", sessionId, e.getMessage());
         }
     }
 
