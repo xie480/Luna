@@ -1,6 +1,6 @@
 {
   "name": "detect_ui_elements",
-  "description": "识别截图中的 UI 元素（文本、控件、区域）并返回结构化结果，服务于桌面任务定位与自动化操作决策。可指定 detectorType（ocr/uiautomation/hybrid）与 targetHints 提高识别准确度。当前为占位实现，后续建议补充坐标标准化与置信度字段。",
+  "description": "识别截图中的 UI 元素（文本、控件、区域）并返回结构化结果，服务于桌面任务定位与自动化操作决策。可指定 detectorType（ocr/uiautomation/hybrid）与 targetHints 提高识别准确度，适用于按钮定位、输入框识别、关键文本抽取等场景。当前为占位实现，后续建议补充坐标标准化、元素类型细分、置信度与多模型融合。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "desktopTools",
@@ -8,16 +8,32 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "imagePath": { "type": "string" },
-      "detectorType": { "type": "string", "enum": ["ocr", "uiautomation", "hybrid"] },
-      "targetHints": { "type": "string" }
+      "imagePath": {
+        "type": "string",
+        "description": "待识别图片路径（可选）。建议传入 capture_desktop_screenshot 返回的 imagePath。"
+      },
+      "detectorType": {
+        "type": "string",
+        "enum": ["ocr", "uiautomation", "hybrid"],
+        "description": "识别器类型（可选）。ocr=文本优先；uiautomation=控件树优先；hybrid=融合模式。"
+      },
+      "targetHints": {
+        "type": "string",
+        "description": "目标提示词（可选）。例如“登录按钮”“搜索输入框”，用于引导识别关注区域。"
+      }
     }
   },
   "outputSchema": {
     "type": "object",
     "properties": {
-      "status": { "type": "string" },
-      "data": { "type": "object" }
+      "status": {
+        "type": "string",
+        "description": "执行状态，常见值：success 或 error。"
+      },
+      "data": {
+        "type": "object",
+        "description": "识别结果对象，通常包含 elements 列表及 imagePath/detectorType/targetHints 等上下文。"
+      }
     }
   }
 }

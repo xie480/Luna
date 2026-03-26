@@ -1,6 +1,6 @@
 {
   "name": "lens_search",
-  "description": "执行以图搜图 (Google Lens) 功能。当用户提供了一个图片 URL 并要求识别图片内容、寻找相似图片、或者获取图片中物品的相关信息时调用。必须提供有效的图片 URL。",
+  "description": "执行以图搜图（Google Lens）检索。当用户提供图片 URL 并希望识别图片内容、寻找相似图片、定位商品或获取相关背景信息时调用。该工具适用于“图像反查”场景，可作为 web_search/image_search 的补充入口。调用前请确保 URL 可公网访问且为有效图片资源链接。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "searchTools",
@@ -17,6 +17,15 @@
   },
   "outputSchema": {
     "type": "object",
-    "description": "Google Lens 识别结果对象，字段结构由第三方接口返回决定。"
+    "properties": {
+      "status": {
+        "type": "string",
+        "description": "执行状态，常见值：success 或 error。"
+      },
+      "data": {
+        "type": "object",
+        "description": "以图搜图结果对象，字段由第三方接口返回决定，常见包含 visualMatches/knowledgeGraph 等。"
+      }
+    }
   }
 }

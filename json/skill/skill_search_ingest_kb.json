@@ -1,7 +1,7 @@
 {
   "name": "search_ingest_kb",
-  "description": "搜索即入库技能。接收用户指定的检索主题与目标知识库名称，先通过网页搜索工具获取候选内容来源，再对高价值来源调用网页抓取工具提取完整正文，经过去重与清洗后将结构化内容批量写入知识库，最终形成可供 RAG 检索复用的持久化知识资产。适用于主动扩充领域知识库、竞品情报积累、研究资料归档等场景。",
-  "version": "1.0.0",
+  "description": "搜索即入库技能。接收用户指定的检索主题与目标知识库范围，先调用网页搜索获取候选来源，再对高价值链接执行网页抓取提取正文，经过清洗去重后写入知识库，形成可供后续 RAG 检索复用的持久化知识资产。适用于主动扩充领域知识库、竞品情报积累、研究资料归档等场景。",
+  "version": "1.1.0",
   "owner": "System",
   "beanName": "orchestrationSkills",
   "methodName": "searchIngestKnowledgeBase",
@@ -29,8 +29,56 @@
     }
   ],
   "thoughtChain": [
-    "调用【search】搜索工具，要干什么：以 query、sourceType、timeRange 为参数发起全网检索，获取候选来源列表；怎么做：提取结果中的标题、摘要、链接，按相关性与时效性排序，截断至 maxFetch 条。",
-    "调用【fetch】网页抓取工具，要干什么：对筛选后的高价值来源逐一抓取完整正文内容；怎么做：提取正文段落并过滤导航栏、广告等噪音，记录抓取成功与失败状态，失败来源标记跳过。",
-    "调用【kb】知识库写入工具，要干什么：将清洗去重后的正文批量写入指定知识库；怎么做：为每条内容生成入库标题与来源元数据，调用 KB_INSERT 能力执行插入，返回 insertedCount、skippedCount 与 sourceList。"
-  ]
+    "调用【search】搜索工具，以 query 与 timeRange 发起全网检索，获得候选来源标题、摘要、链接并按相关性排序。",
+    "调用【fetch】网页抓取工具，对筛选后的高价值来源提取正文并过滤导航、广告等噪音内容。",
+    "调用【kb】知识库写入工具，将清洗去重后的内容写入知识库，返回 insertedCount、skippedCount 与 sourceList。"
+  ],
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "检索主题（必填）。例如“香港AI监管政策最新进展”。"
+      },
+      "targetKb": {
+        "type": "string",
+        "description": "目标知识库标识（可选）。不传时使用系统默认知识库。"
+      },
+      "timeRange": {
+        "type": "string",
+        "enum": ["24H", "7D", "30D", "ALL"],
+        "description": "检索时间范围（可选）。默认 7D。"
+      },
+      "maxFetch": {
+        "type": "integer",
+        "description": "最大抓取来源数（可选）。建议 1-20，默认 8。"
+      },
+      "dedup": {
+        "type": "boolean",
+        "description": "是否去重（可选）。true=去重；false=保留重复。默认 true。"
+      }
+    },
+    "required": ["query"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": {
+        "type": "string",
+        "description": "执行状态，常见值：success 或 error。"
+      },
+      "insertedCount": {
+        "type": "integer",
+        "description": "成功写入知识库的条数。"
+      },
+      "skippedCount": {
+        "type": "integer",
+        "description": "被跳过条数（抓取失败、去重命中或内容无效）。"
+      },
+      "sourceList": {
+        "type": "array",
+        "description": "参与处理的来源列表，通常包含 title/url/status 等字段。"
+      }
+    }
+  }
 }

@@ -1,6 +1,6 @@
 {
   "name": "capture_desktop_screenshot",
-  "description": "抓取桌面截图用于状态观察与后续 UI 分析。可指定显示器索引与区域（x,y,w,h）进行局部截图，减少隐私暴露与数据体积。适用于桌面自动化任务中的“观察”环节。当前为占位实现，后续应补充权限与脱敏策略。",
+  "description": "抓取桌面截图用于状态观察与后续 UI 分析。支持按显示器索引截全屏，或通过 region（x,y,w,h）执行局部截图以减少隐私暴露与数据体积。适用于桌面自动化任务中的“观察”阶段、故障复盘取证与人工确认前快照留存。当前为占位实现，后续建议补充系统权限检测、敏感区域脱敏、图片压缩与存储策略。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "desktopTools",
@@ -8,15 +8,27 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "monitorIndex": { "type": "integer" },
-      "region": { "type": "string", "description": "x,y,w,h" }
+      "monitorIndex": {
+        "type": "integer",
+        "description": "显示器索引（可选）。0 表示主屏，1/2... 表示扩展屏；不传时由系统默认策略决定。"
+      },
+      "region": {
+        "type": "string",
+        "description": "截图区域（可选），格式为 x,y,w,h，例如 100,200,1280,720；不传表示整屏截图。"
+      }
     }
   },
   "outputSchema": {
     "type": "object",
     "properties": {
-      "status": { "type": "string" },
-      "data": { "type": "object" }
+      "status": {
+        "type": "string",
+        "description": "执行状态，常见值：success 或 error。"
+      },
+      "data": {
+        "type": "object",
+        "description": "截图结果对象，通常包含 imagePath、width、height、monitorIndex、region 等字段。"
+      }
     }
   }
 }
