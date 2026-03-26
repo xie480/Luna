@@ -78,13 +78,16 @@ public class PlanReportTools extends BaseTool {
                     .build();
             planReportMapper.insert(report);
 
-            log.info("write_html_report_file 完成, planId={}, path={}, finalStatus={}, openResult={}",
-                    planId, reportPath, safeFinalStatus, safeOpenResult);
+            log.info("write_html_report_file 完成, planId={}, path={}, reportUrl={}, finalStatus={}, openResult={}",
+                    planId, reportPath, reportUrl, safeFinalStatus, safeOpenResult);
             return success(Map.of(
                     "reportPath", reportPath,
+                    "reportPathNormalized", target.normalize().toString(),
                     "reportUrl", reportUrl,
+                    "reportFileName", target.getFileName().toString(),
                     "finalStatus", safeFinalStatus.name(),
-                    "openResult", safeOpenResult.name()
+                    "openResult", safeOpenResult.name(),
+                    "copyHint", reportPath
             ));
         } catch (Exception e) {
             log.error("write_html_report_file 失败", e);
@@ -96,19 +99,66 @@ public class PlanReportTools extends BaseTool {
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "打开报告文件")
     public String openBrowserWithFile(@RequestParam("reportPath") String reportPath) {
         try {
-            File file = new File(reportPath);
-            if (!file.exists()) return error("文件不存在");
-
-            if (!Desktop.isDesktopSupported()) {
-                return success(Map.of("openResult", "FAILED", "error", "Desktop 不支持"));
+            if (reportPath == null || reportPath.isBlank()) {
+                return error("reportPath 不能为空");
             }
 
-            Desktop.getDesktop().browse(file.toURI());
-            log.info("open_browser_with_file 完成, path={}", reportPath);
-            return success(Map.of("openResult", "SUCCESS"));
+            File file = new File(reportPath);
+            if (!file.exists()) {
+                // 兼容传入 URI 场景（例如 file:///...）
+                if (reportPath.startsWith("file:/")) {
+                    Path p = Paths.get(java.net.URI.create(reportPath));
+                    file = p.toFile();
+                }
+            }
+
+            if (!file.exists()) {
+                return error("文件不存在: " + reportPath);
+            }
+
+            Path normalized = file.toPath().toAbsolutePath().normalize();
+            String fileUri = normalized.toUri().toString();
+
+            if (!Desktop.isDesktopSupported()) {
+                log.warn("open_browser_with_file 不支持 Desktop, path={}", normalized);
+                return success(Map.of(
+                        "openResult", "NOT_SUPPORTED",
+                        "reportPath", normalized.toString(),
+                        "reportUrl", fileUri,
+                        "copyHint", normalized.toString()
+                ));
+            }
+
+            Desktop desktop = Desktop.getDesktop();
+            if (desktop.isSupported(Desktop.Action.BROWSE)) {
+                desktop.browse(normalized.toUri());
+            } else if (desktop.isSupported(Desktop.Action.OPEN)) {
+                desktop.open(normalized.toFile());
+            } else {
+                log.warn("open_browser_with_file 不支持 BROWSE/OPEN, path={}", normalized);
+                return success(Map.of(
+                        "openResult", "NOT_SUPPORTED",
+                        "reportPath", normalized.toString(),
+                        "reportUrl", fileUri,
+                        "copyHint", normalized.toString()
+                ));
+            }
+
+            log.info("open_browser_with_file 完成, path={}", normalized);
+            return success(Map.of(
+                    "openResult", "SUCCESS",
+                    "reportPath", normalized.toString(),
+                    "reportUrl", fileUri,
+                    "copyHint", normalized.toString()
+            ));
         } catch (Exception e) {
             log.error("open_browser_with_file 失败", e);
-            return success(Map.of("openResult", "FAILED", "error", e.getMessage()));
+            return success(Map.of(
+                    "openResult", "FAILED",
+                    "reportPath", reportPath == null ? "" : reportPath,
+                    "error", e.getMessage() == null ? "unknown error" : e.getMessage(),
+                    "copyHint", reportPath == null ? "" : reportPath
+            ));
         }
     }
 
