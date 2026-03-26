@@ -27,6 +27,8 @@ import java.util.stream.Collectors;
  * - update_node_status
  * - append_node_output
  * - query_plan_progress
+ * - aggregate_phase_outputs
+ * - replan_failed_nodes
  */
 @Slf4j
 @Component
@@ -66,8 +68,8 @@ public class PlanNodeTools extends BaseTool {
             @RequestParam(value = "retryCount", required = false) Integer retryCount
     ) {
         try {
-            PlanNode node = planNodeMapper.selectById(nodeId);
-            if (node == null || !Objects.equals(node.getPlanId(), planId)) return error("节点不存在");
+            PlanNode node = findByPlanIdAndNodeId(planId, nodeId);
+            if (node == null) return error("节点不存在");
 
             node.setStatus(PlanNodeStatus.valueOf(status.toUpperCase()));
             if (costMs != null) node.setCostMs(costMs);
@@ -99,8 +101,8 @@ public class PlanNodeTools extends BaseTool {
             @RequestParam(value = "outputForNext", required = false) String outputForNext
     ) {
         try {
-            PlanNode node = planNodeMapper.selectById(nodeId);
-            if (node == null || !Objects.equals(node.getPlanId(), planId)) return error("节点不存在");
+            PlanNode node = findByPlanIdAndNodeId(planId, nodeId);
+            if (node == null) return error("节点不存在");
 
             Map<String, Object> out = objectMapper.readValue(outputJson, new TypeReference<>() {});
             Map<String, Object> next = null;
@@ -141,5 +143,109 @@ public class PlanNodeTools extends BaseTool {
             log.error("query_plan_progress 失败", e);
             return error("query_plan_progress 失败: " + e.getMessage());
         }
+    }
+
+    @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "聚合阶段输出")
+    public String aggregatePhaseOutputs(
+            @RequestParam("planId") String planId,
+            @RequestParam("phaseId") String phaseId,
+            @RequestParam(value = "summaryNodeId", required = false) String summaryNodeId
+    ) {
+        try {
+            List<PlanNode> nodes = planNodeMapper.selectList(new LambdaQueryWrapper<PlanNode>()
+                    .eq(PlanNode::getPlanId, planId)
+                    .eq(PlanNode::getPhaseId, phaseId)
+                    .orderByAsc(PlanNode::getNodeId));
+
+            List<PlanNode> validNodes = nodes.stream()
+                    .filter(n -> n.getOutputForNext() != null && !n.getOutputForNext().isEmpty())
+                    .toList();
+
+            List<Map<String, Object>> outputs = new ArrayList<>();
+            for (PlanNode n : validNodes) {
+                Map<String, Object> one = new LinkedHashMap<>();
+                one.put("nodeId", n.getNodeId());
+                one.put("nodeType", n.getNodeType());
+                one.put("status", n.getStatus() == null ? null : n.getStatus().getValue());
+                one.put("outputForNext", n.getOutputForNext());
+                outputs.add(one);
+            }
+
+            Map<String, Object> summary = new LinkedHashMap<>();
+            summary.put("planId", planId);
+            summary.put("phaseId", phaseId);
+            summary.put("totalNodes", nodes.size());
+            summary.put("validOutputNodes", validNodes.size());
+            summary.put("outputs", outputs);
+
+            if (summaryNodeId != null && !summaryNodeId.isBlank()) {
+                PlanNode summaryNode = findByPlanIdAndNodeId(planId, summaryNodeId);
+                if (summaryNode == null) {
+                    return error("summaryNodeId 对应节点不存在");
+                }
+                summaryNode.setOutputForNext(summary);
+                planNodeMapper.updateById(summaryNode);
+            }
+
+            return success(summary);
+        } catch (Exception e) {
+            log.error("aggregate_phase_outputs 失败", e);
+            return error("aggregate_phase_outputs 失败: " + e.getMessage());
+        }
+    }
+
+    @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
+    @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "失败节点重规划分析")
+    public String replanFailedNodes(@RequestParam("planId") String planId) {
+        try {
+            List<PlanNode> nodes = planNodeMapper.selectList(new LambdaQueryWrapper<PlanNode>()
+                    .eq(PlanNode::getPlanId, planId));
+
+            List<PlanNode> failed = nodes.stream()
+                    .filter(n -> n.getStatus() == PlanNodeStatus.FAILED)
+                    .toList();
+
+            List<Map<String, Object>> failedNodes = new ArrayList<>();
+            for (PlanNode n : failed) {
+                Map<String, Object> one = new LinkedHashMap<>();
+                one.put("nodeId", n.getNodeId());
+                one.put("phaseId", n.getPhaseId());
+                one.put("nodeType", n.getNodeType());
+                one.put("failReason", n.getFailReason());
+                one.put("retryCount", n.getRetryCount());
+                failedNodes.add(one);
+            }
+
+            Map<String, Long> stats = nodes.stream().collect(Collectors.groupingBy(
+                    n -> n.getStatus() == null ? "PENDING" : n.getStatus().getValue(),
+                    Collectors.counting()
+            ));
+
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("planId", planId);
+            out.put("nodeStats", stats);
+            out.put("failedCount", failed.size());
+            out.put("failedNodes", failedNodes);
+            out.put("suggestions", List.of(
+                    "优先重试可重试节点（retryCount < maxRetry）",
+                    "对工具错误节点尝试替换工具或降级方案",
+                    "对非关键路径失败节点可评估 SKIP 继续"
+            ));
+            return success(out);
+        } catch (Exception e) {
+            log.error("replan_failed_nodes 失败", e);
+            return error("replan_failed_nodes 失败: " + e.getMessage());
+        }
+    }
+
+    private PlanNode findByPlanIdAndNodeId(String planId, String nodeId) {
+        if (planId == null || planId.isBlank() || nodeId == null || nodeId.isBlank()) {
+            return null;
+        }
+        return planNodeMapper.selectOne(new LambdaQueryWrapper<PlanNode>()
+                .eq(PlanNode::getPlanId, planId)
+                .eq(PlanNode::getNodeId, nodeId)
+                .last("LIMIT 1"));
     }
 }

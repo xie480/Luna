@@ -1,10 +1,10 @@
 {
   "name": "replan_failed_nodes",
   "description": "失败节点局部重规划分析技能。在计划执行过程中若出现节点失败，本技能负责枚举当前阶段所有失败节点并提取失败原因，结合全局进度快照评估失败影响范围，由大模型输出可执行的修复方向，包括直接重试、替换工具、降级执行、跳过非关键节点等策略建议，将分析结论追加到对应节点的输出记录，并将重规划事件写入审计日志与 SSE 事件流，确保整个重规划过程完整可观测、决策依据可追溯。适用于计划执行中途节点失败后的自动诊断与修复决策，是计划弹性执行闭环的核心保障机制。",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "owner": "openclaw",
   "beanName": "planNodeTools",
-  "methodName": "queryPlanProgress",
+  "methodName": "replanFailedNodes",
   "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"planId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"计划ID\"}},\"required\":[\"planId\"]}",
   "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"data\":{\"type\":\"object\",\"description\":\"进度与失败分布\"},\"message\":{\"type\":\"string\",\"description\":\"重规划建议说明\"}}}",
   "runMode": "SYNC",
