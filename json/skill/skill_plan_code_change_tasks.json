@@ -48,7 +48,5 @@
     "调用【save_blueprint】蓝图保存工具，要干什么：将大模型生成的代码任务计划蓝图持久化到数据库；怎么做：传入 planId、planVersion 与包含代码修改/构建/测试/回滚/报告节点的完整蓝图 JSON，执行 upsert 操作写入 plan_blueprint 表，确保蓝图落库成功后再触发执行，返回 savedToDb 标志与版本号。",
     "调用【emit_event】SSE事件推送工具，要干什么：向前端推送计划创建事件，使可视化界面及时展示新建计划的阶段与节点图谱；怎么做：以 PLAN_CREATED 事件类型封装 planId、sessionId、userGoal 与节点数量等字段，通过 SSE 通道推送给订阅客户端，确保前端在规划完成后立即看到可视化图谱。",
     "调用【audit_log】审计日志工具，要干什么：将代码任务计划创建事件记录到审计链路，确保规划决策完整可追溯；怎么做：以 PLAN_CREATED 事件类型、INFO 级别写入 planId、sessionId、userGoal、蓝图版本号等字段，生成唯一 traceId 落库，为后续计划复盘与问题溯源提供完整记录。"
-
-以上是 `skill_plan_code_change_tasks.json` 中 `thoughtChain` 的后续条目。现在输出完整文件及剩余所有待修正文件：
-
-json\skill\skill_plan_code_change_tasks.json
+  ]
+}
