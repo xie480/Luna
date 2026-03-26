@@ -25,12 +25,6 @@ import java.util.stream.Collectors;
  * - 本類負責計劃生命週期管理：創建、持久化、狀態流轉、報告生成
  * - 階段內節點調度委託給 {@link PhaseExecutionService}
  * - 事件推送通過 {@link PlanEventTools} 統一處理
- *
- * 執行流程：
- * 1. 接收用戶目標 -> 調用 MasterPlanningService 生成全局藍圖
- * 2. 校驗藍圖 -> 物化 Phase/Node/Edge 到數據庫
- * 3. 按階段順序調用 PhaseExecutionService 執行
- * 4. 全部階段完成後調用 PlanReportTools 生成報告
  */
 @Slf4j
 @Service
@@ -87,6 +81,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     Map.of("planId", planId, "sessionId", sessionId, "userGoal", userGoal,
                             "planVersion", planVersion, "status", "PENDING",
                             "message", "計劃已創建", "timestamp", System.currentTimeMillis()));
+            emitFrontProgress(planId, "PLAN_CREATED", "計劃已建立，正在生成藍圖", 0, 0, 0, 0);
 
             log.info("[Plan] 調用 MasterPlanningService 生成全局藍圖, planId={}", planId);
             Map<String, Object> blueprint = masterPlanningService.generateBlueprint(planId, sessionId, userGoal);
@@ -96,6 +91,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 log.error("[Plan] 藍圖校驗失敗, planId={}, err={}", planId, validateErr);
                 updatePlanStatus(planId, PlanStatus.FAILED, validateErr);
                 emitPlanFinished(planId, "FAILED", validateErr);
+                emitFrontProgress(planId, "PLAN_FAILED", "藍圖校驗失敗：" + validateErr, 0, 0, 0, 0);
                 return error("PLAN_BLUEPRINT_INVALID", validateErr);
             }
 
@@ -109,6 +105,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 log.error("[Plan] 保存藍圖失敗, planId={}, result={}", planId, saveResult);
                 markPlanFailed(planId, "保存藍圖失敗");
                 emitPlanFinished(planId, "FAILED", "保存藍圖失敗");
+                emitFrontProgress(planId, "PLAN_FAILED", "藍圖保存失敗", 0, 0, 0, 0);
                 return saveResult;
             }
 
@@ -122,9 +119,11 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 log.error("[Plan] 未找到可執行階段, planId={}", planId);
                 markPlanFailed(planId, "未找到可執行階段");
                 emitPlanFinished(planId, "FAILED", "未找到可執行階段");
+                emitFrontProgress(planId, "PLAN_FAILED", "未找到可執行階段", 0, 0, 0, 0);
                 return error("PLAN_PHASE_EMPTY", "未找到可執行階段");
             }
 
+            emitFrontProgress(planId, "PLAN_RUNNING", "藍圖已就緒，開始分階段執行", orderedPhases.size(), 0, 0, 0);
             log.info("[Plan] 開始按階段執行, planId={}, phaseCount={}", planId, orderedPhases.size());
 
             List<Map<String, Object>> phaseResults = new ArrayList<>();
@@ -143,6 +142,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                         Map.of("planId", planId, "phaseId", phaseId, "phaseOrder", phaseOrder,
                                 "status", "RUNNING", "message", "階段開始執行",
                                 "timestamp", System.currentTimeMillis()));
+                emitFrontPhaseProgress(planId, phase, "RUNNING", "階段開始執行");
 
                 String phaseResult = phaseExecutionService.executePhase(planId, phase, sessionId);
 
@@ -168,6 +168,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
                     log.error("[Plan] 階段執行失敗，終止後續階段, planId={}, phaseId={}, phaseOrder={}, errorCode={}, errorMessage={}, rawResult={}, data={}",
                             planId, phaseId, phaseOrder, phaseErrCode, phaseErrMsg, phaseResult, toJsonQuiet(phaseErrData));
+
+                    emitFrontPhaseProgress(planId, phase, "FAILED",
+                            "階段失敗：" + (phaseErrMsg == null || phaseErrMsg.isBlank() ? "未知錯誤" : phaseErrMsg));
                     break;
                 } else {
                     markPhaseStatus(phase, PlanPhaseStatus.SUCCESS, false, true);
@@ -177,6 +180,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                                     "status", "SUCCESS", "message", "階段執行成功",
                                     "timestamp", System.currentTimeMillis()));
 
+                    emitFrontPhaseProgress(planId, phase, "SUCCESS", "階段執行成功");
                     log.info("[Plan] 階段執行成功, planId={}, phaseId={}, phaseOrder={}", planId, phaseId, phaseOrder);
                 }
             }
@@ -193,11 +197,13 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 emitPlanFinished(planId, "FAILED", "階段執行失敗，已生成報告");
                 merged.put("status", "error");
                 merged.put("message", "計劃階段執行失敗，已生成報告");
+                emitFrontProgress(planId, "PLAN_FINISHED", "任務執行失敗，報告已生成", countPhases(planId), countFinishedPhases(planId), countSuccessNodes(planId), countFailedNodes(planId));
             } else {
                 updatePlanStatus(planId, PlanStatus.SUCCESS, null);
                 emitPlanFinished(planId, "SUCCESS", "計劃執行成功並生成報告");
                 merged.put("status", "success");
                 merged.put("message", "計劃多階段執行成功並生成報告");
+                emitFrontProgress(planId, "PLAN_FINISHED", "任務執行成功，報告已生成", countPhases(planId), countFinishedPhases(planId), countSuccessNodes(planId), countFailedNodes(planId));
             }
 
             String finalResultJson = objectMapper.writeValueAsString(merged);
@@ -211,6 +217,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             if (planId != null) {
                 updatePlanStatus(planId, PlanStatus.FAILED, "創建並執行計劃失敗: " + e.getMessage());
                 emitPlanFinished(planId, "FAILED", "創建並執行計劃失敗: " + e.getMessage());
+                emitFrontProgress(planId, "PLAN_FAILED", "任務中斷：" + e.getMessage(), countPhases(planId), countFinishedPhases(planId), countSuccessNodes(planId), countFailedNodes(planId));
             }
             String errJson = error("PLAN_CREATE_RUN_FAILED", "創建並執行計劃失敗: " + e.getMessage());
             try {
@@ -240,6 +247,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             log.info("[Plan] 單獨執行階段, planId={}, phaseId={}, sessionId={}", planId, phaseId, sessionId);
 
             markPhaseStatus(phase, PlanPhaseStatus.RUNNING, true, false);
+            emitFrontPhaseProgress(planId, phase, "RUNNING", "手動觸發階段執行");
             String result = phaseExecutionService.executePhase(planId, phase, sessionId);
 
             if (isError(result)) {
@@ -249,8 +257,10 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 log.error("[Plan] runPhase 返回錯誤, planId={}, phaseId={}, errorCode={}, errorMessage={}, rawResult={}, data={}",
                         planId, phaseId, errCode, errMsg, result, toJsonQuiet(errData));
                 markPhaseStatus(phase, PlanPhaseStatus.FAILED, false, true);
+                emitFrontPhaseProgress(planId, phase, "FAILED", "階段執行失敗：" + errMsg);
             } else {
                 markPhaseStatus(phase, PlanPhaseStatus.SUCCESS, false, true);
+                emitFrontPhaseProgress(planId, phase, "SUCCESS", "階段執行成功");
             }
 
             return result;
@@ -300,8 +310,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 finalStatusText = "FAILED";
             }
 
-            log.info("[Plan] 生成報告, planId={}, finalStatus={}, nodeTotal={}, success={}, failed={}, skipped={}",
-                    planId, finalStatusText, nodes.size(), success, failed, skipped);
+            emitFrontProgress(planId, "REPORT_GENERATING", "正在生成任務報告", phases.size(), countFinishedPhases(planId), success, failed);
 
             String html = buildReportHtml(instance, phases, nodes, finalStatusText);
             String writeResult = planReportTools.writeHtmlReportFile(
@@ -309,6 +318,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             );
             if (isError(writeResult)) {
                 log.error("[Plan] 寫入報告文件失敗, planId={}, result={}", planId, writeResult);
+                emitFrontProgress(planId, "REPORT_FAILED", "報告寫入失敗", phases.size(), countFinishedPhases(planId), success, failed);
                 return writeResult;
             }
 
@@ -337,6 +347,10 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                             "openResult", openFlag,
                             "timestamp", System.currentTimeMillis()));
 
+            emitFrontProgress(planId, "REPORT_READY",
+                    "報告已生成" + ("SUCCESS".equals(openFlag) ? "並已嘗試打開" : "，可手動打開"),
+                    phases.size(), countFinishedPhases(planId), success, failed);
+
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("status", "success");
             out.put("planId", planId);
@@ -349,11 +363,11 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             out.put("nodeFailed", failed);
             out.put("nodeSkipped", skipped);
 
-            log.info("[Plan] 報告生成完畢, planId={}, reportPath={}, openResult={}", planId, reportPath, openFlag);
             return objectMapper.writeValueAsString(out);
 
         } catch (Exception e) {
             log.error("[Plan] finalizeAndReport 異常, planId={}, err={}", planId, e.getMessage(), e);
+            emitFrontProgress(planId, "REPORT_FAILED", "報告生成失敗：" + e.getMessage(), countPhases(planId), countFinishedPhases(planId), countSuccessNodes(planId), countFailedNodes(planId));
             return error("PLAN_REPORT_FAILED", "報告生成失敗: " + e.getMessage());
         }
     }
@@ -454,10 +468,78 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     以下是结果 JSON：
                     """ + finalResultJson;
             chatService.chat(sessionId, prompt);
-            log.info("[Plan] 最终结果已交由 Luna 生成人设化回复, sessionId={}", sessionId);
+            log.info("[Plan] 最终结果已交由 Luna 生成人設化回复, sessionId={}", sessionId);
         } catch (Exception e) {
             log.warn("[Plan] 最终结果交给 Luna 失败（不中斷）, sessionId={}, err={}", sessionId, e.getMessage());
         }
+    }
+
+    private void emitFrontProgress(String planId, String stage, String message,
+                                   int phaseTotal, int phaseFinished, long nodeSuccess, long nodeFailed) {
+        try {
+            int percent = 0;
+            if (phaseTotal > 0) {
+                percent = Math.max(0, Math.min(100, (int) ((phaseFinished * 100.0) / phaseTotal)));
+            }
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("planId", planId);
+            payload.put("stage", stage);
+            payload.put("message", message);
+            payload.put("phaseTotal", phaseTotal);
+            payload.put("phaseFinished", phaseFinished);
+            payload.put("nodeSuccess", nodeSuccess);
+            payload.put("nodeFailed", nodeFailed);
+            payload.put("progressPercent", percent);
+            payload.put("timestamp", System.currentTimeMillis());
+            planEventTools.emitPlanEventSse("default", "PLAN_FRONT_PROGRESS", objectMapper.writeValueAsString(payload));
+        } catch (Exception e) {
+            log.warn("[Plan] emitFrontProgress 失败（不中断）, planId={}, stage={}, err={}", planId, stage, e.getMessage());
+        }
+    }
+
+    private void emitFrontPhaseProgress(String planId, PlanPhase phase, String phaseStatus, String message) {
+        int phaseTotal = countPhases(planId);
+        int phaseFinished = countFinishedPhases(planId);
+        emitFrontProgress(planId, "PHASE_" + phaseStatus, message, phaseTotal, phaseFinished, countSuccessNodes(planId), countFailedNodes(planId));
+        try {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("planId", planId);
+            payload.put("phaseId", phase.getPhaseId());
+            payload.put("phaseOrder", phase.getPhaseOrder());
+            payload.put("phaseName", phase.getName());
+            payload.put("phaseStatus", phaseStatus);
+            payload.put("message", message);
+            payload.put("timestamp", System.currentTimeMillis());
+            planEventTools.emitPlanEventSse("default", "PLAN_PHASE_PROGRESS", objectMapper.writeValueAsString(payload));
+        } catch (Exception e) {
+            log.warn("[Plan] emitFrontPhaseProgress 失败（不中断）, planId={}, phaseId={}, err={}", planId, phase.getPhaseId(), e.getMessage());
+        }
+    }
+
+    private int countPhases(String planId) {
+        if (planId == null || planId.isBlank()) return 0;
+        return Math.toIntExact(planPhaseMapper.selectCount(new LambdaQueryWrapper<PlanPhase>().eq(PlanPhase::getPlanId, planId)));
+    }
+
+    private int countFinishedPhases(String planId) {
+        if (planId == null || planId.isBlank()) return 0;
+        return Math.toIntExact(planPhaseMapper.selectCount(new LambdaQueryWrapper<PlanPhase>()
+                .eq(PlanPhase::getPlanId, planId)
+                .in(PlanPhase::getStatus, PlanPhaseStatus.SUCCESS, PlanPhaseStatus.FAILED)));
+    }
+
+    private long countSuccessNodes(String planId) {
+        if (planId == null || planId.isBlank()) return 0;
+        return planNodeMapper.selectCount(new LambdaQueryWrapper<PlanNode>()
+                .eq(PlanNode::getPlanId, planId)
+                .eq(PlanNode::getStatus, PlanNodeStatus.SUCCESS));
+    }
+
+    private long countFailedNodes(String planId) {
+        if (planId == null || planId.isBlank()) return 0;
+        return planNodeMapper.selectCount(new LambdaQueryWrapper<PlanNode>()
+                .eq(PlanNode::getPlanId, planId)
+                .eq(PlanNode::getStatus, PlanNodeStatus.FAILED));
     }
 
     private void materializePhasesAndNodes(String planId, Map<String, Object> blueprint) throws Exception {
