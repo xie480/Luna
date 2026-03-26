@@ -1,6 +1,6 @@
 {
   "name": "execute_plan_phase",
-  "description": "执行指定计划阶段，驱动节点状态流转、写入节点输出、统计阶段进度并推送实时事件，作为阶段执行主技能。",
+  "description": "计划阶段执行主技能。接收指定计划的阶段 ID，在阶段执行开始前获取分布式互斥锁防止并发重入，加载该阶段下所有待执行节点，基于 DAG 拓扑排序将节点划分为多个可并行批次，依次驱动每个节点完成状态流转（PENDING→RUNNING→SUCCESS/FAILED），实时写入节点输出数据并传递给下游节点，统计阶段整体进度并通过 SSE 推送实时事件，阶段执行完毕后释放互斥锁确保资源回收。适用于多阶段计划中单阶段的标准化调度执行，是 PlanOrchestratorService 按阶段顺序驱动的核心执行单元。",
   "version": "1.1.0",
   "owner": "openclaw",
   "beanName": "planOrchestratorServiceImpl",
@@ -61,9 +61,13 @@
     }
   ],
   "thoughtChain": [
-    "获取阶段执行锁并读取阶段节点",
-    "按状态机推进节点执行与结果写入",
-    "统计阶段进度并完成审计与事件推送",
-    "释放执行锁并返回阶段结果"
+    "调用【acquire_lock】执行锁获取工具，要干什么：在阶段执行开始前抢占分布式互斥锁，防止同一阶段被并发重复调度；怎么做：以 planId+phaseId 为 lockKey、当前执行实例标识为 owner，设置 TTL=600 秒调用 Redis SETNX，获取成功后继续，失败则返回错误终止本次执行，避免节点被重复驱动。",
+    "调用【list_nodes】阶段节点列表工具，要干什么：加载当前阶段下所有待执行节点的完整定义，作为 DAG 拓扑排序的输入；怎么做：以 planId 与 phaseId 为条件查询 plan_node 表，按 createdAt 升序返回节点列表，提取 nodeId、nodeType、dependencies、resourceHint、maxRetry 等字段，用于后续批次划分与执行调度。",
+    "调用【update_status】节点状态更新工具，要干什么：在每个节点执行前后实时更新其状态，驱动节点状态机流转；怎么做：节点开始时将 status 更新为 RUNNING 并记录 startedAt，执行成功时更新为 SUCCESS 并写入 costMs，执行失败时更新为 FAILED 并写入 failReason 与已消耗的重试次数，确保节点状态与实际执行进度实时同步。",
+    "调用【append_output】节点输出追加工具，要干什么：将节点执行结果持久化并提取关键数据传递给下游节点；怎么做：将 AgentService 返回的工具执行结果序列化为 outputJson，同时提取精简的 outputForNext 字段（仅保留下游所需的关键字段）用于下游节点的输入上下文注入，调用接口原子写入数据库，避免中间数据丢失。",
+    "调用【query_progress】计划进度查询工具，要干什么：在阶段执行完毕后获取全局节点状态分布快照，用于上层汇总与事件推送；怎么做：以 planId 为参数查询所有节点的 status 字段，按状态分组统计 PENDING/RUNNING/SUCCESS/FAILED/SKIPPED 数量，返回结构化进度对象，供阶段结束事件与计划总进度展示使用。",
+    "调用【audit_log】审计日志工具，要干什么：将阶段开始与结束事件记录到审计链路，确保执行轨迹完整可追溯；怎么做：分别在阶段开始时写入 PLAN_PHASE_STARTED 事件、结束时写入 PLAN_PHASE_FINISHED 事件，包含 planId、phaseId、phaseOrder、status、successCount、failCount 等字段，生成唯一 traceId 落库。",
+    "调用【emit_event】SSE事件推送工具，要干什么：向前端实时推送阶段与节点级别的执行状态变更事件，驱动可视化图谱刷新；怎么做：在阶段开始/结束与每个节点 RUNNING/SUCCESS/FAILED 状态变更时，封装对应 eventType 与 payload，通过 SSE 通道推送给订阅客户端，确保前端可视化节点图谱颜色与进度实时更新。",
+    "调用【release_lock】执行锁释放工具，要干什么：在阶段执行完毕后（无论成功或失败）释放分布式互斥锁，确保后续阶段可正常调度；怎么做：以相同 lockKey 与 owner 通过 Lua 脚本原子校验后删除 Redis key，防止误删其他实例持有的锁，释放完成后返回最终阶段执行结果（successCount、failCount、costMs）。"
   ]
 }

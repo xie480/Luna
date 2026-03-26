@@ -1,6 +1,6 @@
 {
   "name": "user_profile_build",
-  "description": "个人画像构建技能。基于对话内容抽取稳定偏好并写入用户偏好与长期记忆，形成可持续个性化配置。",
+  "description": "用户个人画像构建与持续更新技能。对输入的对话文本进行深度信息抽取，识别用户的稳定偏好特征（昵称、作息习惯、语气偏好、职业背景、兴趣领域、格式要求、禁忌项等），经过置信度过滤与去重归一化后批量写入用户偏好表，可选同步写入长期记忆表，形成持续演化的个性化用户画像资产，供后续对话的 RAG 检索与 System Prompt 个性化注入使用。适用于首次建立用户画像、对话后增量更新画像以及定期画像回顾与修订等场景，是 Luna 个性化能力的核心数据基础设施。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "orchestrationSkills",
@@ -22,14 +22,9 @@
       "required": false
     }
   ],
-  "thought_chain": [
-    "读取 sessionId 与 dialogueText，若 sessionId 缺失则尝试使用当前稳定会话标识。",
-    "对对话文本做信息抽取，识别可长期复用的画像项（昵称、语气偏好、作息、兴趣、禁忌、格式偏好等），并给出每项置信度。",
-    "按 minConfidence 过滤低可信项，避免把一次性表达写成长期偏好。",
-    "对保留项执行去重与归一化（同义键合并、值标准化、冲突项以最近且高置信为准）。",
-    "调用【preference】槽位执行 INSERT/UPDATE（幂等 upsert），统计 preferenceUpserts。",
-    "当 profileScope=PREFERENCE_AND_MEMORY 时，调用【memory】槽位写入高价值画像事件，统计 memoryInserts。",
-    "输出结构化结果（status、preferenceUpserts、memoryInserts、profileItems）；若无合格画像项则返回 success 且写入计数为 0。"
+  "thoughtChain": [
+    "调用【preference】用户偏好写入工具，要干什么：将从对话文本中抽取并通过置信度过滤的画像项执行幂等 upsert 写入用户偏好表；怎么做：以 prefKey/prefValue/description 为字段，对置信度高于 minConfidence 的画像项执行 INSERT 或 UPDATE，同义键合并归一化，冲突项以最近且高置信为准，统计 preferenceUpserts 数量并返回落库的 profileItems 列表。",
+    "调用【memory】长期记忆写入工具，要干什么：将高价值画像事件同步写入长期记忆表，增强跨会话记忆连续性；怎么做：当 profileScope=PREFERENCE_AND_MEMORY 时，将重要画像项以 PREFERENCE 类型构建 Memory 实体，调用 MEMORY_INSERT 能力写入 luna_memory 表，生成向量 embedding 供后续 RAG 检索，统计 memoryInserts 数量，此槽位为可选步骤。"
   ],
   "inputSchema": {
     "type": "object",

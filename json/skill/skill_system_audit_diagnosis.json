@@ -1,6 +1,6 @@
 {
   "name": "system_audit_diagnosis",
-  "description": "系统审计诊断技能。按条件检索日志并自动生成故障诊断结论，必要时写入诊断日志沉淀审计链路。",
+  "description": "系统审计诊断技能。按指定条件（模块、动作、日志类型、时间范围）从日志表检索历史记录，对返回日志进行时间线整理与错误聚类，识别高频异常模式、首发时间、传播范围与关联链路，由大模型生成根因分析结论、证据日志清单与分层修复建议（立刻止血/短期修复/长期治理），可选将诊断摘要回写到日志表形成完整审计链路。适用于生产故障复盘、系统异常自动诊断、定期健康巡检以及 Agent 执行异常的根因定位，是系统可观测性闭环的核心诊断组件。",
   "version": "1.0.0",
   "owner": "System",
   "beanName": "orchestrationSkills",
@@ -28,14 +28,10 @@
       "required": true
     }
   ],
-  "thought_chain": [
-    "解析输入条件（targetModule、targetAction、logType、startTime、endTime、maxLogs），若缺失则使用默认窗口与默认上限。",
-    "调用【logQuery】槽位执行日志 QUERY，按模块/动作/类型/时间范围筛选并限制返回条数。",
-    "对返回日志进行聚类与时间线整理，识别高频错误、首发时间、传播范围和关联链路。",
-    "调用【diagnose】槽位提炼诊断结论：给出最可能根因、次要根因，并输出可验证的证据日志片段。",
-    "生成修复建议清单，按“立刻止血/短期修复/长期治理”分层。",
-    "若 writeBackDiagnosisLog=true，则调用【logInsert】槽位 INSERT 诊断摘要与关键证据索引，形成可追溯审计链。",
-    "返回结构化结果（status、diagnosis、rootCauses、suggestions、evidenceLogs），若日志为空则返回可解释的空结果而非报错。"
+  "thoughtChain": [
+    "调用【logQuery】日志查询工具，要干什么：按条件检索指定时间范围与模块内的历史日志记录，构建诊断数据集；怎么做：以 targetModule、targetAction、logType、startTime、endTime 为过滤条件查询 luna_log 表，按 create_at 倒序返回最多 maxLogs 条记录，提取 log_type、module、action、content、error_message、cost_time、trace_id 等字段，按时间线排列后作为诊断模型的输入原料。",
+    "调用【logInsert】日志写入工具，要干什么：将诊断摘要与关键证据索引回写到日志表，形成可追溯的审计链；怎么做：当 writeBackDiagnosisLog=true 时，以 SYSTEM_EVENT 类型构建诊断日志实体，将根因结论、修复建议摘要与关键证据日志 ID 列表写入 content 与 request_data 字段并落库，此槽位为可选步骤，写入失败不阻断诊断结果返回。",
+    "调用【diagnose】诊断汇总工具，要干什么：对日志数据集进行根因分析并生成结构化诊断报告；怎么做：将时间线整理后的日志条目输入诊断模型，识别高频错误模式、首发时间点与影响传播路径，提取关键证据日志片段，按「立刻止血/短期修复/长期治理」三层输出修复建议，返回 diagnosis、rootCauses、suggestions 与 evidenceLogs 结构化字段。"
   ],
   "inputSchema": {
     "type": "object",
