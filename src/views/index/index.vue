@@ -786,7 +786,7 @@ function getUiHoverSelector() {
     ".login-terminal:hover",
     ".history-panel:not(.fade-leave-active):hover",
     ".query-panel:not(.fade-leave-active):hover",
-    ".plan-panel-shell:not(.fade-leave-active) .plan-panel:hover",
+    ".plan-panel:not(.fade-leave-active):hover",
     ".top-banner:hover",
     ".modal:hover",
     ".approval-mask:hover",

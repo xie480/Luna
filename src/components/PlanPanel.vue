@@ -479,12 +479,12 @@ onBeforeUnmount(() => {
 .plan-panel {
   position: fixed;
   background:
-    radial-gradient(circle at top right, rgba(0, 255, 200, 0.12), transparent 35%),
-    radial-gradient(circle at bottom left, rgba(0, 130, 255, 0.1), transparent 30%),
-    linear-gradient(145deg, rgba(7,12,24,0.96), rgba(4,8,18,0.96));
+    radial-gradient(circle at top right, color-mix(in oklab, var(--primary, #00ffc8) 12%, transparent), transparent 42%),
+    radial-gradient(circle at bottom left, color-mix(in oklab, var(--primary-2, #00aaff) 10%, transparent), transparent 38%),
+    var(--bg-panel, linear-gradient(145deg, rgba(7,12,24,0.96), rgba(4,8,18,0.96)));
   border: 1px solid var(--border, rgba(0,255,200,0.3));
   border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.75), 0 0 0 1px rgba(255,255,255,0.03) inset;
+  box-shadow: var(--shadow-panel, 0 20px 60px rgba(0,0,0,0.75));
   color: var(--text-main, #fff);
   display: flex;
   flex-direction: column;
@@ -495,8 +495,9 @@ onBeforeUnmount(() => {
   content: "";
   position: absolute;
   inset: -35%;
-  background: radial-gradient(circle, rgba(0,255,200,0.05), transparent 60%);
-  animation: panelGlow 7s linear infinite;
+  background: radial-gradient(circle, color-mix(in oklab, var(--primary, #00ffc8) 10%, transparent), transparent 62%);
+  animation: panelGlow 24s linear infinite;
+  opacity: 0.48;
   pointer-events: none;
 }
 .plan-panel.fullscreen {
@@ -506,7 +507,7 @@ onBeforeUnmount(() => {
 .panel-header {
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
-  background: linear-gradient(180deg, rgba(0,0,0,0.35), rgba(0,0,0,0.16));
+  background: color-mix(in oklab, black 78%, transparent);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -531,8 +532,8 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 .header-btn {
-  border: 1px solid rgba(255,255,255,0.2);
-  background: rgba(255,255,255,0.08);
+  border: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.2)) 72%, transparent);
+  background: var(--bg-panel-soft, rgba(255,255,255,0.08));
   color: var(--text-main, #fff);
   width: 24px;
   height: 22px;
@@ -543,7 +544,7 @@ onBeforeUnmount(() => {
 }
 .header-btn:hover {
   border-color: var(--primary, #00ffc8);
-  box-shadow: 0 0 8px rgba(0,255,200,0.25);
+  box-shadow: var(--glow-primary, 0 0 8px rgba(0,255,200,0.25));
 }
 .status-dot {
   width: 9px;
@@ -581,12 +582,12 @@ onBeforeUnmount(() => {
 }
 
 .card {
-  border: 1px solid rgba(255,255,255,0.08);
+  border: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.08)) 45%, transparent);
   border-radius: 8px;
-  background: rgba(255,255,255,0.03);
+  background: var(--bg-panel-soft, rgba(255,255,255,0.03));
 }
 .neon-card {
-  box-shadow: inset 0 0 12px rgba(0,255,200,0.05);
+  box-shadow: inset 0 0 10px color-mix(in oklab, var(--primary, #00ffc8) 10%, transparent);
 }
 
 .top-form {
@@ -596,7 +597,7 @@ onBeforeUnmount(() => {
 .top-form textarea {
   width: 100%;
   min-height: 80px;
-  background: rgba(0,0,0,0.38);
+  background: color-mix(in oklab, black 68%, transparent);
   border: 1px solid var(--border);
   color: var(--text-main, #fff);
   border-radius: 6px;
@@ -627,7 +628,7 @@ onBeforeUnmount(() => {
   filter: brightness(1.08);
 }
 .btn-secondary {
-  background: rgba(255,255,255,0.08);
+  background: color-mix(in oklab, var(--bg-panel-soft, rgba(255,255,255,0.08)) 100%, transparent);
   color: var(--text-main, #fff);
 }
 .btn-secondary:hover:not(:disabled) {
@@ -703,7 +704,7 @@ onBeforeUnmount(() => {
 
 .col-title {
   padding: 8px 10px;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
+  border-bottom: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.08)) 45%, transparent);
   color: var(--primary, #00ffc8);
   font-size: 12px;
   font-weight: bold;
@@ -732,13 +733,13 @@ onBeforeUnmount(() => {
 .phase-lane {
   min-width: 260px;
   max-width: 420px;
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.1)) 45%, transparent);
   border-radius: 8px;
-  background: rgba(255,255,255,0.03);
+  background: var(--bg-panel-soft, rgba(255,255,255,0.03));
 }
 .phase-head {
   padding: 8px;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
+  border-bottom: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.08)) 45%, transparent);
 }
 .phase-name {
   font-weight: bold;
@@ -750,12 +751,12 @@ onBeforeUnmount(() => {
   gap: 6px;
   align-items: center;
   font-size: 11px;
-  color: #9fb0bc;
+  color: var(--text-dim, #9fb0bc);
 }
 .phase-count {
   margin-top: 4px;
   font-size: 11px;
-  color: #a7bac8;
+  color: var(--text-dim, #a7bac8);
 }
 .phase-nodes {
   padding: 8px;
@@ -764,10 +765,10 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 .node-card {
-  border: 1px solid rgba(255,255,255,0.08);
+  border: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.08)) 45%, transparent);
   border-radius: 6px;
   padding: 8px;
-  background: rgba(255,255,255,0.02);
+  background: color-mix(in oklab, var(--bg-panel-soft, rgba(255,255,255,0.02)) 100%, transparent);
   transition: transform 0.2s ease, box-shadow 0.25s ease;
 }
 .node-card:hover {
@@ -787,7 +788,7 @@ onBeforeUnmount(() => {
 .node-sub {
   margin-top: 4px;
   font-size: 11px;
-  color: #9fb0bc;
+  color: var(--text-dim, #9fb0bc);
 }
 .fail-reason {
   margin-top: 6px;
@@ -798,7 +799,7 @@ onBeforeUnmount(() => {
 .output-summary {
   margin-top: 6px;
   font-size: 12px;
-  color: #d8e8ef;
+  color: var(--text-main, #d8e8ef);
   word-break: break-word;
 }
 
@@ -810,8 +811,8 @@ onBeforeUnmount(() => {
 }
 
 .item {
-  border: 1px solid rgba(255,255,255,0.08);
-  background: rgba(255,255,255,0.03);
+  border: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.08)) 45%, transparent);
+  background: var(--bg-panel-soft, rgba(255,255,255,0.03));
   border-radius: 6px;
   padding: 8px;
   min-width: 0;
@@ -825,12 +826,12 @@ onBeforeUnmount(() => {
 .sub {
   margin-top: 4px;
   font-size: 11px;
-  color: #9fb0bc;
+  color: var(--text-dim, #9fb0bc);
 }
 .msg {
   margin-top: 4px;
   font-size: 12px;
-  color: #d8e8ef;
+  color: var(--text-main, #d8e8ef);
   word-break: break-word;
 }
 .badge {
@@ -847,12 +848,12 @@ onBeforeUnmount(() => {
 .splitter {
   position: relative;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.08);
+  background: color-mix(in oklab, var(--bg-panel-soft, rgba(255,255,255,0.08)) 100%, transparent);
   transition: background 0.2s ease, box-shadow 0.2s ease;
 }
 .splitter:hover {
-  background: rgba(0, 255, 200, 0.22);
-  box-shadow: 0 0 10px rgba(0, 255, 200, 0.24);
+  background: color-mix(in oklab, var(--primary, #00ffc8) 22%, transparent);
+  box-shadow: 0 0 10px color-mix(in oklab, var(--primary, #00ffc8) 24%, transparent);
 }
 .splitter.horizontal {
   height: 8px;
@@ -888,13 +889,17 @@ onBeforeUnmount(() => {
 .panel-body::-webkit-scrollbar-track,
 .list::-webkit-scrollbar-track,
 .graph-scroll::-webkit-scrollbar-track {
-  background: rgba(255,255,255,0.05);
+  background: var(--bg-panel-soft, rgba(255,255,255,0.05));
   border-radius: 8px;
 }
 .panel-body::-webkit-scrollbar-thumb,
 .list::-webkit-scrollbar-thumb,
 .graph-scroll::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgba(0,255,200,0.45), rgba(0,180,255,0.45));
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--primary, #00ffc8) 45%, transparent),
+    color-mix(in oklab, var(--primary-2, #00aaff) 45%, transparent)
+  );
   border-radius: 8px;
 }
 
@@ -902,8 +907,8 @@ onBeforeUnmount(() => {
   to { transform: rotate(360deg); }
 }
 @keyframes panelGlow {
-  0% { transform: translate(-10%, -10%) rotate(0deg); }
-  100% { transform: translate(10%, 10%) rotate(360deg); }
+  0% { transform: translate(-8%, -8%) rotate(0deg); }
+  100% { transform: translate(8%, 8%) rotate(360deg); }
 }
 .toast-fade-enter-active, .toast-fade-leave-active {
   transition: opacity 0.25s ease, transform 0.25s ease;
