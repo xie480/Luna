@@ -12,6 +12,7 @@ import org.yilena.luna.enums.*;
 import org.yilena.luna.mapper.*;
 import org.yilena.luna.service.*;
 import org.yilena.luna.tools.*;
+import org.yilena.luna.utils.AuthContextHolder;
 import org.yilena.luna.utils.SnowflakeIdUtil;
 
 import java.time.LocalDateTime;
@@ -458,8 +459,11 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
     private void sendFinalResultToLuna(String sessionId, String finalResultJson) {
         try {
+            // 这里不能调用 ChatRequest#setSessionId（当前实体无该字段）
+            // 改为通过 AuthContextHolder 传递会话上下文，确保 chatService.chat(ChatRequest) 能拿到 sessionId
+            AuthContextHolder.setSessionId(sessionId);
+
             ChatRequest req = new ChatRequest();
-            req.setSessionId(sessionId);
             req.setMessage("""
                     你是 Luna，需要根据给定的任务执行结果 JSON，用自然、温柔、可靠的人设口吻回复用户。
                     要求：
@@ -469,10 +473,13 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     4) 若失败，给出简短下一步建议
                     以下是结果 JSON：
                     """ + finalResultJson);
+
             chatService.chat(req);
             log.info("[Plan] 最终结果已交由 Luna 生成人設化回复, sessionId={}", sessionId);
         } catch (Exception e) {
             log.warn("[Plan] 最终结果交给 Luna 失败（不中斷）, sessionId={}, err={}", sessionId, e.getMessage());
+        } finally {
+            AuthContextHolder.clear();
         }
     }
 
