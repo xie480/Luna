@@ -7,16 +7,44 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.yilena.luna.entity.*;
-import org.yilena.luna.enums.*;
-import org.yilena.luna.mapper.*;
-import org.yilena.luna.service.*;
-import org.yilena.luna.tools.*;
+import org.yilena.luna.entity.ChatRequest;
+import org.yilena.luna.entity.PlanEdge;
+import org.yilena.luna.entity.PlanInstance;
+import org.yilena.luna.entity.PlanNode;
+import org.yilena.luna.entity.PlanPhase;
+import org.yilena.luna.enums.PlanFinalStatus;
+import org.yilena.luna.enums.PlanModelHint;
+import org.yilena.luna.enums.PlanNodeStatus;
+import org.yilena.luna.enums.PlanNodeType;
+import org.yilena.luna.enums.PlanPhaseStatus;
+import org.yilena.luna.enums.PlanRiskLevel;
+import org.yilena.luna.enums.PlanStatus;
+import org.yilena.luna.mapper.PlanEdgeMapper;
+import org.yilena.luna.mapper.PlanInstanceMapper;
+import org.yilena.luna.mapper.PlanNodeMapper;
+import org.yilena.luna.mapper.PlanPhaseMapper;
+import org.yilena.luna.service.BlueprintValidationService;
+import org.yilena.luna.service.ChatService;
+import org.yilena.luna.service.MasterPlanningService;
+import org.yilena.luna.service.PhaseExecutionService;
+import org.yilena.luna.service.PlanOrchestratorService;
+import org.yilena.luna.tools.PlanBlueprintTools;
+import org.yilena.luna.tools.PlanEventTools;
+import org.yilena.luna.tools.PlanNodeTools;
+import org.yilena.luna.tools.PlanReportTools;
 import org.yilena.luna.utils.AuthContextHolder;
 import org.yilena.luna.utils.SnowflakeIdUtil;
 
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Deque;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -459,12 +487,10 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
     private void sendFinalResultToLuna(String sessionId, String finalResultJson) {
         try {
-            // 这里不能调用 ChatRequest#setSessionId（当前实体无该字段）
-            // 改为通过 AuthContextHolder 传递会话上下文，确保 chatService.chat(ChatRequest) 能拿到 sessionId
             AuthContextHolder.setSessionId(sessionId);
 
             ChatRequest req = new ChatRequest();
-            req.setMessage("""
+            String prompt = """
                     你是 Luna，需要根据给定的任务执行结果 JSON，用自然、温柔、可靠的人设口吻回复用户。
                     要求：
                     1) 先给结论（成功/失败/部分成功）
@@ -472,14 +498,33 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     3) 语气自然，不要输出 JSON，不要编造不存在字段
                     4) 若失败，给出简短下一步建议
                     以下是结果 JSON：
-                    """ + finalResultJson);
+                    """ + finalResultJson;
+
+            // 兼容 ChatRequest 可能不存在 setMessage 字段的情况
+            // 优先尝试 setMessage，其次 fallback 到 setContent / setPrompt
+            boolean assigned = trySetChatRequestField(req, "setMessage", prompt)
+                    || trySetChatRequestField(req, "setContent", prompt)
+                    || trySetChatRequestField(req, "setPrompt", prompt);
+
+            if (!assigned) {
+                throw new IllegalStateException("ChatRequest 未找到可用文本字段 setter（setMessage/setContent/setPrompt）");
+            }
 
             chatService.chat(req);
-            log.info("[Plan] 最终结果已交由 Luna 生成人設化回复, sessionId={}", sessionId);
+            log.info("[Plan] 最终结果已交由 Luna 生成人设化回复, sessionId={}", sessionId);
         } catch (Exception e) {
-            log.warn("[Plan] 最终结果交给 Luna 失败（不中斷）, sessionId={}, err={}", sessionId, e.getMessage());
+            log.warn("[Plan] 最终结果交给 Luna 失败（不中断）, sessionId={}, err={}", sessionId, e.getMessage());
         } finally {
             AuthContextHolder.clear();
+        }
+    }
+
+    private boolean trySetChatRequestField(ChatRequest req, String methodName, String value) {
+        try {
+            req.getClass().getMethod(methodName, String.class).invoke(req, value);
+            return true;
+        } catch (Exception ignore) {
+            return false;
         }
     }
 
