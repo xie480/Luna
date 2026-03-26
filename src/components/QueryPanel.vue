@@ -390,10 +390,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .query-panel {
   position: fixed;
-  background:
-    radial-gradient(circle at top right, color-mix(in oklab, var(--primary, #00ffc8) 12%, transparent), transparent 35%),
-    radial-gradient(circle at bottom left, color-mix(in oklab, var(--primary-2, #00aaff) 10%, transparent), transparent 30%),
-    var(--bg-panel, linear-gradient(145deg, rgba(8,14,26,0.95), rgba(5,10,19,0.95)));
+  background: var(--bg-panel, linear-gradient(145deg, rgba(8,14,26,0.95), rgba(5,10,19,0.95)));
   border: 1px solid var(--border, rgba(0,255,200,0.3));
   border-radius: 12px;
   box-shadow: var(--shadow-panel, 0 24px 70px rgba(0,0,0,0.78));
@@ -403,21 +400,6 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-.query-panel::before {
-  content: "";
-  position: absolute;
-  inset: -30% -15%;
-  background: conic-gradient(
-    from 45deg,
-    color-mix(in oklab, var(--primary, #00ffc8) 8%, transparent),
-    transparent 45%,
-    color-mix(in oklab, var(--primary-2, #00aaff) 7%, transparent),
-    transparent 80%
-  );
-  animation: panelAura 24s linear infinite;
-  opacity: 0.45;
-  pointer-events: none;
 }
 .query-panel.fullscreen {
   border-radius: 0;
@@ -698,20 +680,6 @@ button:disabled {
     color-mix(in oklab, var(--primary, #00ffc8) 68%, transparent),
     color-mix(in oklab, var(--primary-2, #00aaff) 65%, transparent)
   );
-}
-
-@keyframes panelAura {
-  0% {
-    transform: rotate(0deg);
-    opacity: 0.55;
-  }
-  50% {
-    opacity: 0.85;
-  }
-  100% {
-    transform: rotate(360deg);
-    opacity: 0.55;
-  }
 }
 
 @media (max-width: 1100px) {

@@ -285,7 +285,7 @@ input {
   border: 1px solid color-mix(in oklab, var(--border, rgba(0,255,200,0.1)) 70%, transparent);
   color: var(--text-main, rgba(232,255,248,0.88));
   padding: 10px 18px;
-  width: clamp(360px, 34vw, 560px);
+  width: clamp(330px, 30vw, 500px);
   border-radius: 22px;
   outline: none;
   font-size: 14px;
@@ -324,7 +324,7 @@ input.hidden-text { color: transparent; }
   align-items: center;
   overflow: hidden;
   white-space: nowrap;
-  max-width: calc(clamp(360px, 34vw, 560px) - 30px);
+  max-width: calc(clamp(330px, 30vw, 500px) - 30px);
 }
 .glitch-text {
   font-family: "Courier New", monospace;
@@ -469,6 +469,6 @@ input.hidden-text { color: transparent; }
 
 @media (max-width: 900px) {
   .chat-bar-wrapper { padding: 8px 12px; }
-  input { width: clamp(240px, 52vw, 380px); padding: 9px 14px; }
+  input { width: clamp(220px, 48vw, 340px); padding: 9px 14px; }
 }
 </style>

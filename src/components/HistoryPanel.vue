@@ -328,10 +328,7 @@ defineExpose({
 <style scoped>
 .history-panel {
   position: fixed;
-  background:
-    radial-gradient(circle at 12% 15%, color-mix(in oklab, var(--primary, #00ffc8) 10%, transparent), transparent 34%),
-    radial-gradient(circle at 88% 80%, color-mix(in oklab, var(--primary-2, #00aaff) 8%, transparent), transparent 36%),
-    var(--bg-panel, linear-gradient(145deg, rgba(12,16,26,0.98), rgba(8,12,20,0.98)));
+  background: var(--bg-panel, linear-gradient(145deg, rgba(12,16,26,0.98), rgba(8,12,20,0.98)));
   border: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.08)) 45%, transparent);
   border-radius: 10px;
   display: flex;
@@ -342,21 +339,6 @@ defineExpose({
   color: var(--text-main, #dcddde);
   font-family: "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
   overflow: hidden;
-}
-.history-panel::before {
-  content: "";
-  position: absolute;
-  inset: -25% -20%;
-  background: conic-gradient(
-    from 180deg,
-    color-mix(in oklab, var(--primary, #00ffc8) 8%, transparent),
-    transparent 48%,
-    color-mix(in oklab, var(--primary-2, #00aaff) 7%, transparent),
-    transparent 82%
-  );
-  animation: panelAura 24s linear infinite;
-  opacity: 0.45;
-  pointer-events: none;
 }
 .history-panel.fullscreen {
   border-radius: 0;
@@ -585,11 +567,6 @@ defineExpose({
 .resize-handle.sw { left: 0; cursor: sw-resize; }
 .resize-handle.se { right: 0; cursor: se-resize; }
 
-@keyframes panelAura {
-  0% { transform: rotate(0deg); opacity: 0.55; }
-  50% { opacity: 0.85; }
-  100% { transform: rotate(360deg); opacity: 0.55; }
-}
 @keyframes bubbleIn {
   from { opacity: 0; transform: translateY(4px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
