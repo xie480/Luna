@@ -391,15 +391,12 @@ onBeforeUnmount(() => {
 .query-panel {
   position: fixed;
   background:
-    radial-gradient(circle at top right, rgba(0, 255, 200, 0.1), transparent 35%),
-    radial-gradient(circle at bottom left, rgba(0, 170, 255, 0.08), transparent 30%),
-    linear-gradient(145deg, rgba(8,14,26,0.95), rgba(5,10,19,0.95));
+    radial-gradient(circle at top right, color-mix(in oklab, var(--primary, #00ffc8) 12%, transparent), transparent 35%),
+    radial-gradient(circle at bottom left, color-mix(in oklab, var(--primary-2, #00aaff) 10%, transparent), transparent 30%),
+    var(--bg-panel, linear-gradient(145deg, rgba(8,14,26,0.95), rgba(5,10,19,0.95)));
   border: 1px solid var(--border, rgba(0,255,200,0.3));
   border-radius: 12px;
-  box-shadow:
-    0 24px 70px rgba(0,0,0,0.78),
-    0 0 24px rgba(0,255,200,0.14),
-    0 0 0 1px rgba(255,255,255,0.03) inset;
+  box-shadow: var(--shadow-panel, 0 24px 70px rgba(0,0,0,0.78));
   backdrop-filter: blur(12px) saturate(118%);
   color: var(--text-main, #fff);
   z-index: 9600;
@@ -411,8 +408,15 @@ onBeforeUnmount(() => {
   content: "";
   position: absolute;
   inset: -30% -15%;
-  background: conic-gradient(from 45deg, rgba(0,255,200,0.04), transparent 45%, rgba(0,170,255,0.04), transparent 80%);
-  animation: panelAura 11s linear infinite;
+  background: conic-gradient(
+    from 45deg,
+    color-mix(in oklab, var(--primary, #00ffc8) 8%, transparent),
+    transparent 45%,
+    color-mix(in oklab, var(--primary-2, #00aaff) 7%, transparent),
+    transparent 80%
+  );
+  animation: panelAura 24s linear infinite;
+  opacity: 0.45;
   pointer-events: none;
 }
 .query-panel.fullscreen {
@@ -421,7 +425,7 @@ onBeforeUnmount(() => {
 
 .panel-header {
   padding: 12px 15px;
-  background: rgba(0,0,0,0.24);
+  background: color-mix(in oklab, black 76%, transparent);
   border-bottom: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
@@ -439,8 +443,8 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 .header-btn {
-  border: 1px solid rgba(255,255,255,0.2);
-  background: rgba(255,255,255,0.08);
+  border: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.2)) 72%, transparent);
+  background: var(--bg-panel-soft, rgba(255,255,255,0.08));
   color: var(--text-main, #fff);
   width: 24px;
   height: 22px;
@@ -451,7 +455,7 @@ onBeforeUnmount(() => {
 }
 .header-btn:hover {
   border-color: var(--primary, #00ffc8);
-  box-shadow: 0 0 8px rgba(0,255,200,0.25);
+  box-shadow: var(--glow-primary, 0 0 8px rgba(0,255,200,0.22));
 }
 .close-btn {
   background: none;
@@ -474,7 +478,7 @@ onBeforeUnmount(() => {
 
 .sidebar {
   width: 132px;
-  background: linear-gradient(180deg, rgba(0,0,0,0.35), rgba(0,0,0,0.22));
+  background: color-mix(in oklab, var(--bg-sidebar, rgba(0,0,0,0.35)) 100%, transparent);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -490,13 +494,17 @@ onBeforeUnmount(() => {
 }
 .menu-item:hover {
   background: var(--hover, rgba(255,255,255,0.05));
-  color: var(--text-main);
+  color: var(--text-main, #fff);
 }
 .menu-item.active {
-  background: linear-gradient(90deg, rgba(0,255,200,0.12), rgba(0,170,255,0.08));
-  color: var(--primary);
-  border-left-color: var(--primary);
-  box-shadow: inset 0 0 8px rgba(0,255,200,0.12);
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--primary, #00ffc8) 18%, transparent),
+    color-mix(in oklab, var(--primary-2, #00aaff) 10%, transparent)
+  );
+  color: var(--primary, #00ffc8);
+  border-left-color: var(--primary, #00ffc8);
+  box-shadow: inset 0 0 8px color-mix(in oklab, var(--primary, #00ffc8) 18%, transparent);
 }
 
 .content {
@@ -516,7 +524,7 @@ onBeforeUnmount(() => {
 }
 .filter-grid input {
   width: 100%;
-  background: rgba(0,0,0,0.34);
+  background: color-mix(in oklab, black 70%, transparent);
   border: 1px solid var(--border, #2d3c4d);
   color: var(--text-main, #fff);
   border-radius: 6px;
@@ -547,7 +555,7 @@ onBeforeUnmount(() => {
   filter: brightness(1.08);
 }
 .btn-secondary {
-  background: rgba(255,255,255,0.08);
+  background: var(--bg-panel-soft, rgba(255,255,255,0.08));
   color: var(--text-main, #fff);
 }
 .btn-secondary:hover:not(:disabled) {
@@ -562,9 +570,9 @@ button:disabled {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  border: 1px solid rgba(255,255,255,0.08);
+  border: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.08)) 45%, transparent);
   border-radius: 8px;
-  background: rgba(255,255,255,0.03);
+  background: var(--bg-panel-soft, rgba(255,255,255,0.03));
 }
 .data-table {
   width: 100%;
@@ -576,15 +584,15 @@ button:disabled {
   top: 0;
   z-index: 1;
   text-align: left;
-  background: rgba(0,0,0,0.4);
+  background: color-mix(in oklab, black 72%, transparent);
   color: var(--primary, #00ffc8);
   padding: 8px;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
+  border-bottom: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.1)) 50%, transparent);
   white-space: nowrap;
 }
 .data-table tbody td {
   padding: 8px;
-  border-bottom: 1px dashed rgba(255,255,255,0.08);
+  border-bottom: 1px dashed color-mix(in oklab, var(--border, rgba(255,255,255,0.08)) 40%, transparent);
   vertical-align: top;
 }
 .empty {
@@ -629,7 +637,7 @@ button:disabled {
   gap: 8px;
 }
 .pager select {
-  background: rgba(0,0,0,0.4);
+  background: color-mix(in oklab, black 68%, transparent);
   border: 1px solid var(--border);
   color: var(--text-main, #fff);
   border-radius: 4px;
@@ -671,30 +679,38 @@ button:disabled {
 }
 .content::-webkit-scrollbar-track,
 .table-wrap::-webkit-scrollbar-track {
-  background: rgba(255,255,255,0.05);
+  background: var(--bg-panel-soft, rgba(255,255,255,0.05));
   border-radius: 8px;
 }
 .content::-webkit-scrollbar-thumb,
 .table-wrap::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgba(0,255,200,0.45), rgba(0,170,255,0.45));
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--primary, #00ffc8) 45%, transparent),
+    color-mix(in oklab, var(--primary-2, #00aaff) 45%, transparent)
+  );
   border-radius: 8px;
 }
 .content::-webkit-scrollbar-thumb:hover,
 .table-wrap::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, rgba(0,255,200,0.72), rgba(0,170,255,0.65));
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--primary, #00ffc8) 68%, transparent),
+    color-mix(in oklab, var(--primary-2, #00aaff) 65%, transparent)
+  );
 }
 
 @keyframes panelAura {
   0% {
     transform: rotate(0deg);
-    opacity: 0.65;
+    opacity: 0.55;
   }
   50% {
-    opacity: 1;
+    opacity: 0.85;
   }
   100% {
     transform: rotate(360deg);
-    opacity: 0.65;
+    opacity: 0.55;
   }
 }
 

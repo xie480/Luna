@@ -329,20 +329,17 @@ defineExpose({
 .history-panel {
   position: fixed;
   background:
-    radial-gradient(circle at 12% 15%, rgba(0,255,200,0.08), transparent 34%),
-    radial-gradient(circle at 88% 80%, rgba(0,170,255,0.07), transparent 36%),
-    linear-gradient(145deg, rgba(12,16,26,0.98), rgba(8,12,20,0.98));
-  border: 1px solid rgba(255, 255, 255, 0.08);
+    radial-gradient(circle at 12% 15%, color-mix(in oklab, var(--primary, #00ffc8) 10%, transparent), transparent 34%),
+    radial-gradient(circle at 88% 80%, color-mix(in oklab, var(--primary-2, #00aaff) 8%, transparent), transparent 36%),
+    var(--bg-panel, linear-gradient(145deg, rgba(12,16,26,0.98), rgba(8,12,20,0.98)));
+  border: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.08)) 45%, transparent);
   border-radius: 10px;
   display: flex;
   flex-direction: column;
-  box-shadow:
-    0 20px 60px rgba(0,0,0,0.9),
-    0 0 22px rgba(0,255,200,0.14),
-    inset 0 0 16px rgba(255,255,255,0.02);
+  box-shadow: var(--shadow-panel, 0 20px 60px rgba(0,0,0,0.9));
   z-index: 9999;
   backdrop-filter: blur(12px) saturate(118%);
-  color: #dcddde;
+  color: var(--text-main, #dcddde);
   font-family: "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
   overflow: hidden;
 }
@@ -350,8 +347,15 @@ defineExpose({
   content: "";
   position: absolute;
   inset: -25% -20%;
-  background: conic-gradient(from 180deg, rgba(0,255,200,0.04), transparent 48%, rgba(0,170,255,0.04), transparent 82%);
-  animation: panelAura 12s linear infinite;
+  background: conic-gradient(
+    from 180deg,
+    color-mix(in oklab, var(--primary, #00ffc8) 8%, transparent),
+    transparent 48%,
+    color-mix(in oklab, var(--primary-2, #00aaff) 7%, transparent),
+    transparent 82%
+  );
+  animation: panelAura 24s linear infinite;
+  opacity: 0.45;
   pointer-events: none;
 }
 .history-panel.fullscreen {
@@ -359,8 +363,8 @@ defineExpose({
 }
 .history-header {
   padding: 14px 18px;
-  background: rgba(0,0,0,0.3);
-  border-bottom: 1px solid rgba(0,0,0,0.2);
+  background: color-mix(in oklab, black 76%, transparent);
+  border-bottom: 1px solid color-mix(in oklab, var(--border, rgba(0,0,0,0.2)) 65%, transparent);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -371,7 +375,7 @@ defineExpose({
 .title {
   font-size: 12px;
   letter-spacing: 1.5px;
-  color: #9bb2c4;
+  color: var(--text-dim, #9bb2c4);
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -381,8 +385,8 @@ defineExpose({
   gap: 8px;
 }
 .header-btn {
-  border: 1px solid rgba(255,255,255,0.2);
-  background: rgba(255,255,255,0.08);
+  border: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.2)) 72%, transparent);
+  background: var(--bg-panel-soft, rgba(255,255,255,0.08));
   color: var(--text-main, #fff);
   width: 24px;
   height: 22px;
@@ -393,17 +397,17 @@ defineExpose({
 }
 .header-btn:hover {
   border-color: var(--primary, #00ffc8);
-  box-shadow: 0 0 8px rgba(0,255,200,0.22);
+  box-shadow: var(--glow-primary, 0 0 8px rgba(0,255,200,0.22));
 }
 .close-btn {
   background: none;
   border: none;
-  color: #b9bbbe;
+  color: var(--text-dim, #b9bbbe);
   font-size: 20px;
   cursor: pointer;
   transition: color 0.2s, transform 0.2s;
 }
-.close-btn:hover { color: #fff; transform: scale(1.08); }
+.close-btn:hover { color: var(--text-main, #fff); transform: scale(1.08); }
 
 .history-body {
   flex: 1;
@@ -415,11 +419,11 @@ defineExpose({
 .calendar-section {
   width: 240px;
   flex-shrink: 0;
-  border-right: 1px solid rgba(255,255,255,0.06);
+  border-right: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.06)) 45%, transparent);
   padding: 20px;
   display: flex;
   flex-direction: column;
-  background: rgba(0,0,0,0.2);
+  background: color-mix(in oklab, black 78%, transparent);
 }
 .cal-nav {
   display: flex;
@@ -427,19 +431,19 @@ defineExpose({
   align-items: center;
   margin-bottom: 20px;
   font-size: 14px;
-  color: #fff;
+  color: var(--text-main, #fff);
   font-weight: bold;
 }
 .cal-nav button {
   background: none;
   border: none;
-  color: #b9bbbe;
+  color: var(--text-dim, #b9bbbe);
   cursor: pointer;
   padding: 4px 8px;
   font-size: 16px;
   transition: color 0.2s, transform 0.2s;
 }
-.cal-nav button:hover { color: #fff; transform: scale(1.08); }
+.cal-nav button:hover { color: var(--text-main, #fff); transform: scale(1.08); }
 
 .cal-grid {
   display: grid;
@@ -455,7 +459,7 @@ defineExpose({
   border-radius: 4px;
   transition: all 0.2s;
   opacity: 0.2;
-  color: #fff;
+  color: var(--text-main, #fff);
   pointer-events: none;
   background: transparent;
 }
@@ -463,19 +467,19 @@ defineExpose({
   opacity: 1;
   pointer-events: auto;
   cursor: pointer;
-  background: rgba(255,255,255,0.05);
-  color: #dcddde;
+  background: var(--bg-panel-soft, rgba(255,255,255,0.05));
+  color: var(--text-main, #dcddde);
   font-weight: normal;
 }
 .cal-day.has-data:hover {
-  background: rgba(255,255,255,0.1);
-  color: #fff;
+  background: var(--hover, rgba(255,255,255,0.1));
+  color: var(--text-main, #fff);
 }
 .cal-day.selected {
   background: var(--primary, #00ffc8) !important;
   color: #000 !important;
   font-weight: bold;
-  box-shadow: 0 0 10px rgba(0, 255, 200, 0.3);
+  box-shadow: 0 0 10px color-mix(in oklab, var(--primary, #00ffc8) 36%, transparent);
 }
 
 .chat-section {
@@ -492,11 +496,11 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0,0,0,0.5);
+  background: color-mix(in oklab, black 72%, transparent);
   z-index: 10;
   font-size: 12px;
   letter-spacing: 2px;
-  color: var(--primary);
+  color: var(--primary, #00ffc8);
 }
 .chat-list {
   flex: 1;
@@ -527,10 +531,10 @@ defineExpose({
   width: 100%;
   margin: 8px 0;
 }
-.sys-line { flex: 1; height: 1px; background: rgba(255,255,255,0.1); }
+.sys-line { flex: 1; height: 1px; background: color-mix(in oklab, var(--border, rgba(255,255,255,0.1)) 45%, transparent); }
 .sys-text {
   font-size: 11px;
-  color: rgba(255,255,255,0.46);
+  color: var(--text-dim, rgba(255,255,255,0.46));
 }
 
 .line-msg-wrapper {
@@ -553,10 +557,10 @@ defineExpose({
   animation: bubbleIn 0.22s ease;
 }
 .luna .line-bubble {
-  background: rgba(255, 255, 255, 0.1);
-  color: #e8fff8;
+  background: color-mix(in oklab, var(--bg-panel-soft, rgba(255,255,255,0.1)) 100%, transparent);
+  color: var(--text-main, #e8fff8);
   border-top-left-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.05)) 35%, transparent);
 }
 .user .line-bubble {
   background: var(--primary, #00ffc8);
@@ -566,7 +570,7 @@ defineExpose({
 }
 .line-time {
   font-size: 10px;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--text-dim, rgba(255, 255, 255, 0.4));
   margin-bottom: 2px;
   flex-shrink: 0;
 }
@@ -582,9 +586,9 @@ defineExpose({
 .resize-handle.se { right: 0; cursor: se-resize; }
 
 @keyframes panelAura {
-  0% { transform: rotate(0deg); opacity: 0.65; }
-  50% { opacity: 1; }
-  100% { transform: rotate(360deg); opacity: 0.65; }
+  0% { transform: rotate(0deg); opacity: 0.55; }
+  50% { opacity: 0.85; }
+  100% { transform: rotate(360deg); opacity: 0.55; }
 }
 @keyframes bubbleIn {
   from { opacity: 0; transform: translateY(4px) scale(0.98); }
