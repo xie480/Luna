@@ -43,7 +43,9 @@ public class PlanReportTools extends BaseTool {
             @RequestParam("planId") String planId,
             @RequestParam("htmlContent") String htmlContent,
             @RequestParam(value = "fileName", required = false) String fileName,
-            @RequestParam(value = "outputDir", required = false) String outputDir
+            @RequestParam(value = "outputDir", required = false) String outputDir,
+            @RequestParam(value = "finalStatus", required = false) String finalStatus,
+            @RequestParam(value = "openResult", required = false) String openResult
     ) {
         try {
             String dir = (outputDir == null || outputDir.isBlank()) ? "./data/reports" : outputDir;
@@ -63,18 +65,27 @@ public class PlanReportTools extends BaseTool {
             String reportPath = target.toString();
             String reportUrl = target.toUri().toString();
 
+            PlanFinalStatus safeFinalStatus = parseFinalStatusOrDefault(finalStatus, PlanFinalStatus.PARTIAL);
+            PlanOpenResult safeOpenResult = parseOpenResultOrDefault(openResult, PlanOpenResult.FAILED);
+
             PlanReport report = PlanReport.builder()
                     .planId(planId)
                     .reportPath(reportPath)
                     .reportUrl(reportUrl)
                     .reportHtml(htmlContent)
-                    .finalStatus(PlanFinalStatus.SUCCESS)
-                    .openResult(PlanOpenResult.SUCCESS)
+                    .finalStatus(safeFinalStatus)
+                    .openResult(safeOpenResult)
                     .build();
             planReportMapper.insert(report);
 
-            log.info("write_html_report_file 完成, planId={}, path={}", planId, reportPath);
-            return success(Map.of("reportPath", reportPath, "reportUrl", reportUrl));
+            log.info("write_html_report_file 完成, planId={}, path={}, finalStatus={}, openResult={}",
+                    planId, reportPath, safeFinalStatus, safeOpenResult);
+            return success(Map.of(
+                    "reportPath", reportPath,
+                    "reportUrl", reportUrl,
+                    "finalStatus", safeFinalStatus.name(),
+                    "openResult", safeOpenResult.name()
+            ));
         } catch (Exception e) {
             log.error("write_html_report_file 失败", e);
             return error("write_html_report_file 失败: " + e.getMessage());
@@ -98,6 +109,24 @@ public class PlanReportTools extends BaseTool {
         } catch (Exception e) {
             log.error("open_browser_with_file 失败", e);
             return success(Map.of("openResult", "FAILED", "error", e.getMessage()));
+        }
+    }
+
+    private PlanFinalStatus parseFinalStatusOrDefault(String raw, PlanFinalStatus def) {
+        if (raw == null || raw.isBlank()) return def;
+        try {
+            return PlanFinalStatus.valueOf(raw.trim().toUpperCase());
+        } catch (Exception e) {
+            return def;
+        }
+    }
+
+    private PlanOpenResult parseOpenResultOrDefault(String raw, PlanOpenResult def) {
+        if (raw == null || raw.isBlank()) return def;
+        try {
+            return PlanOpenResult.valueOf(raw.trim().toUpperCase());
+        } catch (Exception e) {
+            return def;
         }
     }
 }

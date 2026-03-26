@@ -35,7 +35,7 @@ public class CodeOpsTools extends BaseTool {
     private String workspaceRoot;
 
     private static final Set<String> CMD_HEAD_WHITELIST = Set.of(
-            "mvn", "gradle", "npm", "pnpm", "yarn", "pytest", "python", "bash", "sh"
+            "mvn", "gradle", "npm", "pnpm", "yarn", "pytest", "python", "python3", "bash", "sh", "pip-audit"
     );
 
     private static final List<String> DANGEROUS_TOKENS = List.of("&&", ";", "|", ">", "<", "`", "$(");
