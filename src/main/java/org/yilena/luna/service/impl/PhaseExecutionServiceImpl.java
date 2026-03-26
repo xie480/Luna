@@ -17,6 +17,8 @@ import org.yilena.luna.tools.PlanNodeTools;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -37,6 +39,10 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
 
     // 单批次并行执行超时（秒）
     private static final int BATCH_TIMEOUT_SEC = 600;
+
+    private static final Pattern UUID_PATTERN = Pattern.compile(
+            "\\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\b"
+    );
 
     private final PlanNodeMapper planNodeMapper;
     private final PlanNodeTools planNodeTools;
@@ -255,11 +261,14 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                     safeUpdateNodeStatus(planId, node.getNodeId(), PlanNodeStatus.FAILED,
                             (long) BATCH_TIMEOUT_SEC * 1000, "执行超时", node.getRetryCount() == null ? 0 : node.getRetryCount());
                 } catch (ExecutionException e) {
-                    Throwable root = unwrapRootCause(e);
-                    if (root instanceof NeedApprovalException needApprovalException) {
+                    NeedApprovalException needApprovalException = findNeedApprovalException(e);
+                    if (needApprovalException != null || isNeedApprovalMessage(e)) {
                         pendingApprovalCount++;
                         hasCriticalFailure = true;
-                        String taskId = extractApprovalTaskId(needApprovalException);
+                        String taskId = needApprovalException != null
+                                ? extractApprovalTaskId(needApprovalException)
+                                : extractApprovalTaskIdFromMessage(e.getMessage());
+
                         safeUpdateNodeStatus(planId, node.getNodeId(), PlanNodeStatus.APPROVAL_PENDING,
                                 null, "等待审批, taskId=" + taskId, node.getRetryCount() == null ? 0 : node.getRetryCount());
 
@@ -276,6 +285,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                     } else {
                         failCount++;
                         hasCriticalFailure = true;
+                        Throwable root = unwrapRootCause(e);
                         log.error("[Batch] 节点 Future 获取异常, nodeId={}, planId={}, phaseId={}, err={}",
                                 node.getNodeId(), planId, phaseId, root != null ? root.getMessage() : e.getMessage(), e);
                     }
@@ -286,10 +296,33 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                     log.error("[Batch] 等待节点结果被中断, nodeId={}, planId={}, phaseId={}",
                             node.getNodeId(), planId, phaseId);
                 } catch (Exception e) {
-                    failCount++;
-                    hasCriticalFailure = true;
-                    log.error("[Batch] 节点 Future 获取异常, nodeId={}, planId={}, phaseId={}, err={}",
-                            node.getNodeId(), planId, phaseId, e.getMessage(), e);
+                    NeedApprovalException needApprovalException = findNeedApprovalException(e);
+                    if (needApprovalException != null || isNeedApprovalMessage(e)) {
+                        pendingApprovalCount++;
+                        hasCriticalFailure = true;
+                        String taskId = needApprovalException != null
+                                ? extractApprovalTaskId(needApprovalException)
+                                : extractApprovalTaskIdFromMessage(e.getMessage());
+
+                        safeUpdateNodeStatus(planId, node.getNodeId(), PlanNodeStatus.APPROVAL_PENDING,
+                                null, "等待审批, taskId=" + taskId, node.getRetryCount() == null ? 0 : node.getRetryCount());
+
+                        emitNodeEvent(planId, phaseId, node.getNodeId(), "PLAN_NODE_APPROVAL_PENDING", "APPROVAL_PENDING", "INFO",
+                                "节点需要审批，执行暂停", "NEED_APPROVAL",
+                                node.getName() == null ? "" : node.getName(),
+                                node.getNodeType() == null ? "" : node.getNodeType().getValue(),
+                                node.getRetryCount() == null ? 0 : node.getRetryCount(),
+                                node.getMaxRetry() == null ? DEFAULT_MAX_RETRY : node.getMaxRetry(),
+                                0L, Map.of("taskId", taskId));
+
+                        log.warn("[Batch] 节点进入审批等待（通用异常兜底识别）, nodeId={}, planId={}, phaseId={}, taskId={}",
+                                node.getNodeId(), planId, phaseId, taskId);
+                    } else {
+                        failCount++;
+                        hasCriticalFailure = true;
+                        log.error("[Batch] 节点 Future 获取异常, nodeId={}, planId={}, phaseId={}, err={}",
+                                node.getNodeId(), planId, phaseId, e.getMessage(), e);
+                    }
                 }
             }
 
@@ -724,12 +757,51 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         return cur;
     }
 
+    private NeedApprovalException findNeedApprovalException(Throwable t) {
+        Throwable cur = t;
+        int guard = 0;
+        while (cur != null && guard++ < 32) {
+            if (cur instanceof NeedApprovalException nae) {
+                return nae;
+            }
+            cur = cur.getCause();
+        }
+        return null;
+    }
+
+    private boolean isNeedApprovalMessage(Throwable t) {
+        Throwable cur = t;
+        int guard = 0;
+        while (cur != null && guard++ < 32) {
+            String msg = cur.getMessage();
+            if (msg != null) {
+                String lower = msg.toLowerCase(Locale.ROOT);
+                if (lower.contains("needapprovalexception") || lower.contains("操作需要審批") || lower.contains("操作需要审批")) {
+                    return true;
+                }
+            }
+            cur = cur.getCause();
+        }
+        return false;
+    }
+
     private String extractApprovalTaskId(NeedApprovalException e) {
         try {
             if (e != null && e.getApprovalTask() != null && e.getApprovalTask().getTaskId() != null) {
                 return e.getApprovalTask().getTaskId();
             }
         } catch (Exception ignore) {
+        }
+        return extractApprovalTaskIdFromMessage(e != null ? e.getMessage() : null);
+    }
+
+    private String extractApprovalTaskIdFromMessage(String message) {
+        if (message == null || message.isBlank()) {
+            return "unknown";
+        }
+        Matcher m = UUID_PATTERN.matcher(message);
+        if (m.find()) {
+            return m.group();
         }
         return "unknown";
     }
