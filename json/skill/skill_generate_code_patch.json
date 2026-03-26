@@ -50,7 +50,3 @@
     "调用【rollback_checkpoint】Git回滚工具，当补丁应用失败时将代码库回退到检查点状态确保仓库现场干净可继续后续流程；以 hard 模式执行 git reset 到 create_checkpoint 返回的 checkpointId，强制恢复所有文件到快照状态，记录 currentHead 确认回滚成功，此槽位为可选步骤，仅在 apply_patch 失败时触发。"
   ]
 }
-
----
-
-json\skill\skill_execute_plan_phase.json
