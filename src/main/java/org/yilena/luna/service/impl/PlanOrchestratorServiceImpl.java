@@ -308,7 +308,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
             String html = buildReportHtml(instance, phases, nodes, finalStatusText);
             String writeResult = planReportTools.writeHtmlReportFile(
-                    planId, html, planId + ".html", "./data/reports"
+                    planId, html, planId + ".html", "./data/reports", finalStatusText, "FAILED"
             );
             if (isError(writeResult)) {
                 log.error("[Plan] 寫入報告文件失敗, planId={}, result={}", planId, writeResult);
