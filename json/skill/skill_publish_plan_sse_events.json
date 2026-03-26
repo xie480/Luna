@@ -1,6 +1,6 @@
 {
   "name": "publish_plan_sse_events",
-  "description": "统一封装计划执行过程中的SSE事件发布与审计落库，支持阶段/节点事件的标准化推送。",
+  "description": "计划执行过程中的 SSE 事件标准化发布与审计落库技能。接收计划 ID、阶段 ID、节点 ID、事件类型、事件级别与结构化 payload，先将事件原子写入审计日志表形成持久化记录，再通过 SSE 通道将事件推送至前端订阅客户端，驱动可视化图谱的节点状态、进度条与日志面板实时刷新；双通道执行结果独立记录，任意一方失败均不中断另一方，最终返回 recordOk 与 sseOk 双标记供调用方评估事件送达质量。适用于计划执行全链路中阶段启动/完成、节点状态流转、重规划、检查点创建、报告就绪等各类关键事件的统一发布入口，是计划可观测性体系的核心基础设施。",
   "version": "1.1.0",
   "owner": "openclaw",
   "beanName": "planEventTools",
@@ -25,8 +25,7 @@
     }
   ],
   "thoughtChain": [
-    "标准化组装事件载荷与上下文信息",
-    "先落审计日志再推送SSE事件",
-    "返回双通道执行结果并标记成功率"
+    "调用【emit_event】SSE事件推送工具，将结构化计划事件通过 SSE 通道实时推送至前端订阅客户端；以 clientId 定位目标订阅连接，将 planId、phaseId、nodeId、eventType、level 与 payload 封装为标准 SSE 消息帧并发送，驱动前端可视化图谱的节点颜色、进度条与日志面板同步刷新；若 clientId 对应连接不存在则广播至所有活跃订阅，记录推送结果并以 sseOk 标记返回，推送失败不中断审计日志写入流程。",
+    "调用【audit_log】审计日志工具，将本次事件发布行为原子写入计划审计链路，确保每个关键事件均有持久化记录可供事后查询与回放；以输入的 eventType 与 level 为类型和级别，将 planId、phaseId、nodeId、payload 摘要与可选 traceId 写入 luna_log 表，若调用方未传入 traceId 则服务端自动生成唯一值，记录落库结果并以 recordOk 标记返回，写入失败不阻断 SSE 推送结果的最终返回。"
   ]
 }
