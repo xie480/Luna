@@ -5,7 +5,7 @@
       正在进行初始位置设定，请调整模型位置和大小。
     </div>
     <div v-if="isTrackingSetupMode" class="top-banner" @mouseenter="uiEnter" @mouseleave="uiLeave">
-      正在进行滑鼠追蹤設定，請點擊模型對應的位置設置為跟蹤點。
+      正在进行滑鼠追踪设定，请点击模型对应的位置设置为跟踪点。
     </div>
 
     <transition name="fade">
@@ -30,11 +30,11 @@
             <div class="login-header-left">
               <span class="login-title">LUNA / AUTH</span>
               <span class="login-status" :class="{ ok: !loginError }">
-                {{ loginError ? "鑒權失敗" : "等待登錄" }}
+                {{ loginError ? "鉴权失败" : "等待登录" }}
               </span>
             </div>
             <div class="login-header-actions">
-              <button class="login-header-btn close" @click="exitApp" title="退出應用">×</button>
+              <button class="login-header-btn close" @click="exitApp" title="退出应用">×</button>
             </div>
           </div>
           <div class="login-body">
@@ -65,8 +65,8 @@
                 />
               </div>
               <button class="login-btn" type="submit" :disabled="loginLoading">
-                <span v-if="!loginLoading">登錄並啟動 LUNA</span>
-                <span v-else>正在驗證憑證…</span>
+                <span v-if="!loginLoading">登录并启动 LUNA</span>
+                <span v-else>正在验证凭证…</span>
               </button>
               <p v-if="loginError" class="login-error">{{ loginError }}</p>
             </form>
@@ -200,16 +200,16 @@
             <span class="boot-bracket">]</span>
             <span class="boot-version">v2.0.1</span>
           </div>
-          <div class="boot-subtitle">AI 助手核心模塊 · 啟動中</div>
+          <div class="boot-subtitle">AI 助手核心模块 · 启动中</div>
           <div class="boot-bar-wrap">
             <div class="boot-bar-track">
               <div class="boot-bar-fill"></div>
             </div>
-            <span class="boot-bar-pct">正在加載系統…</span>
+            <span class="boot-bar-pct">正在加载系统…</span>
           </div>
           <div class="boot-log">
             <div class="log-line" v-for="(line, i) in bootLines" :key="i"
-              :style="{ animationDelay: i * 0.18 + 's' }">
+              :style="{ animationDelay: i * 0.14 + 's' }">
               <span class="log-tag">&gt;</span> {{ line }}
             </div>
           </div>
@@ -443,9 +443,9 @@ const loginSuccess = ref(false);
 const loginForm = ref({ username: "", password: "" });
 const loginSessionId = ref(Math.random().toString(16).slice(2, 10).toUpperCase());
 const loginLogLines = ref([
-  "正在建立與鑒權服務的安全連接…",
-  "檢測到當前會話未認證。",
-  "請輸入用戶名與密碼以繼續。",
+  "正在建立与鉴权服务的安全连接…",
+  "检测到当前会话未认证。",
+  "请输入用户名与密码以继续。",
 ]);
 const authToken = ref("");
 const loginCollapsed = ref(false);
@@ -454,14 +454,24 @@ function exitApp() {
   window.desktopApi?.quit?.();
 }
 
+// 扩展启动文案（按项目功能）
 const bootLines = [
-  "正在初始化神經接口…",
-  "正在加載 Live2D 核心模塊…",
-  "正在掛載表情合成引擎…",
-  "正在校準視線追蹤參數…",
-  "正在連接 Luna 對話服務…",
-  "正在預熱語言模型核心…",
-  "系統已就緒，等待指令。",
+  "正在初始化神经接口…",
+  "正在加载 Live2D Core 与 Cubism Runtime…",
+  "正在挂载模型参数与外貌系统…",
+  "正在恢复主题配置与界面状态…",
+  "正在装载聊天输入与气泡子系统…",
+  "正在同步历史记录索引…",
+  "正在初始化数据查询中心…",
+  "正在连接 SSE 实时通道…",
+  "正在加载 Plan Graph 状态存储…",
+  "正在装载 Tool 管理器…",
+  "正在装载 Skill 管理器…",
+  "正在注册审批任务监听器…",
+  "正在初始化系统音频律动模块…",
+  "正在校准视线追踪参数…",
+  "正在预热语言模型核心…",
+  "系统已就绪，等待指令。"
 ];
 
 const hexChars = ref([]);
@@ -479,13 +489,13 @@ const currentEmotion = ref("neutral");
 
 async function performLogin() {
   if (!loginForm.value.username || !loginForm.value.password) {
-    loginError.value = "用戶名或密碼不能為空";
+    loginError.value = "用户名或密码不能为空";
     return;
   }
   loginLoading.value = true;
   loginError.value = "";
   loginSuccess.value = false;
-  loginLogLines.value.push("正在向鑒權服務發送憑證…");
+  loginLogLines.value.push("正在向鉴权服务发送凭证…");
   try {
     const data = await loginApi({
       username: loginForm.value.username,
@@ -493,13 +503,13 @@ async function performLogin() {
     });
     const token = data?.token || "";
     if (!token) {
-      loginError.value = "鑒權服務未返回有效 Token";
-      loginLogLines.value.push("鑒權失敗：Token 缺失。");
+      loginError.value = "鉴权服务未返回有效 Token";
+      loginLogLines.value.push("鉴权失败：Token 缺失。");
       return;
     }
     authToken.value = token;
     loginSuccess.value = true;
-    loginLogLines.value.push("鑒權通過，正在啟動 LUNA 核心…");
+    loginLogLines.value.push("鉴权通过，正在启动 LUNA 核心…");
 
     overUI = false;
     updatePetState();
@@ -516,9 +526,9 @@ async function performLogin() {
       planStore.syncGraphSnapshot(cachedPlanId).catch(() => {});
     }
   } catch (e) {
-    console.error("[Auth] 登錄請求失敗", e);
-    loginError.value = "無法連接鑒權服務，請檢查網絡或服務状态";
-    loginLogLines.value.push("網絡錯誤：無法連接到鑒權端點。");
+    console.error("[Auth] 登录请求失败", e);
+    loginError.value = "无法连接鉴权服务，请检查网络或服务状态";
+    loginLogLines.value.push("网络错误：无法连接到鉴权端点。");
   } finally {
     loginLoading.value = false;
   }
@@ -532,7 +542,7 @@ async function handleLogout() {
   try {
     await logoutApi(authToken.value);
   } catch (e) {
-    console.error("[Auth] 登出請求失敗", e);
+    console.error("[Auth] 登出请求失败", e);
   } finally {
     authToken.value = "";
     loginSuccess.value = false;
@@ -563,8 +573,8 @@ async function handleLogout() {
     }
 
     loginLogLines.value = [
-      "會話已終止。",
-      "請重新輸入憑證以建立連接。",
+      "会话已终止。",
+      "请重新输入凭证以建立连接。",
     ];
     loginError.value = "";
     loginForm.value.password = "";
@@ -652,7 +662,7 @@ async function handleModelReply(res) {
 }
 
 function handleNetworkError() {
-  appearance.showAppearanceHint("網絡請求失敗");
+  appearance.showAppearanceHint("网络请求失败");
 }
 
 async function onSend(text) {
@@ -684,7 +694,7 @@ async function onSend(text) {
 
     await handleModelReply(normalizeResponse(res));
   } catch (e) {
-    console.error("[Luna] 發送失敗", e);
+    console.error("[Luna] 发送失败", e);
     handleNetworkError();
   } finally {
     isConnecting.value = false;
@@ -714,11 +724,11 @@ async function onApprove(approved) {
       streamText.value = "";
       await handleModelReply(normalizeResponse(res));
     } else {
-      appearance.showAppearanceHint(approved ? "已同意操作" : "已拒絕操作");
+      appearance.showAppearanceHint(approved ? "已同意操作" : "已拒绝操作");
     }
   } catch (e) {
     console.error("[Approval] Failed:", e);
-    appearance.showAppearanceHint("審批提交失敗");
+    appearance.showAppearanceHint("审批提交失败");
   } finally {
     isStreaming.value = false;
     streamText.value = "";
@@ -732,7 +742,7 @@ async function callStartup() {
     isConnecting.value = false;
     handleModelReply(normalizeResponse(res));
   } catch (e) {
-    console.error("[Luna] 啟動失敗", e);
+    console.error("[Luna] 启动失败", e);
     isConnecting.value = false;
     handleNetworkError();
   }
@@ -957,7 +967,7 @@ function resetTrackingOrigin() {
   if (isTrackingSetupMode.value) {
     drawTrackingMarker();
   }
-  appearance.showAppearanceHint("追蹤中心已重置");
+  appearance.showAppearanceHint("追踪中心已重置");
 }
 
 function drawTrackingMarker() {
@@ -1208,7 +1218,7 @@ function waitForModelReady(timeout = 10000) {
 async function startBootSequence() {
   lunaIntroVisible.value = true;
 
-  gsap.delayedCall(4.5, async () => {
+  gsap.delayedCall(4.8, async () => {
     lunaIntroVisible.value = false;
     bgParticlesVisible.value = false;
     uiLeave();
@@ -1292,7 +1302,7 @@ onMounted(async () => {
         showApproval.value = !!approvalTask.value;
         if (showApproval.value) {
           uiEnter();
-          appearance.showAppearanceHint("收到敏感操作審批請求");
+          appearance.showAppearanceHint("收到敏感操作审批请求");
         }
 
         planStore.applyEvent({
@@ -1463,7 +1473,7 @@ html, body {
 .top-banner {
   position: fixed;
   top: 0; left: 0; right: 0;
-  background: rgba(0, 255, 200, 0.9);
+  background: color-mix(in oklab, var(--primary, #00ffc8) 88%, white 12%);
   color: #000;
   text-align: center;
   padding: 8px;
@@ -1486,7 +1496,7 @@ html, body {
   font-size: 13px;
   font-weight: bold;
   pointer-events: none;
-  box-shadow: 0 4px 15px rgba(0,0,0,0.5), 0 0 10px rgba(0,255,200,0.2);
+  box-shadow: 0 4px 15px rgba(0,0,0,0.5), var(--glow-primary, 0 0 10px rgba(0,255,200,0.2));
   letter-spacing: 1px;
 }
 
@@ -1505,14 +1515,9 @@ html, body {
   width: 520px;
   max-width: 90vw;
   border-radius: 6px;
-  background: radial-gradient(circle at 0 0, rgba(0,255,200,0.12), transparent 55%),
-    radial-gradient(circle at 100% 100%, rgba(120,120,255,0.1), transparent 55%),
-    linear-gradient(165deg, #04070d, #050a13 45%, #050913);
-  box-shadow:
-    0 0 0 1px rgba(0,255,200,0.25),
-    0 18px 40px rgba(0,0,0,0.9),
-    0 0 60px rgba(0,255,200,0.15);
-  border: 1px solid rgba(0,255,200,0.3);
+  background: var(--bg-panel, linear-gradient(165deg, #04070d, #050a13 45%, #050913));
+  box-shadow: var(--shadow-panel, 0 18px 40px rgba(0,0,0,0.9));
+  border: 1px solid var(--border, rgba(0,255,200,0.3));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1533,8 +1538,8 @@ html, body {
   justify-content: space-between;
   align-items: center;
   padding: 10px 14px;
-  border-bottom: 1px solid rgba(0,255,200,0.28);
-  background: linear-gradient(90deg, rgba(0,0,0,0.9), rgba(0,40,40,0.9));
+  border-bottom: 1px solid var(--border, rgba(0,255,200,0.28));
+  background: color-mix(in oklab, black 88%, var(--primary, #00ffc8) 12%);
 }
 .login-header-left {
   display: flex;
@@ -1544,14 +1549,14 @@ html, body {
 .login-title {
   font-size: 12px;
   letter-spacing: 0.16em;
-  color: rgba(0,255,200,0.9);
+  color: color-mix(in oklab, var(--primary, #00ffc8) 90%, white 10%);
 }
 .login-status {
   font-size: 11px;
   color: rgba(255,180,180,0.9);
 }
 .login-status.ok {
-  color: rgba(0,255,200,0.9);
+  color: color-mix(in oklab, var(--primary, #00ffc8) 90%, white 10%);
 }
 .login-header-actions {
   display: flex;
@@ -1562,10 +1567,9 @@ html, body {
   width: 18px;
   height: 18px;
   border-radius: 3px;
-  border: 1px solid rgba(0,255,200,0.3);
-  background: radial-gradient(circle at 30% 0, rgba(0,255,200,0.25), transparent 60%),
-    rgba(0,10,10,0.85);
-  color: rgba(0,255,200,0.9);
+  border: 1px solid var(--border, rgba(0,255,200,0.3));
+  background: rgba(0,10,10,0.85);
+  color: color-mix(in oklab, var(--primary, #00ffc8) 90%, white 10%);
   font-size: 10px;
   cursor: pointer;
   display: flex;
@@ -1575,15 +1579,14 @@ html, body {
   transition: background 0.15s ease, color 0.15s ease, transform 0.12s ease, border-color 0.15s ease;
 }
 .login-header-btn:hover {
-  background: radial-gradient(circle at 30% 0, rgba(0,255,200,0.4), transparent 60%),
-    rgba(0,25,25,0.95);
+  background: rgba(0,25,25,0.95);
   transform: translateY(-1px);
 }
 .login-header-btn.close {
-  border-color: rgba(0,255,200,0.6);
+  border-color: color-mix(in oklab, var(--primary, #00ffc8) 65%, white 35%);
 }
 .login-header-btn.close:hover {
-  box-shadow: 0 0 10px rgba(0,255,200,0.5);
+  box-shadow: var(--glow-primary, 0 0 10px rgba(0,255,200,0.5));
 }
 .login-body {
   display: flex;
@@ -1596,7 +1599,7 @@ html, body {
   padding-right: 6px;
   overflow-y: auto;
   font-size: 11px;
-  color: rgba(0,255,200,0.72);
+  color: color-mix(in oklab, var(--primary, #00ffc8) 72%, transparent);
 }
 .login-log-line {
   display: flex;
@@ -1604,7 +1607,7 @@ html, body {
   margin: 0 0 4px;
 }
 .login-log-line .log-tag {
-  color: rgba(0,255,200,0.5);
+  color: color-mix(in oklab, var(--primary, #00ffc8) 50%, transparent);
 }
 .login-log-line .log-text {
   letter-spacing: 0.04em;
@@ -1622,31 +1625,31 @@ html, body {
 }
 .form-row label {
   font-size: 11px;
-  color: rgba(0,255,200,0.7);
+  color: color-mix(in oklab, var(--primary, #00ffc8) 70%, transparent);
   letter-spacing: 0.16em;
 }
 .form-row input {
   background: rgba(0,0,0,0.8);
   border-radius: 3px;
-  border: 1px solid rgba(0,255,200,0.28);
+  border: 1px solid var(--border, rgba(0,255,200,0.28));
   padding: 5px 7px;
-  color: #e8fff8;
+  color: var(--text-main, #e8fff8);
   font-size: 12px;
   outline: none;
   transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.2s;
 }
 .form-row input:focus {
-  border-color: rgba(0,255,200,0.7);
-  box-shadow: 0 0 0 1px rgba(0,255,200,0.36);
+  border-color: color-mix(in oklab, var(--primary, #00ffc8) 70%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--primary, #00ffc8) 36%, transparent);
   background: rgba(0,10,10,0.9);
 }
 .login-btn {
   margin-top: 4px;
   padding: 6px 10px;
   border-radius: 3px;
-  border: 1px solid rgba(0,255,200,0.6);
-  background: linear-gradient(90deg, rgba(0,255,200,0.3), rgba(0,150,255,0.3));
-  color: #eaffff;
+  border: 1px solid color-mix(in oklab, var(--primary, #00ffc8) 68%, transparent);
+  background: linear-gradient(90deg, color-mix(in oklab, var(--primary, #00ffc8) 30%, transparent), color-mix(in oklab, var(--primary-2, #00aaff) 30%, transparent));
+  color: var(--text-main, #eaffff);
   font-size: 11px;
   letter-spacing: 0.14em;
   cursor: pointer;
@@ -1657,7 +1660,7 @@ html, body {
   transition: background 0.15s ease, transform 0.13s ease, box-shadow 0.2s ease, opacity 0.15s;
 }
 .login-btn:hover:not(:disabled) {
-  background: linear-gradient(90deg, rgba(0,255,200,0.5), rgba(0,170,255,0.5));
+  background: linear-gradient(90deg, color-mix(in oklab, var(--primary, #00ffc8) 52%, transparent), color-mix(in oklab, var(--primary-2, #00aaff) 52%, transparent));
   transform: translateY(-1px);
   box-shadow: 0 6px 18px rgba(0,0,0,0.7);
 }
@@ -1678,12 +1681,12 @@ html, body {
   display: flex;
   justify-content: space-between;
   padding: 6px 14px 8px;
-  border-top: 1px solid rgba(0,255,200,0.18);
+  border-top: 1px solid color-mix(in oklab, var(--primary, #00ffc8) 22%, transparent);
   background: rgba(0,0,0,0.9);
 }
 .login-meta {
   font-size: 10px;
-  color: rgba(0,255,200,0.65);
+  color: color-mix(in oklab, var(--primary, #00ffc8) 65%, transparent);
   letter-spacing: 0.08em;
 }
 
@@ -1697,26 +1700,6 @@ html, body {
 .login-fade-enter-from,
 .login-fade-leave-to {
   opacity: 0;
-}
-
-.bg-particles {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  overflow: hidden;
-}
-.particle {
-  position: absolute;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(255,255,255,0.18) 0%, rgba(200,200,200,0.06) 100%);
-  animation: particleFloat linear infinite;
-  pointer-events: none;
-}
-@keyframes particleFloat {
-  0%   { transform: translateY(0px)   scale(1);   opacity: 0.5; }
-  50%  { transform: translateY(-18px) scale(1.1); opacity: 0.9; }
-  100% { transform: translateY(0px)   scale(1);   opacity: 0.5; }
 }
 
 .interactive-wrapper {
@@ -1804,11 +1787,11 @@ html, body {
   width: 460px;
   position: relative;
   padding: 40px 32px;
-  border: 1px solid rgba(0, 255, 200, 0.18);
+  border: 1px solid color-mix(in oklab, var(--primary, #00ffc8) 36%, transparent);
   border-radius: 4px;
   box-shadow:
-    0 0 40px rgba(0, 255, 200, 0.08),
-    inset 0 0 60px rgba(0, 255, 200, 0.03);
+    0 0 40px color-mix(in oklab, var(--primary, #00ffc8) 12%, transparent),
+    inset 0 0 60px color-mix(in oklab, var(--primary, #00ffc8) 6%, transparent);
 }
 
 .scan-line {
@@ -1817,9 +1800,9 @@ html, body {
   left: 0;
   width: 100%;
   height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(0, 255, 200, 0.7), transparent);
+  background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--primary, #00ffc8) 74%, transparent), transparent);
   animation: scanMove 2.4s ease-in-out infinite;
-  box-shadow: 0 0 10px rgba(0, 255, 200, 0.5);
+  box-shadow: 0 0 10px color-mix(in oklab, var(--primary, #00ffc8) 45%, transparent);
 }
 @keyframes scanMove {
   0%   { top: 0%;   opacity: 0.9; }
@@ -1835,16 +1818,16 @@ html, body {
 }
 .boot-bracket {
   font-size: 28px;
-  color: rgba(0, 255, 200, 0.5);
+  color: color-mix(in oklab, var(--primary, #00ffc8) 48%, transparent);
   font-weight: 300;
 }
 .boot-name {
   font-size: 36px;
   font-weight: 700;
-  color: rgba(0, 255, 200, 0.95);
+  color: color-mix(in oklab, var(--primary, #00ffc8) 92%, white 8%);
   text-shadow:
-    0 0 12px rgba(0, 255, 200, 0.7),
-    0 0 30px rgba(0, 255, 200, 0.3);
+    0 0 12px color-mix(in oklab, var(--primary, #00ffc8) 66%, transparent),
+    0 0 30px color-mix(in oklab, var(--primary, #00ffc8) 30%, transparent);
   letter-spacing: 0.3em;
   animation: titlePulse 3s ease-in-out infinite;
 }
@@ -1852,7 +1835,7 @@ html, body {
 .boot-version {
   font-size: 10px;
   letter-spacing: 0.22em;
-  color: rgba(0, 255, 200, 0.45);
+  color: color-mix(in oklab, var(--primary, #00ffc8) 45%, transparent);
   align-self: flex-end;
   margin-bottom: 4px;
   animation: subtitleBlink 2s step-end infinite;
@@ -1872,16 +1855,16 @@ html, body {
 .boot-bar-track {
   width: 100%;
   height: 3px;
-  background: rgba(0, 255, 200, 0.08);
+  background: color-mix(in oklab, var(--primary, #00ffc8) 10%, transparent);
   border-radius: 2px;
   overflow: hidden;
-  border: 1px solid rgba(0, 255, 200, 0.12);
+  border: 1px solid color-mix(in oklab, var(--primary, #00ffc8) 16%, transparent);
 }
 .boot-bar-fill {
   height: 100%;
   width: 0%;
-  background: linear-gradient(90deg, rgba(0,255,200,0.5), rgba(0,255,200,0.95));
-  box-shadow: 0 0 8px rgba(0, 255, 200, 0.6);
+  background: linear-gradient(90deg, color-mix(in oklab, var(--primary, #00ffc8) 48%, transparent), color-mix(in oklab, var(--primary, #00ffc8) 95%, transparent));
+  box-shadow: 0 0 8px color-mix(in oklab, var(--primary, #00ffc8) 60%, transparent);
   animation: barFill 4.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 @keyframes barFill {
@@ -1894,7 +1877,7 @@ html, body {
 }
 .boot-bar-pct {
   font-size: 9px;
-  color: rgba(0, 255, 200, 0.4);
+  color: color-mix(in oklab, var(--primary, #00ffc8) 45%, transparent);
   letter-spacing: 0.15em;
   animation: pctCount 4.2s linear forwards;
 }
@@ -1911,7 +1894,7 @@ html, body {
 }
 .log-line {
   font-size: 11px;
-  color: rgba(0, 255, 200, 0.55);
+  color: color-mix(in oklab, var(--primary, #00ffc8) 55%, transparent);
   letter-spacing: 0.05em;
   opacity: 0;
   animation: logFadeIn 0.3s ease forwards;
@@ -1919,7 +1902,7 @@ html, body {
   gap: 6px;
 }
 .log-tag {
-  color: rgba(0, 255, 200, 0.3);
+  color: color-mix(in oklab, var(--primary, #00ffc8) 35%, transparent);
   flex-shrink: 0;
 }
 @keyframes logFadeIn {
@@ -1934,7 +1917,7 @@ html, body {
 }
 .boot-hex {
   font-size: 9px;
-  color: rgba(0, 255, 200, 0.20);
+  color: color-mix(in oklab, var(--primary, #00ffc8) 22%, transparent);
   letter-spacing: 0.08em;
   transition: color 0.18s ease;
 }

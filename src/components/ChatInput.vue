@@ -5,7 +5,7 @@
     @mouseenter="$emit('mouseenter')" 
     @mouseleave="$emit('mouseleave')"
   >
-    <div class="drag-handle" @mousedown="startDrag" title="長按拖動">
+    <div class="drag-handle" @mousedown="startDrag" title="长按拖动">
       <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="9" cy="12" r="1" fill="currentColor"></circle>
         <circle cx="15" cy="12" r="1" fill="currentColor"></circle>
@@ -16,7 +16,7 @@
       </svg>
     </div>
 
-    <button class="icon-btn settings-btn" @click="$emit('open-settings')" title="設置">
+    <button class="icon-btn settings-btn" @click="$emit('open-settings')" title="设置">
       <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="3"></circle>
         <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
@@ -40,7 +40,7 @@
       </svg>
     </button>
 
-    <button class="icon-btn history-btn" @click="$emit('toggle-history')" title="歷史記錄">
+    <button class="icon-btn history-btn" @click="$emit('toggle-history')" title="历史记录">
       <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round">
         <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
         <line x1="16" y1="2" x2="16" y2="6"></line>
@@ -77,7 +77,7 @@
       </transition>
     </div>
 
-    <div class="emotion-indicator" :style="emotionStyle" :title="'當前情緒: ' + (currentEmotion || 'neutral')"></div>
+    <div class="emotion-indicator" :style="emotionStyle" :title="'当前情绪: ' + (currentEmotion || 'neutral')"></div>
 
     <button 
       class="send-btn" 
@@ -219,43 +219,37 @@ const emotionStyle = computed(() => {
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 4px;
-  background: linear-gradient(160deg, rgba(8,14,26,0.97), rgba(5,10,18,0.97));
-  padding: 7px 14px;
-  border-radius: 36px;
-  border: 1px solid rgba(0,255,200,0.16);
+  gap: 6px;
+  background: var(--bg-panel, linear-gradient(160deg, rgba(8,14,26,0.97), rgba(5,10,18,0.97)));
+  padding: 10px 16px;
+  border-radius: 40px;
+  border: 1px solid var(--border, rgba(0,255,200,0.16));
   backdrop-filter: blur(24px) saturate(160%);
-  box-shadow:
-    0 4px 28px rgba(0,0,0,0.65),
-    0 1px 0 rgba(255,255,255,0.05) inset,
-    0 -1px 0 rgba(0,0,0,0.25) inset;
+  box-shadow: var(--shadow-panel, 0 4px 28px rgba(0,0,0,0.65));
   z-index: 9000;
   transition: border-color 0.3s, box-shadow 0.3s;
 }
 .chat-bar-wrapper:hover {
-  border-color: rgba(0,255,200,0.3);
-  box-shadow:
-    0 6px 36px rgba(0,0,0,0.7),
-    0 0 18px rgba(0,255,200,0.07),
-    0 1px 0 rgba(255,255,255,0.06) inset;
+  border-color: color-mix(in oklab, var(--primary, #00ffc8) 52%, transparent);
+  box-shadow: var(--shadow-panel, 0 6px 36px rgba(0,0,0,0.7)), var(--glow-primary, 0 0 18px rgba(0,255,200,0.07));
 }
 
 .drag-handle {
   cursor: grab;
-  color: rgba(0,255,200,0.3);
+  color: color-mix(in oklab, var(--primary, #00ffc8) 42%, transparent);
   display: flex;
   align-items: center;
-  padding: 4px 2px;
+  padding: 5px 2px;
   margin-right: 2px;
   transition: color 0.2s;
 }
-.drag-handle:hover { color: rgba(0,255,200,0.65); }
+.drag-handle:hover { color: color-mix(in oklab, var(--primary, #00ffc8) 90%, transparent); }
 .drag-handle:active { cursor: grabbing; }
 
 .bar-divider {
   width: 1px;
-  height: 16px;
-  background: linear-gradient(180deg, transparent, rgba(0,255,200,0.18), transparent);
+  height: 20px;
+  background: linear-gradient(180deg, transparent, color-mix(in oklab, var(--primary, #00ffc8) 32%, transparent), transparent);
   flex-shrink: 0;
   margin: 0 6px;
 }
@@ -263,9 +257,9 @@ const emotionStyle = computed(() => {
 .icon-btn {
   background: none;
   border: none;
-  color: rgba(0,255,200,0.5);
+  color: color-mix(in oklab, var(--primary, #00ffc8) 62%, transparent);
   cursor: pointer;
-  padding: 6px;
+  padding: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -273,8 +267,8 @@ const emotionStyle = computed(() => {
   transition: color 0.18s, background 0.18s, transform 0.15s;
 }
 .icon-btn:hover {
-  color: rgba(0,255,200,0.92);
-  background: rgba(0,255,200,0.08);
+  color: color-mix(in oklab, var(--primary, #00ffc8) 94%, white 6%);
+  background: var(--hover, rgba(0,255,200,0.08));
   transform: translateY(-1px);
 }
 
@@ -283,31 +277,31 @@ const emotionStyle = computed(() => {
   display: flex;
   align-items: center;
   overflow: hidden;
-  border-radius: 18px;
-  margin: 0 4px;
+  border-radius: 22px;
+  margin: 0 5px;
 }
 input {
-  background: rgba(0,0,0,0.2);
-  border: 1px solid rgba(0,255,200,0.1);
-  color: rgba(232,255,248,0.88);
-  padding: 7px 16px;
-  width: 300px;
-  border-radius: 18px;
+  background: rgba(0,0,0,0.22);
+  border: 1px solid color-mix(in oklab, var(--border, rgba(0,255,200,0.1)) 70%, transparent);
+  color: var(--text-main, rgba(232,255,248,0.88));
+  padding: 10px 18px;
+  width: clamp(360px, 34vw, 560px);
+  border-radius: 22px;
   outline: none;
-  font-size: 13px;
+  font-size: 14px;
   letter-spacing: 0.2px;
   transition: border-color 0.25s, background 0.25s, box-shadow 0.25s;
   pointer-events: auto;
 }
 input::placeholder {
-  color: rgba(0,255,200,0.2);
+  color: color-mix(in oklab, var(--primary, #00ffc8) 28%, transparent);
   font-size: 12px;
   letter-spacing: 0.5px;
 }
 input:focus {
-  border-color: rgba(0,255,200,0.32);
-  background: rgba(0,0,0,0.3);
-  box-shadow: 0 0 0 3px rgba(0,255,200,0.06);
+  border-color: color-mix(in oklab, var(--primary, #00ffc8) 52%, transparent);
+  background: rgba(0,0,0,0.32);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary, #00ffc8) 18%, transparent);
 }
 input:disabled { opacity: 0.4; cursor: not-allowed; }
 input.hidden-text { color: transparent; }
@@ -322,7 +316,7 @@ input.hidden-text { color: transparent; }
   align-items: center;
   padding-left: 16px;
   z-index: 10;
-  border-radius: 18px;
+  border-radius: 22px;
   pointer-events: none;
 }
 .glitch-container {
@@ -330,7 +324,7 @@ input.hidden-text { color: transparent; }
   align-items: center;
   overflow: hidden;
   white-space: nowrap;
-  max-width: 270px;
+  max-width: calc(clamp(360px, 34vw, 560px) - 30px);
 }
 .glitch-text {
   font-family: "Courier New", monospace;
@@ -356,11 +350,11 @@ input.hidden-text { color: transparent; }
 }
 
 .emotion-indicator {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
-  margin: 0 2px;
+  margin: 0 4px;
   animation: breathe infinite ease-in-out;
   transition: background-color 0.8s ease, box-shadow 0.8s ease;
 }
@@ -371,31 +365,31 @@ input.hidden-text { color: transparent; }
   color: #000;
   border: none;
   padding: 0;
-  border-radius: 16px;
+  border-radius: 18px;
   cursor: pointer;
   transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
-  width: 58px;
-  height: 30px;
+  width: 66px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
   margin-left: 4px;
-  box-shadow: 0 2px 10px rgba(0,255,200,0.15);
+  box-shadow: 0 2px 12px color-mix(in oklab, var(--primary, #00ffc8) 32%, transparent);
 }
 .send-btn:hover:not(:disabled) {
   filter: brightness(1.1);
   transform: translateY(-1px);
-  box-shadow: 0 4px 18px rgba(0,255,200,0.28);
+  box-shadow: 0 4px 18px color-mix(in oklab, var(--primary, #00ffc8) 40%, transparent);
 }
 .send-btn:disabled { opacity: 0.32; cursor: not-allowed; box-shadow: none; }
 .send-btn.is-active {
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   background: rgba(0,0,0,0.5);
-  border: 1px solid rgba(0,255,200,0.28);
-  box-shadow: 0 0 10px rgba(0,255,200,0.12);
+  border: 1px solid color-mix(in oklab, var(--primary, #00ffc8) 32%, transparent);
+  box-shadow: 0 0 10px color-mix(in oklab, var(--primary, #00ffc8) 20%, transparent);
 }
 .btn-text { font-weight: 700; font-size: 10px; letter-spacing: 1px; }
 
@@ -472,4 +466,9 @@ input.hidden-text { color: transparent; }
 }
 .fade-overlay-enter-active, .fade-overlay-leave-active { transition: opacity 0.25s ease; }
 .fade-overlay-enter-from, .fade-overlay-leave-to { opacity: 0; }
+
+@media (max-width: 900px) {
+  .chat-bar-wrapper { padding: 8px 12px; }
+  input { width: clamp(240px, 52vw, 380px); padding: 9px 14px; }
+}
 </style>

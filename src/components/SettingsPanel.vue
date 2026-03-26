@@ -22,13 +22,13 @@
     <div class="panel-body">
       <div class="sidebar">
         <div class="menu-item" :class="{ active: activeTab === 'general' }" @click="activeTab = 'general'">
-          <span class="menu-icon">▸</span>通用設置
+          <span class="menu-icon">▸</span>通用设置
         </div>
         <div class="menu-item" :class="{ active: activeTab === 'appearance' }" @click="activeTab = 'appearance'">
-          <span class="menu-icon">▸</span>外貌定製
+          <span class="menu-icon">▸</span>外貌定制
         </div>
         <div class="menu-item" :class="{ active: activeTab === 'system' }" @click="activeTab = 'system'">
-          <span class="menu-icon">▸</span>系統狀態
+          <span class="menu-icon">▸</span>系统状态
         </div>
         <div class="menu-item" :class="{ active: activeTab === 'tools' }" @click="activeTab = 'tools'">
           <span class="menu-icon">▸</span>Tool管理
@@ -41,53 +41,62 @@
       <div class="content">
         <div v-if="activeTab === 'general'" class="tab-content">
           <div class="section">
-            <div class="section-title">THEME <em>/ 主題</em></div>
+            <div class="section-title">THEME <em>/ 主题</em></div>
             <div class="theme-control">
               <select v-model="selectedTheme">
                 <option v-for="(t, key) in themes" :key="key" :value="key">{{ t.name }}</option>
               </select>
-              <button class="apply-btn" @click="applyThemeSetting">應用</button>
+              <button class="apply-btn" @click="applyThemeSetting">应用</button>
             </div>
           </div>
 
           <div class="section">
-            <div class="section-title">MODEL DISPLAY <em>/ 模型顯示</em></div>
+            <div class="section-title">VISUAL FX <em>/ 动态特效</em></div>
+            <label class="app-item">
+              <input type="checkbox" v-model="uiFxEnabledLocal" @change="applyFxSetting" />
+              <span>启用全局动态背景特效</span>
+            </label>
+            <p class="desc">关闭后将禁用计划/查询/历史面板的动态背景层，视觉更简洁。</p>
+          </div>
+
+          <div class="section">
+            <div class="section-title">MODEL DISPLAY <em>/ 模型显示</em></div>
             <label class="app-item">
               <input type="checkbox" :checked="isModelVisible" @change="$emit('toggle-model')" />
-              <span>顯示 Live2D 模型</span>
+              <span>显示 Live2D 模型</span>
             </label>
           </div>
 
           <div class="section">
-            <div class="section-title">INITIAL SETUP <em>/ 初始設定</em></div>
-            <p class="desc">調整模型在屏幕上的初始位置和大小。</p>
+            <div class="section-title">INITIAL SETUP <em>/ 初始设定</em></div>
+            <p class="desc">调整模型在屏幕上的初始位置和大小。</p>
             <div class="btn-group">
               <button class="action-btn" :class="{ 'active-red': isSetupMode }" @click="toggleSetupMode">
-                {{ isSetupMode ? '設定完成' : '開始設定' }}
+                {{ isSetupMode ? '设定完成' : '开始设定' }}
               </button>
               <button class="action-btn secondary" @click="$emit('reset-setup')">重置位置</button>
             </div>
           </div>
 
           <div class="section">
-            <div class="section-title">TRACKING <em>/ 視線追蹤</em></div>
-            <p class="desc">點擊模型表面設置視線追蹤的參考中心點。</p>
+            <div class="section-title">TRACKING <em>/ 视线追踪</em></div>
+            <p class="desc">点击模型表面设置视线追踪的参考中心点。</p>
             <div class="btn-group">
               <button class="action-btn" :class="{ 'active-red': isTrackingSetupMode }" @click="toggleTrackingSetup">
-                {{ isTrackingSetupMode ? '設定完成' : '開始設定' }}
+                {{ isTrackingSetupMode ? '设定完成' : '开始设定' }}
               </button>
               <button class="action-btn secondary" @click="$emit('reset-tracking-setup')">重置中心</button>
             </div>
           </div>
 
           <div class="section quit-section">
-            <button class="quit-btn" @click="quitApp">退出應用</button>
+            <button class="quit-btn" @click="quitApp">退出应用</button>
           </div>
         </div>
 
         <div v-if="activeTab === 'appearance'" class="tab-content">
           <div class="section">
-            <div class="section-title">ACCESSORIES <em>/ 配飾與表情</em></div>
+            <div class="section-title">ACCESSORIES <em>/ 配饰与表情</em></div>
             <div class="appearance-list">
               <label v-for="file in appearance.APPEARANCE_FILES" :key="file" class="app-item">
                 <input type="checkbox" v-model="appearance.appearanceEnabled.value[file]" @change="appearance.onAppearanceToggle(file, core)" />
@@ -100,27 +109,27 @@
 
         <div v-if="activeTab === 'system'" class="tab-content">
           <div class="section">
-            <div class="section-title">USER STATUS <em>/ 用戶狀態</em></div>
+            <div class="section-title">USER STATUS <em>/ 用户状态</em></div>
             <div class="status-row">
               <div class="status-indicator" :class="{ active: isLoggedIn }"></div>
-              <span class="status-text">{{ isLoggedIn ? '已登錄 (Online)' : '未連接 (Offline)' }}</span>
-              <button v-if="isLoggedIn" class="logout-btn" @click="$emit('logout')">退出登錄</button>
+              <span class="status-text">{{ isLoggedIn ? '已登录 (Online)' : '未连接 (Offline)' }}</span>
+              <button v-if="isLoggedIn" class="logout-btn" @click="$emit('logout')">退出登录</button>
             </div>
           </div>
 
           <div class="section">
-            <div class="section-title">WINDOW <em>/ 窗口設定</em></div>
+            <div class="section-title">WINDOW <em>/ 窗口设置</em></div>
             <label class="app-item">
               <input type="checkbox" v-model="isAlwaysOnTop" @change="toggleAlwaysOnTop" />
-              <span>窗口置頂 (Always On Top)</span>
+              <span>窗口置顶 (Always On Top)</span>
             </label>
           </div>
 
           <div class="section">
-            <div class="section-title">RHYTHM <em>/ 律動</em></div>
+            <div class="section-title">RHYTHM <em>/ 律动</em></div>
             <label class="app-item">
               <input type="checkbox" :checked="rhythm.showSystemAudioListening.value" @change="rhythm.toggleSystemAudio(core, { value: true })" />
-              <span>開啟系統音頻律動 (Beta)</span>
+              <span>开启系统音频律动 (Beta)</span>
             </label>
           </div>
         </div>
@@ -161,10 +170,10 @@ const emit = defineEmits([
 
 const x = ref(window.innerWidth / 2 - 320);
 const y = ref(window.innerHeight / 2 - 240);
-const width = ref(640);
-const height = ref(480);
-const minWidth = 420;
-const minHeight = 320;
+const width = ref(660);
+const height = ref(500);
+const minWidth = 460;
+const minHeight = 340;
 
 const isFullscreen = ref(false);
 const prevRect = ref({ x: x.value, y: y.value, w: width.value, h: height.value });
@@ -251,11 +260,13 @@ function stopResize() {
 }
 
 const activeTab = ref('general');
-const { THEMES, currentTheme, applyTheme } = useTheme();
+const { THEMES, currentTheme, applyTheme, uiFxEnabled, setUiFxEnabled } = useTheme();
 const selectedTheme = ref(currentTheme.value);
 const themes = THEMES;
+const uiFxEnabledLocal = ref(uiFxEnabled.value);
 
 function applyThemeSetting() { applyTheme(selectedTheme.value); }
+function applyFxSetting() { setUiFxEnabled(uiFxEnabledLocal.value); }
 function toggleSetupMode() { emit('toggle-setup'); }
 function toggleTrackingSetup() { emit('toggle-tracking-setup'); }
 function quitApp() { window.desktopApi?.quit?.(); }
@@ -264,9 +275,7 @@ const isAlwaysOnTop = ref(true);
 function toggleAlwaysOnTop() { window.desktopApi?.setAlwaysOnTop?.(isAlwaysOnTop.value); }
 
 onMounted(async () => {
-  try {
-    // 可擴展：讀取初始置頂狀態
-  } catch {}
+  uiFxEnabledLocal.value = uiFxEnabled.value;
 });
 
 onBeforeUnmount(() => {
@@ -280,16 +289,10 @@ onBeforeUnmount(() => {
   position: fixed;
   display: flex;
   flex-direction: column;
-  background:
-    radial-gradient(circle at 8% 12%, rgba(0,255,200,0.07), transparent 38%),
-    radial-gradient(circle at 92% 88%, rgba(0,170,255,0.06), transparent 36%),
-    linear-gradient(150deg, rgba(7,12,22,0.97), rgba(4,8,16,0.97));
-  border: 1px solid rgba(0,255,200,0.2);
+  background: var(--bg-panel, linear-gradient(150deg, rgba(7,12,22,0.97), rgba(4,8,16,0.97)));
+  border: 1px solid var(--border, rgba(0,255,200,0.2));
   border-radius: 10px;
-  box-shadow:
-    0 20px 60px rgba(0,0,0,0.8),
-    0 0 0 1px rgba(255,255,255,0.03) inset,
-    0 1px 0 rgba(255,255,255,0.05) inset;
+  box-shadow: var(--shadow-panel, 0 20px 60px rgba(0,0,0,0.8));
   color: var(--text-main, #e8fff8);
   z-index: 9500;
   overflow: hidden;
@@ -300,14 +303,13 @@ onBeforeUnmount(() => {
   border-radius: 0;
 }
 
-/* ── Header ── */
 .panel-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 10px 14px;
   background: rgba(0,0,0,0.28);
-  border-bottom: 1px solid rgba(0,255,200,0.14);
+  border-bottom: 1px solid color-mix(in oklab, var(--border, rgba(0,255,200,0.14)) 78%, transparent);
   cursor: move;
   user-select: none;
   flex-shrink: 0;
@@ -330,7 +332,7 @@ onBeforeUnmount(() => {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.12em;
-  color: rgba(0,255,200,0.9);
+  color: color-mix(in oklab, var(--primary, #00ffc8) 88%, white 12%);
 }
 .header-actions {
   display: flex;
@@ -338,8 +340,8 @@ onBeforeUnmount(() => {
   gap: 6px;
 }
 .header-btn {
-  border: 1px solid rgba(255,255,255,0.18);
-  background: rgba(255,255,255,0.07);
+  border: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.18)) 68%, transparent);
+  background: color-mix(in oklab, var(--bg-panel-soft, rgba(255,255,255,0.07)) 100%, transparent);
   color: var(--text-main, #fff);
   width: 24px;
   height: 22px;
@@ -351,21 +353,20 @@ onBeforeUnmount(() => {
 }
 .header-btn:hover {
   border-color: var(--primary, #00ffc8);
-  box-shadow: 0 0 8px rgba(0,255,200,0.2);
+  box-shadow: var(--glow-primary, 0 0 8px rgba(0,255,200,0.2));
 }
 .close-btn {
   background: none;
   border: none;
-  color: rgba(255,255,255,0.55);
+  color: color-mix(in oklab, var(--text-main, #fff) 65%, transparent);
   font-size: 20px;
   cursor: pointer;
   line-height: 1;
   padding: 0 2px;
   transition: color 0.2s, transform 0.2s;
 }
-.close-btn:hover { color: #fff; transform: scale(1.1); }
+.close-btn:hover { color: var(--text-main, #fff); transform: scale(1.1); }
 
-/* ── Body Layout ── */
 .panel-body {
   flex: 1;
   display: flex;
@@ -373,12 +374,11 @@ onBeforeUnmount(() => {
   min-height: 0;
 }
 
-/* ── Sidebar ── */
 .sidebar {
-  width: 120px;
+  width: 126px;
   flex-shrink: 0;
-  background: rgba(0,0,0,0.22);
-  border-right: 1px solid rgba(0,255,200,0.1);
+  background: color-mix(in oklab, var(--bg-sidebar, rgba(0,0,0,0.22)) 100%, transparent);
+  border-right: 1px solid color-mix(in oklab, var(--border, rgba(0,255,200,0.1)) 58%, transparent);
   display: flex;
   flex-direction: column;
   padding: 8px 0;
@@ -395,11 +395,11 @@ onBeforeUnmount(() => {
   transition: background 0.18s, color 0.18s, border-color 0.18s;
 }
 .menu-item:hover {
-  background: rgba(0,255,200,0.06);
+  background: var(--hover, rgba(0,255,200,0.06));
   color: var(--text-main, #e8fff8);
 }
 .menu-item.active {
-  background: linear-gradient(90deg, rgba(0,255,200,0.1), rgba(0,255,200,0.04));
+  background: linear-gradient(90deg, color-mix(in oklab, var(--primary, #00ffc8) 18%, transparent), color-mix(in oklab, var(--primary, #00ffc8) 8%, transparent));
   color: var(--primary, #00ffc8);
   border-left-color: var(--primary, #00ffc8);
 }
@@ -409,7 +409,6 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 
-/* ── Content ── */
 .content {
   flex: 1;
   overflow-y: auto;
@@ -428,12 +427,11 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
-/* ── Section ── */
 .section {
-  border: 1px solid rgba(0,255,200,0.1);
+  border: 1px solid color-mix(in oklab, var(--border, rgba(0,255,200,0.1)) 56%, transparent);
   border-radius: 7px;
   padding: 12px 14px;
-  background: rgba(0,0,0,0.18);
+  background: color-mix(in oklab, var(--bg-panel-soft, rgba(0,0,0,0.18)) 100%, transparent);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -443,7 +441,7 @@ onBeforeUnmount(() => {
   font-weight: 700;
   letter-spacing: 0.14em;
   color: var(--primary, #00ffc8);
-  opacity: 0.85;
+  opacity: 0.9;
   text-transform: uppercase;
 }
 .section-title em {
@@ -460,7 +458,6 @@ onBeforeUnmount(() => {
   margin: 0;
 }
 
-/* ── Controls ── */
 .theme-control {
   display: flex;
   gap: 8px;
@@ -469,7 +466,7 @@ onBeforeUnmount(() => {
 .theme-control select {
   flex: 1;
   background: rgba(0,0,0,0.35);
-  border: 1px solid rgba(0,255,200,0.18);
+  border: 1px solid color-mix(in oklab, var(--border, rgba(0,255,200,0.18)) 68%, transparent);
   color: var(--text-main, #e8fff8);
   border-radius: 5px;
   padding: 6px 10px;
@@ -478,7 +475,7 @@ onBeforeUnmount(() => {
   transition: border-color 0.2s;
 }
 .theme-control select:focus {
-  border-color: rgba(0,255,200,0.45);
+  border-color: color-mix(in oklab, var(--primary, #00ffc8) 58%, transparent);
 }
 .apply-btn {
   background: var(--primary, #00ffc8);
@@ -517,8 +514,8 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 .action-btn {
-  background: rgba(0,255,200,0.1);
-  border: 1px solid rgba(0,255,200,0.28);
+  background: color-mix(in oklab, var(--primary, #00ffc8) 16%, transparent);
+  border: 1px solid color-mix(in oklab, var(--primary, #00ffc8) 38%, transparent);
   color: var(--primary, #00ffc8);
   border-radius: 5px;
   padding: 6px 14px;
@@ -529,7 +526,7 @@ onBeforeUnmount(() => {
   transition: background 0.18s, border-color 0.18s, transform 0.15s;
 }
 .action-btn:hover {
-  background: rgba(0,255,200,0.18);
+  background: color-mix(in oklab, var(--primary, #00ffc8) 24%, transparent);
   transform: translateY(-1px);
 }
 .action-btn.active-red {
@@ -547,7 +544,6 @@ onBeforeUnmount(() => {
   color: var(--text-main, #e8fff8);
 }
 
-/* ── Status Row ── */
 .status-row {
   display: flex;
   align-items: center;
@@ -582,7 +578,6 @@ onBeforeUnmount(() => {
 }
 .logout-btn:hover { background: rgba(255,80,80,0.22); }
 
-/* ── Appearance ── */
 .appearance-list {
   display: flex;
   flex-direction: column;
@@ -607,7 +602,6 @@ onBeforeUnmount(() => {
   color: var(--text-main, #e8fff8);
 }
 
-/* ── Quit ── */
 .quit-section {
   border-color: rgba(255,60,60,0.15);
   background: rgba(255,60,60,0.04);
@@ -630,7 +624,6 @@ onBeforeUnmount(() => {
   transform: translateY(-1px);
 }
 
-/* ── Resize Handles ── */
 .resize-handle {
   position: absolute;
   width: 14px;
@@ -641,7 +634,6 @@ onBeforeUnmount(() => {
 .resize-handle.se { right: 0; cursor: se-resize; }
 .resize-handle.sw { left: 0; cursor: sw-resize; }
 
-/* ── Scrollbar ── */
 .content::-webkit-scrollbar,
 .appearance-list::-webkit-scrollbar {
   width: 6px;
@@ -653,11 +645,11 @@ onBeforeUnmount(() => {
 }
 .content::-webkit-scrollbar-thumb,
 .appearance-list::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgba(0,255,200,0.4), rgba(0,170,255,0.4));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--primary, #00ffc8) 50%, transparent), color-mix(in oklab, var(--primary-2, #00aaff) 50%, transparent));
   border-radius: 6px;
 }
 .content::-webkit-scrollbar-thumb:hover,
 .appearance-list::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, rgba(0,255,200,0.65), rgba(0,170,255,0.6));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--primary, #00ffc8) 68%, transparent), color-mix(in oklab, var(--primary-2, #00aaff) 65%, transparent));
 }
 </style>

@@ -8,5 +8,5 @@ import * as PIXI from "pixi.js";
 window.PIXI = PIXI;
 
 createApp(App)
-  .use(router)   
+  .use(router)
   .mount("#app");
