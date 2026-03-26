@@ -300,8 +300,10 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         if (!success) {
             // 首次失败，尝试重试
             for (int r = retryCount + 1; r <= maxRetry; r++) {
-                log.warn("[Node] 节点首次失败，准备第 {} 次重试, nodeId={}, planId={}, phaseId={}, failReason={}",
-                        r, nodeId, planId, phaseId, extractErrorMessage(agentResult));
+                String errMsg = extractErrorMessage(agentResult);
+                String errCode = extractErrorCode(agentResult);
+                log.warn("[Node] 节点首次失败，准备第 {} 次重试, nodeId={}, planId={}, phaseId={}, errorCode={}, failReason={}",
+                        r, nodeId, planId, phaseId, errCode, errMsg);
 
                 safeUpdateNodeStatus(planId, nodeId, PlanNodeStatus.RUNNING, null, null, r);
                 agentResult = agentService.processToolCalling(sessionId, nodeGoal);
@@ -535,23 +537,71 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
     }
 
     private String extractErrorMessage(String result) {
-        if (result == null) return "unknown error";
+        if (result == null || result.isBlank()) return "unknown error";
         try {
             com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(result);
-            return node.path("message").asText(node.path("error").asText("unknown error"));
-        } catch (Exception e) {
+
+            String msg = firstNonBlank(
+                    node.path("message").asText(""),
+                    node.path("error").asText(""),
+                    node.path("reason").asText(""),
+                    node.path("detail").asText("")
+            );
+            if (msg != null) {
+                return truncate(msg, 300);
+            }
+
+            String status = node.path("status").asText("");
+            if ("error".equalsIgnoreCase(status) || "failed".equalsIgnoreCase(status)) {
+                return truncate(node.toString(), 300);
+            }
+
             return "unknown error";
+        } catch (Exception e) {
+            // 非 JSON 文本，直接作为错误信息回传，避免丢失上下文
+            return truncate(result, 300);
         }
     }
 
     private String extractErrorCode(String result) {
-        if (result == null) return "UNKNOWN_ERROR";
+        if (result == null || result.isBlank()) return "UNKNOWN_ERROR";
         try {
             com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(result);
-            return node.path("errorCode").asText("UNKNOWN_ERROR");
+
+            String code = firstNonBlank(
+                    node.path("errorCode").asText(""),
+                    node.path("code").asText("")
+            );
+            if (code != null) {
+                return truncate(code, 80);
+            }
+
+            String status = node.path("status").asText("");
+            if ("error".equalsIgnoreCase(status) || "failed".equalsIgnoreCase(status)) {
+                return "UNKNOWN_ERROR";
+            }
+
+            return "UNKNOWN_ERROR";
         } catch (Exception e) {
             return "UNKNOWN_ERROR";
         }
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null || values.length == 0) return null;
+        for (String v : values) {
+            if (v != null && !v.isBlank()) {
+                return v.trim();
+            }
+        }
+        return null;
+    }
+
+    private String truncate(String text, int maxLen) {
+        if (text == null) return "";
+        String t = text.trim();
+        if (t.length() <= maxLen) return t;
+        return t.substring(0, Math.max(0, maxLen)) + "...";
     }
 
     private Object safeParse(String text) {
