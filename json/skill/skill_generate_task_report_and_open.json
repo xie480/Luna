@@ -43,7 +43,3 @@
     "调用【emit_report_event】SSE事件推送工具，要干什么：向前端实时推送报告就绪通知，触发前端可视化界面刷新；怎么做：以 PLAN_REPORT_READY 事件类型封装 planId、reportUrl、openResult、finalStatus 等字段，通过 SSE 通道推送给订阅客户端。"
   ]
 }
-
-以下是断点后所有剩余文件的完整输出：
-
-json\skill\skill_execute_plan_phase.json
