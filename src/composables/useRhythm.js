@@ -18,7 +18,7 @@ export function useRhythm() {
     bodySway: 0,
     headNod: 0,
     breath: 0.5,
-    intervalId: null,
+    rafId: null,
 
     glitchJitter: 0,
     glitchTimer: 0,
@@ -33,6 +33,7 @@ export function useRhythm() {
   const RHYTHM_CFG = {
     fftSize: 512,
     smoothing: 0.86,
+    processEveryNFrames: 2,
     bands: {
       bass: { start: 0, end: 4 },
       mid: { start: 5, end: 30 },
@@ -212,6 +213,7 @@ export function useRhythm() {
     let prevBass = 0;
     let beatCooldown = 0;
     let glitchBurst = 0;
+    let frameCounter = 0;
 
     state.glitchTimer =
       RHYTHM_CFG.glitch.minInterval +
@@ -221,148 +223,155 @@ export function useRhythm() {
     state.bootDone = false;
     runBootSequence(core);
 
-    state.intervalId = setInterval(() => {
+    const frame = () => {
       if (!state.isListening) {
-        clearInterval(state.intervalId);
-        state.intervalId = null;
+        state.rafId = null;
         return;
       }
 
-      analyser.getByteFrequencyData(dataArray);
+      frameCounter++;
+      const shouldProcess = frameCounter % RHYTHM_CFG.processEveryNFrames === 0;
 
-      const { bass, mid } = RHYTHM_CFG.bands;
-      let bassSum = 0;
-      let midSum = 0;
+      if (shouldProcess) {
+        analyser.getByteFrequencyData(dataArray);
 
-      for (let i = bass.start; i <= bass.end && i < binCount; i++) bassSum += dataArray[i];
-      const bassEnergy = bassSum / ((bass.end - bass.start + 1) * 255);
+        const { bass, mid } = RHYTHM_CFG.bands;
+        let bassSum = 0;
+        let midSum = 0;
 
-      for (let i = mid.start; i <= mid.end && i < binCount; i++) midSum += dataArray[i];
-      const midEnergy = midSum / ((mid.end - mid.start + 1) * 255);
+        for (let i = bass.start; i <= bass.end && i < binCount; i++) bassSum += dataArray[i];
+        const bassEnergy = bassSum / ((bass.end - bass.start + 1) * 255);
 
-      const { bassAttack, bassRelease, midAttack, midRelease } = RHYTHM_CFG.envelope;
-      state.bassLevel +=
-        (bassEnergy - state.bassLevel) * (bassEnergy > state.bassLevel ? bassAttack : bassRelease);
-      state.midLevel +=
-        (midEnergy - state.midLevel) * (midEnergy > state.midLevel ? midAttack : midRelease);
+        for (let i = mid.start; i <= mid.end && i < binCount; i++) midSum += dataArray[i];
+        const midEnergy = midSum / ((mid.end - mid.start + 1) * 255);
 
-      if (beatCooldown > 0) {
-        beatCooldown--;
-      } else {
-        const beat = detectBeat(state.bassLevel, prevBass);
-        if (beat.isBeat) {
-          state.beatDetected = true;
-          state.beatIntensity = beat.intensity;
-          beatCooldown = RHYTHM_CFG.beatDetection.cooldown;
-          state.beatEcho = Math.max(state.beatEcho, beat.intensity * 0.9);
-        }
-      }
+        const { bassAttack, bassRelease, midAttack, midRelease } = RHYTHM_CFG.envelope;
+        state.bassLevel +=
+          (bassEnergy - state.bassLevel) * (bassEnergy > state.bassLevel ? bassAttack : bassRelease);
+        state.midLevel +=
+          (midEnergy - state.midLevel) * (midEnergy > state.midLevel ? midAttack : midRelease);
 
-      state.beatIntensity *= RHYTHM_CFG.beatDetection.decay;
-      if (state.beatIntensity < 0.02) state.beatDetected = false;
-
-      state.beatEcho *= RHYTHM_CFG.beatEcho.decay;
-      if (state.beatEcho < RHYTHM_CFG.beatEcho.threshold) state.beatEcho = 0;
-
-      if (state.bootDone) {
-        if (glitchBurst > 0) {
-          state.glitchJitter = randSigned() * RHYTHM_CFG.glitch.maxBodyShift;
-          glitchBurst--;
+        if (beatCooldown > 0) {
+          beatCooldown--;
         } else {
-          state.glitchJitter *= RHYTHM_CFG.glitch.decaySpeed;
-          if (Math.abs(state.glitchJitter) < 0.01) state.glitchJitter = 0;
-          state.glitchTimer--;
-          if (state.glitchTimer <= 0) {
-            glitchBurst = RHYTHM_CFG.glitch.burstCount;
-            state.glitchTimer =
-              RHYTHM_CFG.glitch.minInterval +
-              Math.floor(
-                Math.random() * (RHYTHM_CFG.glitch.maxInterval - RHYTHM_CFG.glitch.minInterval),
-              );
+          const beat = detectBeat(state.bassLevel, prevBass);
+          if (beat.isBeat) {
+            state.beatDetected = true;
+            state.beatIntensity = beat.intensity;
+            beatCooldown = RHYTHM_CFG.beatDetection.cooldown;
+            state.beatEcho = Math.max(state.beatEcho, beat.intensity * 0.9);
           }
         }
 
-        state.scanPulseTimer--;
-        if (state.scanPulseTimer <= 0 && !state.scanPulseActive) {
-          state.scanPulseActive = true;
-          state.scanPulseTimer = RHYTHM_CFG.scan.interval + Math.floor(Math.random() * 80);
-        }
+        state.beatIntensity *= RHYTHM_CFG.beatDetection.decay;
+        if (state.beatIntensity < 0.02) state.beatDetected = false;
 
-        if (state.scanPulseActive) {
-          if (state.scanPulseValue < RHYTHM_CFG.scan.peakAngle) {
-            state.scanPulseValue = lerp(
-              state.scanPulseValue,
-              RHYTHM_CFG.scan.peakAngle,
-              RHYTHM_CFG.scan.riseSpeed,
-            );
+        state.beatEcho *= RHYTHM_CFG.beatEcho.decay;
+        if (state.beatEcho < RHYTHM_CFG.beatEcho.threshold) state.beatEcho = 0;
+
+        if (state.bootDone) {
+          if (glitchBurst > 0) {
+            state.glitchJitter = randSigned() * RHYTHM_CFG.glitch.maxBodyShift;
+            glitchBurst--;
           } else {
-            state.scanPulseValue = lerp(state.scanPulseValue, 0, RHYTHM_CFG.scan.fallSpeed);
-            if (state.scanPulseValue < 0.05) {
-              state.scanPulseValue = 0;
-              state.scanPulseActive = false;
+            state.glitchJitter *= RHYTHM_CFG.glitch.decaySpeed;
+            if (Math.abs(state.glitchJitter) < 0.01) state.glitchJitter = 0;
+            state.glitchTimer--;
+            if (state.glitchTimer <= 0) {
+              glitchBurst = RHYTHM_CFG.glitch.burstCount;
+              state.glitchTimer =
+                RHYTHM_CFG.glitch.minInterval +
+                Math.floor(
+                  Math.random() * (RHYTHM_CFG.glitch.maxInterval - RHYTHM_CFG.glitch.minInterval),
+                );
+            }
+          }
+
+          state.scanPulseTimer--;
+          if (state.scanPulseTimer <= 0 && !state.scanPulseActive) {
+            state.scanPulseActive = true;
+            state.scanPulseTimer = RHYTHM_CFG.scan.interval + Math.floor(Math.random() * 80);
+          }
+
+          if (state.scanPulseActive) {
+            if (state.scanPulseValue < RHYTHM_CFG.scan.peakAngle) {
+              state.scanPulseValue = lerp(
+                state.scanPulseValue,
+                RHYTHM_CFG.scan.peakAngle,
+                RHYTHM_CFG.scan.riseSpeed,
+              );
+            } else {
+              state.scanPulseValue = lerp(state.scanPulseValue, 0, RHYTHM_CFG.scan.fallSpeed);
+              if (state.scanPulseValue < 0.05) {
+                state.scanPulseValue = 0;
+                state.scanPulseActive = false;
+              }
             }
           }
         }
+
+        const qNoise = quantumNoiseSample(quantumPhase) * RHYTHM_CFG.quantum.amplitude;
+        const cfg = RHYTHM_CFG;
+
+        const targetBodyX =
+          Math.sin(bodyPhase) * (1 + state.bassLevel * cfg.body.bassMultiplier) * cfg.body.maxSway * 0.5 +
+          (state.bootDone ? state.glitchJitter * 0.8 : 0);
+
+        let targetHeadZ;
+        if (state.beatDetected) {
+          targetHeadZ = state.beatIntensity * cfg.head.nodMaxAngle;
+        } else {
+          targetHeadZ =
+            Math.sin(headSwayPhase * 0.7) * state.midLevel * cfg.head.nodMaxAngle * 0.35 +
+            state.beatEcho * cfg.head.nodMaxAngle * 0.45 +
+            (state.bootDone ? state.glitchJitter * 0.5 : 0);
+        }
+
+        if (state.bootDone && state.scanPulseActive) targetHeadZ += state.scanPulseValue * 0.6;
+
+        let targetHeadY = Math.sin(headSwayPhase) * state.bassLevel * cfg.head.swayMaxAngle * 0.4;
+
+        if (state.bootDone && state.scanPulseActive) targetHeadY += Math.sin(state.scanPulseValue * 0.8) * 1.8;
+
+        const targetBreath =
+          cfg.breath.baseRate +
+          Math.sin(breathPhase) * cfg.breath.amplitude * (1 + state.midLevel * 0.5) +
+          qNoise;
+
+        const headSmooth = state.beatDetected ? cfg.head.nodSmoothness : cfg.head.returnSpeed;
+
+        state.bodySway += (targetBodyX - state.bodySway) * cfg.body.smoothness;
+        state.headNod += (targetHeadZ - state.headNod) * headSmooth;
+        state.breath += (targetBreath - state.breath) * 0.07;
+
+        bodyPhase = (bodyPhase + cfg.body.sinSpeed * (1 + state.bassLevel * 0.6)) % (Math.PI * 2);
+        headSwayPhase = (headSwayPhase + cfg.head.microSway * (1 + state.midLevel * 0.4)) % (Math.PI * 2);
+        breathPhase = (breathPhase + cfg.breath.speed * 0.04) % (Math.PI * 2);
+        quantumPhase = (quantumPhase + RHYTHM_CFG.quantum.noiseSpeed * 0.05) % (Math.PI * 2);
+
+        if (state.bootDone) {
+          try {
+            core.setParameterValueById("ParamBodyAngleX", state.bodySway);
+            core.setParameterValueById("ParamAngleZ", state.headNod);
+            core.setParameterValueById("ParamAngleY", targetHeadY);
+            core.setParameterValueById("ParamBreath", state.breath);
+          } catch {}
+        }
+
+        prevBass = state.bassLevel;
       }
 
-      const qNoise = quantumNoiseSample(quantumPhase) * RHYTHM_CFG.quantum.amplitude;
-      const cfg = RHYTHM_CFG;
+      state.rafId = requestAnimationFrame(frame);
+    };
 
-      const targetBodyX =
-        Math.sin(bodyPhase) * (1 + state.bassLevel * cfg.body.bassMultiplier) * cfg.body.maxSway * 0.5 +
-        (state.bootDone ? state.glitchJitter * 0.8 : 0);
-
-      let targetHeadZ;
-      if (state.beatDetected) {
-        targetHeadZ = state.beatIntensity * cfg.head.nodMaxAngle;
-      } else {
-        targetHeadZ =
-          Math.sin(headSwayPhase * 0.7) * state.midLevel * cfg.head.nodMaxAngle * 0.35 +
-          state.beatEcho * cfg.head.nodMaxAngle * 0.45 +
-          (state.bootDone ? state.glitchJitter * 0.5 : 0);
-      }
-
-      if (state.bootDone && state.scanPulseActive) targetHeadZ += state.scanPulseValue * 0.6;
-
-      let targetHeadY = Math.sin(headSwayPhase) * state.bassLevel * cfg.head.swayMaxAngle * 0.4;
-
-      if (state.bootDone && state.scanPulseActive) targetHeadY += Math.sin(state.scanPulseValue * 0.8) * 1.8;
-
-      const targetBreath =
-        cfg.breath.baseRate +
-        Math.sin(breathPhase) * cfg.breath.amplitude * (1 + state.midLevel * 0.5) +
-        qNoise;
-
-      const headSmooth = state.beatDetected ? cfg.head.nodSmoothness : cfg.head.returnSpeed;
-
-      state.bodySway += (targetBodyX - state.bodySway) * cfg.body.smoothness;
-      state.headNod += (targetHeadZ - state.headNod) * headSmooth;
-      state.breath += (targetBreath - state.breath) * 0.07;
-
-      bodyPhase = (bodyPhase + cfg.body.sinSpeed * (1 + state.bassLevel * 0.6)) % (Math.PI * 2);
-      headSwayPhase = (headSwayPhase + cfg.head.microSway * (1 + state.midLevel * 0.4)) % (Math.PI * 2);
-      breathPhase = (breathPhase + cfg.breath.speed * 0.04) % (Math.PI * 2);
-      quantumPhase = (quantumPhase + RHYTHM_CFG.quantum.noiseSpeed * 0.05) % (Math.PI * 2);
-
-      if (state.bootDone) {
-        try {
-          core.setParameterValueById("ParamBodyAngleX", state.bodySway);
-          core.setParameterValueById("ParamAngleZ", state.headNod);
-          core.setParameterValueById("ParamAngleY", targetHeadY);
-          core.setParameterValueById("ParamBreath", state.breath);
-        } catch {}
-      }
-
-      prevBass = state.bassLevel;
-    }, 16);
-
-    console.log("[律动] 自然律动循环启动（setInterval 模式）");
+    state.rafId = requestAnimationFrame(frame);
+    console.log("[律动] 自然律动循环启动（requestAnimationFrame 模式）");
   }
 
   function stopRhythmLoop() {
-    if (state.intervalId) {
-      clearInterval(state.intervalId);
-      state.intervalId = null;
+    if (state.rafId) {
+      cancelAnimationFrame(state.rafId);
+      state.rafId = null;
     }
   }
 

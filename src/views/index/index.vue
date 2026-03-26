@@ -279,6 +279,49 @@ let planReconnectTimer = null;
 let planReconnectAttempt = 0;
 const PLAN_RECONNECT_STEPS = [1000, 2000, 5000, 10000, 30000];
 
+const SNAPSHOT_THROTTLE_MS = 1200;
+let snapshotSyncTimer = null;
+let snapshotSyncPendingPlanId = "";
+let snapshotSyncLastAt = 0;
+
+function schedulePlanSnapshotSync(planId, immediate = false) {
+  const pid = planId || activePlanId;
+  if (!pid) return;
+
+  snapshotSyncPendingPlanId = pid;
+  const now = Date.now();
+  const elapsed = now - snapshotSyncLastAt;
+
+  const runSync = async () => {
+    const runPid = snapshotSyncPendingPlanId || activePlanId;
+    snapshotSyncPendingPlanId = "";
+    snapshotSyncTimer = null;
+    if (!runPid) return;
+    snapshotSyncLastAt = Date.now();
+    try {
+      await planStore.syncGraphSnapshot(runPid);
+      planReconnectAttempt = 0;
+    } catch (e) {
+      console.error("[Plan] 节流快照同步失败:", e);
+      schedulePlanSnapshotReconnect();
+    }
+  };
+
+  if (immediate || elapsed >= SNAPSHOT_THROTTLE_MS) {
+    if (snapshotSyncTimer) {
+      clearTimeout(snapshotSyncTimer);
+      snapshotSyncTimer = null;
+    }
+    runSync();
+    return;
+  }
+
+  if (!snapshotSyncTimer) {
+    const wait = SNAPSHOT_THROTTLE_MS - elapsed;
+    snapshotSyncTimer = setTimeout(runSync, wait);
+  }
+}
+
 async function handlePlanCreated({ planId }) {
   if (!planId) return;
   activePlanId = planId;
@@ -290,6 +333,7 @@ async function handlePlanCreated({ planId }) {
 
   try {
     await planStore.syncGraphSnapshot(planId);
+    snapshotSyncLastAt = Date.now();
     appearance.showAppearanceHint("已加载计划图谱快照");
   } catch (e) {
     console.error("[Plan] 首次快照拉取失败:", e);
@@ -309,6 +353,7 @@ function schedulePlanSnapshotReconnect() {
     planReconnectTimer = null;
     try {
       await planStore.syncGraphSnapshot(activePlanId);
+      snapshotSyncLastAt = Date.now();
       planReconnectAttempt = 0;
       appearance.showAppearanceHint("计划图谱已自动校准");
     } catch (e) {
@@ -323,7 +368,8 @@ const approvalTask = ref(null);
 
 const { loadTheme } = useTheme();
 
-const STATUS_MIN_DISPLAY_MS = 1000;
+const STATUS_MIN_DISPLAY_MS = 350;
+const STATUS_QUEUE_MAX = 20;
 const statusQueue = [];
 let isConsumingStatusQueue = false;
 let statusLastEnqueued = "";
@@ -362,6 +408,9 @@ function enqueueStatusMessage(msg) {
   if (text === statusLastEnqueued) return;
   statusLastEnqueued = text;
 
+  if (statusQueue.length >= STATUS_QUEUE_MAX) {
+    statusQueue.splice(0, statusQueue.length - STATUS_QUEUE_MAX + 1);
+  }
   statusQueue.push(text);
 
   if (!isConsumingStatusQueue) {
@@ -1229,7 +1278,7 @@ function togglePlan() {
   if (showPlan.value) {
     uiEnter();
     if (activePlanId) {
-      planStore.syncGraphSnapshot(activePlanId).catch(() => {});
+      schedulePlanSnapshotSync(activePlanId, true);
     }
   }
 }
@@ -1363,10 +1412,14 @@ onMounted(async () => {
           planStore.lockPlanFinalState(pid);
         }
 
-        if ((eventType === "PLAN_NODE_FAILED" || eventType === "PLAN_PHASE_FINISHED" || eventType === "PLAN_REPORT_READY" || eventType === "PLAN_FINISHED") && activePlanId) {
-          planStore.syncGraphSnapshot(activePlanId).catch(() => {
-            schedulePlanSnapshotReconnect();
-          });
+        if (
+          (eventType === "PLAN_NODE_FAILED" ||
+            eventType === "PLAN_PHASE_FINISHED" ||
+            eventType === "PLAN_REPORT_READY" ||
+            eventType === "PLAN_FINISHED") &&
+          activePlanId
+        ) {
+          schedulePlanSnapshotSync(activePlanId, false);
         }
 
         if (eventType === "SKILL_ASYNC_RESULT") {
@@ -1454,7 +1507,7 @@ onMounted(async () => {
 
   const onVisibility = () => {
     if (!document.hidden && activePlanId) {
-      planStore.syncGraphSnapshot(activePlanId).catch(() => {});
+      schedulePlanSnapshotSync(activePlanId, true);
     }
   };
   document.addEventListener("visibilitychange", onVisibility);
@@ -1480,6 +1533,11 @@ onBeforeUnmount(() => {
   if (planReconnectTimer) {
     clearTimeout(planReconnectTimer);
     planReconnectTimer = null;
+  }
+
+  if (snapshotSyncTimer) {
+    clearTimeout(snapshotSyncTimer);
+    snapshotSyncTimer = null;
   }
 
   resetBootLogScroll();
