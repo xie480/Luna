@@ -25,69 +25,84 @@ registerMcpIpc();
 
 /* ===== IPC handlers for History API ===== */
 ipcMain.handle("luna.api.chat.history.date", async (_event, yearMonth) => {
-  console.log('[History] fetching available dates for', yearMonth);
+  console.log("[History] fetching available dates for", yearMonth);
 
-  if (typeof yearMonth !== 'string') {
-    throw new TypeError('yearMonth must be string');
+  if (typeof yearMonth !== "string") {
+    throw new TypeError("yearMonth must be string");
   }
 
-  return http.get('/luna/api/chat/history/date', {
-    params: { ym: yearMonth }
-  }).catch(err => { throw new Error(err.message); });
+  return http
+    .get("/luna/api/chat/history/date", {
+      params: { ym: yearMonth },
+    })
+    .catch((err) => {
+      throw new Error(err.message);
+    });
 });
 
 ipcMain.handle("luna.api.chat.history", async (_event, yearMonthDay) => {
-  console.log('[History] fetching chat history for', yearMonthDay);
-  if (typeof yearMonthDay !== 'string') {
-    throw new TypeError('yearMonthDay must be string');
+  console.log("[History] fetching chat history for", yearMonthDay);
+  if (typeof yearMonthDay !== "string") {
+    throw new TypeError("yearMonthDay must be string");
   }
-  return http.get('/luna/api/chat/history', { params: { ymd: yearMonthDay } })
-    .catch(err => { throw new Error(err.message); });
+  return http
+    .get("/luna/api/chat/history", { params: { ymd: yearMonthDay } })
+    .catch((err) => {
+      throw new Error(err.message);
+    });
 });
 
 /* ===== 新增：四个分页查询 IPC ===== */
 ipcMain.handle("luna.api.query.knowledge-base", async (_event, payload = {}) => {
-  return http.post("/luna/api/query/knowledge-base", payload)
-    .catch(err => { throw new Error(err.message); });
+  return http.post("/luna/api/query/knowledge-base", payload).catch((err) => {
+    throw new Error(err.message);
+  });
 });
 
 ipcMain.handle("luna.api.query.user-preference", async (_event, payload = {}) => {
-  return http.post("/luna/api/query/user-preference", payload)
-    .catch(err => { throw new Error(err.message); });
+  return http.post("/luna/api/query/user-preference", payload).catch((err) => {
+    throw new Error(err.message);
+  });
 });
 
 ipcMain.handle("luna.api.query.memory", async (_event, payload = {}) => {
-  return http.post("/luna/api/query/memory", payload)
-    .catch(err => { throw new Error(err.message); });
+  return http.post("/luna/api/query/memory", payload).catch((err) => {
+    throw new Error(err.message);
+  });
 });
 
 ipcMain.handle("luna.api.query.log", async (_event, payload = {}) => {
-  return http.post("/luna/api/query/log", payload)
-    .catch(err => { throw new Error(err.message); });
+  return http.post("/luna/api/query/log", payload).catch((err) => {
+    throw new Error(err.message);
+  });
 });
 
 /* ===== OpenClaw Plan IPC ===== */
 ipcMain.handle("luna.api.plan.run", async (_event, payload = {}) => {
-  return http.post("/luna/api/plan/run", payload)
-    .catch(err => { throw new Error(err.message); });
+  return http.post("/luna/api/plan/run", payload).catch((err) => {
+    throw new Error(err.message);
+  });
 });
 
 ipcMain.handle("luna.api.plan.phase.run", async (_event, payload = {}) => {
-  return http.post("/luna/api/plan/phase/run", payload)
-    .catch(err => { throw new Error(err.message); });
+  return http.post("/luna/api/plan/phase/run", payload).catch((err) => {
+    throw new Error(err.message);
+  });
 });
 
 ipcMain.handle("luna.api.plan.report.finalize", async (_event, payload = {}) => {
-  return http.post("/luna/api/plan/report/finalize", payload)
-    .catch(err => { throw new Error(err.message); });
+  return http.post("/luna/api/plan/report/finalize", payload).catch((err) => {
+    throw new Error(err.message);
+  });
 });
 
 ipcMain.handle("luna.api.plan.graph", async (_event, planId) => {
   if (!planId || typeof planId !== "string") {
     throw new Error("planId is required");
   }
-  return http.get(`/luna/api/plan/graph/${encodeURIComponent(planId)}`)
-    .catch(err => { throw new Error(err.message); });
+  return http.get(`/luna/api/plan/graph/${encodeURIComponent(planId)}`).catch((err) => {
+    throw new Error(err.message);
+  });
 });
 
 ipcMain.handle("luna.app.openExternal", async (_event, target) => {
@@ -99,15 +114,18 @@ ipcMain.handle("luna.app.openExternal", async (_event, target) => {
 
 /* ===== Auth: login / logout ===== */
 ipcMain.handle("auth.login", async (event, payload) => {
-  return http.post("/auth/login", payload)
-    .then(data => {
+  return http
+    .post("/auth/login", payload)
+    .then((data) => {
       if (data && data.token) {
         setAuthToken(data.token);
-        startSSE(event.sender).catch(err => console.error("[Main] Auto start SSE failed:", err));
+        startSSE(event.sender).catch((err) => console.error("[Main] Auto start SSE failed:", err));
       }
       return data;
     })
-    .catch(err => { throw new Error(err.message); });
+    .catch((err) => {
+      throw new Error(err.message);
+    });
 });
 
 ipcMain.handle("auth.logout", async (_event, token) => {
@@ -116,15 +134,18 @@ ipcMain.handle("auth.logout", async (_event, token) => {
 
   const bearer = typeof t === "string" && t.startsWith("Bearer ") ? t : `Bearer ${t}`;
 
-  return http.post("/auth/logout", null, {
-    headers: { Authorization: bearer },
-  })
-  .then(data => {
-    setAuthToken(null);
-    stopSSE();
-    return data;
-  })
-  .catch(err => { throw new Error(err.message); });
+  return http
+    .post("/auth/logout", null, {
+      headers: { Authorization: bearer },
+    })
+    .then((data) => {
+      setAuthToken(null);
+      stopSSE();
+      return data;
+    })
+    .catch((err) => {
+      throw new Error(err.message);
+    });
 });
 
 ipcMain.handle("luna.app.quit", () => {
@@ -169,10 +190,13 @@ function createWindow() {
     resizable: true,
     alwaysOnTop: true,
     skipTaskbar: true,
+    backgroundColor: "#00000000",
+    hasShadow: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
+      backgroundThrottling: false,
     },
   });
 
@@ -186,10 +210,11 @@ function createWindow() {
     });
   });
 
+  // 默认穿透，只有鼠标进入组件时才取消穿透
   win.setIgnoreMouseEvents(true, { forward: true });
 
-  win.on('minimize', (e) => e.preventDefault());
-  win.on('hide', (e) => e.preventDefault());
+  win.on("minimize", (e) => e.preventDefault());
+  win.on("hide", (e) => e.preventDefault());
 
   win.webContents.setBackgroundThrottling(false);
   win.webContents.openDevTools({ mode: "detach" });

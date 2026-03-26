@@ -34,9 +34,15 @@ body,
 #app {
   max-width: none;
   font-weight: normal;
-  background: transparent;
+  background: transparent !important;
   position: relative;
   isolation: isolate;
+}
+
+/* 保证 Electron 窗口全透明，不产生全局背景层 */
+html,
+body {
+  background: transparent !important;
 }
 
 /* 全局控件统一视觉（细节美化） */
