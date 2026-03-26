@@ -208,9 +208,15 @@
             <span class="boot-bar-pct">正在加载系统…</span>
           </div>
           <div class="boot-log">
-            <div class="log-line" v-for="(line, i) in bootLines" :key="i"
-              :style="{ animationDelay: i * 0.14 + 's' }">
-              <span class="log-tag">&gt;</span> {{ line }}
+            <div class="boot-log-viewport">
+              <div
+                class="boot-log-scroll"
+                :style="{ transform: `translateY(-${bootLogOffset}px)` }"
+              >
+                <div class="log-line" v-for="(line, i) in bootLines" :key="i">
+                  <span class="log-tag">&gt;</span> {{ line }}
+                </div>
+              </div>
             </div>
           </div>
           <div class="boot-footer">
@@ -454,7 +460,6 @@ function exitApp() {
   window.desktopApi?.quit?.();
 }
 
-// 扩展启动文案（按项目功能）
 const bootLines = [
   "正在初始化神经接口…",
   "正在加载 Live2D Core 与 Cubism Runtime…",
@@ -473,6 +478,27 @@ const bootLines = [
   "正在预热语言模型核心…",
   "系统已就绪，等待指令。"
 ];
+
+const bootLogOffset = ref(0);
+let bootLogTimer = null;
+function resetBootLogScroll() {
+  bootLogOffset.value = 0;
+  if (bootLogTimer) {
+    clearInterval(bootLogTimer);
+    bootLogTimer = null;
+  }
+}
+function startBootLogScroll() {
+  resetBootLogScroll();
+  if (!bootLines.length) return;
+  const rowHeight = 22;
+  bootLogTimer = setInterval(() => {
+    bootLogOffset.value += rowHeight;
+    if (bootLogOffset.value > rowHeight * (bootLines.length - 1)) {
+      bootLogOffset.value = 0;
+    }
+  }, 650);
+}
 
 const hexChars = ref([]);
 function genHex() {
@@ -880,11 +906,8 @@ watch(showApproval, () => refreshUiInteractivity());
 watch(loginVisible, () => refreshUiInteractivity());
 
 watch(lunaIntroVisible, (val) => {
-  if (!val) {
-    uiLeave();
-  } else {
-    refreshUiInteractivity();
-  }
+  if (val) startBootLogScroll();
+  else resetBootLogScroll();
 });
 
 watch(modelVisible, (val) => {
@@ -1447,6 +1470,8 @@ onBeforeUnmount(() => {
     clearTimeout(planReconnectTimer);
     planReconnectTimer = null;
   }
+
+  resetBootLogScroll();
 });
 </script>
 
@@ -1785,11 +1810,12 @@ html, body {
   flex-direction: column;
   align-items: center;
   gap: 18px;
-  width: 460px;
+  width: 560px;
+  max-width: 86vw;
   position: relative;
-  padding: 40px 32px;
+  padding: 34px 30px;
   border: 1px solid color-mix(in oklab, var(--primary, #00ffc8) 36%, transparent);
-  border-radius: 4px;
+  border-radius: 6px;
   box-shadow:
     0 0 40px color-mix(in oklab, var(--primary, #00ffc8) 12%, transparent),
     inset 0 0 60px color-mix(in oklab, var(--primary, #00ffc8) 6%, transparent);
@@ -1889,26 +1915,30 @@ html, body {
 
 .boot-log {
   width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+}
+.boot-log-viewport {
+  height: 110px;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--primary, #00ffc8) 18%, transparent);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.28);
+  padding: 6px 8px;
+}
+.boot-log-scroll {
+  transition: transform 0.38s ease;
 }
 .log-line {
   font-size: 11px;
   color: color-mix(in oklab, var(--primary, #00ffc8) 55%, transparent);
   letter-spacing: 0.05em;
-  opacity: 0;
-  animation: logFadeIn 0.3s ease forwards;
+  height: 22px;
+  line-height: 22px;
   display: flex;
   gap: 6px;
 }
 .log-tag {
   color: color-mix(in oklab, var(--primary, #00ffc8) 35%, transparent);
   flex-shrink: 0;
-}
-@keyframes logFadeIn {
-  from { opacity: 0; transform: translateX(-6px); }
-  to   { opacity: 1; transform: translateX(0); }
 }
 
 .boot-footer {
