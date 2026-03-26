@@ -497,7 +497,7 @@ function startBootLogScroll() {
     if (bootLogOffset.value > rowHeight * (bootLines.length - 1)) {
       bootLogOffset.value = 0;
     }
-  }, 650);
+  }, 900);
 }
 
 const hexChars = ref([]);
@@ -508,7 +508,7 @@ function genHex() {
 }
 genHex();
 let hexTimer = null;
-onMounted(() => { hexTimer = setInterval(genHex, 180); });
+onMounted(() => { hexTimer = setInterval(genHex, 260); });
 onBeforeUnmount(() => { clearInterval(hexTimer); });
 
 const currentEmotion = ref("neutral");
@@ -641,14 +641,14 @@ async function playDecryptionEffect(text) {
 
   for (let i = 0; i < displayLen; i++) {
     streamText.value += text[i];
-    await new Promise((r) => setTimeout(r, 20 + Math.random() * 30));
+    await new Promise((r) => setTimeout(r, 26 + Math.random() * 36));
   }
 
   if (text.length > 60) {
     streamText.value += "...";
   }
 
-  await new Promise((r) => setTimeout(r, 300));
+  await new Promise((r) => setTimeout(r, 320));
 }
 
 async function handleModelReply(res) {
@@ -682,7 +682,7 @@ async function handleModelReply(res) {
   const previewText = chunks.length > 0 ? chunks[0] : replyText;
 
   const effectPromise = playDecryptionEffect(previewText);
-  const bubblePromise = sendReplyAsBubbles(replyText, { interval: 1000, duration: 5000 });
+  const bubblePromise = sendReplyAsBubbles(replyText, { interval: 1100, duration: 5000 });
 
   await Promise.all([effectPromise, bubblePromise]);
 }
@@ -837,7 +837,7 @@ function refreshUiInteractivity() {
     uiLeaveTimer = setTimeout(() => {
       overUI = isAnyUiHovered();
       updatePetState();
-    }, 80);
+    }, 100);
     return;
   }
 
@@ -867,7 +867,7 @@ function uiLeave() {
 
     overUI = isAnyUiHovered();
     updatePetState();
-  }, 150);
+  }, 180);
 }
 
 function onWindowMouseMove() {
@@ -894,7 +894,7 @@ function modelLeave() {
   modelLeaveTimer = setTimeout(() => {
     overModel = false;
     updatePetState();
-  }, 150);
+  }, 180);
 }
 
 watch(showChat, () => refreshUiInteractivity());
@@ -1124,7 +1124,7 @@ async function resetToSolemn() {
   await new Promise((r) => requestAnimationFrame(r));
 }
 
-function tweenParameters(core, targetValues, duration = 200) {
+function tweenParameters(core, targetValues, duration = 220) {
   return new Promise((resolve) => {
     const startTime = performance.now();
     const fromValues = {};
@@ -1164,7 +1164,7 @@ async function applyEmotionExpressions(emotion) {
       else targetValues[Id] = Value;
     });
   }
-  await tweenParameters(core, targetValues, 180);
+  await tweenParameters(core, targetValues, 220);
   currentEmotionMeta = thisApplyPrev;
   await appearance.applyAllEnabled(getCoreModel());
 }
@@ -1233,7 +1233,7 @@ function waitForModelReady(timeout = 10000) {
     (function poll() {
       if (model?.internalModel?.coreModel) return resolve(true);
       if (performance.now() - start > timeout) return resolve(false);
-      setTimeout(poll, 120);
+      setTimeout(poll, 140);
     }());
   });
 }
@@ -1281,9 +1281,13 @@ onMounted(async () => {
     view: canvasRef.value,
     backgroundAlpha: 0,
     resizeTo: window,
-    resolution: window.devicePixelRatio || 1,
-    autoDensity: true,
+    resolution: 1,
+    autoDensity: false,
   });
+
+  if (app.ticker) {
+    app.ticker.maxFPS = 30;
+  }
 
   container = new PIXI.Container();
   container.visible = modelVisible.value;
@@ -1828,7 +1832,7 @@ html, body {
   width: 100%;
   height: 2px;
   background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--primary, #00ffc8) 74%, transparent), transparent);
-  animation: scanMove 2.4s ease-in-out infinite;
+  animation: scanMove 2.8s ease-in-out infinite;
   box-shadow: 0 0 10px color-mix(in oklab, var(--primary, #00ffc8) 45%, transparent);
 }
 @keyframes scanMove {
@@ -1856,7 +1860,7 @@ html, body {
     0 0 12px color-mix(in oklab, var(--primary, #00ffc8) 66%, transparent),
     0 0 30px color-mix(in oklab, var(--primary, #00ffc8) 30%, transparent);
   letter-spacing: 0.3em;
-  animation: titlePulse 3s ease-in-out infinite;
+  animation: titlePulse 3.6s ease-in-out infinite;
 }
 
 .boot-version {
@@ -1865,7 +1869,7 @@ html, body {
   color: color-mix(in oklab, var(--primary, #00ffc8) 45%, transparent);
   align-self: flex-end;
   margin-bottom: 4px;
-  animation: subtitleBlink 2s step-end infinite;
+  animation: subtitleBlink 2.4s step-end infinite;
 }
 @keyframes subtitleBlink {
   0%, 90%, 100% { opacity: 1; }
@@ -1892,7 +1896,7 @@ html, body {
   width: 0%;
   background: linear-gradient(90deg, color-mix(in oklab, var(--primary, #00ffc8) 48%, transparent), color-mix(in oklab, var(--primary, #00ffc8) 95%, transparent));
   box-shadow: 0 0 8px color-mix(in oklab, var(--primary, #00ffc8) 60%, transparent);
-  animation: barFill 4.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: barFill 4.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 @keyframes barFill {
   0%   { width: 0%;   }
@@ -1906,7 +1910,7 @@ html, body {
   font-size: 9px;
   color: color-mix(in oklab, var(--primary, #00ffc8) 45%, transparent);
   letter-spacing: 0.15em;
-  animation: pctCount 4.2s linear forwards;
+  animation: pctCount 4.6s linear forwards;
 }
 @keyframes pctCount {
   0%   { opacity: 0.4; }
@@ -1925,7 +1929,7 @@ html, body {
   padding: 6px 8px;
 }
 .boot-log-scroll {
-  transition: transform 0.38s ease;
+  transition: transform 0.45s ease;
 }
 .log-line {
   font-size: 11px;
