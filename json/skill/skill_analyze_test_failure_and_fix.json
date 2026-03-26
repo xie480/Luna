@@ -1,7 +1,7 @@
 {
   "name": "analyze_test_failure_and_fix",
-  "description": "自动化测试失败分析与修复技能。接收测试报告目录路径，解析 JUnit XML 格式测试报告，提取失败用例的类名、方法名与错误堆栈，结合源代码上下文由大模型定位根因并生成 unified diff 格式修复补丁，自动应用补丁后重新执行测试进行验证，若验证仍失败则尝试通过 Git 回滚检查点恢复现场。适用于 CI/CD 流水线中的自愈修复、代码任务节点的测试保障以及编码 Agent 的自我验证闭环。",
-  "version": "1.1.0",
+  "description": "测试失败报告聚合与修复前置分析技能。接收测试报告目录，解析 JUnit XML 报告并提取失败用例摘要，输出结构化统计结果供后续“源码分析-补丁生成-补丁应用-重跑验证-必要回滚”链路消费。当前 method 绑定为报告聚合入口（collectTestReport），修复与回滚步骤由上层编排基于 toolSlots 串联执行。",
+  "version": "1.2.0",
   "owner": "openclaw",
   "beanName": "codeOpsTools",
   "methodName": "collectTestReport",
@@ -43,10 +43,9 @@
     }
   ],
   "thoughtChain": [
-    "调用【collect_test_report】测试报告收集工具，解析指定目录下的 JUnit XML 报告并提取失败用例的完整信息；遍历 reportDirs 下所有 .xml 文件，统计 passed/failed/skipped 数量，并收集每个失败用例的 className、methodName 与错误堆栈摘要。",
-    "调用【read_source】源码读取工具，读取失败测试所对应的业务源文件与测试文件内容；根据失败用例的 className 推导源文件路径，读取文件内容并限制在 maxBytes 以内，为大模型提供充足的代码上下文以定位根因。",
-    "调用【apply_fix_patch】补丁应用工具，将大模型生成的修复补丁以原子方式应用到代码仓库；传入 repoPath 与 unified diff 格式的 patchText，先以 checkOnly=true 进行干运行验证补丁合法性，验证通过后再正式应用，记录应用成功与失败的文件列表。",
-    "调用【rerun_tests】测试执行工具，对修复后的代码重新执行原失败的测试用例以验证修复效果；以原始测试命令（如 mvn test -pl module）在对应工作目录下执行，设置合理超时，收集 exitCode 与输出摘要，判断测试是否全部通过。",
-    "调用【rollback_if_needed】Git 回滚工具，当修复验证仍然失败时将代码库恢复到修复前的稳定状态；以 soft 或 hard 模式 reset 到预先创建的 Git 检查点 commitId，确保现场干净，避免半修复状态污染后续流程，此槽位为可选步骤。"
+    "调用【collect_test_report】测试报告收集工具，解析指定目录下的 JUnit XML 报告并提取失败用例信息。",
+    "将失败用例与统计结果作为后续修复链路输入，调用【read_source】读取相关源码上下文。",
+    "调用【apply_fix_patch】尝试应用修复补丁，并调用【rerun_tests】验证修复效果。",
+    "若验证失败，调用【rollback_if_needed】将仓库回退到修复前检查点。"
   ]
 }

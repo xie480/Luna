@@ -1,7 +1,7 @@
 {
   "name": "scan_dependency_vulnerabilities",
-  "description": "执行依赖漏洞扫描（SCA），用于识别项目依赖中的已知安全风险。支持指定生态（maven/npm/pip/auto）与失败阈值（failOnSeverity）。当前实现为环境未启用状态：已提供统一接口与错误返回，但需先按 docs/openclaw_tool_dependency_guide.md 安装并接入外部 SCA 工具后才能返回真实扫描结果。",
-  "version": "1.0.0",
+  "description": "执行依赖漏洞扫描（SCA），用于识别项目依赖中的已知安全风险。支持指定生态（maven/gradle/npm/pnpm/yarn/python/auto）与失败阈值（failOnSeverity）。当前实现会根据生态自动选择扫描命令并尝试汇总报告，返回 summary 与 thresholdReached 供上层决策。",
+  "version": "1.1.0",
   "owner": "System",
   "beanName": "codeOpsTools",
   "methodName": "scanDependencyVulnerabilities",
@@ -9,8 +9,8 @@
     "type": "object",
     "properties": {
       "repoPath": { "type": "string" },
-      "ecosystem": { "type": "string", "enum": ["maven", "npm", "pip", "auto"] },
-      "failOnSeverity": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH"] }
+      "ecosystem": { "type": "string", "enum": ["maven", "gradle", "npm", "pnpm", "yarn", "python", "auto"] },
+      "failOnSeverity": { "type": "string", "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"] }
     },
     "required": ["repoPath"]
   },
