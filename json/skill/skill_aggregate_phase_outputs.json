@@ -1,7 +1,7 @@
 {
   "name": "aggregate_phase_outputs",
-  "description": "阶段节点输出聚合技能。在一个计划阶段全部节点执行完毕后，加载该阶段所有节点的输出数据，提炼出可供下一阶段节点直接引用的结构化关键字段（如搜索结果摘要、代码变更路径、测试通过率、决策结论等），将聚合摘要追加写入汇总节点的 outputForNext 字段，并记录审计日志确保阶段间数据传递完整可追溯。适用于多阶段计划中阶段边界处的数据中继，解决跨阶段上下文传递问题，避免下一阶段节点因缺乏前置输出而重复执行或产生幻觉，是多阶段计划数据流连续性的核心保障机制。",
-  "version": "1.2.0",
+  "description": "阶段节点输出聚合技能。在阶段节点执行后，聚合 outputForNext 有效输出，提炼关键字段并可回写汇总节点，同时记录审计日志与可选 SSE 事件。",
+  "version": "1.3.0",
   "owner": "openclaw",
   "beanName": "planNodeTools",
   "methodName": "aggregatePhaseOutputs",
@@ -11,7 +11,8 @@
   "requiredCapabilities": [
     "LIST_PHASE_NODES",
     "APPEND_NODE_OUTPUT",
-    "RECORD_PLAN_AUDIT_LOG"
+    "RECORD_PLAN_AUDIT_LOG",
+    "EMIT_PLAN_EVENT_SSE"
   ],
   "toolSlots": [
     {
@@ -28,11 +29,16 @@
       "slot": "audit_log",
       "capability": "RECORD_PLAN_AUDIT_LOG",
       "required": true
+    },
+    {
+      "slot": "emit_event",
+      "capability": "EMIT_PLAN_EVENT_SSE",
+      "required": false
     }
   ],
   "thoughtChain": [
-    "调用【list_nodes】阶段节点列表工具，要干什么：加载指定阶段下所有节点及其执行输出数据，构建可供聚合的原始数据集；怎么做：以 planId 与 phaseId 为条件查询 plan_node 表，按 createdAt 升序返回全量节点，提取每个节点的 outputForNext 字段内容，过滤掉状态为 SKIPPED 或 FAILED 且无有效输出的节点，形成可聚合的有效输出列表。",
-    "调用【append_summary】节点输出追加工具，要干什么：将提炼后的阶段聚合摘要写入汇总节点的输出记录，供下一阶段节点作为输入上下文；怎么做：将大模型从各节点 outputForNext 中提炼出的关键字段（如结论、路径、数值指标、决策依据）序列化为聚合 JSON，调用接口写入目标汇总节点的 outputForNext，此槽位为可选步骤，若无汇总节点则跳过。",
-    "调用【audit_log】审计日志工具，要干什么：将阶段输出聚合操作记录到审计链路，确保阶段间数据传递有完整记录；怎么做：以 INFO 级别写入 planId、phaseId、参与聚合的节点数量与聚合摘要字段列表，生成唯一 traceId 落库，确保每次跨阶段数据中继行为完全可追溯。"
+    "加载阶段节点并筛选存在 outputForNext 的有效节点输出。",
+    "生成阶段聚合结果；若传入 summaryNodeId 则回写该节点 outputForNext。",
+    "记录审计日志并可选推送 SSE，确保阶段中继行为可追溯。"
   ]
 }

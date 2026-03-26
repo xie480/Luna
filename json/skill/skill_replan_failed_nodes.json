@@ -1,7 +1,7 @@
 {
   "name": "replan_failed_nodes",
-  "description": "失败节点局部重规划分析技能。在计划执行过程中若出现节点失败，本技能负责枚举当前阶段所有失败节点并提取失败原因，结合全局进度快照评估失败影响范围，由大模型输出可执行的修复方向，包括直接重试、替换工具、降级执行、跳过非关键节点等策略建议，将分析结论追加到对应节点的输出记录，并将重规划事件写入审计日志与 SSE 事件流，确保整个重规划过程完整可观测、决策依据可追溯。适用于计划执行中途节点失败后的自动诊断与修复决策，是计划弹性执行闭环的核心保障机制。",
-  "version": "1.2.0",
+  "description": "失败节点局部重规划分析技能。枚举计划内失败节点并提取失败原因，结合全局进度给出修复方向（重试、替换工具、降级、跳过），将分析结论写入节点 outputForNext，并记录审计日志与 SSE 事件。",
+  "version": "1.3.0",
   "owner": "openclaw",
   "beanName": "planNodeTools",
   "methodName": "replanFailedNodes",
@@ -9,18 +9,12 @@
   "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"data\":{\"type\":\"object\",\"description\":\"进度与失败分布\"},\"message\":{\"type\":\"string\",\"description\":\"重规划建议说明\"}}}",
   "runMode": "SYNC",
   "requiredCapabilities": [
-    "LIST_PHASE_NODES",
     "QUERY_PLAN_PROGRESS",
     "APPEND_NODE_OUTPUT",
     "RECORD_PLAN_AUDIT_LOG",
     "EMIT_PLAN_EVENT_SSE"
   ],
   "toolSlots": [
-    {
-      "slot": "list_failed_nodes",
-      "capability": "LIST_PHASE_NODES",
-      "required": true
-    },
     {
       "slot": "query_progress",
       "capability": "QUERY_PLAN_PROGRESS",
@@ -29,7 +23,7 @@
     {
       "slot": "append_replan_output",
       "capability": "APPEND_NODE_OUTPUT",
-      "required": false
+      "required": true
     },
     {
       "slot": "audit_log",
@@ -43,10 +37,8 @@
     }
   ],
   "thoughtChain": [
-    "调用【list_failed_nodes】阶段节点列表工具，要干什么：枚举当前阶段内所有状态为 FAILED 的节点及其失败详情；怎么做：以 planId 与 phaseId 为条件查询 plan_node 表，过滤 status=FAILED 的节点，提取 failReason、retryCount、maxRetry、nodeType、resourceHint 等字段，构建失败节点上下文列表，作为后续根因分析的原始输入。",
-    "调用【query_progress】计划进度查询工具，要干什么：获取整个计划的全局节点状态分布，评估失败节点的影响范围与计划整体健康度；怎么做：以 planId 为参数查询全量节点状态统计，返回各状态数量（PENDING/RUNNING/SUCCESS/FAILED/SKIPPED），结合失败节点占比与关键路径分析，判断是需要终止计划、安全降级继续执行还是重试修复。",
-    "调用【append_replan_output】节点输出追加工具，要干什么：将重规划分析结论写入对应失败节点的输出记录，供后续节点或报告引用；怎么做：将大模型生成的修复策略（重试建议、替代工具选择、降级方案说明）序列化后调用接口写入 outputForNext 字段，确保重规划决策随节点数据一同持久化，此槽位为可选步骤，写入失败不中断主流程。",
-    "调用【audit_log】审计日志工具，要干什么：将重规划分析事件记录到审计链路，确保每次重规划行为有完整的决策依据可查；怎么做：以 PLAN_REPLANNED 事件类型、WARN 级别写入 planId、phaseId、失败节点数量、已选定修复策略摘要等字段，生成唯一 traceId 落库，为后续复盘提供完整的决策轨迹。",
-    "调用【emit_replan_event】SSE事件推送工具，要干什么：向前端推送重规划事件，更新可视化图谱中的节点状态与修复建议展示；怎么做：以 PLAN_REPLANNED 事件类型封装失败节点列表、修复策略摘要与当前进度快照，通过 SSE 通道推送给订阅客户端，使前端及时感知重规划决策并更新节点标注，此槽位为可选步骤。"
+    "查询计划节点状态，筛选 FAILED 节点并提取 failReason、retryCount、maxRetry 等信息。",
+    "生成重规划建议并写入失败节点 outputForNext，确保后续节点与报告可引用。",
+    "记录 PLAN_REPLANNED 审计事件，并可选推送 SSE 通知前端更新图谱。"
   ]
 }

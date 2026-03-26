@@ -35,10 +35,16 @@ import java.util.stream.Collectors;
 public class PlanNodeTools extends BaseTool {
 
     private final PlanNodeMapper planNodeMapper;
+    private final PlanEventTools planEventTools;
 
-    public PlanNodeTools(ObjectMapper objectMapper, PlanNodeMapper planNodeMapper) {
+    public PlanNodeTools(
+            ObjectMapper objectMapper,
+            PlanNodeMapper planNodeMapper,
+            PlanEventTools planEventTools
+    ) {
         super(objectMapper);
         this.planNodeMapper = planNodeMapper;
+        this.planEventTools = planEventTools;
     }
 
     @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
@@ -160,6 +166,7 @@ public class PlanNodeTools extends BaseTool {
 
             List<PlanNode> validNodes = nodes.stream()
                     .filter(n -> n.getOutputForNext() != null && !n.getOutputForNext().isEmpty())
+                    .filter(n -> n.getStatus() != PlanNodeStatus.SKIPPED)
                     .toList();
 
             List<Map<String, Object>> outputs = new ArrayList<>();
@@ -188,6 +195,22 @@ public class PlanNodeTools extends BaseTool {
                 planNodeMapper.updateById(summaryNode);
             }
 
+            emitAuditAndSse(
+                    planId,
+                    phaseId,
+                    null,
+                    "INFO",
+                    "PLAN_PHASE_FINISHED",
+                    Map.of(
+                            "planId", planId,
+                            "phaseId", phaseId,
+                            "action", "aggregate_phase_outputs",
+                            "totalNodes", nodes.size(),
+                            "validOutputNodes", validNodes.size(),
+                            "summaryNodeId", summaryNodeId == null ? "" : summaryNodeId
+                    )
+            );
+
             return success(summary);
         } catch (Exception e) {
             log.error("aggregate_phase_outputs 失败", e);
@@ -214,7 +237,26 @@ public class PlanNodeTools extends BaseTool {
                 one.put("nodeType", n.getNodeType());
                 one.put("failReason", n.getFailReason());
                 one.put("retryCount", n.getRetryCount());
+                one.put("maxRetry", n.getMaxRetry());
                 failedNodes.add(one);
+
+                Map<String, Object> replanAdvice = new LinkedHashMap<>();
+                replanAdvice.put("action", "REPLAN_ADVICE");
+                replanAdvice.put("nodeId", n.getNodeId());
+                replanAdvice.put("suggestions", List.of(
+                        "优先重试可重试节点（retryCount < maxRetry）",
+                        "对工具错误尝试替换工具或降级方案",
+                        "非关键路径失败节点可评估跳过"
+                ));
+                replanAdvice.put("generatedAt", LocalDateTime.now().toString());
+
+                Map<String, Object> merged = new LinkedHashMap<>();
+                if (n.getOutputForNext() != null) {
+                    merged.putAll(n.getOutputForNext());
+                }
+                merged.put("replan", replanAdvice);
+                n.setOutputForNext(merged);
+                planNodeMapper.updateById(n);
             }
 
             Map<String, Long> stats = nodes.stream().collect(Collectors.groupingBy(
@@ -232,10 +274,41 @@ public class PlanNodeTools extends BaseTool {
                     "对工具错误节点尝试替换工具或降级方案",
                     "对非关键路径失败节点可评估 SKIP 继续"
             ));
+
+            emitAuditAndSse(
+                    planId,
+                    null,
+                    null,
+                    "WARN",
+                    "PLAN_REPLANNED",
+                    Map.of(
+                            "planId", planId,
+                            "failedCount", failed.size(),
+                            "nodeStats", stats
+                    )
+            );
+
             return success(out);
         } catch (Exception e) {
             log.error("replan_failed_nodes 失败", e);
             return error("replan_failed_nodes 失败: " + e.getMessage());
+        }
+    }
+
+    private void emitAuditAndSse(
+            String planId,
+            String phaseId,
+            String nodeId,
+            String level,
+            String eventType,
+            Map<String, Object> payload
+    ) {
+        try {
+            String json = objectMapper.writeValueAsString(payload == null ? Map.of() : payload);
+            planEventTools.recordPlanAuditLog(planId, phaseId, nodeId, level, eventType, json, UUID.randomUUID().toString());
+            planEventTools.emitPlanEventSse("default", eventType, json);
+        } catch (Exception e) {
+            log.warn("emitAuditAndSse 失败（不中断） planId={}, eventType={}, err={}", planId, eventType, e.getMessage());
         }
     }
 

@@ -17,7 +17,9 @@ import org.yilena.luna.utils.SnowflakeIdUtil;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 计划检查点工具：
@@ -28,10 +30,16 @@ import java.util.Map;
 public class PlanCheckpointTools extends BaseTool {
 
     private final PlanCheckpointMapper planCheckpointMapper;
+    private final PlanEventTools planEventTools;
 
-    public PlanCheckpointTools(ObjectMapper objectMapper, PlanCheckpointMapper planCheckpointMapper) {
+    public PlanCheckpointTools(
+            ObjectMapper objectMapper,
+            PlanCheckpointMapper planCheckpointMapper,
+            PlanEventTools planEventTools
+    ) {
         super(objectMapper);
         this.planCheckpointMapper = planCheckpointMapper;
+        this.planEventTools = planEventTools;
     }
 
     @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
@@ -43,25 +51,64 @@ public class PlanCheckpointTools extends BaseTool {
             @RequestParam("checkpointData") String checkpointData,
             @RequestParam(value = "createdBy", required = false) String createdBy
     ) {
+        String traceId = UUID.randomUUID().toString();
         try {
+            if (planId == null || planId.isBlank()) {
+                return error("planId 不能为空");
+            }
+            if (checkpointData == null || checkpointData.isBlank()) {
+                return error("checkpointData 不能为空");
+            }
+
             String checkpointId = SnowflakeIdUtil.nextIdStr();
             String hash = sha256(checkpointData);
             PlanCheckpoint cp = PlanCheckpoint.builder()
                     .checkpointId(checkpointId)
                     .planId(planId)
-                    .phaseId(phaseId)
-                    .nodeId(nodeId)
+                    .phaseId(normalizeNullableId(phaseId))
+                    .nodeId(normalizeNullableId(nodeId))
                     .checkpointData(objectMapper.readValue(checkpointData, new TypeReference<>() {}))
                     .snapshotHash(hash)
                     .createdBy(createdBy)
                     .build();
             planCheckpointMapper.insert(cp);
+
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("planId", planId);
+            payload.put("phaseId", normalizeNullableId(phaseId));
+            payload.put("nodeId", normalizeNullableId(nodeId));
+            payload.put("checkpointId", checkpointId);
+            payload.put("snapshotHash", hash);
+            payload.put("createdBy", createdBy == null ? "" : createdBy);
+
+            try {
+                String p = objectMapper.writeValueAsString(payload);
+                planEventTools.recordPlanAuditLog(
+                        planId,
+                        normalizeNullableId(phaseId),
+                        normalizeNullableId(nodeId),
+                        "INFO",
+                        "PLAN_CHECKPOINT_CREATED",
+                        p,
+                        traceId
+                );
+                planEventTools.emitPlanEventSse("default", "PLAN_CHECKPOINT_CREATED", p);
+            } catch (Exception e) {
+                log.warn("checkpoint_plan_state 审计/SSE发送失败（不中断） planId={}, checkpointId={}, err={}", planId, checkpointId, e.getMessage());
+            }
+
             log.info("checkpoint_plan_state 完成, planId={}, checkpointId={}", planId, checkpointId);
             return success(Map.of("checkpointId", checkpointId, "snapshotHash", hash));
         } catch (Exception e) {
             log.error("checkpoint_plan_state 失败", e);
             return error("checkpoint_plan_state 失败: " + e.getMessage());
         }
+    }
+
+    private String normalizeNullableId(String val) {
+        if (val == null) return null;
+        String v = val.trim();
+        return v.isEmpty() ? null : v;
     }
 
     private static String sha256(String text) {

@@ -1,7 +1,7 @@
 {
   "name": "checkpoint_plan_state",
-  "description": "计划执行关键节点状态快照与检查点创建技能。在计划执行的关键卡点（如阶段开始前、高风险节点执行前、跨阶段边界处）将当前计划的完整执行状态序列化为 JSON 快照，计算快照内容的哈希值用于完整性校验，将快照与元信息（planId、phaseId、nodeId、createdBy）原子持久化到检查点表并生成唯一 checkpointId，后续在节点执行失败或计划中断时可凭 checkpointId 精确恢复到该快照状态；创建成功后将检查点事件写入审计日志确保可追溯，并可选通过 SSE 向前端推送检查点创建通知。适用于多阶段计划执行的断点续跑、Git 代码变更前的状态备份、高风险操作前的安全保护以及计划执行中途的定期自动快照。",
-  "version": "1.1.0",
+  "description": "计划执行关键节点状态快照与检查点创建技能。在关键卡点将当前计划状态序列化为 JSON 快照，计算快照哈希并原子持久化到检查点表，成功后记录审计日志并可选通过 SSE 推送检查点创建事件。",
+  "version": "1.2.0",
   "owner": "openclaw",
   "beanName": "planCheckpointTools",
   "methodName": "checkpointPlanState",
@@ -31,8 +31,8 @@
     }
   ],
   "thoughtChain": [
-    "调用【save_checkpoint】检查点持久化工具，将输入的 checkpointData JSON 字符串连同 planId、phaseId、nodeId、createdBy 等元信息原子写入检查点表；写入前对 checkpointData 内容计算 SHA-256 哈希值作为 snapshotHash，用于后续恢复时的数据完整性校验；成功落库后生成全局唯一 checkpointId 并返回，该 ID 将作为后续回滚操作的精确恢复目标引用，确保每个关键执行节点均有可追溯的状态备份。",
-    "调用【audit_log】审计日志工具，将检查点创建事件完整记录到计划审计链路；以 PLAN_CHECKPOINT_CREATED 事件类型、INFO 级别写入 planId、phaseId（若有）、nodeId（若有）、checkpointId、snapshotHash 与 createdBy 字段，生成唯一 traceId 落库，为后续计划中断恢复与审计复盘提供完整的检查点创建凭据。",
-    "调用【emit_event】SSE事件推送工具，将检查点创建完成事件实时推送至前端订阅客户端，使可视化界面及时感知安全快照已就绪；以 PLAN_CHECKPOINT_CREATED 事件类型封装 planId、phaseId、nodeId、checkpointId 与 snapshotHash 字段，通过 SSE 通道推送给订阅客户端，前端可在图谱中标注检查点位置供用户感知；此槽位为可选步骤，推送失败不影响检查点持久化与审计日志的最终返回结果。"
+    "调用【save_checkpoint】检查点持久化工具，将 checkpointData 与 planId、phaseId、nodeId、createdBy 一并写入检查点表；写入前计算 SHA-256 作为 snapshotHash 并返回 checkpointId。",
+    "调用【audit_log】审计日志工具，记录 PLAN_CHECKPOINT_CREATED 事件，沉淀 checkpointId、snapshotHash 等关键字段。",
+    "调用【emit_event】SSE事件推送工具，向前端推送 PLAN_CHECKPOINT_CREATED 事件；推送失败不影响主流程返回。"
   ]
 }
