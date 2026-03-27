@@ -205,6 +205,7 @@ Luna 不是单纯聊天机器人，而是一个**可审计、可恢复、可编�
 2. D4：replan_failed_nodes 子图补丁机制落地  
 3. E3/E4：测试失败自动修复闭环跑通  
 4. G1/G2：常驻推理稳定化 + 指标化监控  
+5. D4/D5-记忆防漂移专项：执行记忆账本（Execution Memory Ledger）落地（防止多阶段任务遗忘原始用户命令）
 
 ## P1（下一里程碑）
 1. C2：备份恢复演练  
@@ -305,6 +306,7 @@ Luna 当前已完成从“聊天+工具调用”到“任务编排+审批治理�
 2. 把 CodeOps 做到“可回滚、可测试、可修复、可报告”  
 3. 把治理层（备份/监控/一致性评估）补齐生产能力  
 4. 把桌面多模态能力按风险分级逐步接入  
+5. 把多任务编排记忆做到“不可漂移、可追溯、可恢复”，确保不遗忘用户原始命令
 
 一句话：  
 **Luna 正处于从 MVP 能跑，迈向生产级自治 Agent 平台的关键收敛期。**
@@ -318,4 +320,64 @@ Luna 当前已完成从“聊天+工具调用”到“任务编排+审批治理�
 3. 完成审批流压测脚本与过期策略演练  
 4. 推理常驻服务接入统一健康检查与指标采集  
 5. 输出 D/E/C 阶段迭代排期（按周拆任务）  
+6. 启动“执行记忆账本（Execution Memory Ledger）”专项并完成最小可用实现（见 `docs/execution-memory-ledger.md`）
+
+---
+
+## 12. 执行记忆账本专项（Execution Memory Ledger）
+
+### 12.1 背景与目标
+
+在多阶段、多节点、可重规划的任务编排中，模型可能出现“目标漂移”与“上下文遗忘”。  
+本专项目标：
+
+1. 固化并保护用户原始命令（不可变）  
+2. 固化 BigModel 生成并批准后的蓝图（PlanBlueprint）  
+3. 全量记录 Phase/Node/Skill 执行事实（成功/失败/重试/产出）  
+4. 提炼“可供下一阶段使用”的结构化关键结果  
+5. 支撑中断恢复、局部重规划、可视化回放与审计追踪
+
+### 12.2 双层记忆模型
+
+1. **事件事实层（Event Ledger）**：append-only，不覆盖，保证真实性  
+2. **工作快照层（Working Snapshot）**：阶段级摘要，保证模型可用性与低 token 成本
+
+### 12.3 最小必备记录项（MVP）
+
+- `immutableOriginalCommand`：用户原始命令（不可变）
+- `approvedBlueprint`：当前计划蓝图（版本化）
+- `currentPhase` / `completedPhases`
+- `executedSkills`（含输入/输出摘要）
+- `success` / `errorCode` / `failReason`
+- `phaseKeyOutputs`（下一阶段关键输入）
+
+### 12.4 事件建议（与现有 PLAN_* 兼容扩展）
+
+- `PLAN_CREATED`
+- `BLUEPRINT_FROZEN`
+- `PHASE_STARTED`
+- `SKILL_CALLED`
+- `SKILL_RESULT`
+- `PHASE_COMPLETED`
+- `PHASE_FAILED`
+- `REPLAN_TRIGGERED`
+- `REPLAN_APPLIED`
+- `PLAN_COMPLETED`
+- `PLAN_FAILED`
+
+### 12.5 落地要求（强制）
+
+1. 每个 phase 结束必须生成 snapshot  
+2. 每个下一 phase 开始前必须加载 latest snapshot + original command  
+3. 若检测到执行目标偏离 original command，必须触发 `REPLAN_TRIGGERED`  
+4. 事件层与快照层必须带 `traceId`、`planId`、`phaseId`（如适用）  
+5. 文档、接口、前端事件类型需同步更新（与 D5 联动）
+
+### 12.6 验收标准（MVP）
+
+1. 连续 20 个多阶段任务中，原始命令引用完整率 100%  
+2. phase 级关键输出可被下一阶段读取成功率 >= 99%  
+3. 中断恢复后（审批或服务重启）任务上下文恢复成功率 >= 99%  
+4. 发生偏航时可触发并记录 replan 事件，漏报率 = 0  
+5. 前端可回放阶段进度与关键产出，事件缺失率 < 1%
 
