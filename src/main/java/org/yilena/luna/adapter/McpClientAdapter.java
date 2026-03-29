@@ -1,0 +1,28 @@
+package org.yilena.luna.adapter;
+
+import org.yilena.luna.entity.McpPromptDescriptor;
+import org.yilena.luna.entity.McpPromptResult;
+import org.yilena.luna.entity.McpResourceDescriptor;
+import org.yilena.luna.entity.McpResourceResult;
+import org.yilena.luna.entity.McpToolCallResult;
+import org.yilena.luna.entity.McpToolDescriptor;
+
+import java.util.List;
+
+/**
+ * MCP client abstraction used by host-side orchestration.
+ */
+public interface McpClientAdapter {
+
+    List<McpToolDescriptor> listTools(String serverCode);
+
+    McpToolCallResult callTool(String serverCode, String toolName, String argumentsJson);
+
+    List<McpPromptDescriptor> listPrompts(String serverCode);
+
+    McpPromptResult getPrompt(String serverCode, String promptName, String argumentsJson);
+
+    List<McpResourceDescriptor> listResources(String serverCode);
+
+    McpResourceResult readResource(String serverCode, String resourceUri);
+}
