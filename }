@@ -1,0 +1,230 @@
+
+说明：
+
+- `status`：前端状态机字段（必须稳定）
+- `msg`：给用户看的简洁说明（必须可读）
+- `data`：扩展字段（新增仅追加，不破坏旧字段）
+- `progress`：可选，但建议在 Plan/Phase 使用
+
+### 5.3 关键阶段 publish 清单（强制）
+
+至少在以下阶段发布 SSE（成功与失败都要发）：
+
+1. `PLAN_CREATED`：计划已创建
+2. `BLUEPRINT_FROZEN`：蓝图已冻结
+3. `PHASE_STARTED`：阶段开始
+4. `SKILL_CALLED`：调用技能
+5. `SKILL_RESULT`：技能返回
+6. `PHASE_COMPLETED`：阶段完成
+7. `PHASE_FAILED`：阶段失败
+8. `REPLAN_TRIGGERED`：触发重规划
+9. `REPLAN_APPLIED`：重规划已应用
+10. `APPROVAL_REQUEST`：发起审批
+11. `APPROVAL_APPROVED` / `APPROVAL_REJECTED` / `APPROVAL_TIMEOUT`
+12. `PLAN_COMPLETED`：任务完成
+13. `PLAN_FAILED`：任务失败
+
+### 5.4 publish 方法实现要求
+
+统一封装 `publishStatus(...)`（或同等服务）并保证：
+
+1. 入参标准化：`traceId/planId/phaseId/nodeId/eventType/status/msg/data`
+2. 自动补全 `timestamp`
+3. 发布前后日志：`publish_start` / `publish_success` / `publish_failed`
+4. 发布失败可重试，达到阈值后落审计告警
+5. 与事件落库双写（SSE 实时 + DB/MQ 回放）
+
+### 5.5 SSE 连接生命周期规范（新增）
+
+为减少前端“在线但无消息”与后端“已断开仍推送”的问题，连接生命周期必须标准化：
+
+1. **订阅建立**：返回 `SSE_CONNECTED` 事件，status=`CONNECTED`，msg=`SSE 连接已建立`
+2. **心跳保活**：每 15~30 秒推送 `SSE_HEARTBEAT` 事件（不参与业务状态机）
+3. **主动断开**：返回 `SSE_DISCONNECTED` 事件，status=`DISCONNECTED`，msg=`连接已断开`
+4. **异常断开**：记录 `SSE_CONNECTION_ERROR` 日志并触发重连提示事件
+5. **重连恢复**：前端携带 `lastEventId`（如支持）拉取缺失事件或快照补偿
+
+---
+
+## 6. 执行记忆账本（Execution Memory Ledger）落地要求
+
+结合编排链路，必须落地“双层记忆”：
+
+1. **Event Ledger（事实层）**：append-only，不允许覆盖
+2. **Working Snapshot（快照层）**：阶段完成后生成，供下一阶段加载
+
+强制要求：
+
+- 每个 phase 结束后写 snapshot
+- 下个 phase 开始前加载 `immutableOriginalCommand + latestSnapshot`
+- 偏离原始目标必须触发 `REPLAN_TRIGGERED` 并发布 SSE
+- 事件与快照均带 `traceId/planId/phaseId`
+
+---
+
+## 7. 新增功能开发模板（建议直接复用）
+
+每次新增 Tool/Skill/Plan 能力时，请按以下顺序：
+
+1. 定义 Schema（input/output/error/event）
+2. 定义状态机迁移图
+3. 定义日志点位与脱敏策略
+4. 定义 SSE 事件与 msg 文案
+5. 实现主路径
+6. 实现超时/失败/重试/回滚
+7. 补测试（成功/失败/超时/审批拒绝）
+8. 更新文档（README + agent.md + 本规范相关章节）
+
+---
+
+## 8. 测试与验收要求
+
+### 8.1 最小测试覆盖（必须）
+
+至少覆盖：
+
+1. 成功路径
+2. 失败路径
+3. 超时路径
+4. 审批拒绝路径
+5. SSE 发布失败重试路径
+6. 重启恢复路径（checkpoint/ledger/snapshot）
+
+### 8.2 验收指标（建议基线）
+
+- 关键事件 SSE 发布成功率 >= 99.9%
+- phase 关键输出可读取成功率 >= 99%
+- 中断恢复成功率 >= 99%
+- replan 触发漏报率 = 0
+- 审计关键字段缺失率 < 0.1%
+
+### 8.3 SSE 专项验收（新增）
+
+1. 单连接连续 30 分钟心跳不中断
+2. 模拟网络抖动后 10 秒内完成重连并恢复状态
+3. `PLAN_*` 关键事件到达前端顺序一致率 >= 99.9%
+4. SSE 发布失败重试后最终成功率 >= 99%
+5. 前端断线重连后快照补偿完整率 = 100%
+
+---
+
+## 9. 变更管理与协作要求
+
+1. 一次提交只做一个主题（功能/重构/文档分离）
+2. 涉及事件协议变更必须同步前端类型与联调说明
+3. 涉及只读核心文件改动，先走评审再实施
+4. 所有接口/事件/状态机变更必须回写文档
+5. PR 描述必须包含：变更点、风险点、回滚方案、验证结果
+
+---
+
+## 10. 附录：推荐事件与状态命名（v1）
+
+### 10.1 EventType（推荐）
+
+- PLAN_CREATED
+- BLUEPRINT_FROZEN
+- PHASE_STARTED
+- SKILL_CALLED
+- SKILL_RESULT
+- PHASE_COMPLETED
+- PHASE_FAILED
+- REPLAN_TRIGGERED
+- REPLAN_APPLIED
+- APPROVAL_REQUEST
+- APPROVAL_APPROVED
+- APPROVAL_REJECTED
+- APPROVAL_TIMEOUT
+- PLAN_COMPLETED
+- PLAN_FAILED
+- SSE_CONNECTED
+- SSE_HEARTBEAT
+- SSE_DISCONNECTED
+- SSE_RECONNECT_REQUIRED
+
+### 10.2 Status（推荐）
+
+- PENDING
+- RUNNING
+- APPROVAL_PENDING
+- SUCCESS
+- FAILED
+- RETRYING
+- ROLLED_BACK
+- CONNECTED
+- DISCONNECTED
+
+---
+
+## 11. 一句话执行准则
+
+**任何“会影响执行状态”的动作，都必须同时具备：合法状态迁移、结构化日志、可回放事件、可读 SSE msg。**
+
+---
+
+## 12. SSE msg 文案规范（面向前端展示）
+
+为确保前端用户体验一致，`msg` 文案需遵循：
+
+1. **用户可读**：避免内部术语堆叠（如“节点拓扑校验通过”可改为“执行计划校验通过”）
+2. **简洁明确**：优先“动作 + 对象 + 结果”
+3. **状态一致**：同一 `eventType` 在不同模块的文案风格保持一致
+4. **失败可理解**：失败文案需包含可行动提示（可重试/等待审批/联系管理员）
+5. **禁止敏感信息**：不得在 msg 暴露 token、路径、命令原文、隐私文本
+
+推荐模板：
+
+- 进行中：`正在{动作}：{对象}`
+- 成功：`已完成{动作}：{对象}`
+- 失败：`{动作}失败：{原因简述}`
+- 等待：`等待{条件}：{说明}`
+
+示例：
+
+- `PLAN_CREATED` + `RUNNING`：`已创建执行计划，准备开始分阶段执行`
+- `APPROVAL_REQUEST` + `APPROVAL_PENDING`：`检测到高风险操作，等待人工审批`
+- `PHASE_FAILED` + `FAILED`：`阶段执行失败，系统将尝试自动恢复`
+
+---
+
+## 13. SSE 发布时机与最小字段矩阵（强制）
+
+| 阶段 | eventType | status | msg（示例） | 必填字段 |
+|---|---|---|---|---|
+| 连接建立 | SSE_CONNECTED | CONNECTED | SSE 连接已建立 | traceId, eventType, status, msg, timestamp |
+| 心跳保活 | SSE_HEARTBEAT | RUNNING | 连接保活中 | traceId, eventType, status, msg, timestamp |
+| 计划初始化 | PLAN_CREATED | RUNNING | 已创建执行计划 | traceId, planId, eventType, status, msg, timestamp |
+| 蓝图冻结 | BLUEPRINT_FROZEN | SUCCESS | 执行蓝图已冻结 | traceId, planId, eventType, status, msg, timestamp |
+| 阶段开始 | PHASE_STARTED | RUNNING | 正在执行阶段：{phaseName} | traceId, planId, phaseId, eventType, status, msg, timestamp |
+| 技能调用 | SKILL_CALLED | RUNNING | 正在调用技能：{skillName} | traceId, planId, phaseId, nodeId, eventType, status, msg, timestamp |
+| 技能结果 | SKILL_RESULT | SUCCESS/FAILED | 技能执行{成功/失败}：{skillName} | traceId, planId, phaseId, nodeId, eventType, status, msg, timestamp |
+| 阶段完成 | PHASE_COMPLETED | SUCCESS | 阶段已完成：{phaseName} | traceId, planId, phaseId, eventType, status, msg, timestamp |
+| 阶段失败 | PHASE_FAILED | FAILED | 阶段执行失败：{phaseName} | traceId, planId, phaseId, eventType, status, msg, timestamp, errorCode |
+| 触发重规划 | REPLAN_TRIGGERED | RUNNING | 检测到偏差，正在重规划 | traceId, planId, eventType, status, msg, timestamp |
+| 应用重规划 | REPLAN_APPLIED | SUCCESS | 重规划已应用，继续执行 | traceId, planId, eventType, status, msg, timestamp |
+| 发起审批 | APPROVAL_REQUEST | APPROVAL_PENDING | 检测到高风险操作，等待审批 | traceId, planId, phaseId, nodeId, eventType, status, msg, timestamp |
+| 审批通过 | APPROVAL_APPROVED | RUNNING | 审批已通过，继续执行 | traceId, planId, phaseId, nodeId, eventType, status, msg, timestamp |
+| 审批拒绝 | APPROVAL_REJECTED | FAILED | 审批被拒绝，任务已中止 | traceId, planId, phaseId, nodeId, eventType, status, msg, timestamp, errorCode |
+| 审批超时 | APPROVAL_TIMEOUT | FAILED | 审批超时，任务已暂停 | traceId, planId, phaseId, nodeId, eventType, status, msg, timestamp, errorCode |
+| 计划完成 | PLAN_COMPLETED | SUCCESS | 任务执行完成 | traceId, planId, eventType, status, msg, timestamp |
+| 计划失败 | PLAN_FAILED | FAILED | 任务执行失败 | traceId, planId, eventType, status, msg, timestamp, errorCode |
+| 主动断开 | SSE_DISCONNECTED | DISCONNECTED | 连接已断开 | traceId, eventType, status, msg, timestamp |
+| 重连提示 | SSE_RECONNECT_REQUIRED | RUNNING | 网络异常，请尝试重连 | traceId, eventType, status, msg, timestamp |
+
+---
+
+## 14. 错误码与失败分类建议（可扩展）
+
+建议采用分层错误码，便于统计与告警：
+
+- `PLAN_*`：计划层错误（如 `PLAN_CONFIG_INVALID`）
+- `PHASE_*`：阶段层错误（如 `PHASE_TIMEOUT`）
+- `NODE_*`：节点层错误（如 `NODE_STATE_INVALID`）
+- `SKILL_*`：技能层错误（如 `SKILL_EXECUTION_FAILED`）
+- `TOOL_*`：工具层错误（如 `TOOL_NOT_FOUND`）
+- `APPROVAL_*`：审批链路错误（如 `APPROVAL_TIMEOUT`）
+- `SSE_*`：推送链路错误（如 `SSE_PUBLISH_FAILED`）
+- `SYSTEM_*`：系统基础设施错误（如 `SYSTEM_DEPENDENCY_UNAVAILABLE`）
+
+失败返回建议最小结构：
+
