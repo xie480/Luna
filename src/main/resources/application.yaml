@@ -57,18 +57,18 @@ gemini:
     api-key: sk-BOIfaNR9CVuERB57c
     model-name: gpt-5.3-codex
   big:
-    url: https://catiecli.sukaka.top/v1/chat/completions
-    api-key: sk-ant-bdd5aa945da3ceb5771d2300066a0390bb27b8abc02d725b
-    model-name: gcli-gemini-3-pro-preview
+    url: https://api.wataruu.me/v1/chat/completions
+    api-key: sk-BOIfaNR9CVuERB57c
+    model-name: gpt-5.4
   flash:
     url: https://api.wataruu.me/v1/chat/completions
     api-key: sk-BOIfaNR9CVuERB57c
     model-name: gpt-5.3-codex
   # 新增：普通对话大模型（chat）
   chat:
-    url: https://catiecli.sukaka.top/v1/chat/completions
-    api-key: sk-ant-bdd5aa945da3ceb5771d2300066a0390bb27b8abc02d725b
-    model-name: gcli-gemini-3-pro-preview
+    url: https://api.wataruu.me/v1/chat/completions
+    api-key: sk-BOIfaNR9CVuERB57c
+    model-name: gpt-5.4
   # 新增：代码/任务编排大模型（code）
   code:
     url: https://api.wataruu.me/v1/chat/completions
