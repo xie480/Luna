@@ -32,6 +32,7 @@
             created_at, 
             updated_at
         FROM knowledge_base
+        WHERE embedding IS NOT NULL
         ORDER BY embedding &lt;=&gt; cast(#{vector} as vector)
         LIMIT #{topK}
     </select>

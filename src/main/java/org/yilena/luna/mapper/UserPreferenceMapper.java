@@ -19,6 +19,6 @@ public interface UserPreferenceMapper extends BaseMapper<UserPreference> {
      * @param vector 向量字符串
      * @param topK 返回條數
      */
-    @Select("SELECT * FROM user_preference WHERE embedding IS NOT NULL ORDER BY embedding::vector <-> #{vector}::vector LIMIT #{topK}")
+    @Select("SELECT * FROM user_preference WHERE deleted = 0 AND embedding IS NOT NULL ORDER BY embedding::vector <-> #{vector}::vector LIMIT #{topK}")
     List<UserPreference> searchByVector(@Param("vector") String vector, @Param("topK") int topK);
 }
