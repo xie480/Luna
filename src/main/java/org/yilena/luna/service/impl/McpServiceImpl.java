@@ -1,362 +1,486 @@
 package org.yilena.luna.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.yilena.luna.entity.McpSkill;
-import org.yilena.luna.entity.McpTool;
-import org.yilena.luna.entity.Resource;
+import org.yilena.luna.adapter.McpClientAdapter;
+import org.yilena.luna.constants.McpConstant;
+import org.yilena.luna.entity.*;
 import org.yilena.luna.enums.ResourceType;
 import org.yilena.luna.enums.RunMode;
 import org.yilena.luna.enums.Sensitivity;
-import org.yilena.luna.mapper.McpSkillMapper;
-import org.yilena.luna.mapper.McpToolMapper;
+import org.yilena.luna.mapper.*;
 import org.yilena.luna.service.McpService;
 import org.yilena.luna.utils.LlmClientUtil;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDateTime;
 import java.util.*;
-import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class McpServiceImpl implements McpService {
 
-    private final McpToolMapper toolMapper;
-    private final McpSkillMapper skillMapper;
+    private final McpToolCatalogMapper toolCatalogMapper;
+    private final McpPromptCatalogMapper promptCatalogMapper;
+    private final McpResourceCatalogMapper resourceCatalogMapper;
+    private final McpToolImplMappingMapper toolImplMappingMapper;
+    private final WorkflowTemplateMapper workflowTemplateMapper;
+    private final McpClientAdapter mcpClientAdapter;
     private final LlmClientUtil llmClientUtil;
     private final ObjectMapper objectMapper;
 
     @Override
     public McpTool registerTool(McpTool tool) {
-        generateToolEmbedding(tool);
-
-        if (tool.getId() == null) {
-            toolMapper.insert(tool);
-        } else {
-            McpTool exist = toolMapper.selectById(tool.getId());
-            if (exist == null) {
-                toolMapper.insert(tool);
-            } else {
-                toolMapper.updateById(tool);
-            }
+        if (tool == null || blank(tool.getName()) || blank(tool.getBeanName()) || blank(tool.getMethodName())) {
+            throw new IllegalArgumentException("tool name/beanName/methodName required");
         }
+        McpToolCatalog row = toolCatalogMapper.selectOne(new LambdaQueryWrapper<McpToolCatalog>()
+                .eq(McpToolCatalog::getServerCode, McpConstant.LOCAL_SERVER_CODE)
+                .eq(McpToolCatalog::getToolName, tool.getName())
+                .last("LIMIT 1"));
+        if (row == null) {
+            row = new McpToolCatalog();
+            row.setServerCode(McpConstant.LOCAL_SERVER_CODE);
+            row.setToolName(tool.getName());
+            row.setEnabled(true);
+        }
+        row.setTitle(tool.getName());
+        row.setDescription(tool.getDescription());
+        row.setVersion(def(tool.getVersion(), "1.0.0"));
+        row.setInputSchema(jsonMap(tool.getInputSchema()));
+        row.setOutputSchema(jsonMap(tool.getOutputSchema()));
+        row.setRequiresApproval(Boolean.TRUE.equals(tool.getRequiresApproval()));
+        row.setSensitivity(tool.getSensitivity() == null ? "LOW" : tool.getSensitivity().name());
+        row.setSyncedAt(LocalDateTime.now());
+        row.setEmbedding(embed(tool.getName(), tool.getDescription()));
+        if (row.getId() == null) toolCatalogMapper.insert(row); else toolCatalogMapper.updateById(row);
+        upsertImpl(tool.getName(), tool.getBeanName(), tool.getMethodName());
+        tool.setId(row.getId());
+        tool.setEmbedding(row.getEmbedding());
         return tool;
     }
 
     @Override
     public McpTool updateTool(McpTool tool) {
-        if (tool.getId() == null) {
-            throw new IllegalArgumentException("更新工具必須提供 ID");
+        if (tool == null || tool.getId() == null) throw new IllegalArgumentException("tool id required");
+        McpToolCatalog row = toolCatalogMapper.selectById(tool.getId());
+        if (row == null) throw new IllegalArgumentException("tool not found");
+        if (!blank(tool.getName())) {
+            row.setToolName(tool.getName().trim());
+            row.setTitle(tool.getName().trim());
         }
-
-        McpTool existing = toolMapper.selectById(tool.getId());
-        if (existing != null) {
-            boolean needReEmbedding = false;
-            if (tool.getName() != null && !tool.getName().equals(existing.getName())) {
-                needReEmbedding = true;
-            }
-            if (tool.getDescription() != null && !tool.getDescription().equals(existing.getDescription())) {
-                needReEmbedding = true;
-            }
-
-            if (needReEmbedding) {
-                generateToolEmbedding(tool);
-            } else {
-                tool.setEmbedding(existing.getEmbedding());
-            }
-            toolMapper.updateById(tool);
-            return toolMapper.selectById(tool.getId());
-        } else {
-            throw new IllegalArgumentException("未找到 ID 為 " + tool.getId() + " 的工具");
+        if (tool.getDescription() != null) row.setDescription(tool.getDescription());
+        if (tool.getVersion() != null) row.setVersion(tool.getVersion());
+        if (tool.getInputSchema() != null) row.setInputSchema(jsonMap(tool.getInputSchema()));
+        if (tool.getOutputSchema() != null) row.setOutputSchema(jsonMap(tool.getOutputSchema()));
+        if (tool.getRequiresApproval() != null) row.setRequiresApproval(tool.getRequiresApproval());
+        if (tool.getSensitivity() != null) row.setSensitivity(tool.getSensitivity().name());
+        row.setSyncedAt(LocalDateTime.now());
+        row.setEmbedding(embed(row.getToolName(), row.getDescription()));
+        toolCatalogMapper.updateById(row);
+        if (!blank(tool.getBeanName()) && !blank(tool.getMethodName())) {
+            upsertImpl(row.getToolName(), tool.getBeanName(), tool.getMethodName());
         }
+        tool.setName(row.getToolName());
+        tool.setEmbedding(row.getEmbedding());
+        return tool;
     }
 
     @Override
     public void deleteTool(Long id) {
-        toolMapper.deleteById(id);
+        if (id == null) return;
+        McpToolCatalog row = toolCatalogMapper.selectById(id);
+        if (row == null) return;
+        toolCatalogMapper.deleteById(id);
+        toolImplMappingMapper.delete(new LambdaQueryWrapper<McpToolImplMapping>()
+                .eq(McpToolImplMapping::getServerCode, row.getServerCode())
+                .eq(McpToolImplMapping::getToolName, row.getToolName()));
     }
 
     @Override
     public McpSkill registerSkill(McpSkill skill) {
-        normalizeSkillFields(skill);
-        validateSkillDefinition(skill, true);
-
-        generateSkillEmbedding(skill);
-
-        if (skill.getId() == null) {
-            skillMapper.insert(skill);
-        } else {
-            McpSkill exist = skillMapper.selectById(skill.getId());
-            if (exist == null) {
-                skillMapper.insert(skill);
-            } else {
-                skillMapper.updateById(skill);
-            }
-        }
+        if (skill == null || blank(skill.getName())) throw new IllegalArgumentException("skill name required");
+        if (workflowSkill(skill)) upsertWorkflow(skill); else upsertPrompt(skill);
         return skill;
     }
 
     @Override
     public McpSkill updateSkill(McpSkill skill) {
-        if (skill.getId() == null) {
-            throw new IllegalArgumentException("更新技能必須提供 ID");
-        }
-
-        normalizeSkillFields(skill);
-        validateSkillDefinition(skill, false);
-
-        McpSkill existing = skillMapper.selectById(skill.getId());
-        if (existing != null) {
-            boolean needReEmbedding = false;
-            if (skill.getName() != null && !skill.getName().equals(existing.getName())) {
-                needReEmbedding = true;
-            }
-            if (skill.getDescription() != null && !skill.getDescription().equals(existing.getDescription())) {
-                needReEmbedding = true;
-            }
-
-            if (needReEmbedding) {
-                generateSkillEmbedding(skill);
-            } else {
-                skill.setEmbedding(existing.getEmbedding());
-            }
-            skillMapper.updateById(skill);
-            return skillMapper.selectById(skill.getId());
-        } else {
-            throw new IllegalArgumentException("未找到 ID 為 " + skill.getId() + " 的技能");
-        }
+        if (skill == null || skill.getId() == null) throw new IllegalArgumentException("skill id required");
+        if (workflowSkill(skill)) upsertWorkflow(skill); else upsertPrompt(skill);
+        return skill;
     }
 
     @Override
     public void deleteSkill(Long id) {
-        skillMapper.deleteById(id);
-    }
-
-    private void generateToolEmbedding(McpTool tool) {
-        try {
-            String text = tool.getName() + " " + (tool.getDescription() != null ? tool.getDescription() : "");
-            String vector = llmClientUtil.getEmbedding(text);
-            if (vector != null && !vector.trim().isEmpty() && !vector.trim().equals("[]")) {
-                tool.setEmbedding(vector);
-                log.info("成功生成 Tool 向量: {}", tool.getName());
-            }
-        } catch (Exception e) {
-            log.error("生成 Tool 向量失敗: {}", tool.getName(), e);
-        }
-    }
-
-    private void generateSkillEmbedding(McpSkill skill) {
-        try {
-            String text = skill.getName() + " " + (skill.getDescription() != null ? skill.getDescription() : "");
-            String vector = llmClientUtil.getEmbedding(text);
-            if (vector != null && !vector.trim().isEmpty() && !vector.trim().equals("[]")) {
-                skill.setEmbedding(vector);
-                log.info("成功生成 Skill 向量: {}", skill.getName());
-            }
-        } catch (Exception e) {
-            log.error("生成 Skill 向量失敗: {}", skill.getName(), e);
-        }
+        if (id == null) return;
+        workflowTemplateMapper.deleteById(id);
+        promptCatalogMapper.deleteById(id);
     }
 
     @Override
     public List<Resource> listAll() {
-        List<Resource> resources = new ArrayList<>();
-        List<McpTool> tools = toolMapper.selectList(null);
-        resources.addAll(tools.stream().map(this::toResource).toList());
-        List<McpSkill> skills = skillMapper.selectList(null);
-        resources.addAll(skills.stream().map(this::toResource).toList());
-        return resources;
+        List<Resource> out = new ArrayList<>();
+        toolCatalogMapper.selectList(null).forEach(t -> out.add(toTool(t)));
+        promptCatalogMapper.selectList(null).forEach(p -> out.add(toPrompt(p)));
+        resourceCatalogMapper.selectList(null).forEach(r -> out.add(toResource(r)));
+        workflowTemplateMapper.selectList(null).forEach(w -> out.add(toWorkflow(w)));
+        return out;
     }
 
     @Override
     public Resource getResourceById(Long id) {
-        McpTool tool = toolMapper.selectById(id);
-        if (tool != null) {
-            return toResource(tool);
-        }
-        McpSkill skill = skillMapper.selectById(id);
-        if (skill != null) {
-            return toResource(skill);
-        }
+        if (id == null) return null;
+        McpToolCatalog t = toolCatalogMapper.selectById(id);
+        if (t != null) return toTool(t);
+        McpPromptCatalog p = promptCatalogMapper.selectById(id);
+        if (p != null) return toPrompt(p);
+        McpResourceCatalog r = resourceCatalogMapper.selectById(id);
+        if (r != null) return toResource(r);
+        WorkflowTemplate w = workflowTemplateMapper.selectById(id);
+        if (w != null) return toWorkflow(w);
         return null;
     }
 
     @Override
     public List<Resource> searchResources(String query) {
-        List<Resource> resources = new ArrayList<>();
-        if (query == null || query.isBlank()) {
-            return resources;
-        }
+        if (blank(query)) return Collections.emptyList();
+        String q = query.toLowerCase(Locale.ROOT);
+        return listAll().stream()
+                .filter(r -> contains(r.getName(), q) || contains(r.getDescription(), q) || contains(r.getResourceUri(), q))
+                .limit(20)
+                .toList();
+    }
 
+    @Override
+    public List<McpToolDescriptor> listTools(String serverCode) {
+        return mcpClientAdapter.listTools(serverCode);
+    }
+
+    @Override
+    public McpToolCallResult callTool(String serverCode, String toolName, String argumentsJson) {
+        return mcpClientAdapter.callTool(serverCode, toolName, argumentsJson);
+    }
+
+    @Override
+    public List<McpPromptDescriptor> listPrompts(String serverCode) {
+        return mcpClientAdapter.listPrompts(serverCode);
+    }
+
+    @Override
+    public McpPromptResult getPrompt(String serverCode, String promptName, String argumentsJson) {
+        return mcpClientAdapter.getPrompt(serverCode, promptName, argumentsJson);
+    }
+
+    @Override
+    public List<McpResourceDescriptor> listResources(String serverCode) {
+        return mcpClientAdapter.listResources(serverCode);
+    }
+
+    @Override
+    public McpResourceResult readResource(String serverCode, String resourceUri) {
+        return mcpClientAdapter.readResource(serverCode, resourceUri);
+    }
+
+    @Override
+    public Map<String, Object> syncCatalogFromJson() {
+        int toolCount = 0;
+        int workflowCount = 0;
+        int promptCount = 0;
+        List<String> warnings = new ArrayList<>();
         try {
-            String queryVectorStr = llmClientUtil.getEmbedding(query);
-
-            if (queryVectorStr != null && !queryVectorStr.trim().isEmpty() && !queryVectorStr.trim().equals("[]")) {
-                List<McpTool> tools = toolMapper.searchByVector(queryVectorStr, 5);
-                resources.addAll(tools.stream().map(this::toResource).toList());
-
-                List<McpSkill> skills = skillMapper.searchByVector(queryVectorStr, 5);
-                resources.addAll(skills.stream().map(this::toResource).toList());
-
-                log.info("向量檢索完成，Query: [{}], 命中 Tool 數量: {}, 命中 Skill 數量: {}", query, tools.size(), skills.size());
+            Path toolDir = Path.of("json", "tool");
+            Path skillDir = Path.of("json", "skill");
+            if (Files.isDirectory(toolDir)) {
+                try (Stream<Path> s = Files.list(toolDir)) {
+                    for (Path p : (Iterable<Path>) s.filter(f -> f.getFileName().toString().endsWith(".json"))::iterator) {
+                        Map<String, Object> m = readJsonFile(p);
+                        if (m.isEmpty()) {
+                            warnings.add("tool parse failed: " + p.getFileName());
+                            continue;
+                        }
+                        syncToolFile(m);
+                        toolCount++;
+                    }
+                }
             } else {
-                log.warn("查詢語句向量化失敗，無法進行檢索: {}", query);
+                warnings.add("missing: " + toolDir);
+            }
+
+            if (Files.isDirectory(skillDir)) {
+                try (Stream<Path> s = Files.list(skillDir)) {
+                    for (Path p : (Iterable<Path>) s.filter(f -> f.getFileName().toString().endsWith(".json"))::iterator) {
+                        Map<String, Object> m = readJsonFile(p);
+                        if (m.isEmpty()) {
+                            warnings.add("skill parse failed: " + p.getFileName());
+                            continue;
+                        }
+                        McpSkill skill = mapToSkill(m);
+                        if (workflowSkill(skill)) {
+                            upsertWorkflow(skill);
+                            workflowCount++;
+                        } else {
+                            upsertPrompt(skill);
+                            promptCount++;
+                        }
+                    }
+                }
+            } else {
+                warnings.add("missing: " + skillDir);
             }
         } catch (Exception e) {
-            log.error("向量檢索資源異常: {}", e.getMessage(), e);
+            log.error("syncCatalogFromJson failed", e);
+            return Map.of("status", "error", "message", e.getMessage());
         }
-
-        return resources;
+        return Map.of("status", "success", "toolCount", toolCount, "workflowCount", workflowCount, "promptCount", promptCount, "warnings", warnings);
     }
 
-    private Resource toResource(McpTool tool) {
-        return Resource.builder()
-                .id(String.valueOf(tool.getId()))
-                .type(ResourceType.TOOL)
-                .name(tool.getName())
-                .description(tool.getDescription())
-                .version(tool.getVersion())
-                .owner(tool.getOwner())
-                .beanName(tool.getBeanName())
-                .methodName(tool.getMethodName())
-                .inputSchema(tool.getInputSchema())
-                .outputSchema(tool.getOutputSchema())
-                .runMode(RunMode.SYNC)
-                .requiresApproval(tool.getRequiresApproval() != null ? tool.getRequiresApproval() : false)
-                .sensitivity(tool.getSensitivity() != null ? tool.getSensitivity() : Sensitivity.LOW)
-                .requiredCapabilities(null)
-                .toolSlots(null)
-                .thoughtChain(null)
+    private void syncToolFile(Map<String, Object> m) {
+        McpTool tool = McpTool.builder()
+                .name(text(m.get("name")))
+                .description(text(m.get("description")))
+                .version(def(text(m.get("version")), "1.0.0"))
+                .owner(text(m.get("owner")))
+                .beanName(text(m.get("beanName")))
+                .methodName(text(m.get("methodName")))
+                .inputSchema(json(m.get("inputSchema")))
+                .outputSchema(json(m.get("outputSchema")))
+                .requiresApproval(bool(m.get("requiresApproval"), false))
+                .sensitivity(parseSensitivity(text(m.get("sensitivity"))))
                 .build();
+        registerTool(tool);
     }
 
-    private Resource toResource(McpSkill skill) {
-        List<Resource.ToolSlotDto> slots = new ArrayList<>();
-        if (skill.getToolSlots() != null) {
-            for (Object rawSlot : skill.getToolSlots()) {
-                McpSkill.ToolSlot slotObj = null;
-
-                if (rawSlot instanceof McpSkill.ToolSlot ts) {
-                    slotObj = ts;
-                } else if (rawSlot instanceof Map<?, ?> mapSlot) {
-                    try {
-                        slotObj = objectMapper.convertValue(mapSlot, McpSkill.ToolSlot.class);
-                    } catch (Exception e) {
-                        log.warn("toolSlots 元素转换失败，skillId={}, skillName={}, rawSlot={}, err={}",
-                                skill.getId(), skill.getName(), rawSlot, e.getMessage());
-                    }
-                } else if (rawSlot != null) {
-                    log.warn("toolSlots 存在未知元素类型，skillId={}, skillName={}, type={}, value={}",
-                            skill.getId(), skill.getName(), rawSlot.getClass().getName(), rawSlot);
-                }
-
-                if (slotObj != null) {
-                    slots.add(Resource.ToolSlotDto.builder()
-                            .slot(slotObj.getSlot())
-                            .capability(slotObj.getCapability())
-                            .required(slotObj.getRequired())
-                            .build());
-                }
-            }
-        }
-
-        return Resource.builder()
-                .id(String.valueOf(skill.getId()))
-                .type(ResourceType.SKILL)
-                .name(skill.getName())
-                .description(skill.getDescription())
-                .version(skill.getVersion())
-                .owner(skill.getOwner())
-                .beanName(skill.getBeanName())
-                .methodName(skill.getMethodName())
-                .inputSchema(skill.getInputSchema())
-                .outputSchema(skill.getOutputSchema())
-                .runMode(skill.getRunMode() != null ? skill.getRunMode() : RunMode.SYNC)
-                .requiresApproval(false)
-                .sensitivity(Sensitivity.LOW)
-                .requiredCapabilities(skill.getRequiredCapabilities())
-                .toolSlots(slots.isEmpty() ? null : slots)
-                .thoughtChain(skill.getThoughtChain())
-                .build();
+    private McpSkill mapToSkill(Map<String, Object> m) {
+        McpSkill s = new McpSkill();
+        s.setName(text(m.get("name")));
+        s.setDescription(text(m.get("description")));
+        s.setVersion(def(text(m.get("version")), "1.0.0"));
+        s.setOwner(text(m.get("owner")));
+        s.setBeanName(text(m.get("beanName")));
+        s.setMethodName(text(m.get("methodName")));
+        s.setInputSchema(json(m.get("inputSchema")));
+        s.setOutputSchema(json(m.get("outputSchema")));
+        s.setRunMode(parseRunMode(text(m.get("runMode"))));
+        s.setRequiredCapabilities(stringList(m.get("requiredCapabilities")));
+        s.setThoughtChain(stringList(m.get("thoughtChain")));
+        s.setToolSlots(toSkillSlots(m.get("toolSlots")));
+        return s;
     }
 
-    private void normalizeSkillFields(McpSkill skill) {
-        if (skill.getRunMode() == null) {
-            skill.setRunMode(RunMode.SYNC);
+    private void upsertWorkflow(McpSkill skill) {
+        WorkflowTemplate w = workflowTemplateMapper.selectOne(new LambdaQueryWrapper<WorkflowTemplate>()
+                .eq(WorkflowTemplate::getWorkflowName, skill.getName()).last("LIMIT 1"));
+        if (w == null) {
+            w = new WorkflowTemplate();
+            w.setWorkflowName(skill.getName());
+            w.setEnabled(true);
         }
-        if (skill.getRequiredCapabilities() == null) {
-            skill.setRequiredCapabilities(new ArrayList<>());
+        w.setDescription(skill.getDescription());
+        w.setInputSchema(jsonMap(skill.getInputSchema()));
+        w.setOutputSchema(jsonMap(skill.getOutputSchema()));
+        w.setRequiredCapabilities(skill.getRequiredCapabilities());
+        w.setThoughtChain(skill.getThoughtChain());
+        w.setToolSlots(toSlotMaps(skill.getToolSlots()));
+        w.setVersion(def(skill.getVersion(), "1.0.0"));
+        w.setEmbedding(embed(skill.getName(), skill.getDescription()));
+        if (w.getId() == null) workflowTemplateMapper.insert(w); else workflowTemplateMapper.updateById(w);
+        skill.setId(w.getId());
+        skill.setEmbedding(w.getEmbedding());
+    }
+
+    private void upsertPrompt(McpSkill skill) {
+        McpPromptCatalog p = promptCatalogMapper.selectOne(new LambdaQueryWrapper<McpPromptCatalog>()
+                .eq(McpPromptCatalog::getServerCode, McpConstant.LOCAL_SERVER_CODE)
+                .eq(McpPromptCatalog::getPromptName, skill.getName())
+                .last("LIMIT 1"));
+        if (p == null) {
+            p = new McpPromptCatalog();
+            p.setServerCode(McpConstant.LOCAL_SERVER_CODE);
+            p.setPromptName(skill.getName());
+            p.setEnabled(true);
         }
-        if (skill.getToolSlots() == null) {
-            skill.setToolSlots(new ArrayList<>());
+        p.setTitle(skill.getName());
+        p.setDescription(skill.getDescription());
+        p.setArgumentsSchema(jsonMap(skill.getInputSchema()));
+        p.setRawPayload(Map.of(
+                "skillName", def(skill.getName(), ""),
+                "legacyBeanName", def(skill.getBeanName(), ""),
+                "legacyMethodName", def(skill.getMethodName(), ""),
+                "runMode", (skill.getRunMode() == null ? RunMode.SYNC : skill.getRunMode()).name()
+        ));
+        p.setVersion(def(skill.getVersion(), "1.0.0"));
+        p.setEmbedding(embed(skill.getName(), skill.getDescription()));
+        p.setSyncedAt(LocalDateTime.now());
+        if (p.getId() == null) promptCatalogMapper.insert(p); else promptCatalogMapper.updateById(p);
+        skill.setId(p.getId());
+        skill.setEmbedding(p.getEmbedding());
+    }
+
+    private void upsertImpl(String toolName, String beanName, String methodName) {
+        McpToolImplMapping m = toolImplMappingMapper.findEnabledMapping(McpConstant.LOCAL_SERVER_CODE, toolName);
+        if (m == null) {
+            m = new McpToolImplMapping();
+            m.setServerCode(McpConstant.LOCAL_SERVER_CODE);
+            m.setToolName(toolName);
+            m.setEnabled(true);
         }
-        if (skill.getThoughtChain() == null) {
-            skill.setThoughtChain(new ArrayList<>());
+        m.setImplType("SPRING_BEAN");
+        m.setBeanName(beanName);
+        m.setMethodName(methodName);
+        m.setTimeoutMs(10000);
+        if (m.getId() == null) toolImplMappingMapper.insert(m); else toolImplMappingMapper.updateById(m);
+    }
+
+    private Resource toTool(McpToolCatalog t) {
+        return Resource.builder().id(String.valueOf(t.getId())).type(ResourceType.TOOL).serverCode(t.getServerCode()).name(t.getToolName())
+                .description(t.getDescription()).version(t.getVersion()).inputSchema(json(t.getInputSchema())).outputSchema(json(t.getOutputSchema()))
+                .requiresApproval(Boolean.TRUE.equals(t.getRequiresApproval())).sensitivity(parseSensitivity(t.getSensitivity())).runMode(RunMode.SYNC).build();
+    }
+
+    private Resource toPrompt(McpPromptCatalog p) {
+        return Resource.builder().id(String.valueOf(p.getId())).type(ResourceType.PROMPT).serverCode(p.getServerCode()).name(p.getPromptName())
+                .description(p.getDescription()).version(p.getVersion()).argumentsSchema(json(p.getArgumentsSchema()))
+                .requiresApproval(false).sensitivity(Sensitivity.LOW).runMode(RunMode.SYNC).build();
+    }
+
+    private Resource toResource(McpResourceCatalog r) {
+        return Resource.builder().id(String.valueOf(r.getId())).type(ResourceType.RESOURCE).serverCode(r.getServerCode()).name(r.getName())
+                .resourceUri(r.getResourceUri()).description(r.getDescription()).mimeType(r.getMimeType())
+                .requiresApproval(false).sensitivity(Sensitivity.LOW).runMode(RunMode.SYNC).build();
+    }
+
+    private Resource toWorkflow(WorkflowTemplate w) {
+        return Resource.builder().id(String.valueOf(w.getId())).type(ResourceType.WORKFLOW).serverCode(McpConstant.LOCAL_SERVER_CODE).name(w.getWorkflowName())
+                .description(w.getDescription()).version(w.getVersion()).inputSchema(json(w.getInputSchema())).outputSchema(json(w.getOutputSchema()))
+                .requiredCapabilities(w.getRequiredCapabilities()).thoughtChain(w.getThoughtChain()).toolSlots(toResourceSlots(w.getToolSlots()))
+                .requiresApproval(false).sensitivity(Sensitivity.LOW).runMode(RunMode.SYNC).build();
+    }
+
+    private List<Resource.ToolSlotDto> toResourceSlots(List<Map<String, Object>> maps) {
+        if (maps == null || maps.isEmpty()) return null;
+        List<Resource.ToolSlotDto> out = new ArrayList<>();
+        for (Map<String, Object> m : maps) {
+            out.add(Resource.ToolSlotDto.builder().slot(text(m.get("slot"))).capability(text(m.get("capability"))).required(bool(m.get("required"), true)).build());
+        }
+        return out;
+    }
+
+    private List<Map<String, Object>> toSlotMaps(List<McpSkill.ToolSlot> slots) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        if (slots == null) return out;
+        for (McpSkill.ToolSlot s : slots) {
+            out.add(Map.of("slot", def(s.getSlot(), ""), "capability", def(s.getCapability(), ""), "required", s.getRequired() == null || s.getRequired()));
+        }
+        return out;
+    }
+
+    private List<McpSkill.ToolSlot> toSkillSlots(Object o) {
+        List<McpSkill.ToolSlot> out = new ArrayList<>();
+        if (o == null) return out;
+        try {
+            List<Map<String, Object>> list = objectMapper.convertValue(o, new TypeReference<>() {});
+            for (Map<String, Object> m : list) {
+                out.add(McpSkill.ToolSlot.builder().slot(text(m.get("slot"))).capability(text(m.get("capability"))).required(bool(m.get("required"), true)).build());
+            }
+        } catch (Exception ignored) {
+        }
+        return out;
+    }
+
+    private Map<String, Object> readJsonFile(Path p) {
+        try {
+            String s = Files.readString(p);
+            return objectMapper.readValue(s, new TypeReference<>() {});
+        } catch (Exception e) {
+            return Collections.emptyMap();
         }
     }
 
-    private void validateSkillDefinition(McpSkill skill, boolean isCreate) {
-        if (skill == null) {
-            throw new IllegalArgumentException("skill 不能为空");
-        }
-        if (isCreate && (skill.getName() == null || skill.getName().isBlank())) {
-            throw new IllegalArgumentException("skillName 不能为空");
-        }
-
-        validateToolSlots(skill);
-        validateCapabilityCoverage(skill);
-
-        if (!skill.getThoughtChain().isEmpty() && skill.getThoughtChain().size() != skill.getToolSlots().size()) {
-            throw new IllegalArgumentException("thoughtChain 长度必须与 toolSlots 一致");
+    private String embed(String name, String desc) {
+        try {
+            String v = llmClientUtil.getEmbedding((def(name, "") + " " + def(desc, "")).trim());
+            return blank(v) || "[]".equals(v) ? null : v;
+        } catch (Exception e) {
+            return null;
         }
     }
 
-    private void validateToolSlots(McpSkill skill) {
-        if (skill.getToolSlots() == null || skill.getToolSlots().isEmpty()) {
-            throw new IllegalArgumentException("toolSlots 不能为空，至少定义一个步骤槽位");
-        }
-
-        Set<String> slotNames = new HashSet<>();
-        for (McpSkill.ToolSlot slot : skill.getToolSlots()) {
-            if (slot == null) {
-                throw new IllegalArgumentException("toolSlots 不能包含空元素");
-            }
-            if (slot.getSlot() == null || slot.getSlot().isBlank()) {
-                throw new IllegalArgumentException("toolSlots.slot 不能为空");
-            }
-            if (slot.getCapability() == null || slot.getCapability().isBlank()) {
-                throw new IllegalArgumentException("toolSlots.capability 不能为空");
-            }
-            if (!slotNames.add(slot.getSlot())) {
-                throw new IllegalArgumentException("toolSlots.slot 不能重复: " + slot.getSlot());
-            }
-            if (slot.getRequired() == null) {
-                slot.setRequired(Boolean.TRUE);
-            }
+    private Map<String, Object> jsonMap(String json) {
+        if (blank(json)) return new LinkedHashMap<>();
+        try {
+            return objectMapper.readValue(json, new TypeReference<>() {});
+        } catch (Exception e) {
+            return new LinkedHashMap<>();
         }
     }
 
-    private void validateCapabilityCoverage(McpSkill skill) {
-        Set<String> capabilitiesInSlots = skill.getToolSlots().stream()
-                .map(McpSkill.ToolSlot::getCapability)
-                .filter(Objects::nonNull)
-                .map(String::trim)
-                .filter(s -> !s.isBlank())
-                .collect(Collectors.toSet());
+    private String json(Object o) {
+        if (o == null) return null;
+        try {
+            return objectMapper.writeValueAsString(o);
+        } catch (Exception e) {
+            return null;
+        }
+    }
 
-        if (skill.getRequiredCapabilities() != null && !skill.getRequiredCapabilities().isEmpty()) {
-            for (String c : skill.getRequiredCapabilities()) {
-                if (c == null || c.isBlank()) {
-                    throw new IllegalArgumentException("requiredCapabilities 不能包含空值");
-                }
-                if (!capabilitiesInSlots.contains(c.trim())) {
-                    throw new IllegalArgumentException("requiredCapabilities 中的能力未在 toolSlots 中声明: " + c);
-                }
-            }
-        } else {
-            skill.setRequiredCapabilities(new ArrayList<>(capabilitiesInSlots));
+    private List<String> stringList(Object o) {
+        if (o == null) return new ArrayList<>();
+        try {
+            List<Object> list = objectMapper.convertValue(o, new TypeReference<>() {});
+            List<String> out = new ArrayList<>();
+            for (Object it : list) if (it != null) out.add(String.valueOf(it));
+            return out;
+        } catch (Exception e) {
+            return new ArrayList<>();
+        }
+    }
+
+    private boolean workflowSkill(McpSkill s) {
+        return s != null && (s.getRunMode() == RunMode.ASYNC || notEmpty(s.getRequiredCapabilities()) || notEmpty(s.getToolSlots()) || notEmpty(s.getThoughtChain()));
+    }
+
+    private boolean notEmpty(Collection<?> c) { return c != null && !c.isEmpty(); }
+
+    private boolean blank(String s) { return s == null || s.isBlank(); }
+
+    private String text(Object o) { return o == null ? "" : String.valueOf(o).trim(); }
+
+    private String def(String s, String d) { return blank(s) ? d : s.trim(); }
+
+    private boolean contains(String s, String q) { return s != null && s.toLowerCase(Locale.ROOT).contains(q); }
+
+    private boolean bool(Object o, boolean d) {
+        if (o == null) return d;
+        if (o instanceof Boolean b) return b;
+        String t = String.valueOf(o).trim().toLowerCase(Locale.ROOT);
+        if ("true".equals(t) || "1".equals(t) || "yes".equals(t)) return true;
+        if ("false".equals(t) || "0".equals(t) || "no".equals(t)) return false;
+        return d;
+    }
+
+    private RunMode parseRunMode(String v) {
+        if (blank(v)) return RunMode.SYNC;
+        try {
+            return RunMode.valueOf(v.toUpperCase(Locale.ROOT));
+        } catch (Exception e) {
+            return RunMode.SYNC;
+        }
+    }
+
+    private Sensitivity parseSensitivity(String v) {
+        if (blank(v)) return Sensitivity.LOW;
+        try {
+            return Sensitivity.valueOf(v.toUpperCase(Locale.ROOT));
+        } catch (Exception e) {
+            return Sensitivity.LOW;
         }
     }
 }

@@ -6,18 +6,23 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 
 /**
- * 任务节点类型
+ * Plan node type.
+ *
+ * Keep legacy codes for compatibility with existing rows.
  */
 @Getter
 @AllArgsConstructor
 public enum PlanNodeType {
-    ANALYZE(0, "ANALYZE", "分析"),
-    TOOL(1, "TOOL", "工具调用"),
-    SKILL(2, "SKILL", "技能调用"),
-    VALIDATE(3, "VALIDATE", "校验"),
-    SUMMARIZE(4, "SUMMARIZE", "总结"),
-    REPORT(5, "REPORT", "报告"),
-    CODE(6, "CODE", "代码任务");
+    ANALYZE(0, "ANALYZE", "Analysis"),
+    TOOL(1, "TOOL", "Tool call"),
+    SKILL(2, "SKILL", "Legacy skill call"),
+    VALIDATE(3, "VALIDATE", "Validation"),
+    SUMMARIZE(4, "SUMMARIZE", "Legacy summarize"),
+    REPORT(5, "REPORT", "Report"),
+    CODE(6, "CODE", "Code task"),
+    PROMPT(7, "PROMPT", "Prompt node"),
+    RESOURCE(8, "RESOURCE", "Resource node"),
+    WORKFLOW(9, "WORKFLOW", "Workflow node");
 
     @EnumValue
     private final Integer code;

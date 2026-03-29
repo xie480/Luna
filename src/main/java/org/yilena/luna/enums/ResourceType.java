@@ -5,12 +5,15 @@ import com.fasterxml.jackson.annotation.JsonValue;
 import lombok.Getter;
 
 /**
- * MCP 资源类型枚举
+ * Unified capability type for MCP orchestration.
  */
 @Getter
 public enum ResourceType {
-    TOOL("TOOL", "原子工具"),
-    SKILL("SKILL", "复合技能");
+    TOOL("TOOL", "Atomic tool"),
+    SKILL("SKILL", "Legacy composite skill"),
+    PROMPT("PROMPT", "Prompt template"),
+    RESOURCE("RESOURCE", "Readable resource"),
+    WORKFLOW("WORKFLOW", "Workflow template");
 
     @EnumValue
     @JsonValue

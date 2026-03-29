@@ -12,7 +12,8 @@ import java.util.*;
 public class BlueprintValidationServiceImpl implements BlueprintValidationService {
 
     private static final Set<String> VALID_NODE_TYPES = Set.of(
-            "ANALYZE", "TOOL", "SKILL", "VALIDATE", "SUMMARIZE", "REPORT", "CODE"
+            "ANALYZE", "TOOL", "SKILL", "VALIDATE", "SUMMARIZE", "REPORT", "CODE",
+            "PROMPT", "RESOURCE", "WORKFLOW"
     );
 
     private static final Set<String> VALID_RISK_LEVELS = Set.of("LOW", "MEDIUM", "HIGH");

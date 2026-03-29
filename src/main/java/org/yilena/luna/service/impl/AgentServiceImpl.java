@@ -8,24 +8,24 @@ import org.springframework.stereotype.Service;
 import org.yilena.luna.adapter.LlmAdapter;
 import org.yilena.luna.common.utils.JsonSchemaValidator;
 import org.yilena.luna.entity.ChatMessage;
+import org.yilena.luna.entity.ExecutionResult;
 import org.yilena.luna.entity.Resource;
 import org.yilena.luna.enums.ResourceType;
-import org.yilena.luna.executor.ReflectionToolExecutor;
 import org.yilena.luna.executor.SkillExecutor;
 import org.yilena.luna.gate.ExecutionGate;
+import org.yilena.luna.gate.ToolExecutionGateway;
 import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.router.ToolRouter;
 import org.yilena.luna.service.AgentService;
+import org.yilena.luna.service.McpService;
 import org.yilena.luna.service.SessionService;
 import org.yilena.luna.utils.AuthContextHolder;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
-/**
- * Agent 編排核心實現類
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -34,105 +34,89 @@ public class AgentServiceImpl implements AgentService {
     private final ToolRouter toolRouter;
     private final LlmAdapter llmAdapter;
     private final ExecutionGate executionGate;
-    private final ReflectionToolExecutor toolExecutor;
+    private final ToolExecutionGateway toolExecutionGateway;
     private final SkillExecutor skillExecutor;
+    private final McpService mcpService;
     private final ObjectMapper objectMapper;
     private final SessionService sessionService;
 
     @Override
     public String processToolCalling(String sessionId, String input) {
-        log.info("Agent 开始进行工具决策分析: {}, sessionId={}", input, sessionId);
+        log.info("processToolCalling, sessionId={}, input={}", sessionId, input);
 
-        // 1. 獲取候選工具
         List<Resource> candidates = toolRouter.findCandidates(input);
         if (candidates.isEmpty()) {
-            log.info("未检索到相关工具，跳过 Tool Calling");
             return null;
         }
 
-        // 1.1 拉取近期历史对话，参与工具决策与参数生成
-        List<String> historySnippets = loadRecentHistory(sessionId);
-
-        // 2. 決策階段 (調用 LLM 判斷是否需要工具)
-        String decisionPrompt = buildDecisionPrompt(input, historySnippets, candidates);
-        String decisionJson = llmAdapter.generate(decisionPrompt);
-        log.info("Agent 决策结果: {}", decisionJson);
-
-        String toolName = parseToolName(decisionJson);
-        if (toolName == null || "null".equalsIgnoreCase(toolName) || "none".equalsIgnoreCase(toolName)) {
-            log.info("Agent 判断：无需调用工具");
+        List<String> history = loadRecentHistory(sessionId);
+        String decisionJson = llmAdapter.generate(buildDecisionPrompt(input, history, candidates));
+        String targetName = parseToolName(decisionJson);
+        if (targetName == null || "none".equalsIgnoreCase(targetName) || "null".equalsIgnoreCase(targetName)) {
             return null;
         }
 
-        Resource targetResource = candidates.stream()
-                .filter(r -> r.getName().equals(toolName))
+        Resource target = candidates.stream()
+                .filter(r -> targetName.equals(r.getName()))
                 .findFirst()
                 .orElse(null);
-
-        if (targetResource == null) {
-            log.warn("决策出的工具 [{}] 不在候选列表中", toolName);
+        if (target == null) {
             return null;
         }
 
-        // 3. 參數生成階段（Tool/Skill 分流 + 注入历史上下文）
-        String argsPrompt = buildArgsPrompt(input, historySnippets, targetResource);
-        String argsJson = llmAdapter.generate(argsPrompt);
-        log.info("Agent 生成参数: {}", argsJson);
-
-        // 4. JSON Schema 校驗與修復
-        if (!JsonSchemaValidator.validate(targetResource.getInputSchema(), argsJson)) {
-            log.warn("参数校验失败，尝试自动修复...");
-            String repairPrompt = String.format(PromptTemplates.TOOL_ARGS_REPAIR_PROMPT,
-                    targetResource.getInputSchema(), argsJson);
-            argsJson = llmAdapter.generate(repairPrompt);
+        String argsJson = llmAdapter.generate(buildArgsPrompt(input, history, target));
+        if (!JsonSchemaValidator.validate(target.getInputSchema(), argsJson)) {
+            argsJson = llmAdapter.generate(String.format(PromptTemplates.TOOL_ARGS_REPAIR_PROMPT, target.getInputSchema(), argsJson));
         }
 
-        // 5. 權限與審批網關
-        try {
-            executionGate.check(targetResource);
-        } catch (Exception e) {
-            return "【系统警告】工具执行被拦截: " + e.getMessage();
+        executionGate.check(target);
+        if (ResourceType.WORKFLOW.equals(target.getType()) || ResourceType.SKILL.equals(target.getType())) {
+            return skillExecutor.execute(target, argsJson);
+        }
+        if (ResourceType.PROMPT.equals(target.getType())) {
+            return toJson(Map.of("status", "success", "data",
+                    mcpService.getPrompt(target.getServerCode(), target.getName(), argsJson)));
+        }
+        if (ResourceType.RESOURCE.equals(target.getType())) {
+            String uri = target.getResourceUri() == null ? target.getName() : target.getResourceUri();
+            return toJson(Map.of("status", "success", "data",
+                    mcpService.readResource(target.getServerCode(), uri)));
         }
 
-        // 6. 執行工具或技能
-        String executionResult;
-        if (ResourceType.SKILL.equals(targetResource.getType())) {
-            executionResult = skillExecutor.execute(targetResource, argsJson);
-        } else {
-            // 优先使用 JWT 的 jti 作为稳定会话ID；若不存在再回退入参
-            String jwtJti = AuthContextHolder.getSessionId();
-            String stableSessionId = (jwtJti != null && !jwtJti.isBlank())
-                    ? jwtJti
-                    : ((sessionId == null || sessionId.isBlank()) ? "agent-default" : sessionId);
-
-            executionResult = toolExecutor.execute(stableSessionId, targetResource, argsJson);
+        String stableSessionId = resolveStableSessionId(sessionId);
+        ExecutionResult result = toolExecutionGateway.executeTool(stableSessionId, target, argsJson);
+        if (result.getRawResult() != null) {
+            return result.getRawResult();
         }
-
-        log.info("Agent 工具执行完毕，结果: {}", executionResult);
-        return executionResult;
+        return toJson(Map.of(
+                "status", result.getStatus(),
+                "message", result.getMessage(),
+                "data", result.getData()
+        ));
     }
 
-    private String buildDecisionPrompt(String input, List<String> historySnippets, List<Resource> tools) {
-        String toolDesc = tools.stream()
-                .map(t -> String.format("- %s: %s", t.getName(), t.getDescription()))
-                .collect(Collectors.joining("\n"));
-
-        String historyText;
-        if (historySnippets == null || historySnippets.isEmpty()) {
-            historyText = "（无可用历史对话）";
-        } else {
-            historyText = historySnippets.stream().collect(Collectors.joining("\n"));
+    private String resolveStableSessionId(String sessionId) {
+        String jwtJti = AuthContextHolder.getSessionId();
+        if (jwtJti != null && !jwtJti.isBlank()) {
+            return jwtJti;
         }
+        if (sessionId == null || sessionId.isBlank()) {
+            return "agent-default";
+        }
+        return sessionId;
+    }
 
+    private String buildDecisionPrompt(String input, List<String> history, List<Resource> tools) {
+        String toolDesc = tools.stream()
+                .map(t -> "- " + t.getName() + ": " + t.getDescription())
+                .collect(Collectors.joining("\n"));
+        String historyText = (history == null || history.isEmpty()) ? "(empty)" : String.join("\n", history);
         return String.format(PromptTemplates.TOOL_DECISION_PROMPT, input, historyText, toolDesc);
     }
 
-    private String buildArgsPrompt(String input, List<String> historySnippets, Resource resource) {
-        String historyText = (historySnippets == null || historySnippets.isEmpty())
-                ? "（无可用历史对话）"
-                : String.join("\n", historySnippets);
-
-        if (ResourceType.SKILL.equals(resource.getType())) {
+    private String buildArgsPrompt(String input, List<String> history, Resource resource) {
+        String historyText = (history == null || history.isEmpty()) ? "(empty)" : String.join("\n", history);
+        if (ResourceType.WORKFLOW.equals(resource.getType()) || ResourceType.SKILL.equals(resource.getType())) {
             return String.format(
                     PromptTemplates.SKILL_ARGS_PROMPT,
                     input,
@@ -140,10 +124,9 @@ public class AgentServiceImpl implements AgentService {
                     resource.getName(),
                     resource.getDescription(),
                     resource.getInputSchema(),
-                    buildSkillOrchestrationHint(resource)
+                    buildWorkflowHint(resource)
             );
         }
-
         return String.format(
                 PromptTemplates.TOOL_ARGS_PROMPT,
                 input,
@@ -154,26 +137,13 @@ public class AgentServiceImpl implements AgentService {
         );
     }
 
-    private String buildSkillOrchestrationHint(Resource resource) {
-        if (!ResourceType.SKILL.equals(resource.getType())) {
-            return "N/A（该资源为 Tool）";
-        }
-
-        String capabilities = (resource.getRequiredCapabilities() == null || resource.getRequiredCapabilities().isEmpty())
-                ? "[]"
-                : resource.getRequiredCapabilities().toString();
-
-        String slots = (resource.getToolSlots() == null || resource.getToolSlots().isEmpty())
-                ? "[]"
-                : resource.getToolSlots().stream()
+    private String buildWorkflowHint(Resource resource) {
+        String capabilities = resource.getRequiredCapabilities() == null ? "[]" : resource.getRequiredCapabilities().toString();
+        String slots = resource.getToolSlots() == null ? "[]" : resource.getToolSlots().stream()
                 .map(s -> "{slot=" + s.getSlot() + ", capability=" + s.getCapability() + ", required=" + s.getRequired() + "}")
                 .collect(Collectors.joining(", ", "[", "]"));
-
-        String thoughtChain = (resource.getThoughtChain() == null || resource.getThoughtChain().isEmpty())
-                ? "（未配置 thought_chain）"
-                : resource.getThoughtChain().toString();
-
-        return "requiredCapabilities=" + capabilities + "；toolSlots=" + slots + "；thought_chain=" + thoughtChain;
+        String thoughtChain = resource.getThoughtChain() == null ? "[]" : resource.getThoughtChain().toString();
+        return "requiredCapabilities=" + capabilities + ";toolSlots=" + slots + ";thoughtChain=" + thoughtChain;
     }
 
     private List<String> loadRecentHistory(String sessionId) {
@@ -188,15 +158,17 @@ public class AgentServiceImpl implements AgentService {
             int from = Math.max(0, recent.size() - 20);
             return recent.subList(from, recent.size()).stream()
                     .map(m -> m.getRole().name() + ": " + m.getContent())
-                    .collect(Collectors.toList());
+                    .toList();
         } catch (Exception e) {
-            log.warn("加载历史对话失败，sessionId={}, err={}", sessionId, e.getMessage());
+            log.warn("load history failed: {}", e.getMessage());
             return Collections.emptyList();
         }
     }
 
     private String parseToolName(String json) {
-        if (json == null) return null;
+        if (json == null) {
+            return null;
+        }
         try {
             String clean = json.trim().replace("```json", "").replace("```", "");
             JsonNode node = objectMapper.readTree(clean);
@@ -204,8 +176,16 @@ public class AgentServiceImpl implements AgentService {
                 return node.get("tool_name").asText();
             }
         } catch (Exception e) {
-            log.error("解析决策 JSON 失败: {}", json, e);
+            log.warn("parse tool decision failed: {}", json);
         }
         return null;
+    }
+
+    private String toJson(Object obj) {
+        try {
+            return objectMapper.writeValueAsString(obj);
+        } catch (Exception e) {
+            return "{\"status\":\"error\",\"message\":\"serialization failed\"}";
+        }
     }
 }

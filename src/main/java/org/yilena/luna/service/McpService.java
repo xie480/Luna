@@ -1,59 +1,53 @@
 package org.yilena.luna.service;
 
+import org.yilena.luna.entity.McpPromptDescriptor;
+import org.yilena.luna.entity.McpPromptResult;
+import org.yilena.luna.entity.McpResourceDescriptor;
+import org.yilena.luna.entity.McpResourceResult;
 import org.yilena.luna.entity.McpSkill;
 import org.yilena.luna.entity.McpTool;
+import org.yilena.luna.entity.McpToolCallResult;
+import org.yilena.luna.entity.McpToolDescriptor;
 import org.yilena.luna.entity.Resource;
 
 import java.util.List;
+import java.util.Map;
 
-/**
- * MCP 服務接口
- * 負責聚合管理 Tool 和 Skill
- */
 public interface McpService {
-    
-    /**
-     * 註冊工具
-     */
+
+    // Legacy registration API (kept for compatibility).
     McpTool registerTool(McpTool tool);
 
-    /**
-     * 更新工具
-     */
     McpTool updateTool(McpTool tool);
 
-    /**
-     * 刪除工具
-     */
     void deleteTool(Long id);
 
-    /**
-     * 註冊技能
-     */
     McpSkill registerSkill(McpSkill skill);
 
-    /**
-     * 更新技能
-     */
     McpSkill updateSkill(McpSkill skill);
 
-    /**
-     * 刪除技能
-     */
     void deleteSkill(Long id);
 
-    /**
-     * 獲取所有資源 (Tool + Skill)
-     */
+    // Unified host capability retrieval.
     List<Resource> listAll();
 
-    /**
-     * 根據 ID 獲取資源
-     */
     Resource getResourceById(Long id);
 
-    /**
-     * 搜索資源 (同時搜索 Tool 和 Skill)
-     */
     List<Resource> searchResources(String query);
+
+    // MCP protocol style API.
+    List<McpToolDescriptor> listTools(String serverCode);
+
+    McpToolCallResult callTool(String serverCode, String toolName, String argumentsJson);
+
+    List<McpPromptDescriptor> listPrompts(String serverCode);
+
+    McpPromptResult getPrompt(String serverCode, String promptName, String argumentsJson);
+
+    List<McpResourceDescriptor> listResources(String serverCode);
+
+    McpResourceResult readResource(String serverCode, String resourceUri);
+
+    // Sync json/tool and json/skill into catalog tables.
+    Map<String, Object> syncCatalogFromJson();
 }

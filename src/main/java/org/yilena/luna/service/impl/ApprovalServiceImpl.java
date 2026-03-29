@@ -11,11 +11,11 @@ import org.springframework.stereotype.Service;
 import org.yilena.luna.constants.ModelHintConstant;
 import org.yilena.luna.entity.ApprovalTask;
 import org.yilena.luna.entity.ChatMessage;
+import org.yilena.luna.entity.McpToolCallResult;
 import org.yilena.luna.entity.Resource;
 import org.yilena.luna.entity.ToolCallingContext;
 import org.yilena.luna.enums.ModelType;
 import org.yilena.luna.exception.impl.NeedApprovalException;
-import org.yilena.luna.executor.ReflectionToolExecutor;
 import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
 import org.yilena.luna.llm.LlmResponse;
@@ -23,6 +23,7 @@ import org.yilena.luna.prompt.PromptAssembler;
 import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.service.ApprovalService;
+import org.yilena.luna.service.McpService;
 import org.yilena.luna.service.SessionService;
 import org.yilena.luna.sse.LunaStatusPublisher;
 import org.yilena.luna.sse.SseSessionManager;
@@ -43,7 +44,7 @@ import java.util.concurrent.TimeUnit;
 public class ApprovalServiceImpl implements ApprovalService {
 
     private final RedisTemplate<String, Object> redisTemplate;
-    private final ReflectionToolExecutor reflectionToolExecutor;
+    private final McpService mcpService;
     private final ObjectMapper objectMapper;
     private final SseSessionManager sseSessionManager;
     private final LunaStatusPublisher statusPublisher;
@@ -66,6 +67,8 @@ public class ApprovalServiceImpl implements ApprovalService {
                 .taskId(taskId)
                 .sessionId(sessionId)
                 .skillName(resource.getName())
+                .serverCode(resource.getServerCode())
+                .toolName(resource.getName())
                 .beanName(resource.getBeanName())
                 .methodName(resource.getMethodName())
                 .argsJson(argsJson)
@@ -110,7 +113,7 @@ public class ApprovalServiceImpl implements ApprovalService {
             log.info("用戶同意了任務: {}, 開始執行工具...", taskId);
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "THINKING", "Luna 正在处理审批后的操作...");
 
-            String toolResult = reflectionToolExecutor.executeInternal(task.getBeanName(), task.getMethodName(), task.getArgsJson());
+            String toolResult = executeApprovedTool(task);
             resultJson = continueChatAfterToolDecision(task, toolResult, true);
         } else {
             log.info("用戶拒絕了任務: {}, 將跳過工具執行並繼續後續對話流程", taskId);
@@ -127,6 +130,32 @@ public class ApprovalServiceImpl implements ApprovalService {
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "IDLE", "");
 
         return resultJson;
+    }
+
+    private String executeApprovedTool(ApprovalTask task) {
+        String toolName = task.getToolName();
+        if (toolName == null || toolName.isBlank()) {
+            toolName = task.getSkillName();
+        }
+        if (toolName == null || toolName.isBlank()) {
+            return errorJson("approval task missing tool name");
+        }
+
+        try {
+            McpToolCallResult result = mcpService.callTool(task.getServerCode(), toolName, task.getArgsJson());
+            if (result == null) {
+                return errorJson("tool execution returned null");
+            }
+            if (result.getRawResult() != null && !result.getRawResult().isBlank()) {
+                return result.getRawResult();
+            }
+            return objectMapper.writeValueAsString(
+                    result.getData() == null ? Map.of("status", "success") : result.getData()
+            );
+        } catch (Exception e) {
+            log.error("approval execute tool failed, toolName={}", toolName, e);
+            return errorJson("approval execute tool failed: " + e.getMessage());
+        }
     }
 
     /**

@@ -4,10 +4,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.entity.ExecutionResult;
 import org.yilena.luna.entity.Resource;
+import org.yilena.luna.enums.ResourceType;
 import org.yilena.luna.exception.LunaExceptionContext;
 import org.yilena.luna.exception.impl.NeedApprovalException;
-import org.yilena.luna.executor.ReflectionToolExecutor;
+import org.yilena.luna.gate.ToolExecutionGateway;
 import org.yilena.luna.service.ExceptionAgentService;
 import org.yilena.luna.service.ExceptionRetryService;
 import org.yilena.luna.service.McpService;
@@ -26,7 +28,7 @@ public class ExceptionRetryServiceImpl implements ExceptionRetryService {
 
     private final ExceptionAgentService exceptionAgentService;
     private final McpService mcpService;
-    private final ReflectionToolExecutor toolExecutor;
+    private final ToolExecutionGateway toolExecutionGateway;
     private final LunaStatusPublisher statusPublisher;
 
     @Override
@@ -72,6 +74,7 @@ public class ExceptionRetryServiceImpl implements ExceptionRetryService {
                 // 3. 动态调用 MCP Tool (替代原有的 @Tool 掃描)
                 List<Resource> resources = mcpService.searchResources(toolName);
                 Resource targetResource = resources.stream()
+                        .filter(r -> ResourceType.TOOL.equals(r.getType()))
                         .filter(r -> r.getName().equals(toolName))
                         .findFirst()
                         .orElse(null);
@@ -86,7 +89,11 @@ public class ExceptionRetryServiceImpl implements ExceptionRetryService {
                         ? jwtJti
                         : "exception-retry-" + errorId;
 
-                String toolResult = toolExecutor.execute(stableSessionId, targetResource, params.toString());
+                String safeParamsJson = (params == null || params.isNull()) ? "{}" : params.toString();
+                ExecutionResult exec = toolExecutionGateway.executeTool(stableSessionId, targetResource, safeParamsJson);
+                String toolResult = (exec.getRawResult() != null && !exec.getRawResult().isBlank())
+                        ? exec.getRawResult()
+                        : String.valueOf(exec.getData());
 
                 // 5. 修复成功，返回提示
                 result.put("success", true);

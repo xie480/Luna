@@ -37,8 +37,20 @@ public class PlanNode implements Serializable {
     @TableField("node_type")
     private PlanNodeType nodeType;
 
+    @TableField("capability_type")
+    private String capabilityType;
+
+    @TableField("capability_name")
+    private String capabilityName;
+
+    @TableField("server_code")
+    private String serverCode;
+
     @TableField(value = "input_json", typeHandler = JsonbTypeHandler.class)
     private Map<String, Object> inputJson;
+
+    @TableField(value = "resolved_input_json", typeHandler = JsonbTypeHandler.class)
+    private Map<String, Object> resolvedInputJson;
 
     @TableField(value = "expected_output_schema", typeHandler = JsonbTypeHandler.class)
     private Map<String, Object> expectedOutputSchema;
@@ -51,6 +63,12 @@ public class PlanNode implements Serializable {
 
     @TableField("status")
     private PlanNodeStatus status;
+
+    @TableField("approval_required")
+    private Boolean approvalRequired;
+
+    @TableField("approval_status")
+    private String approvalStatus;
 
     @TableField(value = "retry_policy", typeHandler = JsonbTypeHandler.class)
     private Map<String, Object> retryPolicy;

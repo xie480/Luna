@@ -8,12 +8,15 @@ import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.constants.LunaStateConstant;
 import org.yilena.luna.constants.RocketMqConstant;
+import org.yilena.luna.entity.ExecutionResult;
 import org.yilena.luna.entity.Resource;
 import org.yilena.luna.enums.ResourceType;
 import org.yilena.luna.enums.RunMode;
+import org.yilena.luna.gate.ToolExecutionGateway;
 import org.yilena.luna.mq.dto.SkillExecutionMessage;
 import org.yilena.luna.service.McpService;
 import org.yilena.luna.sse.LunaStatusPublisher;
+import org.yilena.luna.utils.AuthContextHolder;
 import org.yilena.luna.utils.LlmClientUtil;
 
 import java.util.*;
@@ -34,7 +37,7 @@ import java.util.stream.Collectors;
 public class SkillExecutor {
 
     private final RocketMQTemplate rocketMQTemplate;
-    private final ReflectionToolExecutor reflectionToolExecutor;
+    private final ToolExecutionGateway toolExecutionGateway;
     private final McpService mcpService;
     private final LlmClientUtil llmClientUtil;
     private final ObjectMapper objectMapper;
@@ -155,7 +158,15 @@ public class SkillExecutor {
                     String toolArgs = buildToolArgs(inputNode, state);
                     step.put("toolArgs", safeToNode(toolArgs));
 
-                    String toolResult = reflectionToolExecutor.execute(matchedTool, toolArgs);
+                    String sessionId = AuthContextHolder.getSessionId();
+                    ExecutionResult execResult = toolExecutionGateway.executeTool(
+                            sessionId == null ? "skill-executor" : sessionId,
+                            matchedTool,
+                            toolArgs
+                    );
+                    String toolResult = execResult.getRawResult() == null
+                            ? safeJson(execResult)
+                            : execResult.getRawResult();
                     JsonNode toolResultNode = safeToNode(toolResult);
 
                     boolean stepSuccess = isToolSuccess(toolResultNode);
@@ -313,6 +324,14 @@ public class SkillExecutor {
             return objectMapper.readTree(text);
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    private String safeJson(ExecutionResult result) {
+        try {
+            return objectMapper.writeValueAsString(result);
+        } catch (Exception e) {
+            return "{\"status\":\"error\",\"message\":\"execution serialization failed\"}";
         }
     }
 

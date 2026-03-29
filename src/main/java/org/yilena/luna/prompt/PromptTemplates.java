@@ -773,7 +773,7 @@ Luna对时间流逝有自觉。她不会假装什么都没发生，但也不会�
 1) 只输出一个合法 JSON 对象，不要 markdown，不要解释。
 2) 你必须决定阶段数量（可为1..N），并给出每个阶段 objective。
 3) nodes 必须归属到 phases，edges 必须引用存在的 nodeId。
-4) nodeType 仅可使用：ANALYZE, TOOL, SKILL, VALIDATE, SUMMARIZE, REPORT, CODE
+4) nodeType 仅可使用：ANALYZE, TOOL, SKILL, VALIDATE, SUMMARIZE, REPORT, CODE, PROMPT, RESOURCE, WORKFLOW
 5) riskLevel 仅可使用：LOW, MEDIUM, HIGH
 6) 必须包含字段：planId, sessionId, userGoal, createdAt, phases, nodes, edges
 7) 每个 phase 必须有：phaseId, name, objective, phaseOrder
