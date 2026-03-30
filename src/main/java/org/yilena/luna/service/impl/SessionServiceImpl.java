@@ -2,9 +2,9 @@ package org.yilena.luna.service.impl;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.entity.ChatMessage;
+import org.yilena.luna.mapper.SessionRuntimeMapper;
 import org.yilena.luna.service.SessionService;
 
 import java.time.LocalDateTime;
@@ -19,7 +19,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class SessionServiceImpl implements SessionService {
 
-    private final JdbcTemplate jdbcTemplate;
+    private final SessionRuntimeMapper sessionRuntimeMapper;
 
     @Override
     public void appendMessage(String keyPrefix, ChatMessage msg) {
@@ -27,8 +27,7 @@ public class SessionServiceImpl implements SessionService {
             return;
         }
         try {
-            jdbcTemplate.update(
-                    "insert into conversation_message(session_id, role, message_type, content_text, created_at) values (?, ?, 'TEXT', ?, ?)",
+            sessionRuntimeMapper.insertConversationMessage(
                     keyPrefix,
                     toDbRole(msg.getRole()),
                     msg.getContent(),
@@ -45,10 +44,7 @@ public class SessionServiceImpl implements SessionService {
             return Collections.emptyList();
         }
         try {
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    "select role, content_text, created_at from conversation_message where session_id = ? order by created_at asc limit 300",
-                    keyPrefix
-            );
+            List<Map<String, Object>> rows = sessionRuntimeMapper.selectConversationMessages(keyPrefix);
             List<ChatMessage> out = new ArrayList<>(rows.size());
             for (Map<String, Object> row : rows) {
                 String role = str(row.get("role"));
@@ -69,10 +65,7 @@ public class SessionServiceImpl implements SessionService {
             return;
         }
         try {
-            jdbcTemplate.update(
-                    "delete from conversation_message where session_id = ? and role in ('USER','ASSISTANT')",
-                    sessionId
-            );
+            sessionRuntimeMapper.deleteConversationUserAssistant(sessionId);
         } catch (Exception e) {
             log.warn("clear session failed, sessionId={}, err={}", sessionId, e.getMessage());
         }

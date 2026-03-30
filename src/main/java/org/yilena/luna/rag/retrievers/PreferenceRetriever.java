@@ -1,8 +1,8 @@
 package org.yilena.luna.rag.retrievers;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.yilena.luna.mapper.RagMemoryMapper;
 import org.yilena.luna.rag.models.Evidence;
 import org.yilena.luna.rag.models.QueryObject;
 import org.yilena.luna.rag.models.RetrievalSource;
@@ -17,7 +17,7 @@ import java.util.stream.IntStream;
 @RequiredArgsConstructor
 public class PreferenceRetriever implements BaseRetriever {
 
-    private final JdbcTemplate jdbcTemplate;
+    private final RagMemoryMapper ragMemoryMapper;
 
     @Override
     public RetrievalSource source() {
@@ -41,12 +41,7 @@ public class PreferenceRetriever implements BaseRetriever {
 
     private List<Map<String, Object>> queryPreferenceRows(String sessionId, int topK) {
         try {
-            return jdbcTemplate.queryForList(
-                    "select cast(fact_id as varchar) as id, fact_key as pref_key, fact_value_text as pref_value, description " +
-                            "from relational_semantic_fact where deleted = false and principal_id = cast(abs(hashtext(?)) as bigint) " +
-                            "order by updated_at desc limit ?",
-                    sessionId, topK
-            );
+            return ragMemoryMapper.selectPreferenceMemory(sessionId, topK);
         } catch (Exception ignore) {
             return Collections.emptyList();
         }

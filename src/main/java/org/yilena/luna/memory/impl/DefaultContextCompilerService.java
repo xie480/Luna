@@ -1,10 +1,10 @@
 package org.yilena.luna.memory.impl;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.enums.RelationalRuntimeState;
 import org.yilena.luna.enums.TaskRuntimeState;
+import org.yilena.luna.mapper.CapabilityMapper;
 import org.yilena.luna.memory.ContextCompilerService;
 import org.yilena.luna.memory.ResponseSynthesizerService;
 import org.yilena.luna.memory.RelationalMemoryRetriever;
@@ -28,7 +28,7 @@ public class DefaultContextCompilerService implements ContextCompilerService {
     private final RelationalMemoryRetriever relationalMemoryRetriever;
     private final SocialReasonerService socialReasonerService;
     private final ResponseSynthesizerService responseSynthesizerService;
-    private final JdbcTemplate jdbcTemplate;
+    private final CapabilityMapper capabilityMapper;
 
     @Override
     public StructuredContextPackage compile(String sessionId,
@@ -78,10 +78,7 @@ public class DefaultContextCompilerService implements ContextCompilerService {
 
     private List<Map<String, Object>> queryCapabilities() {
         try {
-            return jdbcTemplate.queryForList(
-                    "select capability_id, capability_type, capability_name, title, description, requires_approval, sensitivity " +
-                            "from capability_registry where enabled = true order by capability_type asc, capability_name asc limit 24"
-            );
+            return capabilityMapper.selectTopCapabilities();
         } catch (Exception ignore) {
             return Collections.emptyList();
         }

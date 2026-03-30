@@ -1,25 +1,22 @@
 package org.yilena.luna.memory.impl;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.enums.RelationalRuntimeState;
 import org.yilena.luna.enums.TaskRuntimeState;
+import org.yilena.luna.mapper.SessionRuntimeMapper;
 import org.yilena.luna.memory.ContextCompilerService;
 import org.yilena.luna.memory.SessionOrchestratorService;
 import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 
-import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
 public class DefaultSessionOrchestratorService implements SessionOrchestratorService {
 
-    private final JdbcTemplate jdbcTemplate;
+    private final SessionRuntimeMapper sessionRuntimeMapper;
     private final ContextCompilerService contextCompilerService;
 
     @Override
@@ -58,30 +55,17 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
     }
 
     private TaskRuntimeState getCurrentTaskState(String sessionId) {
-        return readState(
-                "select task_state from agent_session where session_id = ?",
-                sessionId,
-                TaskRuntimeState.IDLE
-        );
+        return parseState(sessionRuntimeMapper.selectTaskState(sessionId), TaskRuntimeState.IDLE);
     }
 
     private RelationalRuntimeState getCurrentRelationalState(String sessionId) {
-        return readState(
-                "select relational_state from agent_session where session_id = ?",
-                sessionId,
-                RelationalRuntimeState.COLD_START
-        );
+        return parseState(sessionRuntimeMapper.selectRelationalState(sessionId), RelationalRuntimeState.COLD_START);
     }
 
     @SuppressWarnings("unchecked")
-    private <T extends Enum<T>> T readState(String sql, String sessionId, T fallback) {
+    private <T extends Enum<T>> T parseState(String stateText, T fallback) {
         try {
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, sessionId);
-            if (rows.isEmpty()) {
-                return fallback;
-            }
-            Object raw = rows.get(0).values().stream().filter(Objects::nonNull).findFirst().orElse(null);
-            if (!(raw instanceof String stateText) || stateText.isBlank()) {
+            if (stateText == null || stateText.isBlank()) {
                 return fallback;
             }
             return (T) Enum.valueOf(fallback.getDeclaringClass(), stateText.toUpperCase(Locale.ROOT));
@@ -136,15 +120,7 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
                                RelationalRuntimeState relationalState,
                                String userInput) {
         try {
-            jdbcTemplate.update(
-                    "insert into agent_session(session_id, principal_id, session_type, task_state, relational_state, current_goal, " +
-                            "last_user_message_at, metadata_json, created_at, updated_at) " +
-                            "values (?, ?, 'HYBRID', ?, ?, ?, current_timestamp, jsonb_build_object('source','session_orchestrator'), current_timestamp, current_timestamp) " +
-                            "on conflict (session_id) do update set " +
-                            "principal_id = excluded.principal_id, task_state = excluded.task_state, relational_state = excluded.relational_state, " +
-                            "current_goal = excluded.current_goal, last_user_message_at = current_timestamp, updated_at = current_timestamp",
-                    sessionId, principalId, taskState.name(), relationalState.name(), userInput
-            );
+            sessionRuntimeMapper.upsertSession(sessionId, principalId, taskState.name(), relationalState.name(), userInput);
         } catch (Exception ignore) {
         }
     }
@@ -154,12 +130,7 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
             return;
         }
         try {
-            jdbcTemplate.update(
-                    "insert into principal(principal_id, principal_type, display_name, profile_json, created_at, updated_at) " +
-                            "values (?, 'USER', ?, jsonb_build_object('source','session_orchestrator'), current_timestamp, current_timestamp) " +
-                            "on conflict (principal_id) do update set display_name = excluded.display_name, updated_at = current_timestamp",
-                    principalId, sessionId
-            );
+            sessionRuntimeMapper.upsertPrincipal(principalId, sessionId);
         } catch (Exception ignore) {
         }
     }
@@ -169,11 +140,7 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
             return null;
         }
         try {
-            return jdbcTemplate.queryForObject(
-                    "select cast(abs(hashtext(?)) as bigint)",
-                    Long.class,
-                    sessionId
-            );
+            return sessionRuntimeMapper.selectPrincipalId(sessionId);
         } catch (Exception ignore) {
             return null;
         }
@@ -181,11 +148,7 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
 
     private void insertTransition(String sessionId, String domain, String fromState, String toState, String userInput) {
         try {
-            jdbcTemplate.update(
-                    "insert into state_transition_log(session_id, state_domain, from_state, to_state, trigger_type, trigger_ref, reason, payload_json, created_at) " +
-                            "values (?, ?, ?, ?, 'USER_INPUT', ?, 'state_update', jsonb_build_object('text', ?), current_timestamp)",
-                    sessionId, domain, fromState, toState, sessionId, userInput
-            );
+            sessionRuntimeMapper.insertTransition(sessionId, domain, fromState, toState, sessionId, userInput);
         } catch (Exception ignore) {
         }
     }

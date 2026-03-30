@@ -8,7 +8,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.ResponseEntity;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.aspect.LunaLogAspect;
@@ -33,6 +32,7 @@ import org.yilena.luna.memory.RuntimeAuditService;
 import org.yilena.luna.memory.ThreeStageResponseService;
 import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
+import org.yilena.luna.mapper.SessionRuntimeMapper;
 import org.yilena.luna.prompt.PromptAssembler;
 import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.properties.GeminiProperty;
@@ -78,7 +78,7 @@ public class ChatServiceImpl implements ChatService {
     private final MemoryWritePipelineService memoryWritePipelineService;
     private final ThreeStageResponseService threeStageResponseService;
     private final RuntimeAuditService runtimeAuditService;
-    private final JdbcTemplate jdbcTemplate;
+    private final SessionRuntimeMapper sessionRuntimeMapper;
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Override
@@ -250,10 +250,7 @@ public class ChatServiceImpl implements ChatService {
         if (prefix.length() < 8) {
             return result;
         }
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "select distinct session_id from conversation_message where session_id like ? order by session_id asc",
-                prefix + "%"
-        );
+        List<Map<String, Object>> rows = sessionRuntimeMapper.selectDistinctSessionIdsLike(prefix + "%");
         for (Map<String, Object> row : rows) {
             String sessionId = String.valueOf(row.get("session_id"));
             if (sessionId.startsWith(prefix) && sessionId.length() > prefix.length()) {

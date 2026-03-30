@@ -4,8 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.mapper.EventInboxMapper;
 import org.yilena.luna.memory.EventIngressService;
 import org.yilena.luna.memory.RuntimeAuditService;
 import org.yilena.luna.memory.SessionOrchestratorService;
@@ -20,7 +20,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class DefaultEventIngressService implements EventIngressService {
 
-    private final JdbcTemplate jdbcTemplate;
+    private final EventInboxMapper eventInboxMapper;
     private final ObjectMapper objectMapper;
     private final SessionOrchestratorService sessionOrchestratorService;
     private final RuntimeAuditService runtimeAuditService;
@@ -123,16 +123,7 @@ public class DefaultEventIngressService implements EventIngressService {
 
     private Long insertPendingEvent(String sessionId, String eventType, String text, String traceId) {
         try {
-            return jdbcTemplate.queryForObject(
-                    "insert into event_inbox(session_id, event_type, payload_json, status, trace_id, created_at, updated_at) " +
-                            "values (?, ?, jsonb_build_object('text', ?), 'PENDING', ?, current_timestamp, current_timestamp) " +
-                            "returning event_id",
-                    Long.class,
-                    sessionId,
-                    eventType,
-                    text,
-                    traceId
-            );
+            return eventInboxMapper.insertPendingEvent(sessionId, eventType, text, traceId);
         } catch (Exception ignore) {
             return null;
         }
@@ -140,11 +131,7 @@ public class DefaultEventIngressService implements EventIngressService {
 
     private List<Map<String, Object>> fetchPendingEvents(int limit) {
         try {
-            return jdbcTemplate.queryForList(
-                    "select event_id, session_id, event_type, payload_json, trace_id " +
-                            "from event_inbox where status = 'PENDING' order by created_at asc limit ?",
-                    limit
-            );
+            return eventInboxMapper.selectPendingEvents(limit);
         } catch (Exception ignore) {
             return List.of();
         }
@@ -169,20 +156,14 @@ public class DefaultEventIngressService implements EventIngressService {
         if (eventId == null) {
             return;
         }
-        jdbcTemplate.update(
-                "update event_inbox set status = 'PROCESSED', updated_at = current_timestamp where event_id = ?",
-                eventId
-        );
+        eventInboxMapper.markProcessed(eventId);
     }
 
     private void markFailed(Long eventId) {
         if (eventId == null) {
             return;
         }
-        jdbcTemplate.update(
-                "update event_inbox set status = 'FAILED', updated_at = current_timestamp where event_id = ?",
-                eventId
-        );
+        eventInboxMapper.markFailed(eventId);
     }
 
     private String str(Object value) {

@@ -1,8 +1,8 @@
 package org.yilena.luna.rag.retrievers;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.yilena.luna.mapper.RagMemoryMapper;
 import org.yilena.luna.rag.models.Evidence;
 import org.yilena.luna.rag.models.QueryObject;
 import org.yilena.luna.rag.models.RetrievalSource;
@@ -18,7 +18,7 @@ import java.util.stream.IntStream;
 @RequiredArgsConstructor
 public class MemoryRetriever implements BaseRetriever {
 
-    private final JdbcTemplate jdbcTemplate;
+    private final RagMemoryMapper ragMemoryMapper;
 
     @Override
     public RetrievalSource source() {
@@ -43,21 +43,9 @@ public class MemoryRetriever implements BaseRetriever {
     private List<Map<String, Object>> queryMemoryRows(String sessionId, int topK) {
         try {
             List<Map<String, Object>> rows = new ArrayList<>();
-            rows.addAll(jdbcTemplate.queryForList(
-                    "select cast(fact_id as varchar) as id, 'task_fact' as memory_type, fact_value_text as content, confidence_score as score, source_ref as ref " +
-                            "from task_semantic_fact where deleted = false and principal_id = cast(abs(hashtext(?)) as bigint) order by updated_at desc limit ?",
-                    sessionId, topK
-            ));
-            rows.addAll(jdbcTemplate.queryForList(
-                    "select cast(episode_id as varchar) as id, 'task_episode' as memory_type, coalesce(outcome_summary, trajectory_summary) as content, importance_score as score, session_id as ref " +
-                            "from task_episode where session_id = ? order by created_at desc limit ?",
-                    sessionId, Math.max(1, topK / 2)
-            ));
-            rows.addAll(jdbcTemplate.queryForList(
-                    "select cast(episode_id as varchar) as id, 'relational_episode' as memory_type, summary as content, response_effectiveness as score, session_id as ref " +
-                            "from relational_episode where session_id = ? order by created_at desc limit ?",
-                    sessionId, Math.max(1, topK / 2)
-            ));
+            rows.addAll(ragMemoryMapper.selectTaskFactMemory(sessionId, topK));
+            rows.addAll(ragMemoryMapper.selectTaskEpisodeMemory(sessionId, Math.max(1, topK / 2)));
+            rows.addAll(ragMemoryMapper.selectRelationalEpisodeMemory(sessionId, Math.max(1, topK / 2)));
             return rows.stream().limit(topK).toList();
         } catch (Exception ignore) {
             return Collections.emptyList();
