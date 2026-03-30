@@ -26,7 +26,9 @@ import org.yilena.luna.llm.LlmRequest;
 import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.mq.dto.SummaryMessage;
 import org.yilena.luna.memory.MemoryWritePipelineService;
+import org.yilena.luna.memory.RuntimeAuditService;
 import org.yilena.luna.memory.SessionOrchestratorService;
+import org.yilena.luna.memory.ThreeStageResponseService;
 import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.prompt.PromptAssembler;
@@ -81,6 +83,8 @@ public class ChatServiceImpl implements ChatService {
     private final RetrievalService retrievalService;
     private final SessionOrchestratorService sessionOrchestratorService;
     private final MemoryWritePipelineService memoryWritePipelineService;
+    private final ThreeStageResponseService threeStageResponseService;
+    private final RuntimeAuditService runtimeAuditService;
     // 局部 JSON 处理器，仅在本类用于解析/构造响应片段
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -114,6 +118,16 @@ public class ChatServiceImpl implements ChatService {
                 .orElse(keyPrefix);
         OrchestrationDecision orchestrationDecision = sessionOrchestratorService.onUserInput(runtimeSessionId, input);
         StructuredContextPackage contextPackage = orchestrationDecision.getContextPackage();
+        runtimeAuditService.persistContextSnapshot(runtimeSessionId, contextPackage);
+        runtimeAuditService.persistDecisionRecord(
+                runtimeSessionId,
+                "ORCHESTRATION_DECISION",
+                "task/relational states selected",
+                toJsonSafe(Map.of(
+                        "taskState", orchestrationDecision.getTaskState(),
+                        "relationalState", orchestrationDecision.getRelationalState()
+                ))
+        );
         knowledgeSnippets = extractTaskKnowledgeSnippets(contextPackage);
         List<String> preferenceSnippets = Collections.emptyList();
         List<String> longTermMemorySnippets = extractTaskLongTermSnippets(contextPackage);
@@ -193,19 +207,44 @@ public class ChatServiceImpl implements ChatService {
                 .longTermMemorySnippets(longTermMemorySnippets)
                 .build());
 
-        String toolContext;
+        String toolContext = null;
+        long toolStartAt = System.currentTimeMillis();
+        String toolStatus = "SUCCESS";
+        String toolError = null;
         try {
             // 工具执行可能返回同步结果，也可能返回异步 pending 标记
             toolContext = agentService.processToolCalling(keyPrefix, input);
+        } catch (Exception ex) {
+            toolStatus = "FAILED";
+            toolError = ex.getMessage();
+            throw ex;
         } finally {
             // 必须清理 ThreadLocal，防止请求串脏数据
             ToolCallingContextHolder.clear();
+            runtimeAuditService.persistToolExecutionTrace(
+                    runtimeSessionId,
+                    "agent_tool_chain",
+                    toolStatus,
+                    toJsonSafe(Map.of("userInput", input)),
+                    toolContext,
+                    toolError,
+                    System.currentTimeMillis() - toolStartAt
+            );
         }
 
         // 7) 异步任务场景：直接给用户 pending 提示，不阻塞当前对话请求
-        if (isAsyncPending(toolContext)) {
-            String pendingReply = buildPendingReply(toolContext);
+        String synthesisBrief = threeStageResponseService.generateSynthesisBrief(input, toolContext, contextPackage);
+        String mergedToolContext = mergeToolContextWithSynthesis(toolContext, synthesisBrief);
+        runtimeAuditService.persistDecisionRecord(
+                runtimeSessionId,
+                "RESPONSE_SYNTHESIS",
+                "three-stage synthesis brief generated",
+                toJsonSafe(Map.of("synthesisBrief", synthesisBrief == null ? "" : synthesisBrief))
+        );
+        if (isAsyncPending(mergedToolContext)) {
+            String pendingReply = buildPendingReply(mergedToolContext);
             sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.LUNA, pendingReply, LocalTime.now()));
+            memoryWritePipelineService.writeAfterTurn(runtimeSessionId, input, pendingReply, contextPackage);
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
             return ResponseEntity.ok(tryParseJsonNode(pendingReply));
         }
@@ -216,7 +255,7 @@ public class ChatServiceImpl implements ChatService {
                 knowledgeSnippets,
                 preferenceSnippets,
                 longTermMemorySnippets,
-                toolContext,
+                mergedToolContext,
                 input
         );
         SendToLuna result = getSendToLuna(prompt, input);
@@ -533,6 +572,32 @@ public class ChatServiceImpl implements ChatService {
 
     private String stringValue(Object value) {
         return value == null ? "" : String.valueOf(value);
+    }
+
+    private String toJsonSafe(Object value) {
+        try {
+            return mapper.writeValueAsString(value);
+        } catch (Exception ignore) {
+            return "{}";
+        }
+    }
+
+    private String mergeToolContextWithSynthesis(String toolContext, String synthesisBrief) {
+        String brief = synthesisBrief == null ? "" : synthesisBrief.trim();
+        if (brief.isEmpty()) {
+            return toolContext;
+        }
+        try {
+            JsonNode node = tryParseJsonNode(toolContext);
+            if (node != null && node.isObject()) {
+                ObjectNode objectNode = (ObjectNode) node;
+                objectNode.put("three_stage_synthesis_brief", brief);
+                return objectNode.toString();
+            }
+        } catch (Exception ignore) {
+        }
+        String base = toolContext == null || toolContext.isBlank() ? "{}" : toolContext;
+        return base + "\n\n[THREE_STAGE_SYNTHESIS_BRIEF]\n" + brief;
     }
 
     private List<String> toKnowledgeSnippets(RetrievalResponse response) {

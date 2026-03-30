@@ -27,6 +27,7 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
     public OrchestrationDecision onUserInput(String sessionId, String userInput) {
         String normalizedSessionId = sessionId == null || sessionId.isBlank() ? "default-session" : sessionId;
         String traceId = UUID.randomUUID().toString();
+        Long principalId = principalIdOf(normalizedSessionId);
 
         TaskRuntimeState previousTaskState = getCurrentTaskState(normalizedSessionId);
         RelationalRuntimeState previousRelationalState = getCurrentRelationalState(normalizedSessionId);
@@ -34,7 +35,8 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
         TaskRuntimeState nextTaskState = inferTaskState(previousTaskState, userInput);
         RelationalRuntimeState nextRelationalState = inferRelationalState(previousRelationalState, userInput);
 
-        upsertSession(normalizedSessionId, nextTaskState, nextRelationalState, userInput);
+        upsertPrincipal(principalId, normalizedSessionId);
+        upsertSession(normalizedSessionId, principalId, nextTaskState, nextRelationalState, userInput);
         insertEvent(normalizedSessionId, userInput, traceId);
 
         if (previousTaskState != nextTaskState) {
@@ -131,18 +133,52 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
         return RelationalRuntimeState.LIGHT_CHAT;
     }
 
-    private void upsertSession(String sessionId, TaskRuntimeState taskState, RelationalRuntimeState relationalState, String userInput) {
+    private void upsertSession(String sessionId,
+                               Long principalId,
+                               TaskRuntimeState taskState,
+                               RelationalRuntimeState relationalState,
+                               String userInput) {
         try {
             jdbcTemplate.update(
-                    "insert into agent_session(session_id, session_type, task_state, relational_state, current_goal, " +
+                    "insert into agent_session(session_id, principal_id, session_type, task_state, relational_state, current_goal, " +
                             "last_user_message_at, metadata_json, created_at, updated_at) " +
-                            "values (?, 'HYBRID', ?, ?, ?, current_timestamp, jsonb_build_object('source','session_orchestrator'), current_timestamp, current_timestamp) " +
+                            "values (?, ?, 'HYBRID', ?, ?, ?, current_timestamp, jsonb_build_object('source','session_orchestrator'), current_timestamp, current_timestamp) " +
                             "on conflict (session_id) do update set " +
-                            "task_state = excluded.task_state, relational_state = excluded.relational_state, " +
+                            "principal_id = excluded.principal_id, task_state = excluded.task_state, relational_state = excluded.relational_state, " +
                             "current_goal = excluded.current_goal, last_user_message_at = current_timestamp, updated_at = current_timestamp",
-                    sessionId, taskState.name(), relationalState.name(), userInput
+                    sessionId, principalId, taskState.name(), relationalState.name(), userInput
             );
         } catch (Exception ignore) {
+        }
+    }
+
+    private void upsertPrincipal(Long principalId, String sessionId) {
+        if (principalId == null) {
+            return;
+        }
+        try {
+            jdbcTemplate.update(
+                    "insert into principal(principal_id, principal_type, display_name, profile_json, created_at, updated_at) " +
+                            "values (?, 'USER', ?, jsonb_build_object('source','session_orchestrator'), current_timestamp, current_timestamp) " +
+                            "on conflict (principal_id) do update set display_name = excluded.display_name, updated_at = current_timestamp",
+                    principalId, sessionId
+            );
+        } catch (Exception ignore) {
+        }
+    }
+
+    private Long principalIdOf(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return null;
+        }
+        try {
+            return jdbcTemplate.queryForObject(
+                    "select cast(abs(hashtext(?)) as bigint)",
+                    Long.class,
+                    sessionId
+            );
+        } catch (Exception ignore) {
+            return null;
         }
     }
 

@@ -6,13 +6,16 @@ import org.springframework.stereotype.Service;
 import org.yilena.luna.enums.RelationalRuntimeState;
 import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.memory.ContextCompilerService;
+import org.yilena.luna.memory.ResponseSynthesizerService;
 import org.yilena.luna.memory.RelationalMemoryRetriever;
 import org.yilena.luna.memory.RuntimeRetriever;
+import org.yilena.luna.memory.SocialReasonerService;
 import org.yilena.luna.memory.TaskMemoryRetriever;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -23,6 +26,8 @@ public class DefaultContextCompilerService implements ContextCompilerService {
     private final RuntimeRetriever runtimeRetriever;
     private final TaskMemoryRetriever taskMemoryRetriever;
     private final RelationalMemoryRetriever relationalMemoryRetriever;
+    private final SocialReasonerService socialReasonerService;
+    private final ResponseSynthesizerService responseSynthesizerService;
     private final JdbcTemplate jdbcTemplate;
 
     @Override
@@ -36,7 +41,20 @@ public class DefaultContextCompilerService implements ContextCompilerService {
 
         List<Map<String, Object>> recentMessages = safeList(runtime.get("recent_messages"));
         List<Map<String, Object>> capabilities = queryCapabilities();
-        Map<String, Object> promptPolicy = buildPromptPolicy(taskState, relationalState);
+        Map<String, Object> socialDraft = socialReasonerService.buildRelationalDraft(
+                sessionId,
+                userInput,
+                relationalState,
+                relationalContext
+        );
+        Map<String, Object> synthesisPolicy = responseSynthesizerService.buildSynthesisPolicy(
+                taskState,
+                relationalState,
+                taskContext,
+                relationalContext,
+                socialDraft
+        );
+        Map<String, Object> promptPolicy = buildPromptPolicy(taskState, relationalState, socialDraft, synthesisPolicy);
         Map<String, Integer> budget = buildTokenBudget(taskState, relationalState);
 
         return StructuredContextPackage.builder()
@@ -69,14 +87,19 @@ public class DefaultContextCompilerService implements ContextCompilerService {
         }
     }
 
-    private Map<String, Object> buildPromptPolicy(TaskRuntimeState taskState, RelationalRuntimeState relationalState) {
-        Map<String, Object> policy = new HashMap<>();
+    private Map<String, Object> buildPromptPolicy(TaskRuntimeState taskState,
+                                                  RelationalRuntimeState relationalState,
+                                                  Map<String, Object> socialDraft,
+                                                  Map<String, Object> synthesisPolicy) {
+        Map<String, Object> policy = new LinkedHashMap<>();
         policy.put("task_mode", taskState.name());
         policy.put("social_mode", relationalState.name());
         policy.put("planner_enabled", taskState == TaskRuntimeState.PLANNING || taskState == TaskRuntimeState.REPLANNING);
         policy.put("executor_enabled", taskState == TaskRuntimeState.EXECUTING || taskState == TaskRuntimeState.REPORTING);
         policy.put("social_reasoner_enabled", true);
         policy.put("synthesis_mode", "TASK_SOCIAL_MERGE");
+        policy.put("social_draft", socialDraft == null ? Map.of() : socialDraft);
+        policy.put("response_synthesis", synthesisPolicy == null ? Map.of() : synthesisPolicy);
         return policy;
     }
 
