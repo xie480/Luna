@@ -5,8 +5,11 @@ import lombok.Data;
 
 @Data
 @Schema(description = "聊天请求参数")
+/**
+ * ChatRequest ??
+ */
 public class ChatRequest {
 
-    @Schema(description = "用户输入内容")
-    private String userInput;
-}
+    @Schema(description = "用户输入内容") // 声明注解
+    private String userInput; // 声明成员字段
+} // 结束当前代码块

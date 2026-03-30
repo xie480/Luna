@@ -24,6 +24,9 @@ import java.util.UUID;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+/**
+ * ExceptionRetryServiceImpl ??
+ */
 public class ExceptionRetryServiceImpl implements ExceptionRetryService {
 
     private final ExceptionAgentService exceptionAgentService;

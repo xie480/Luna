@@ -12,13 +12,16 @@ import java.util.Map;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+/**
+ * McpResourceResult ??
+ */
 public class McpResourceResult implements Serializable {
 
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 1L; // 声明成员字段
 
-    private String status;
-    private String serverCode;
-    private String resourceUri;
-    private String mimeType;
-    private Map<String, Object> data;
-}
+    private String status; // 声明成员字段
+    private String serverCode; // 声明成员字段
+    private String resourceUri; // 声明成员字段
+    private String mimeType; // 声明成员字段
+    private Map<String, Object> data; // 声明成员字段
+} // 结束当前代码块

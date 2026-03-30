@@ -78,6 +78,8 @@ public class ApprovalServiceImpl implements ApprovalService {
                 .userInput(callingContext != null ? callingContext.getUserInput() : null)
                 .memorySnippets(callingContext != null ? callingContext.getMemorySnippets() : null)
                 .knowledgeSnippets(callingContext != null ? callingContext.getKnowledgeSnippets() : null)
+                .preferenceSnippets(callingContext != null ? callingContext.getPreferenceSnippets() : null)
+                .longTermMemorySnippets(callingContext != null ? callingContext.getLongTermMemorySnippets() : null)
                 .build();
 
         // 1. 存入 Redis
@@ -176,6 +178,8 @@ public class ApprovalServiceImpl implements ApprovalService {
             String prompt = promptAssembler.assembleFinalPrompt(
                     task.getMemorySnippets() != null ? task.getMemorySnippets() : Collections.emptyList(),
                     task.getKnowledgeSnippets() != null ? task.getKnowledgeSnippets() : Collections.emptyList(),
+                    task.getPreferenceSnippets() != null ? task.getPreferenceSnippets() : Collections.emptyList(),
+                    task.getLongTermMemorySnippets() != null ? task.getLongTermMemorySnippets() : Collections.emptyList(),
                     approved ? toolContext : null,
                     task.getUserInput()
             );

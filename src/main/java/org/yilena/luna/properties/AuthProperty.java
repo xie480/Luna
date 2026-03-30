@@ -7,6 +7,9 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 @ConfigurationProperties(prefix = "auth")
 @Data
+/**
+ * AuthProperty ??
+ */
 public class AuthProperty {
     private String username;
     private String password;

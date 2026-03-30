@@ -58,7 +58,7 @@ public class RetrievalServiceImpl implements RetrievalService {
         // 执行目标 pipeline，并统一补齐 meta
         RetrievalResponse rawResponse = pipeline.execute(queryObject, plan, request);
         Map<String, Object> meta = new HashMap<>();
-        meta.put("sources_used", request.getSourceScope() == null ? Collections.emptyList() : request.getSourceScope().stream().map(RetrievalSource::value).toList());
+        meta.put("sources_used", resolveSourcesUsed(rawResponse, request));
         meta.put("latency_ms", elapsed(start));
         meta.put("query_type", queryObject.getQueryType());
         meta.put("session_id", request.getSessionId());
@@ -80,6 +80,22 @@ public class RetrievalServiceImpl implements RetrievalService {
                 meta.get("latency_ms"),
                 request.getSessionId());
         return response;
+    }
+
+    private List<String> resolveSourcesUsed(RetrievalResponse response, RetrievalRequest request) {
+        if (response != null && response.getMeta() != null && response.getMeta().get("hit_sources") instanceof List<?> hitSources) {
+            return hitSources.stream().map(String::valueOf).toList();
+        }
+        if (response != null && response.getEvidences() != null && !response.getEvidences().isEmpty()) {
+            return response.getEvidences().entrySet().stream()
+                    .filter(entry -> entry.getValue() != null && !entry.getValue().isEmpty())
+                    .map(entry -> entry.getKey().value())
+                    .toList();
+        }
+        if (request.getSourceScope() == null) {
+            return Collections.emptyList();
+        }
+        return request.getSourceScope().stream().map(RetrievalSource::value).toList();
     }
 
     /**

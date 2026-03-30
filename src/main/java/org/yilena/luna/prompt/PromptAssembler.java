@@ -19,13 +19,27 @@ public final class PromptAssembler {
         核心组装逻辑 (无知识库)
      */
     public String assemble(List<String> memorySnippets, String userInput) {
-        return assembleFinalPrompt(memorySnippets, null, null, userInput);
+        return assembleFinalPrompt(memorySnippets, null, null, null, null, userInput);
     }
 
     /*
         核心组装逻辑 (包含知识库 RAG 和 Tool Context)
      */
     public String assembleFinalPrompt(List<String> memorySnippets, List<String> knowledgeSnippets, String toolContext, String userInput) {
+        return assembleFinalPrompt(memorySnippets, knowledgeSnippets, null, null, toolContext, userInput);
+    }
+
+    /*
+        Core assembly logic with explicit preference + long-term-memory injection.
+     */
+    public String assembleFinalPrompt(
+            List<String> memorySnippets,
+            List<String> knowledgeSnippets,
+            List<String> preferenceSnippets,
+            List<String> longTermMemorySnippets,
+            String toolContext,
+            String userInput
+    ) {
         // 输入检查
         Objects.requireNonNull(userInput, "用户输入为空");
         StringBuilder prompt = new StringBuilder(MAX_PROMPT_CHARS);
@@ -42,15 +56,21 @@ public final class PromptAssembler {
             }
         }
 
-        // 3. 工具执行结果 (Tool Context)
+        // 3. Preference Prompt
+        appendPreferenceIfPresent(prompt, preferenceSnippets);
+
+        // 4. Long-term Memory Prompt
+        appendLongTermMemoryIfPresent(prompt, longTermMemorySnippets);
+
+        // 5. 工具执行结果 (Tool Context)
         if (toolContext != null && !toolContext.isBlank()) {
             append(prompt, PromptTemplates.TOOL_CONTEXT_PROMPT.formatted(toolContext));
         }
 
-        // 4. Memory Prompt
+        // 6. Memory Prompt
         appendMemoryIfPresent(prompt, memorySnippets);
 
-        // 5. Runtime Prompt
+        // 7. Runtime Prompt
         String runtimePrompt = PromptTemplates.RUNTIME_PROMPT.formatted(userInput.trim());
         prompt.append(runtimePrompt);
 
@@ -74,6 +94,26 @@ public final class PromptAssembler {
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.joining("\n\n"));
+    }
+
+    private void appendPreferenceIfPresent(StringBuilder prompt, List<String> preferenceSnippets) {
+        if (preferenceSnippets == null || preferenceSnippets.isEmpty()) {
+            return;
+        }
+        String merged = merge(preferenceSnippets);
+        if (!merged.isEmpty()) {
+            append(prompt, PromptTemplates.PREFERENCE_PROMPT.formatted(merged));
+        }
+    }
+
+    private void appendLongTermMemoryIfPresent(StringBuilder prompt, List<String> longTermMemorySnippets) {
+        if (longTermMemorySnippets == null || longTermMemorySnippets.isEmpty()) {
+            return;
+        }
+        String merged = merge(longTermMemorySnippets);
+        if (!merged.isEmpty()) {
+            append(prompt, PromptTemplates.LONG_TERM_MEMORY_PROMPT.formatted(merged));
+        }
     }
 
 

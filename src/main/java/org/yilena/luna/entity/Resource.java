@@ -52,6 +52,9 @@ public class Resource implements Serializable {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
+    /**
+     * ToolSlotDto ??
+     */
     public static class ToolSlotDto implements Serializable {
         private String slot;
         private String capability;

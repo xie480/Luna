@@ -11,15 +11,15 @@ import lombok.Getter;
 @Getter
 @AllArgsConstructor
 public enum PlanRiskLevel {
-    LOW(0, "LOW", "低风险"),
-    MEDIUM(1, "MEDIUM", "中风险"),
-    HIGH(2, "HIGH", "高风险");
+    LOW(0, "LOW", "低风险"), // 执行当前逻辑
+    MEDIUM(1, "MEDIUM", "中风险"), // 执行当前逻辑
+    HIGH(2, "HIGH", "高风险"); // 执行语句逻辑
 
-    @EnumValue
-    private final Integer code;
+    @EnumValue // 声明注解
+    private final Integer code; // 声明成员字段
 
-    @JsonValue
-    private final String value;
+    @JsonValue // 声明注解
+    private final String value; // 声明成员字段
 
-    private final String desc;
-}
+    private final String desc; // 声明成员字段
+} // 结束当前代码块

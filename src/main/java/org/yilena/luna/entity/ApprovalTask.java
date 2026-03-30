@@ -41,4 +41,6 @@ public class ApprovalTask implements Serializable {
     private String userInput;
     private List<String> memorySnippets;
     private List<String> knowledgeSnippets;
+    private List<String> preferenceSnippets;
+    private List<String> longTermMemorySnippets;
 }

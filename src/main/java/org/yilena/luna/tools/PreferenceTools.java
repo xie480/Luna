@@ -16,6 +16,9 @@ import org.yilena.luna.mapper.UserPreferenceMapper;
 import org.yilena.luna.utils.LlmClientUtil;
 
 @Component
+/**
+ * PreferenceTools ??
+ */
 public class PreferenceTools extends BaseTool {
 
     private final UserPreferenceMapper userPreferenceMapper;

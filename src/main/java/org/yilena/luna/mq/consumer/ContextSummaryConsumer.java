@@ -22,6 +22,9 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 @RocketMQMessageListener(topic = RocketMqConstant.TOPIC_SUMMARY, consumerGroup = RocketMqConstant.GROUP_SUMMARY)
+/**
+ * ContextSummaryConsumer ??
+ */
 public class ContextSummaryConsumer implements RocketMQListener<SummaryMessage> {
 
     private final PromptAssembler promptAssembler;

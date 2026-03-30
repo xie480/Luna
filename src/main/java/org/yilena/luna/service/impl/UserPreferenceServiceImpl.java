@@ -11,4 +11,4 @@ import org.yilena.luna.service.UserPreferenceService;
  */
 @Service
 public class UserPreferenceServiceImpl extends ServiceImpl<UserPreferenceMapper, UserPreference> implements UserPreferenceService {
-}
+} // 结束当前代码块

@@ -12,12 +12,15 @@ import java.util.Map;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+/**
+ * McpPromptResult ??
+ */
 public class McpPromptResult implements Serializable {
 
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 1L; // 声明成员字段
 
-    private String status;
-    private String serverCode;
-    private String promptName;
-    private Map<String, Object> promptContent;
-}
+    private String status; // 声明成员字段
+    private String serverCode; // 声明成员字段
+    private String promptName; // 声明成员字段
+    private Map<String, Object> promptContent; // 声明成员字段
+} // 结束当前代码块

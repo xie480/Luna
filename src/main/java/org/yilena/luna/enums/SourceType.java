@@ -11,15 +11,15 @@ import lombok.Getter;
 @Getter
 @AllArgsConstructor
 public enum SourceType {
-    FILE(0, "FILE", "本地文件"),
-    WEB_SEARCH(1, "WEB_SEARCH", "网络搜索"),
-    MANUAL_INPUT(2, "MANUAL_INPUT", "手动输入");
+    FILE(0, "FILE", "本地文件"), // 执行当前逻辑
+    WEB_SEARCH(1, "WEB_SEARCH", "网络搜索"), // 执行当前逻辑
+    MANUAL_INPUT(2, "MANUAL_INPUT", "手动输入"); // 执行语句逻辑
 
-    @EnumValue
-    private final Integer code;
+    @EnumValue // 声明注解
+    private final Integer code; // 声明成员字段
 
-    @JsonValue
-    private final String value;
+    @JsonValue // 声明注解
+    private final String value; // 声明成员字段
 
-    private final String desc;
-}
+    private final String desc; // 声明成员字段
+} // 结束当前代码块

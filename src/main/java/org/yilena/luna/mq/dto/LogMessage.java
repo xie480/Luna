@@ -13,6 +13,9 @@ import java.util.Map;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+/**
+ * LogMessage ??
+ */
 public class LogMessage implements Serializable {
     private LogType logType;
     private String module;

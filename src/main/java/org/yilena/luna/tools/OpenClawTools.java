@@ -24,7 +24,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class OpenClawTools extends BaseTool {
 
-    public OpenClawTools(ObjectMapper objectMapper) {
-        super(objectMapper);
-    }
-}
+    public OpenClawTools(ObjectMapper objectMapper) { // 定义方法签名
+        super(objectMapper); // 执行语句逻辑
+    } // 结束当前代码块
+} // 结束当前代码块

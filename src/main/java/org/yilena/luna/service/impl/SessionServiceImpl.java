@@ -22,6 +22,9 @@ import java.util.List;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+/**
+ * SessionServiceImpl ??
+ */
 public class SessionServiceImpl implements SessionService {
 
     private final StringRedisTemplate redis;

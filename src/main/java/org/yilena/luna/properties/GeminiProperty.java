@@ -7,6 +7,9 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 @ConfigurationProperties(prefix = "gemini")
 @Data
+/**
+ * GeminiProperty ??
+ */
 public class GeminiProperty {
     
     private ModelConfig small;
@@ -23,6 +26,9 @@ public class GeminiProperty {
     private ModelConfig code;
 
     @Data
+    /**
+     * ModelConfig ??
+     */
     public static class ModelConfig {
         private String url;
         private String apiKey;

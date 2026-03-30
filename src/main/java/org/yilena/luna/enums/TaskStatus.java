@@ -11,16 +11,16 @@ import lombok.Getter;
 @Getter
 @AllArgsConstructor
 public enum TaskStatus {
-    PENDING(0, "PENDING", "待处理"),
-    COMPLETED(1, "COMPLETED", "已完成"),
-    CANCELLED(2, "CANCELLED", "已取消"),
-    EXPIRED(3, "EXPIRED", "已过期");
+    PENDING(0, "PENDING", "待处理"), // 执行当前逻辑
+    COMPLETED(1, "COMPLETED", "已完成"), // 执行当前逻辑
+    CANCELLED(2, "CANCELLED", "已取消"), // 执行当前逻辑
+    EXPIRED(3, "EXPIRED", "已过期"); // 执行语句逻辑
 
-    @EnumValue
-    private final Integer code;
+    @EnumValue // 声明注解
+    private final Integer code; // 声明成员字段
 
-    @JsonValue
-    private final String value;
+    @JsonValue // 声明注解
+    private final String value; // 声明成员字段
 
-    private final String desc;
-}
+    private final String desc; // 声明成员字段
+} // 结束当前代码块

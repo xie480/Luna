@@ -17,6 +17,9 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 @EnableLogRecord(tenant = "RunaApplication")
 @SpringBootApplication(exclude = {RedissonAutoConfigurationV2.class})
 @EnableTransactionManagement
+/**
+ * RunaApplication ??
+ */
 public class RunaApplication {
     public static void main(String[] args) {
         SpringApplication.run(RunaApplication.class, args);

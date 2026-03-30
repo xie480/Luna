@@ -9,4 +9,4 @@ import org.yilena.luna.entity.ScheduleTask;
  */
 @Mapper
 public interface ScheduleTaskMapper extends BaseMapper<ScheduleTask> {
-}
+} // 结束当前代码块

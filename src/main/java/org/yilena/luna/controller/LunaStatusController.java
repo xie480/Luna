@@ -15,6 +15,9 @@ import org.yilena.luna.sse.LunaStatusPublisher;
 @RequestMapping("/api/luna/status")
 @RequiredArgsConstructor
 @Tag(name = "Luna 狀態推送接口", description = "用於前端實時獲取 Luna 的內部運行狀態")
+/**
+ * LunaStatusController ??
+ */
 public class LunaStatusController {
 
     private final LunaStatusPublisher statusPublisher;

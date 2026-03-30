@@ -10,10 +10,10 @@ import org.yilena.luna.entity.ApprovalTask;
 @Getter
 public class NeedApprovalException extends RuntimeException {
     
-    private final ApprovalTask approvalTask;
+    private final ApprovalTask approvalTask; // 声明成员字段
 
-    public NeedApprovalException(ApprovalTask approvalTask) {
-        super("操作需要審批: " + approvalTask.getTaskId());
-        this.approvalTask = approvalTask;
-    }
-}
+    public NeedApprovalException(ApprovalTask approvalTask) { // 定义方法签名
+        super("操作需要審批: " + approvalTask.getTaskId()); // 执行语句逻辑
+        this.approvalTask = approvalTask; // 执行赋值操作
+    } // 结束当前代码块
+} // 结束当前代码块

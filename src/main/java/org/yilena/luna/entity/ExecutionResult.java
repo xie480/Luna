@@ -12,12 +12,15 @@ import java.util.Map;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+/**
+ * ExecutionResult ??
+ */
 public class ExecutionResult implements Serializable {
 
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 1L; // 声明成员字段
 
-    private String status;
-    private String message;
-    private Map<String, Object> data;
-    private String rawResult;
-}
+    private String status; // 声明成员字段
+    private String message; // 声明成员字段
+    private Map<String, Object> data; // 声明成员字段
+    private String rawResult; // 声明成员字段
+} // 结束当前代码块

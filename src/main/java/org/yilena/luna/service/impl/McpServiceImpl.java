@@ -25,551 +25,554 @@ import java.util.stream.Stream;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+/**
+ * McpServiceImpl ??
+ */
 public class McpServiceImpl implements McpService {
 
-    private final McpToolCatalogMapper toolCatalogMapper;
-    private final McpPromptCatalogMapper promptCatalogMapper;
-    private final McpResourceCatalogMapper resourceCatalogMapper;
-    private final McpToolImplMappingMapper toolImplMappingMapper;
-    private final WorkflowTemplateMapper workflowTemplateMapper;
-    private final McpServerRegistryMapper serverRegistryMapper;
-    private final McpClientAdapter mcpClientAdapter;
-    private final LlmClientUtil llmClientUtil;
-    private final ObjectMapper objectMapper;
+    private final McpToolCatalogMapper toolCatalogMapper; // 声明成员字段
+    private final McpPromptCatalogMapper promptCatalogMapper; // 声明成员字段
+    private final McpResourceCatalogMapper resourceCatalogMapper; // 声明成员字段
+    private final McpToolImplMappingMapper toolImplMappingMapper; // 声明成员字段
+    private final WorkflowTemplateMapper workflowTemplateMapper; // 声明成员字段
+    private final McpServerRegistryMapper serverRegistryMapper; // 声明成员字段
+    private final McpClientAdapter mcpClientAdapter; // 声明成员字段
+    private final LlmClientUtil llmClientUtil; // 声明成员字段
+    private final ObjectMapper objectMapper; // 声明成员字段
 
-    @Override
-    public McpTool registerTool(McpTool tool) {
-        if (tool == null || blank(tool.getName()) || blank(tool.getBeanName()) || blank(tool.getMethodName())) {
-            throw new IllegalArgumentException("tool name/beanName/methodName required");
-        }
-        McpToolCatalog row = toolCatalogMapper.selectOne(new LambdaQueryWrapper<McpToolCatalog>()
-                .eq(McpToolCatalog::getServerCode, McpConstant.LOCAL_SERVER_CODE)
-                .eq(McpToolCatalog::getToolName, tool.getName())
-                .last("LIMIT 1"));
-        if (row == null) {
-            row = new McpToolCatalog();
-            row.setServerCode(McpConstant.LOCAL_SERVER_CODE);
-            row.setToolName(tool.getName());
-            row.setEnabled(true);
-        }
-        row.setTitle(tool.getName());
-        row.setDescription(tool.getDescription());
-        row.setVersion(def(tool.getVersion(), "1.0.0"));
-        row.setInputSchema(jsonMap(tool.getInputSchema()));
-        row.setOutputSchema(jsonMap(tool.getOutputSchema()));
-        row.setRequiresApproval(Boolean.TRUE.equals(tool.getRequiresApproval()));
-        row.setSensitivity(tool.getSensitivity() == null ? "LOW" : tool.getSensitivity().name());
-        row.setSyncedAt(LocalDateTime.now());
-        row.setEmbedding(embed(tool.getName(), tool.getDescription()));
-        if (row.getId() == null) toolCatalogMapper.insert(row); else toolCatalogMapper.updateById(row);
-        upsertImpl(tool.getName(), tool.getBeanName(), tool.getMethodName());
-        tool.setId(row.getId());
-        tool.setEmbedding(row.getEmbedding());
-        return tool;
-    }
+    @Override // 声明注解
+    public McpTool registerTool(McpTool tool) { // 定义方法签名
+        if (tool == null || blank(tool.getName()) || blank(tool.getBeanName()) || blank(tool.getMethodName())) { // 进行条件判断
+            throw new IllegalArgumentException("tool name/beanName/methodName required"); // 抛出异常信息
+        } // 结束当前代码块
+        McpToolCatalog row = toolCatalogMapper.selectOne(new LambdaQueryWrapper<McpToolCatalog>() // 执行赋值操作
+                .eq(McpToolCatalog::getServerCode, McpConstant.LOCAL_SERVER_CODE) // 执行当前逻辑
+                .eq(McpToolCatalog::getToolName, tool.getName()) // 执行当前逻辑
+                .last("LIMIT 1")); // 执行语句逻辑
+        if (row == null) { // 进行条件判断
+            row = new McpToolCatalog(); // 执行赋值操作
+            row.setServerCode(McpConstant.LOCAL_SERVER_CODE); // 执行语句逻辑
+            row.setToolName(tool.getName()); // 执行语句逻辑
+            row.setEnabled(true); // 执行语句逻辑
+        } // 结束当前代码块
+        row.setTitle(tool.getName()); // 执行语句逻辑
+        row.setDescription(tool.getDescription()); // 执行语句逻辑
+        row.setVersion(def(tool.getVersion(), "1.0.0")); // 执行语句逻辑
+        row.setInputSchema(jsonMap(tool.getInputSchema())); // 执行语句逻辑
+        row.setOutputSchema(jsonMap(tool.getOutputSchema())); // 执行语句逻辑
+        row.setRequiresApproval(Boolean.TRUE.equals(tool.getRequiresApproval())); // 执行语句逻辑
+        row.setSensitivity(tool.getSensitivity() == null ? "LOW" : tool.getSensitivity().name()); // 执行赋值操作
+        row.setSyncedAt(LocalDateTime.now()); // 执行语句逻辑
+        row.setEmbedding(embed(tool.getName(), tool.getDescription())); // 执行语句逻辑
+        if (row.getId() == null) toolCatalogMapper.insert(row); else toolCatalogMapper.updateById(row); // 进行条件判断
+        upsertImpl(tool.getName(), tool.getBeanName(), tool.getMethodName()); // 执行语句逻辑
+        tool.setId(row.getId()); // 执行语句逻辑
+        tool.setEmbedding(row.getEmbedding()); // 执行语句逻辑
+        return tool; // 返回处理结果
+    } // 结束当前代码块
 
-    @Override
-    public McpTool updateTool(McpTool tool) {
-        if (tool == null || tool.getId() == null) throw new IllegalArgumentException("tool id required");
-        McpToolCatalog row = toolCatalogMapper.selectById(tool.getId());
-        if (row == null) throw new IllegalArgumentException("tool not found");
-        if (!blank(tool.getName())) {
-            row.setToolName(tool.getName().trim());
-            row.setTitle(tool.getName().trim());
-        }
-        if (tool.getDescription() != null) row.setDescription(tool.getDescription());
-        if (tool.getVersion() != null) row.setVersion(tool.getVersion());
-        if (tool.getInputSchema() != null) row.setInputSchema(jsonMap(tool.getInputSchema()));
-        if (tool.getOutputSchema() != null) row.setOutputSchema(jsonMap(tool.getOutputSchema()));
-        if (tool.getRequiresApproval() != null) row.setRequiresApproval(tool.getRequiresApproval());
-        if (tool.getSensitivity() != null) row.setSensitivity(tool.getSensitivity().name());
-        row.setSyncedAt(LocalDateTime.now());
-        row.setEmbedding(embed(row.getToolName(), row.getDescription()));
-        toolCatalogMapper.updateById(row);
-        if (!blank(tool.getBeanName()) && !blank(tool.getMethodName())) {
-            upsertImpl(row.getToolName(), tool.getBeanName(), tool.getMethodName());
-        }
-        tool.setName(row.getToolName());
-        tool.setEmbedding(row.getEmbedding());
-        return tool;
-    }
+    @Override // 声明注解
+    public McpTool updateTool(McpTool tool) { // 定义方法签名
+        if (tool == null || tool.getId() == null) throw new IllegalArgumentException("tool id required"); // 进行条件判断
+        McpToolCatalog row = toolCatalogMapper.selectById(tool.getId()); // 执行赋值操作
+        if (row == null) throw new IllegalArgumentException("tool not found"); // 进行条件判断
+        if (!blank(tool.getName())) { // 进行条件判断
+            row.setToolName(tool.getName().trim()); // 执行语句逻辑
+            row.setTitle(tool.getName().trim()); // 执行语句逻辑
+        } // 结束当前代码块
+        if (tool.getDescription() != null) row.setDescription(tool.getDescription()); // 进行条件判断
+        if (tool.getVersion() != null) row.setVersion(tool.getVersion()); // 进行条件判断
+        if (tool.getInputSchema() != null) row.setInputSchema(jsonMap(tool.getInputSchema())); // 进行条件判断
+        if (tool.getOutputSchema() != null) row.setOutputSchema(jsonMap(tool.getOutputSchema())); // 进行条件判断
+        if (tool.getRequiresApproval() != null) row.setRequiresApproval(tool.getRequiresApproval()); // 进行条件判断
+        if (tool.getSensitivity() != null) row.setSensitivity(tool.getSensitivity().name()); // 进行条件判断
+        row.setSyncedAt(LocalDateTime.now()); // 执行语句逻辑
+        row.setEmbedding(embed(row.getToolName(), row.getDescription())); // 执行语句逻辑
+        toolCatalogMapper.updateById(row); // 执行语句逻辑
+        if (!blank(tool.getBeanName()) && !blank(tool.getMethodName())) { // 进行条件判断
+            upsertImpl(row.getToolName(), tool.getBeanName(), tool.getMethodName()); // 执行语句逻辑
+        } // 结束当前代码块
+        tool.setName(row.getToolName()); // 执行语句逻辑
+        tool.setEmbedding(row.getEmbedding()); // 执行语句逻辑
+        return tool; // 返回处理结果
+    } // 结束当前代码块
 
-    @Override
-    public void deleteTool(Long id) {
-        if (id == null) return;
-        McpToolCatalog row = toolCatalogMapper.selectById(id);
-        if (row == null) return;
-        toolCatalogMapper.deleteById(id);
-        toolImplMappingMapper.delete(new LambdaQueryWrapper<McpToolImplMapping>()
-                .eq(McpToolImplMapping::getServerCode, row.getServerCode())
-                .eq(McpToolImplMapping::getToolName, row.getToolName()));
-    }
+    @Override // 声明注解
+    public void deleteTool(Long id) { // 定义方法签名
+        if (id == null) return; // 进行条件判断
+        McpToolCatalog row = toolCatalogMapper.selectById(id); // 执行赋值操作
+        if (row == null) return; // 进行条件判断
+        toolCatalogMapper.deleteById(id); // 执行语句逻辑
+        toolImplMappingMapper.delete(new LambdaQueryWrapper<McpToolImplMapping>() // 执行当前逻辑
+                .eq(McpToolImplMapping::getServerCode, row.getServerCode()) // 执行当前逻辑
+                .eq(McpToolImplMapping::getToolName, row.getToolName())); // 执行语句逻辑
+    } // 结束当前代码块
 
-    @Override
-    public McpSkill registerSkill(McpSkill skill) {
-        if (skill == null || blank(skill.getName())) throw new IllegalArgumentException("skill name required");
-        if (workflowSkill(skill)) upsertWorkflow(skill); else upsertPrompt(skill);
-        return skill;
-    }
+    @Override // 声明注解
+    public McpSkill registerSkill(McpSkill skill) { // 定义方法签名
+        if (skill == null || blank(skill.getName())) throw new IllegalArgumentException("skill name required"); // 进行条件判断
+        if (workflowSkill(skill)) upsertWorkflow(skill); else upsertPrompt(skill); // 进行条件判断
+        return skill; // 返回处理结果
+    } // 结束当前代码块
 
-    @Override
-    public McpSkill updateSkill(McpSkill skill) {
-        if (skill == null || skill.getId() == null) throw new IllegalArgumentException("skill id required");
-        if (workflowSkill(skill)) upsertWorkflow(skill); else upsertPrompt(skill);
-        return skill;
-    }
+    @Override // 声明注解
+    public McpSkill updateSkill(McpSkill skill) { // 定义方法签名
+        if (skill == null || skill.getId() == null) throw new IllegalArgumentException("skill id required"); // 进行条件判断
+        if (workflowSkill(skill)) upsertWorkflow(skill); else upsertPrompt(skill); // 进行条件判断
+        return skill; // 返回处理结果
+    } // 结束当前代码块
 
-    @Override
-    public void deleteSkill(Long id) {
-        if (id == null) return;
-        workflowTemplateMapper.deleteById(id);
-        promptCatalogMapper.deleteById(id);
-    }
+    @Override // 声明注解
+    public void deleteSkill(Long id) { // 定义方法签名
+        if (id == null) return; // 进行条件判断
+        workflowTemplateMapper.deleteById(id); // 执行语句逻辑
+        promptCatalogMapper.deleteById(id); // 执行语句逻辑
+    } // 结束当前代码块
 
-    @Override
-    public List<Resource> listAll() {
-        List<Resource> out = new ArrayList<>();
-        toolCatalogMapper.selectList(null).forEach(t -> out.add(toTool(t)));
-        promptCatalogMapper.selectList(null).forEach(p -> out.add(toPrompt(p)));
-        resourceCatalogMapper.selectList(null).forEach(r -> out.add(toResource(r)));
-        workflowTemplateMapper.selectList(null).forEach(w -> out.add(toWorkflow(w)));
-        return out;
-    }
+    @Override // 声明注解
+    public List<Resource> listAll() { // 定义方法签名
+        List<Resource> out = new ArrayList<>(); // 执行赋值操作
+        toolCatalogMapper.selectList(null).forEach(t -> out.add(toTool(t))); // 执行语句逻辑
+        promptCatalogMapper.selectList(null).forEach(p -> out.add(toPrompt(p))); // 执行语句逻辑
+        resourceCatalogMapper.selectList(null).forEach(r -> out.add(toResource(r))); // 执行语句逻辑
+        workflowTemplateMapper.selectList(null).forEach(w -> out.add(toWorkflow(w))); // 执行语句逻辑
+        return out; // 返回处理结果
+    } // 结束当前代码块
 
-    @Override
-    public Resource getResourceById(Long id) {
-        if (id == null) return null;
-        McpToolCatalog t = toolCatalogMapper.selectById(id);
-        if (t != null) return toTool(t);
-        McpPromptCatalog p = promptCatalogMapper.selectById(id);
-        if (p != null) return toPrompt(p);
-        McpResourceCatalog r = resourceCatalogMapper.selectById(id);
-        if (r != null) return toResource(r);
-        WorkflowTemplate w = workflowTemplateMapper.selectById(id);
-        if (w != null) return toWorkflow(w);
-        return null;
-    }
+    @Override // 声明注解
+    public Resource getResourceById(Long id) { // 定义方法签名
+        if (id == null) return null; // 进行条件判断
+        McpToolCatalog t = toolCatalogMapper.selectById(id); // 执行赋值操作
+        if (t != null) return toTool(t); // 进行条件判断
+        McpPromptCatalog p = promptCatalogMapper.selectById(id); // 执行赋值操作
+        if (p != null) return toPrompt(p); // 进行条件判断
+        McpResourceCatalog r = resourceCatalogMapper.selectById(id); // 执行赋值操作
+        if (r != null) return toResource(r); // 进行条件判断
+        WorkflowTemplate w = workflowTemplateMapper.selectById(id); // 执行赋值操作
+        if (w != null) return toWorkflow(w); // 进行条件判断
+        return null; // 返回处理结果
+    } // 结束当前代码块
 
-    @Override
-    public List<Resource> searchResources(String query) {
-        if (blank(query)) return Collections.emptyList();
-        String q = query.toLowerCase(Locale.ROOT);
-        return listAll().stream()
-                .filter(r -> contains(r.getName(), q) || contains(r.getDescription(), q) || contains(r.getResourceUri(), q))
-                .limit(20)
-                .toList();
-    }
+    @Override // 声明注解
+    public List<Resource> searchResources(String query) { // 定义方法签名
+        if (blank(query)) return Collections.emptyList(); // 进行条件判断
+        String q = query.toLowerCase(Locale.ROOT); // 执行赋值操作
+        return listAll().stream() // 返回处理结果
+                .filter(r -> contains(r.getName(), q) || contains(r.getDescription(), q) || contains(r.getResourceUri(), q)) // 执行当前逻辑
+                .limit(20) // 执行当前逻辑
+                .toList(); // 执行语句逻辑
+    } // 结束当前代码块
 
-    @Override
-    public List<McpToolDescriptor> listTools(String serverCode) {
-        return mcpClientAdapter.listTools(serverCode);
-    }
+    @Override // 声明注解
+    public List<McpToolDescriptor> listTools(String serverCode) { // 定义方法签名
+        return mcpClientAdapter.listTools(serverCode); // 返回处理结果
+    } // 结束当前代码块
 
-    @Override
-    public McpToolCallResult callTool(String serverCode, String toolName, String argumentsJson) {
-        return mcpClientAdapter.callTool(serverCode, toolName, argumentsJson);
-    }
+    @Override // 声明注解
+    public McpToolCallResult callTool(String serverCode, String toolName, String argumentsJson) { // 定义方法签名
+        return mcpClientAdapter.callTool(serverCode, toolName, argumentsJson); // 返回处理结果
+    } // 结束当前代码块
 
-    @Override
-    public List<McpPromptDescriptor> listPrompts(String serverCode) {
-        return mcpClientAdapter.listPrompts(serverCode);
-    }
+    @Override // 声明注解
+    public List<McpPromptDescriptor> listPrompts(String serverCode) { // 定义方法签名
+        return mcpClientAdapter.listPrompts(serverCode); // 返回处理结果
+    } // 结束当前代码块
 
-    @Override
-    public McpPromptResult getPrompt(String serverCode, String promptName, String argumentsJson) {
-        return mcpClientAdapter.getPrompt(serverCode, promptName, argumentsJson);
-    }
+    @Override // 声明注解
+    public McpPromptResult getPrompt(String serverCode, String promptName, String argumentsJson) { // 定义方法签名
+        return mcpClientAdapter.getPrompt(serverCode, promptName, argumentsJson); // 返回处理结果
+    } // 结束当前代码块
 
-    @Override
-    public List<McpResourceDescriptor> listResources(String serverCode) {
-        return mcpClientAdapter.listResources(serverCode);
-    }
+    @Override // 声明注解
+    public List<McpResourceDescriptor> listResources(String serverCode) { // 定义方法签名
+        return mcpClientAdapter.listResources(serverCode); // 返回处理结果
+    } // 结束当前代码块
 
-    @Override
-    public McpResourceResult readResource(String serverCode, String resourceUri) {
-        return mcpClientAdapter.readResource(serverCode, resourceUri);
-    }
+    @Override // 声明注解
+    public McpResourceResult readResource(String serverCode, String resourceUri) { // 定义方法签名
+        return mcpClientAdapter.readResource(serverCode, resourceUri); // 返回处理结果
+    } // 结束当前代码块
 
-    @Override
-    public Map<String, Object> syncCatalogFromJson() {
-        int toolCount = 0;
-        int workflowCount = 0;
-        int promptCount = 0;
-        List<String> warnings = new ArrayList<>();
-        try {
-            Path toolDir = Path.of("json", "tool");
-            Path skillDir = Path.of("json", "skill");
-            if (Files.isDirectory(toolDir)) {
-                try (Stream<Path> s = Files.list(toolDir)) {
-                    for (Path p : (Iterable<Path>) s.filter(f -> f.getFileName().toString().endsWith(".json"))::iterator) {
-                        Map<String, Object> m = readJsonFile(p);
-                        if (m.isEmpty()) {
-                            warnings.add("tool parse failed: " + p.getFileName());
-                            continue;
-                        }
-                        syncToolFile(m);
-                        toolCount++;
-                    }
-                }
-            } else {
-                warnings.add("missing: " + toolDir);
-            }
+    @Override // 声明注解
+    public Map<String, Object> syncCatalogFromJson() { // 定义方法签名
+        int toolCount = 0; // 执行赋值操作
+        int workflowCount = 0; // 执行赋值操作
+        int promptCount = 0; // 执行赋值操作
+        List<String> warnings = new ArrayList<>(); // 执行赋值操作
+        try { // 尝试执行核心逻辑
+            Path toolDir = Path.of("json", "tool"); // 执行赋值操作
+            Path skillDir = Path.of("json", "skill"); // 执行赋值操作
+            if (Files.isDirectory(toolDir)) { // 进行条件判断
+                try (Stream<Path> s = Files.list(toolDir)) { // 尝试执行核心逻辑
+                    for (Path p : (Iterable<Path>) s.filter(f -> f.getFileName().toString().endsWith(".json"))::iterator) { // 执行循环处理
+                        Map<String, Object> m = readJsonFile(p); // 执行赋值操作
+                        if (m.isEmpty()) { // 进行条件判断
+                            warnings.add("tool parse failed: " + p.getFileName()); // 执行语句逻辑
+                            continue; // 执行语句逻辑
+                        } // 结束当前代码块
+                        syncToolFile(m); // 执行语句逻辑
+                        toolCount++; // 执行语句逻辑
+                    } // 结束当前代码块
+                } // 结束当前代码块
+            } else { // 切换到分支逻辑
+                warnings.add("missing: " + toolDir); // 执行语句逻辑
+            } // 结束当前代码块
 
-            if (Files.isDirectory(skillDir)) {
-                try (Stream<Path> s = Files.list(skillDir)) {
-                    for (Path p : (Iterable<Path>) s.filter(f -> f.getFileName().toString().endsWith(".json"))::iterator) {
-                        Map<String, Object> m = readJsonFile(p);
-                        if (m.isEmpty()) {
-                            warnings.add("skill parse failed: " + p.getFileName());
-                            continue;
-                        }
-                        McpSkill skill = mapToSkill(m);
-                        if (workflowSkill(skill)) {
-                            upsertWorkflow(skill);
-                            workflowCount++;
-                        } else {
-                            upsertPrompt(skill);
-                            promptCount++;
-                        }
-                    }
-                }
-            } else {
-                warnings.add("missing: " + skillDir);
-            }
-        } catch (Exception e) {
-            log.error("syncCatalogFromJson failed", e);
-            return Map.of("status", "error", "message", e.getMessage());
-        }
-        return Map.of("status", "success", "toolCount", toolCount, "workflowCount", workflowCount, "promptCount", promptCount, "warnings", warnings);
-    }
+            if (Files.isDirectory(skillDir)) { // 进行条件判断
+                try (Stream<Path> s = Files.list(skillDir)) { // 尝试执行核心逻辑
+                    for (Path p : (Iterable<Path>) s.filter(f -> f.getFileName().toString().endsWith(".json"))::iterator) { // 执行循环处理
+                        Map<String, Object> m = readJsonFile(p); // 执行赋值操作
+                        if (m.isEmpty()) { // 进行条件判断
+                            warnings.add("skill parse failed: " + p.getFileName()); // 执行语句逻辑
+                            continue; // 执行语句逻辑
+                        } // 结束当前代码块
+                        McpSkill skill = mapToSkill(m); // 执行赋值操作
+                        if (workflowSkill(skill)) { // 进行条件判断
+                            upsertWorkflow(skill); // 执行语句逻辑
+                            workflowCount++; // 执行语句逻辑
+                        } else { // 切换到分支逻辑
+                            upsertPrompt(skill); // 执行语句逻辑
+                            promptCount++; // 执行语句逻辑
+                        } // 结束当前代码块
+                    } // 结束当前代码块
+                } // 结束当前代码块
+            } else { // 切换到分支逻辑
+                warnings.add("missing: " + skillDir); // 执行语句逻辑
+            } // 结束当前代码块
+        } catch (Exception e) { // 开始新的代码块
+            log.error("syncCatalogFromJson failed", e); // 执行语句逻辑
+            return Map.of("status", "error", "message", e.getMessage()); // 返回处理结果
+        } // 结束当前代码块
+        return Map.of("status", "success", "toolCount", toolCount, "workflowCount", workflowCount, "promptCount", promptCount, "warnings", warnings); // 返回处理结果
+    } // 结束当前代码块
 
-    @Override
-    public McpServerRegistry upsertServerRegistry(McpServerRegistry registry) {
-        if (registry == null || blank(registry.getServerCode())) {
-            throw new IllegalArgumentException("serverCode required");
-        }
-        McpServerRegistry exist = serverRegistryMapper.selectOne(new LambdaQueryWrapper<McpServerRegistry>()
-                .eq(McpServerRegistry::getServerCode, registry.getServerCode())
-                .last("LIMIT 1"));
-        if (exist != null) registry.setId(exist.getId());
-        if (registry.getId() == null) serverRegistryMapper.insert(registry);
-        else serverRegistryMapper.updateById(registry);
-        return registry;
-    }
+    @Override // 声明注解
+    public McpServerRegistry upsertServerRegistry(McpServerRegistry registry) { // 定义方法签名
+        if (registry == null || blank(registry.getServerCode())) { // 进行条件判断
+            throw new IllegalArgumentException("serverCode required"); // 抛出异常信息
+        } // 结束当前代码块
+        McpServerRegistry exist = serverRegistryMapper.selectOne(new LambdaQueryWrapper<McpServerRegistry>() // 执行赋值操作
+                .eq(McpServerRegistry::getServerCode, registry.getServerCode()) // 执行当前逻辑
+                .last("LIMIT 1")); // 执行语句逻辑
+        if (exist != null) registry.setId(exist.getId()); // 进行条件判断
+        if (registry.getId() == null) serverRegistryMapper.insert(registry); // 进行条件判断
+        else serverRegistryMapper.updateById(registry); // 处理其他分支
+        return registry; // 返回处理结果
+    } // 结束当前代码块
 
-    @Override
-    public McpToolCatalog upsertToolCatalog(McpToolCatalog toolCatalog) {
-        if (toolCatalog == null || blank(toolCatalog.getServerCode()) || blank(toolCatalog.getToolName())) {
-            throw new IllegalArgumentException("serverCode/toolName required");
-        }
-        McpToolCatalog exist = toolCatalogMapper.selectOne(new LambdaQueryWrapper<McpToolCatalog>()
-                .eq(McpToolCatalog::getServerCode, toolCatalog.getServerCode())
-                .eq(McpToolCatalog::getToolName, toolCatalog.getToolName())
-                .last("LIMIT 1"));
-        if (exist != null) toolCatalog.setId(exist.getId());
-        if (toolCatalog.getId() == null) toolCatalogMapper.insert(toolCatalog);
-        else toolCatalogMapper.updateById(toolCatalog);
-        return toolCatalog;
-    }
+    @Override // 声明注解
+    public McpToolCatalog upsertToolCatalog(McpToolCatalog toolCatalog) { // 定义方法签名
+        if (toolCatalog == null || blank(toolCatalog.getServerCode()) || blank(toolCatalog.getToolName())) { // 进行条件判断
+            throw new IllegalArgumentException("serverCode/toolName required"); // 抛出异常信息
+        } // 结束当前代码块
+        McpToolCatalog exist = toolCatalogMapper.selectOne(new LambdaQueryWrapper<McpToolCatalog>() // 执行赋值操作
+                .eq(McpToolCatalog::getServerCode, toolCatalog.getServerCode()) // 执行当前逻辑
+                .eq(McpToolCatalog::getToolName, toolCatalog.getToolName()) // 执行当前逻辑
+                .last("LIMIT 1")); // 执行语句逻辑
+        if (exist != null) toolCatalog.setId(exist.getId()); // 进行条件判断
+        if (toolCatalog.getId() == null) toolCatalogMapper.insert(toolCatalog); // 进行条件判断
+        else toolCatalogMapper.updateById(toolCatalog); // 处理其他分支
+        return toolCatalog; // 返回处理结果
+    } // 结束当前代码块
 
-    @Override
-    public McpToolImplMapping upsertToolImplMapping(McpToolImplMapping mapping) {
-        if (mapping == null || blank(mapping.getServerCode()) || blank(mapping.getToolName())) {
-            throw new IllegalArgumentException("serverCode/toolName required");
-        }
-        McpToolImplMapping exist = toolImplMappingMapper.selectOne(new LambdaQueryWrapper<McpToolImplMapping>()
-                .eq(McpToolImplMapping::getServerCode, mapping.getServerCode())
-                .eq(McpToolImplMapping::getToolName, mapping.getToolName())
-                .last("LIMIT 1"));
-        if (exist != null) mapping.setId(exist.getId());
-        if (mapping.getId() == null) toolImplMappingMapper.insert(mapping);
-        else toolImplMappingMapper.updateById(mapping);
-        return mapping;
-    }
+    @Override // 声明注解
+    public McpToolImplMapping upsertToolImplMapping(McpToolImplMapping mapping) { // 定义方法签名
+        if (mapping == null || blank(mapping.getServerCode()) || blank(mapping.getToolName())) { // 进行条件判断
+            throw new IllegalArgumentException("serverCode/toolName required"); // 抛出异常信息
+        } // 结束当前代码块
+        McpToolImplMapping exist = toolImplMappingMapper.selectOne(new LambdaQueryWrapper<McpToolImplMapping>() // 执行赋值操作
+                .eq(McpToolImplMapping::getServerCode, mapping.getServerCode()) // 执行当前逻辑
+                .eq(McpToolImplMapping::getToolName, mapping.getToolName()) // 执行当前逻辑
+                .last("LIMIT 1")); // 执行语句逻辑
+        if (exist != null) mapping.setId(exist.getId()); // 进行条件判断
+        if (mapping.getId() == null) toolImplMappingMapper.insert(mapping); // 进行条件判断
+        else toolImplMappingMapper.updateById(mapping); // 处理其他分支
+        return mapping; // 返回处理结果
+    } // 结束当前代码块
 
-    @Override
-    public McpPromptCatalog upsertPromptCatalog(McpPromptCatalog promptCatalog) {
-        if (promptCatalog == null || blank(promptCatalog.getServerCode()) || blank(promptCatalog.getPromptName())) {
-            throw new IllegalArgumentException("serverCode/promptName required");
-        }
-        McpPromptCatalog exist = promptCatalogMapper.selectOne(new LambdaQueryWrapper<McpPromptCatalog>()
-                .eq(McpPromptCatalog::getServerCode, promptCatalog.getServerCode())
-                .eq(McpPromptCatalog::getPromptName, promptCatalog.getPromptName())
-                .last("LIMIT 1"));
-        if (exist != null) promptCatalog.setId(exist.getId());
-        if (promptCatalog.getId() == null) promptCatalogMapper.insert(promptCatalog);
-        else promptCatalogMapper.updateById(promptCatalog);
-        return promptCatalog;
-    }
+    @Override // 声明注解
+    public McpPromptCatalog upsertPromptCatalog(McpPromptCatalog promptCatalog) { // 定义方法签名
+        if (promptCatalog == null || blank(promptCatalog.getServerCode()) || blank(promptCatalog.getPromptName())) { // 进行条件判断
+            throw new IllegalArgumentException("serverCode/promptName required"); // 抛出异常信息
+        } // 结束当前代码块
+        McpPromptCatalog exist = promptCatalogMapper.selectOne(new LambdaQueryWrapper<McpPromptCatalog>() // 执行赋值操作
+                .eq(McpPromptCatalog::getServerCode, promptCatalog.getServerCode()) // 执行当前逻辑
+                .eq(McpPromptCatalog::getPromptName, promptCatalog.getPromptName()) // 执行当前逻辑
+                .last("LIMIT 1")); // 执行语句逻辑
+        if (exist != null) promptCatalog.setId(exist.getId()); // 进行条件判断
+        if (promptCatalog.getId() == null) promptCatalogMapper.insert(promptCatalog); // 进行条件判断
+        else promptCatalogMapper.updateById(promptCatalog); // 处理其他分支
+        return promptCatalog; // 返回处理结果
+    } // 结束当前代码块
 
-    @Override
-    public McpResourceCatalog upsertResourceCatalog(McpResourceCatalog resourceCatalog) {
-        if (resourceCatalog == null || blank(resourceCatalog.getServerCode()) || blank(resourceCatalog.getResourceUri())) {
-            throw new IllegalArgumentException("serverCode/resourceUri required");
-        }
-        McpResourceCatalog exist = resourceCatalogMapper.selectOne(new LambdaQueryWrapper<McpResourceCatalog>()
-                .eq(McpResourceCatalog::getServerCode, resourceCatalog.getServerCode())
-                .eq(McpResourceCatalog::getResourceUri, resourceCatalog.getResourceUri())
-                .last("LIMIT 1"));
-        if (exist != null) resourceCatalog.setId(exist.getId());
-        if (resourceCatalog.getId() == null) resourceCatalogMapper.insert(resourceCatalog);
-        else resourceCatalogMapper.updateById(resourceCatalog);
-        return resourceCatalog;
-    }
+    @Override // 声明注解
+    public McpResourceCatalog upsertResourceCatalog(McpResourceCatalog resourceCatalog) { // 定义方法签名
+        if (resourceCatalog == null || blank(resourceCatalog.getServerCode()) || blank(resourceCatalog.getResourceUri())) { // 进行条件判断
+            throw new IllegalArgumentException("serverCode/resourceUri required"); // 抛出异常信息
+        } // 结束当前代码块
+        McpResourceCatalog exist = resourceCatalogMapper.selectOne(new LambdaQueryWrapper<McpResourceCatalog>() // 执行赋值操作
+                .eq(McpResourceCatalog::getServerCode, resourceCatalog.getServerCode()) // 执行当前逻辑
+                .eq(McpResourceCatalog::getResourceUri, resourceCatalog.getResourceUri()) // 执行当前逻辑
+                .last("LIMIT 1")); // 执行语句逻辑
+        if (exist != null) resourceCatalog.setId(exist.getId()); // 进行条件判断
+        if (resourceCatalog.getId() == null) resourceCatalogMapper.insert(resourceCatalog); // 进行条件判断
+        else resourceCatalogMapper.updateById(resourceCatalog); // 处理其他分支
+        return resourceCatalog; // 返回处理结果
+    } // 结束当前代码块
 
-    @Override
-    public WorkflowTemplate upsertWorkflowTemplate(WorkflowTemplate workflowTemplate) {
-        if (workflowTemplate == null || blank(workflowTemplate.getWorkflowName())) {
-            throw new IllegalArgumentException("workflowName required");
-        }
-        WorkflowTemplate exist = workflowTemplateMapper.selectOne(new LambdaQueryWrapper<WorkflowTemplate>()
-                .eq(WorkflowTemplate::getWorkflowName, workflowTemplate.getWorkflowName())
-                .last("LIMIT 1"));
-        if (exist != null) workflowTemplate.setId(exist.getId());
-        if (workflowTemplate.getId() == null) workflowTemplateMapper.insert(workflowTemplate);
-        else workflowTemplateMapper.updateById(workflowTemplate);
-        return workflowTemplate;
-    }
+    @Override // 声明注解
+    public WorkflowTemplate upsertWorkflowTemplate(WorkflowTemplate workflowTemplate) { // 定义方法签名
+        if (workflowTemplate == null || blank(workflowTemplate.getWorkflowName())) { // 进行条件判断
+            throw new IllegalArgumentException("workflowName required"); // 抛出异常信息
+        } // 结束当前代码块
+        WorkflowTemplate exist = workflowTemplateMapper.selectOne(new LambdaQueryWrapper<WorkflowTemplate>() // 执行赋值操作
+                .eq(WorkflowTemplate::getWorkflowName, workflowTemplate.getWorkflowName()) // 执行当前逻辑
+                .last("LIMIT 1")); // 执行语句逻辑
+        if (exist != null) workflowTemplate.setId(exist.getId()); // 进行条件判断
+        if (workflowTemplate.getId() == null) workflowTemplateMapper.insert(workflowTemplate); // 进行条件判断
+        else workflowTemplateMapper.updateById(workflowTemplate); // 处理其他分支
+        return workflowTemplate; // 返回处理结果
+    } // 结束当前代码块
 
-    private void syncToolFile(Map<String, Object> m) {
-        McpTool tool = McpTool.builder()
-                .name(text(m.get("name")))
-                .description(text(m.get("description")))
-                .version(def(text(m.get("version")), "1.0.0"))
-                .owner(text(m.get("owner")))
-                .beanName(text(m.get("beanName")))
-                .methodName(text(m.get("methodName")))
-                .inputSchema(json(m.get("inputSchema")))
-                .outputSchema(json(m.get("outputSchema")))
-                .requiresApproval(bool(m.get("requiresApproval"), false))
-                .sensitivity(parseSensitivity(text(m.get("sensitivity"))))
-                .build();
-        registerTool(tool);
-    }
+    private void syncToolFile(Map<String, Object> m) { // 定义方法签名
+        McpTool tool = McpTool.builder() // 执行赋值操作
+                .name(text(m.get("name"))) // 执行当前逻辑
+                .description(text(m.get("description"))) // 执行当前逻辑
+                .version(def(text(m.get("version")), "1.0.0")) // 执行当前逻辑
+                .owner(text(m.get("owner"))) // 执行当前逻辑
+                .beanName(text(m.get("beanName"))) // 执行当前逻辑
+                .methodName(text(m.get("methodName"))) // 执行当前逻辑
+                .inputSchema(json(m.get("inputSchema"))) // 执行当前逻辑
+                .outputSchema(json(m.get("outputSchema"))) // 执行当前逻辑
+                .requiresApproval(bool(m.get("requiresApproval"), false)) // 执行当前逻辑
+                .sensitivity(parseSensitivity(text(m.get("sensitivity")))) // 执行当前逻辑
+                .build(); // 执行语句逻辑
+        registerTool(tool); // 执行语句逻辑
+    } // 结束当前代码块
 
-    private McpSkill mapToSkill(Map<String, Object> m) {
-        McpSkill s = new McpSkill();
-        s.setName(text(m.get("name")));
-        s.setDescription(text(m.get("description")));
-        s.setVersion(def(text(m.get("version")), "1.0.0"));
-        s.setOwner(text(m.get("owner")));
-        s.setBeanName(text(m.get("beanName")));
-        s.setMethodName(text(m.get("methodName")));
-        s.setInputSchema(json(m.get("inputSchema")));
-        s.setOutputSchema(json(m.get("outputSchema")));
-        s.setRunMode(parseRunMode(text(m.get("runMode"))));
-        s.setRequiredCapabilities(stringList(m.get("requiredCapabilities")));
-        s.setThoughtChain(stringList(m.get("thoughtChain")));
-        s.setToolSlots(toSkillSlots(m.get("toolSlots")));
-        return s;
-    }
+    private McpSkill mapToSkill(Map<String, Object> m) { // 定义方法签名
+        McpSkill s = new McpSkill(); // 执行赋值操作
+        s.setName(text(m.get("name"))); // 执行语句逻辑
+        s.setDescription(text(m.get("description"))); // 执行语句逻辑
+        s.setVersion(def(text(m.get("version")), "1.0.0")); // 执行语句逻辑
+        s.setOwner(text(m.get("owner"))); // 执行语句逻辑
+        s.setBeanName(text(m.get("beanName"))); // 执行语句逻辑
+        s.setMethodName(text(m.get("methodName"))); // 执行语句逻辑
+        s.setInputSchema(json(m.get("inputSchema"))); // 执行语句逻辑
+        s.setOutputSchema(json(m.get("outputSchema"))); // 执行语句逻辑
+        s.setRunMode(parseRunMode(text(m.get("runMode")))); // 执行语句逻辑
+        s.setRequiredCapabilities(stringList(m.get("requiredCapabilities"))); // 执行语句逻辑
+        s.setThoughtChain(stringList(m.get("thoughtChain"))); // 执行语句逻辑
+        s.setToolSlots(toSkillSlots(m.get("toolSlots"))); // 执行语句逻辑
+        return s; // 返回处理结果
+    } // 结束当前代码块
 
-    private void upsertWorkflow(McpSkill skill) {
-        WorkflowTemplate w = workflowTemplateMapper.selectOne(new LambdaQueryWrapper<WorkflowTemplate>()
-                .eq(WorkflowTemplate::getWorkflowName, skill.getName()).last("LIMIT 1"));
-        if (w == null) {
-            w = new WorkflowTemplate();
-            w.setWorkflowName(skill.getName());
-            w.setEnabled(true);
-        }
-        w.setDescription(skill.getDescription());
-        w.setInputSchema(jsonMap(skill.getInputSchema()));
-        w.setOutputSchema(jsonMap(skill.getOutputSchema()));
-        w.setRequiredCapabilities(skill.getRequiredCapabilities());
-        w.setThoughtChain(skill.getThoughtChain());
-        w.setToolSlots(toSlotMaps(skill.getToolSlots()));
-        w.setVersion(def(skill.getVersion(), "1.0.0"));
-        w.setEmbedding(embed(skill.getName(), skill.getDescription()));
-        if (w.getId() == null) workflowTemplateMapper.insert(w); else workflowTemplateMapper.updateById(w);
-        skill.setId(w.getId());
-        skill.setEmbedding(w.getEmbedding());
-    }
+    private void upsertWorkflow(McpSkill skill) { // 定义方法签名
+        WorkflowTemplate w = workflowTemplateMapper.selectOne(new LambdaQueryWrapper<WorkflowTemplate>() // 执行赋值操作
+                .eq(WorkflowTemplate::getWorkflowName, skill.getName()).last("LIMIT 1")); // 执行语句逻辑
+        if (w == null) { // 进行条件判断
+            w = new WorkflowTemplate(); // 执行赋值操作
+            w.setWorkflowName(skill.getName()); // 执行语句逻辑
+            w.setEnabled(true); // 执行语句逻辑
+        } // 结束当前代码块
+        w.setDescription(skill.getDescription()); // 执行语句逻辑
+        w.setInputSchema(jsonMap(skill.getInputSchema())); // 执行语句逻辑
+        w.setOutputSchema(jsonMap(skill.getOutputSchema())); // 执行语句逻辑
+        w.setRequiredCapabilities(skill.getRequiredCapabilities()); // 执行语句逻辑
+        w.setThoughtChain(skill.getThoughtChain()); // 执行语句逻辑
+        w.setToolSlots(toSlotMaps(skill.getToolSlots())); // 执行语句逻辑
+        w.setVersion(def(skill.getVersion(), "1.0.0")); // 执行语句逻辑
+        w.setEmbedding(embed(skill.getName(), skill.getDescription())); // 执行语句逻辑
+        if (w.getId() == null) workflowTemplateMapper.insert(w); else workflowTemplateMapper.updateById(w); // 进行条件判断
+        skill.setId(w.getId()); // 执行语句逻辑
+        skill.setEmbedding(w.getEmbedding()); // 执行语句逻辑
+    } // 结束当前代码块
 
-    private void upsertPrompt(McpSkill skill) {
-        McpPromptCatalog p = promptCatalogMapper.selectOne(new LambdaQueryWrapper<McpPromptCatalog>()
-                .eq(McpPromptCatalog::getServerCode, McpConstant.LOCAL_SERVER_CODE)
-                .eq(McpPromptCatalog::getPromptName, skill.getName())
-                .last("LIMIT 1"));
-        if (p == null) {
-            p = new McpPromptCatalog();
-            p.setServerCode(McpConstant.LOCAL_SERVER_CODE);
-            p.setPromptName(skill.getName());
-            p.setEnabled(true);
-        }
-        p.setTitle(skill.getName());
-        p.setDescription(skill.getDescription());
-        p.setArgumentsSchema(jsonMap(skill.getInputSchema()));
-        p.setRawPayload(Map.of(
-                "skillName", def(skill.getName(), ""),
-                "legacyBeanName", def(skill.getBeanName(), ""),
-                "legacyMethodName", def(skill.getMethodName(), ""),
-                "runMode", (skill.getRunMode() == null ? RunMode.SYNC : skill.getRunMode()).name()
-        ));
-        p.setVersion(def(skill.getVersion(), "1.0.0"));
-        p.setEmbedding(embed(skill.getName(), skill.getDescription()));
-        p.setSyncedAt(LocalDateTime.now());
-        if (p.getId() == null) promptCatalogMapper.insert(p); else promptCatalogMapper.updateById(p);
-        skill.setId(p.getId());
-        skill.setEmbedding(p.getEmbedding());
-    }
+    private void upsertPrompt(McpSkill skill) { // 定义方法签名
+        McpPromptCatalog p = promptCatalogMapper.selectOne(new LambdaQueryWrapper<McpPromptCatalog>() // 执行赋值操作
+                .eq(McpPromptCatalog::getServerCode, McpConstant.LOCAL_SERVER_CODE) // 执行当前逻辑
+                .eq(McpPromptCatalog::getPromptName, skill.getName()) // 执行当前逻辑
+                .last("LIMIT 1")); // 执行语句逻辑
+        if (p == null) { // 进行条件判断
+            p = new McpPromptCatalog(); // 执行赋值操作
+            p.setServerCode(McpConstant.LOCAL_SERVER_CODE); // 执行语句逻辑
+            p.setPromptName(skill.getName()); // 执行语句逻辑
+            p.setEnabled(true); // 执行语句逻辑
+        } // 结束当前代码块
+        p.setTitle(skill.getName()); // 执行语句逻辑
+        p.setDescription(skill.getDescription()); // 执行语句逻辑
+        p.setArgumentsSchema(jsonMap(skill.getInputSchema())); // 执行语句逻辑
+        p.setRawPayload(Map.of( // 执行当前逻辑
+                "skillName", def(skill.getName(), ""), // 执行当前逻辑
+                "legacyBeanName", def(skill.getBeanName(), ""), // 执行当前逻辑
+                "legacyMethodName", def(skill.getMethodName(), ""), // 执行当前逻辑
+                "runMode", (skill.getRunMode() == null ? RunMode.SYNC : skill.getRunMode()).name() // 执行赋值操作
+        )); // 执行语句逻辑
+        p.setVersion(def(skill.getVersion(), "1.0.0")); // 执行语句逻辑
+        p.setEmbedding(embed(skill.getName(), skill.getDescription())); // 执行语句逻辑
+        p.setSyncedAt(LocalDateTime.now()); // 执行语句逻辑
+        if (p.getId() == null) promptCatalogMapper.insert(p); else promptCatalogMapper.updateById(p); // 进行条件判断
+        skill.setId(p.getId()); // 执行语句逻辑
+        skill.setEmbedding(p.getEmbedding()); // 执行语句逻辑
+    } // 结束当前代码块
 
-    private void upsertImpl(String toolName, String beanName, String methodName) {
-        McpToolImplMapping m = toolImplMappingMapper.findEnabledMapping(McpConstant.LOCAL_SERVER_CODE, toolName);
-        if (m == null) {
-            m = new McpToolImplMapping();
-            m.setServerCode(McpConstant.LOCAL_SERVER_CODE);
-            m.setToolName(toolName);
-            m.setEnabled(true);
-        }
-        m.setImplType("SPRING_BEAN");
-        m.setBeanName(beanName);
-        m.setMethodName(methodName);
-        m.setTimeoutMs(10000);
-        if (m.getId() == null) toolImplMappingMapper.insert(m); else toolImplMappingMapper.updateById(m);
-    }
+    private void upsertImpl(String toolName, String beanName, String methodName) { // 定义方法签名
+        McpToolImplMapping m = toolImplMappingMapper.findEnabledMapping(McpConstant.LOCAL_SERVER_CODE, toolName); // 执行赋值操作
+        if (m == null) { // 进行条件判断
+            m = new McpToolImplMapping(); // 执行赋值操作
+            m.setServerCode(McpConstant.LOCAL_SERVER_CODE); // 执行语句逻辑
+            m.setToolName(toolName); // 执行语句逻辑
+            m.setEnabled(true); // 执行语句逻辑
+        } // 结束当前代码块
+        m.setImplType("SPRING_BEAN"); // 执行语句逻辑
+        m.setBeanName(beanName); // 执行语句逻辑
+        m.setMethodName(methodName); // 执行语句逻辑
+        m.setTimeoutMs(10000); // 执行语句逻辑
+        if (m.getId() == null) toolImplMappingMapper.insert(m); else toolImplMappingMapper.updateById(m); // 进行条件判断
+    } // 结束当前代码块
 
-    private Resource toTool(McpToolCatalog t) {
-        return Resource.builder().id(String.valueOf(t.getId())).type(ResourceType.TOOL).serverCode(t.getServerCode()).name(t.getToolName())
-                .description(t.getDescription()).version(t.getVersion()).inputSchema(json(t.getInputSchema())).outputSchema(json(t.getOutputSchema()))
-                .requiresApproval(Boolean.TRUE.equals(t.getRequiresApproval())).sensitivity(parseSensitivity(t.getSensitivity())).runMode(RunMode.SYNC).build();
-    }
+    private Resource toTool(McpToolCatalog t) { // 定义方法签名
+        return Resource.builder().id(String.valueOf(t.getId())).type(ResourceType.TOOL).serverCode(t.getServerCode()).name(t.getToolName()) // 返回处理结果
+                .description(t.getDescription()).version(t.getVersion()).inputSchema(json(t.getInputSchema())).outputSchema(json(t.getOutputSchema())) // 执行当前逻辑
+                .requiresApproval(Boolean.TRUE.equals(t.getRequiresApproval())).sensitivity(parseSensitivity(t.getSensitivity())).runMode(RunMode.SYNC).build(); // 执行语句逻辑
+    } // 结束当前代码块
 
-    private Resource toPrompt(McpPromptCatalog p) {
-        return Resource.builder().id(String.valueOf(p.getId())).type(ResourceType.PROMPT).serverCode(p.getServerCode()).name(p.getPromptName())
-                .description(p.getDescription()).version(p.getVersion()).argumentsSchema(json(p.getArgumentsSchema()))
-                .requiresApproval(false).sensitivity(Sensitivity.LOW).runMode(RunMode.SYNC).build();
-    }
+    private Resource toPrompt(McpPromptCatalog p) { // 定义方法签名
+        return Resource.builder().id(String.valueOf(p.getId())).type(ResourceType.PROMPT).serverCode(p.getServerCode()).name(p.getPromptName()) // 返回处理结果
+                .description(p.getDescription()).version(p.getVersion()).argumentsSchema(json(p.getArgumentsSchema())) // 执行当前逻辑
+                .requiresApproval(false).sensitivity(Sensitivity.LOW).runMode(RunMode.SYNC).build(); // 执行语句逻辑
+    } // 结束当前代码块
 
-    private Resource toResource(McpResourceCatalog r) {
-        return Resource.builder().id(String.valueOf(r.getId())).type(ResourceType.RESOURCE).serverCode(r.getServerCode()).name(r.getName())
-                .resourceUri(r.getResourceUri()).description(r.getDescription()).mimeType(r.getMimeType())
-                .requiresApproval(false).sensitivity(Sensitivity.LOW).runMode(RunMode.SYNC).build();
-    }
+    private Resource toResource(McpResourceCatalog r) { // 定义方法签名
+        return Resource.builder().id(String.valueOf(r.getId())).type(ResourceType.RESOURCE).serverCode(r.getServerCode()).name(r.getName()) // 返回处理结果
+                .resourceUri(r.getResourceUri()).description(r.getDescription()).mimeType(r.getMimeType()) // 执行当前逻辑
+                .requiresApproval(false).sensitivity(Sensitivity.LOW).runMode(RunMode.SYNC).build(); // 执行语句逻辑
+    } // 结束当前代码块
 
-    private Resource toWorkflow(WorkflowTemplate w) {
-        return Resource.builder().id(String.valueOf(w.getId())).type(ResourceType.WORKFLOW).serverCode(McpConstant.LOCAL_SERVER_CODE).name(w.getWorkflowName())
-                .description(w.getDescription()).version(w.getVersion()).inputSchema(json(w.getInputSchema())).outputSchema(json(w.getOutputSchema()))
-                .requiredCapabilities(w.getRequiredCapabilities()).thoughtChain(w.getThoughtChain()).toolSlots(toResourceSlots(w.getToolSlots()))
-                .requiresApproval(false).sensitivity(Sensitivity.LOW).runMode(RunMode.SYNC).build();
-    }
+    private Resource toWorkflow(WorkflowTemplate w) { // 定义方法签名
+        return Resource.builder().id(String.valueOf(w.getId())).type(ResourceType.WORKFLOW).serverCode(McpConstant.LOCAL_SERVER_CODE).name(w.getWorkflowName()) // 返回处理结果
+                .description(w.getDescription()).version(w.getVersion()).inputSchema(json(w.getInputSchema())).outputSchema(json(w.getOutputSchema())) // 执行当前逻辑
+                .requiredCapabilities(w.getRequiredCapabilities()).thoughtChain(w.getThoughtChain()).toolSlots(toResourceSlots(w.getToolSlots())) // 执行当前逻辑
+                .requiresApproval(false).sensitivity(Sensitivity.LOW).runMode(RunMode.SYNC).build(); // 执行语句逻辑
+    } // 结束当前代码块
 
-    private List<Resource.ToolSlotDto> toResourceSlots(List<Map<String, Object>> maps) {
-        if (maps == null || maps.isEmpty()) return null;
-        List<Resource.ToolSlotDto> out = new ArrayList<>();
-        for (Map<String, Object> m : maps) {
-            out.add(Resource.ToolSlotDto.builder().slot(text(m.get("slot"))).capability(text(m.get("capability"))).required(bool(m.get("required"), true)).build());
-        }
-        return out;
-    }
+    private List<Resource.ToolSlotDto> toResourceSlots(List<Map<String, Object>> maps) { // 定义方法签名
+        if (maps == null || maps.isEmpty()) return null; // 进行条件判断
+        List<Resource.ToolSlotDto> out = new ArrayList<>(); // 执行赋值操作
+        for (Map<String, Object> m : maps) { // 执行循环处理
+            out.add(Resource.ToolSlotDto.builder().slot(text(m.get("slot"))).capability(text(m.get("capability"))).required(bool(m.get("required"), true)).build()); // 执行语句逻辑
+        } // 结束当前代码块
+        return out; // 返回处理结果
+    } // 结束当前代码块
 
-    private List<Map<String, Object>> toSlotMaps(List<McpSkill.ToolSlot> slots) {
-        List<Map<String, Object>> out = new ArrayList<>();
-        if (slots == null) return out;
-        for (McpSkill.ToolSlot s : slots) {
-            out.add(Map.of("slot", def(s.getSlot(), ""), "capability", def(s.getCapability(), ""), "required", s.getRequired() == null || s.getRequired()));
-        }
-        return out;
-    }
+    private List<Map<String, Object>> toSlotMaps(List<McpSkill.ToolSlot> slots) { // 定义方法签名
+        List<Map<String, Object>> out = new ArrayList<>(); // 执行赋值操作
+        if (slots == null) return out; // 进行条件判断
+        for (McpSkill.ToolSlot s : slots) { // 执行循环处理
+            out.add(Map.of("slot", def(s.getSlot(), ""), "capability", def(s.getCapability(), ""), "required", s.getRequired() == null || s.getRequired())); // 执行赋值操作
+        } // 结束当前代码块
+        return out; // 返回处理结果
+    } // 结束当前代码块
 
-    private List<McpSkill.ToolSlot> toSkillSlots(Object o) {
-        List<McpSkill.ToolSlot> out = new ArrayList<>();
-        if (o == null) return out;
-        try {
-            List<Map<String, Object>> list = objectMapper.convertValue(o, new TypeReference<>() {});
-            for (Map<String, Object> m : list) {
-                out.add(McpSkill.ToolSlot.builder().slot(text(m.get("slot"))).capability(text(m.get("capability"))).required(bool(m.get("required"), true)).build());
-            }
-        } catch (Exception ignored) {
-        }
-        return out;
-    }
+    private List<McpSkill.ToolSlot> toSkillSlots(Object o) { // 定义方法签名
+        List<McpSkill.ToolSlot> out = new ArrayList<>(); // 执行赋值操作
+        if (o == null) return out; // 进行条件判断
+        try { // 尝试执行核心逻辑
+            List<Map<String, Object>> list = objectMapper.convertValue(o, new TypeReference<>() {}); // 执行赋值操作
+            for (Map<String, Object> m : list) { // 执行循环处理
+                out.add(McpSkill.ToolSlot.builder().slot(text(m.get("slot"))).capability(text(m.get("capability"))).required(bool(m.get("required"), true)).build()); // 执行语句逻辑
+            } // 结束当前代码块
+        } catch (Exception ignored) { // 开始新的代码块
+        } // 结束当前代码块
+        return out; // 返回处理结果
+    } // 结束当前代码块
 
-    private Map<String, Object> readJsonFile(Path p) {
-        try {
-            String s = Files.readString(p);
-            return objectMapper.readValue(s, new TypeReference<>() {});
-        } catch (Exception e) {
-            return Collections.emptyMap();
-        }
-    }
+    private Map<String, Object> readJsonFile(Path p) { // 定义方法签名
+        try { // 尝试执行核心逻辑
+            String s = Files.readString(p); // 执行赋值操作
+            return objectMapper.readValue(s, new TypeReference<>() {}); // 返回处理结果
+        } catch (Exception e) { // 开始新的代码块
+            return Collections.emptyMap(); // 返回处理结果
+        } // 结束当前代码块
+    } // 结束当前代码块
 
-    private String embed(String name, String desc) {
-        try {
-            String v = llmClientUtil.getEmbedding((def(name, "") + " " + def(desc, "")).trim());
-            return blank(v) || "[]".equals(v) ? null : v;
-        } catch (Exception e) {
-            return null;
-        }
-    }
+    private String embed(String name, String desc) { // 定义方法签名
+        try { // 尝试执行核心逻辑
+            String v = llmClientUtil.getEmbedding((def(name, "") + " " + def(desc, "")).trim()); // 执行赋值操作
+            return blank(v) || "[]".equals(v) ? null : v; // 返回处理结果
+        } catch (Exception e) { // 开始新的代码块
+            return null; // 返回处理结果
+        } // 结束当前代码块
+    } // 结束当前代码块
 
-    private Map<String, Object> jsonMap(String json) {
-        if (blank(json)) return new LinkedHashMap<>();
-        try {
-            return objectMapper.readValue(json, new TypeReference<>() {});
-        } catch (Exception e) {
-            return new LinkedHashMap<>();
-        }
-    }
+    private Map<String, Object> jsonMap(String json) { // 定义方法签名
+        if (blank(json)) return new LinkedHashMap<>(); // 进行条件判断
+        try { // 尝试执行核心逻辑
+            return objectMapper.readValue(json, new TypeReference<>() {}); // 返回处理结果
+        } catch (Exception e) { // 开始新的代码块
+            return new LinkedHashMap<>(); // 返回处理结果
+        } // 结束当前代码块
+    } // 结束当前代码块
 
-    private String json(Object o) {
-        if (o == null) return null;
-        try {
-            return objectMapper.writeValueAsString(o);
-        } catch (Exception e) {
-            return null;
-        }
-    }
+    private String json(Object o) { // 定义方法签名
+        if (o == null) return null; // 进行条件判断
+        try { // 尝试执行核心逻辑
+            return objectMapper.writeValueAsString(o); // 返回处理结果
+        } catch (Exception e) { // 开始新的代码块
+            return null; // 返回处理结果
+        } // 结束当前代码块
+    } // 结束当前代码块
 
-    private List<String> stringList(Object o) {
-        if (o == null) return new ArrayList<>();
-        try {
-            List<Object> list = objectMapper.convertValue(o, new TypeReference<>() {});
-            List<String> out = new ArrayList<>();
-            for (Object it : list) if (it != null) out.add(String.valueOf(it));
-            return out;
-        } catch (Exception e) {
-            return new ArrayList<>();
-        }
-    }
+    private List<String> stringList(Object o) { // 定义方法签名
+        if (o == null) return new ArrayList<>(); // 进行条件判断
+        try { // 尝试执行核心逻辑
+            List<Object> list = objectMapper.convertValue(o, new TypeReference<>() {}); // 执行赋值操作
+            List<String> out = new ArrayList<>(); // 执行赋值操作
+            for (Object it : list) if (it != null) out.add(String.valueOf(it)); // 执行循环处理
+            return out; // 返回处理结果
+        } catch (Exception e) { // 开始新的代码块
+            return new ArrayList<>(); // 返回处理结果
+        } // 结束当前代码块
+    } // 结束当前代码块
 
-    private boolean workflowSkill(McpSkill s) {
-        return s != null && (s.getRunMode() == RunMode.ASYNC || notEmpty(s.getRequiredCapabilities()) || notEmpty(s.getToolSlots()) || notEmpty(s.getThoughtChain()));
-    }
+    private boolean workflowSkill(McpSkill s) { // 定义方法签名
+        return s != null && (s.getRunMode() == RunMode.ASYNC || notEmpty(s.getRequiredCapabilities()) || notEmpty(s.getToolSlots()) || notEmpty(s.getThoughtChain())); // 返回处理结果
+    } // 结束当前代码块
 
-    private boolean notEmpty(Collection<?> c) { return c != null && !c.isEmpty(); }
+    private boolean notEmpty(Collection<?> c) { return c != null && !c.isEmpty(); } // 定义方法签名
 
-    private boolean blank(String s) { return s == null || s.isBlank(); }
+    private boolean blank(String s) { return s == null || s.isBlank(); } // 定义方法签名
 
-    private String text(Object o) { return o == null ? "" : String.valueOf(o).trim(); }
+    private String text(Object o) { return o == null ? "" : String.valueOf(o).trim(); } // 定义方法签名
 
-    private String def(String s, String d) { return blank(s) ? d : s.trim(); }
+    private String def(String s, String d) { return blank(s) ? d : s.trim(); } // 定义方法签名
 
-    private boolean contains(String s, String q) { return s != null && s.toLowerCase(Locale.ROOT).contains(q); }
+    private boolean contains(String s, String q) { return s != null && s.toLowerCase(Locale.ROOT).contains(q); } // 定义方法签名
 
-    private boolean bool(Object o, boolean d) {
-        if (o == null) return d;
-        if (o instanceof Boolean b) return b;
-        String t = String.valueOf(o).trim().toLowerCase(Locale.ROOT);
-        if ("true".equals(t) || "1".equals(t) || "yes".equals(t)) return true;
-        if ("false".equals(t) || "0".equals(t) || "no".equals(t)) return false;
-        return d;
-    }
+    private boolean bool(Object o, boolean d) { // 定义方法签名
+        if (o == null) return d; // 进行条件判断
+        if (o instanceof Boolean b) return b; // 进行条件判断
+        String t = String.valueOf(o).trim().toLowerCase(Locale.ROOT); // 执行赋值操作
+        if ("true".equals(t) || "1".equals(t) || "yes".equals(t)) return true; // 进行条件判断
+        if ("false".equals(t) || "0".equals(t) || "no".equals(t)) return false; // 进行条件判断
+        return d; // 返回处理结果
+    } // 结束当前代码块
 
-    private RunMode parseRunMode(String v) {
-        if (blank(v)) return RunMode.SYNC;
-        try {
-            return RunMode.valueOf(v.toUpperCase(Locale.ROOT));
-        } catch (Exception e) {
-            return RunMode.SYNC;
-        }
-    }
+    private RunMode parseRunMode(String v) { // 定义方法签名
+        if (blank(v)) return RunMode.SYNC; // 进行条件判断
+        try { // 尝试执行核心逻辑
+            return RunMode.valueOf(v.toUpperCase(Locale.ROOT)); // 返回处理结果
+        } catch (Exception e) { // 开始新的代码块
+            return RunMode.SYNC; // 返回处理结果
+        } // 结束当前代码块
+    } // 结束当前代码块
 
-    private Sensitivity parseSensitivity(String v) {
-        if (blank(v)) return Sensitivity.LOW;
-        try {
-            return Sensitivity.valueOf(v.toUpperCase(Locale.ROOT));
-        } catch (Exception e) {
-            return Sensitivity.LOW;
-        }
-    }
-}
+    private Sensitivity parseSensitivity(String v) { // 定义方法签名
+        if (blank(v)) return Sensitivity.LOW; // 进行条件判断
+        try { // 尝试执行核心逻辑
+            return Sensitivity.valueOf(v.toUpperCase(Locale.ROOT)); // 返回处理结果
+        } catch (Exception e) { // 开始新的代码块
+            return Sensitivity.LOW; // 返回处理结果
+        } // 结束当前代码块
+    } // 结束当前代码块
+} // 结束当前代码块

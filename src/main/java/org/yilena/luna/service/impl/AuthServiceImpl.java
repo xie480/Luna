@@ -23,6 +23,9 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+/**
+ * AuthServiceImpl ??
+ */
 public class AuthServiceImpl implements AuthService {
 
     private static final String JWT_ALG = "HS256";

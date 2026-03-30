@@ -17,6 +17,9 @@ import java.util.Arrays;
 
 @Slf4j
 @Component
+/**
+ * KnowledgeBaseTools ??
+ */
 public class KnowledgeBaseTools extends BaseTool {
 
     private final KnowledgeBaseService knowledgeBaseService;

@@ -7,5 +7,8 @@ import org.yilena.luna.mapper.LunaLogMapper;
 import org.yilena.luna.service.LunaLogService;
 
 @Service
+/**
+ * LunaLogServiceImpl ??
+ */
 public class LunaLogServiceImpl extends ServiceImpl<LunaLogMapper, LunaLog> implements LunaLogService {
-}
+} // 结束当前代码块

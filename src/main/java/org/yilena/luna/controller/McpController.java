@@ -23,6 +23,9 @@ import java.util.Map;
 @RequestMapping("/mcp")
 @RequiredArgsConstructor
 @Tag(name = "MCP API", description = "Catalog and protocol endpoints")
+/**
+ * McpController ??
+ */
 public class McpController {
 
     private final McpService mcpService;

@@ -12,7 +12,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import org.yilena.luna.interceptor.AuthInterceptor;
 
 /*
-    web配置�?
+    web配置
  */
 @Configuration
 @Slf4j
@@ -24,7 +24,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        log.info("<==========开始设置静态资源映=========>");
+        log.info("<==========开始设置静态资源映射=========>");
         registry.addResourceHandler("/swagger-ui.html").addResourceLocations("classpath:/META-INF/resources/");
         registry.addResourceHandler("/webjars/**").addResourceLocations("classpath:/META-INF/resources/webjars/");
     }
@@ -39,12 +39,10 @@ public class WebMvcConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(authInterceptor)
-                // 拦截所有接�?
                 .addPathPatterns("/**")
-                // 放行登录接口、SSE接口�?Swagger 文档相关路径
                 .excludePathPatterns(
                         "/auth/login",
-                        "/luna/api/status/stream",
+                        "/api/luna/status/stream",
                         "/swagger-ui.html",
                         "/webjars/**",
                         "/swagger-ui/**",

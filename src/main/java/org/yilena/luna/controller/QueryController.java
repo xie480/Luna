@@ -11,4 +11,4 @@ package org.yilena.luna.controller;
  */
 @Deprecated
 public class QueryController {
-}
+} // 结束当前代码块

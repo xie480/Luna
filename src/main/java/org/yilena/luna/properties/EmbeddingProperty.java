@@ -7,8 +7,11 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 @ConfigurationProperties(prefix = "embedding")
 @Data
+/**
+ * EmbeddingProperty ??
+ */
 public class EmbeddingProperty {
-    private String pythonPath;
-    private String scriptPath;
-    private String modelPath;
-}
+    private String pythonPath; // 声明成员字段
+    private String scriptPath; // 声明成员字段
+    private String modelPath; // 声明成员字段
+} // 结束当前代码块

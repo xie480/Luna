@@ -9,6 +9,9 @@ import java.time.LocalTime;
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
+/**
+ * ChatMessage ??
+ */
 public class ChatMessage {
     public enum Role {
         // 用户

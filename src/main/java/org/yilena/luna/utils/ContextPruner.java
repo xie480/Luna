@@ -29,6 +29,9 @@ public class ContextPruner {
 
     @Data
     @Builder
+    /**
+     * ContextPayload ??
+     */
     public static class ContextPayload {
         // 优先级 7 (最后淘汰)
         private String systemPrompt;

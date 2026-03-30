@@ -16,8 +16,10 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ToolCallingContext {
-    private String chatSessionKey;
-    private String userInput;
-    private List<String> memorySnippets;
-    private List<String> knowledgeSnippets;
-}
+    private String chatSessionKey; // 声明成员字段
+    private String userInput; // 声明成员字段
+    private List<String> memorySnippets; // 声明成员字段
+    private List<String> knowledgeSnippets; // 声明成员字段
+    private List<String> preferenceSnippets; // 声明成员字段
+    private List<String> longTermMemorySnippets; // 声明成员字段
+} // 结束当前代码块

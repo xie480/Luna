@@ -13,6 +13,9 @@ import org.yilena.luna.sse.LunaStatusPublisher;
 @Component
 @Slf4j
 @RequiredArgsConstructor
+/**
+ * LunaStateAspect ??
+ */
 public class LunaStateAspect {
 
     private final LunaStatusPublisher statusPublisher;

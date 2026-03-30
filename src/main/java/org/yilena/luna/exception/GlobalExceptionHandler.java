@@ -82,6 +82,6 @@ public class GlobalExceptionHandler {
                 .build();
 
         // 2. 调用 AI 修复服务
-        return ResponseEntity.ok(exceptionRetryService.handleException(context));
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(exceptionRetryService.handleException(context));
     }
 }

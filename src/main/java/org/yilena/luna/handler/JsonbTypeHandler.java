@@ -9,6 +9,9 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 
 @MappedTypes({Object.class})
+/**
+ * JsonbTypeHandler ??
+ */
 public class JsonbTypeHandler extends JacksonTypeHandler {
 
     public JsonbTypeHandler(Class<?> type) {

@@ -53,6 +53,9 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+/**
+ * ChatServiceImpl ??
+ */
 public class ChatServiceImpl implements ChatService {
     // Prompt 组装器：负责拼接 system/memory/rag/tool/userInput 等上下文块
     private final PromptAssembler promptAssembler;
@@ -173,6 +176,8 @@ public class ChatServiceImpl implements ChatService {
                 .userInput(input)
                 .memorySnippets(memorySnippets)
                 .knowledgeSnippets(knowledgeSnippets)
+                .preferenceSnippets(preferenceSnippets)
+                .longTermMemorySnippets(longTermMemorySnippets)
                 .build());
 
         String toolContext;
@@ -193,7 +198,14 @@ public class ChatServiceImpl implements ChatService {
         }
 
         // 8) 正常生成阶段：组装最终 prompt -> 调模型 -> 写会话 -> 返回
-        String prompt = promptAssembler.assembleFinalPrompt(memorySnippets, knowledgeSnippets, toolContext, input);
+        String prompt = promptAssembler.assembleFinalPrompt(
+                memorySnippets,
+                knowledgeSnippets,
+                preferenceSnippets,
+                longTermMemorySnippets,
+                toolContext,
+                input
+        );
         SendToLuna result = getSendToLuna(prompt, input);
 
         // AOP 日志模块通过该 ThreadLocal 覆盖默认响应内容
@@ -273,6 +285,9 @@ public class ChatServiceImpl implements ChatService {
     public List<String> getHistory(String yearMonthDay) {
         // 历史接口直接返回“角色:内容:时间”简格式
         List<ChatMessage> chats = sessionService.getRecentMessages(yearMonthDay, true);
+        if (chats == null) {
+            return Collections.emptyList();
+        }
         return chats.stream().map(m -> m.getRole().name() + ":" + m.getContent() + ":" + m.getTime()).toList();
     }
 

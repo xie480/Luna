@@ -20,6 +20,9 @@ import java.util.Locale;
 @Component
 @RequiredArgsConstructor
 @RocketMQMessageListener(topic = RocketMqConstant.TOPIC_KB_ADD, consumerGroup = RocketMqConstant.GROUP_KB_ADD)
+/**
+ * KnowledgeBaseConsumer ??
+ */
 public class KnowledgeBaseConsumer implements RocketMQListener<KnowledgeBaseMessage> {
 
     private final LlmClientUtil llmClientUtil;
