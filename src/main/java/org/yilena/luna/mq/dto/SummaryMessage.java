@@ -16,6 +16,6 @@ import java.util.List;
  * SummaryMessage ??
  */
 public class SummaryMessage implements Serializable {
-    private String sessionKey; // 声明成员字段
-    private List<String> memorySnippets; // 声明成员字段
-} // 结束当前代码块
+    private String sessionKey;
+    private List<String> memorySnippets;
+}

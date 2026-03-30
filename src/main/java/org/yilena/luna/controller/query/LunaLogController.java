@@ -23,48 +23,48 @@ import org.yilena.luna.service.LunaLogService;
  */
 public class LunaLogController extends BasePageQueryController {
 
-    private final LunaLogService lunaLogService; // 声明成员字段
+    private final LunaLogService lunaLogService;
 
-    @PostMapping({"", "/page"}) // 声明注解
-    @Operation(summary = "分页查询日志") // 声明注解
-    public ResponseEntity<Object> page(@RequestBody(required = false) LunaLogPageQueryRequest req) { // 定义方法签名
-        try { // 尝试执行核心逻辑
-            LunaLogPageQueryRequest request = req == null ? new LunaLogPageQueryRequest() : req; // 执行赋值操作
-            Page<LunaLog> page = new Page<>(normalizePageNo(request.getPageNo()), normalizePageSize(request.getPageSize())); // 执行赋值操作
+    @PostMapping({"", "/page"})
+    @Operation(summary = "分页查询日志")
+    public ResponseEntity<Object> page(@RequestBody(required = false) LunaLogPageQueryRequest req) {
+        try {
+            LunaLogPageQueryRequest request = req == null ? new LunaLogPageQueryRequest() : req;
+            Page<LunaLog> page = new Page<>(normalizePageNo(request.getPageNo()), normalizePageSize(request.getPageSize()));
 
-            LambdaQueryWrapper<LunaLog> wrapper = new LambdaQueryWrapper<>(); // 执行赋值操作
-            if (hasText(request.getLogType())) { // 进行条件判断
-                wrapper.eq(LunaLog::getLogType, LogType.valueOf(request.getLogType().trim().toUpperCase())); // 执行语句逻辑
-            } // 结束当前代码块
-            if (hasText(request.getModule())) { // 进行条件判断
-                wrapper.like(LunaLog::getModule, request.getModule().trim()); // 执行语句逻辑
-            } // 结束当前代码块
-            if (hasText(request.getAction())) { // 进行条件判断
-                wrapper.like(LunaLog::getAction, request.getAction().trim()); // 执行语句逻辑
-            } // 结束当前代码块
-            if (hasText(request.getContent())) { // 进行条件判断
-                wrapper.like(LunaLog::getContent, request.getContent().trim()); // 执行语句逻辑
-            } // 结束当前代码块
-            if (hasText(request.getTraceId())) { // 进行条件判断
-                wrapper.eq(LunaLog::getTraceId, request.getTraceId().trim()); // 执行语句逻辑
-            } // 结束当前代码块
-            if (hasText(request.getOperatorId())) { // 进行条件判断
-                wrapper.eq(LunaLog::getOperatorId, request.getOperatorId().trim()); // 执行语句逻辑
-            } // 结束当前代码块
-            if (hasText(request.getStartTime())) { // 进行条件判断
-                wrapper.ge(LunaLog::getCreateAt, parseDateTime(request.getStartTime())); // 执行语句逻辑
-            } // 结束当前代码块
-            if (hasText(request.getEndTime())) { // 进行条件判断
-                wrapper.le(LunaLog::getCreateAt, parseDateTime(request.getEndTime())); // 执行语句逻辑
-            } // 结束当前代码块
-            wrapper.orderByDesc(LunaLog::getCreateAt); // 执行语句逻辑
+            LambdaQueryWrapper<LunaLog> wrapper = new LambdaQueryWrapper<>();
+            if (hasText(request.getLogType())) {
+                wrapper.eq(LunaLog::getLogType, LogType.valueOf(request.getLogType().trim().toUpperCase()));
+            }
+            if (hasText(request.getModule())) {
+                wrapper.like(LunaLog::getModule, request.getModule().trim());
+            }
+            if (hasText(request.getAction())) {
+                wrapper.like(LunaLog::getAction, request.getAction().trim());
+            }
+            if (hasText(request.getContent())) {
+                wrapper.like(LunaLog::getContent, request.getContent().trim());
+            }
+            if (hasText(request.getTraceId())) {
+                wrapper.eq(LunaLog::getTraceId, request.getTraceId().trim());
+            }
+            if (hasText(request.getOperatorId())) {
+                wrapper.eq(LunaLog::getOperatorId, request.getOperatorId().trim());
+            }
+            if (hasText(request.getStartTime())) {
+                wrapper.ge(LunaLog::getCreateAt, parseDateTime(request.getStartTime()));
+            }
+            if (hasText(request.getEndTime())) {
+                wrapper.le(LunaLog::getCreateAt, parseDateTime(request.getEndTime()));
+            }
+            wrapper.orderByDesc(LunaLog::getCreateAt);
 
-            IPage<LunaLog> result = lunaLogService.page(page, wrapper); // 执行赋值操作
-            return ResponseEntity.ok(PagedResponse.from(result)); // 返回处理结果
-        } catch (IllegalArgumentException e) { // 开始新的代码块
-            return ResponseEntity.badRequest().body(error("参数错误: " + e.getMessage())); // 返回处理结果
-        } catch (Exception e) { // 开始新的代码块
-            return ResponseEntity.internalServerError().body(error("查询日志失败: " + e.getMessage())); // 返回处理结果
-        } // 结束当前代码块
-    } // 结束当前代码块
-} // 结束当前代码块
+            IPage<LunaLog> result = lunaLogService.page(page, wrapper);
+            return ResponseEntity.ok(PagedResponse.from(result));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(error("参数错误: " + e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(error("查询日志失败: " + e.getMessage()));
+        }
+    }
+}

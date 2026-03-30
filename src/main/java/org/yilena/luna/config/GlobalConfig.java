@@ -1,19 +1,19 @@
-package org.yilena.luna.config; // define package
+package org.yilena.luna.config;
 
-import com.baomidou.mybatisplus.autoconfigure.DdlApplicationRunner; // import dependency
-import org.springframework.beans.factory.annotation.Autowired; // import dependency
-import org.springframework.context.annotation.Bean; // import dependency
-import org.springframework.stereotype.Component; // import dependency
+import com.baomidou.mybatisplus.autoconfigure.DdlApplicationRunner;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
+import org.springframework.stereotype.Component;
 
-import java.util.List; // import dependency
+import java.util.List;
 
 /*
-    启动时执行ddl // business logic
+    启动时执行ddl
  */
-@Component // declare annotation
-public class GlobalConfig { // define class
-    @Bean // declare annotation
-    public DdlApplicationRunner ddlApplicationRunner(@Autowired(required = false) List ddlLrist) { // method definition
-        return new DdlApplicationRunner(ddlLrist); // return result
-    } // block end
-} // block end
+@Component
+public class GlobalConfig {
+    @Bean
+    public DdlApplicationRunner ddlApplicationRunner(@Autowired(required = false) List ddlLrist) {
+        return new DdlApplicationRunner(ddlLrist);
+    }
+}

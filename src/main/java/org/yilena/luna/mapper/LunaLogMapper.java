@@ -1,9 +1,9 @@
-package org.yilena.luna.mapper; // define package
+package org.yilena.luna.mapper;
 
-import com.baomidou.mybatisplus.core.mapper.BaseMapper; // import dependency
-import org.apache.ibatis.annotations.Mapper; // import dependency
-import org.yilena.luna.entity.LunaLog; // import dependency
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import org.apache.ibatis.annotations.Mapper;
+import org.yilena.luna.entity.LunaLog;
 
-@Mapper // declare annotation
-public interface LunaLogMapper extends BaseMapper<LunaLog> { // define interface
-} // block end
+@Mapper
+public interface LunaLogMapper extends BaseMapper<LunaLog> {
+}

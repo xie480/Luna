@@ -11,15 +11,15 @@ import lombok.Getter;
 @Getter
 @AllArgsConstructor
 public enum PlanEventLevel {
-    INFO(0, "INFO", "信息"), // 执行当前逻辑
-    WARN(1, "WARN", "警告"), // 执行当前逻辑
-    ERROR(2, "ERROR", "错误"); // 执行语句逻辑
+    INFO(0, "INFO", "信息"),
+    WARN(1, "WARN", "警告"),
+    ERROR(2, "ERROR", "错误");
 
-    @EnumValue // 声明注解
-    private final Integer code; // 声明成员字段
+    @EnumValue
+    private final Integer code;
 
-    @JsonValue // 声明注解
-    private final String value; // 声明成员字段
+    @JsonValue
+    private final String value;
 
-    private final String desc; // 声明成员字段
-} // 结束当前代码块
+    private final String desc;
+}

@@ -10,6 +10,6 @@ import lombok.Data;
  */
 public class PlanFinalizeRequest {
 
-    @Schema(description = "计划ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "plan-123456") // 声明注解
-    private String planId; // 声明成员字段
-} // 结束当前代码块
+    @Schema(description = "计划ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "plan-123456")
+    private String planId;
+}

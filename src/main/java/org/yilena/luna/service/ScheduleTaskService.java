@@ -7,4 +7,4 @@ import org.yilena.luna.entity.ScheduleTask;
  * 日程任務服務接口
  */
 public interface ScheduleTaskService extends IService<ScheduleTask> {
-} // 结束当前代码块
+}

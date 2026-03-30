@@ -1,18 +1,18 @@
-package org.yilena.luna.service; // define package
+package org.yilena.luna.service;
 
-import org.springframework.http.ResponseEntity; // import dependency
-import org.yilena.luna.entity.ChatRequest; // import dependency
+import org.springframework.http.ResponseEntity;
+import org.yilena.luna.entity.ChatRequest;
 
-import java.util.List; // import dependency
+import java.util.List;
 
-public interface ChatService { // define interface
-    ResponseEntity<Object> chat(ChatRequest chatRequest); // business logic
+public interface ChatService {
+    ResponseEntity<Object> chat(ChatRequest chatRequest);
 
-    ResponseEntity<Object> startup(); // business logic
+    ResponseEntity<Object> startup();
 
-    void shutdown(); // business logic
+    void shutdown();
 
-    List<String> getHistoryDate(String yearMonth); // business logic
+    List<String> getHistoryDate(String yearMonth);
 
-    List<String> getHistory(String yearMonthDay); // business logic
-} // block end
+    List<String> getHistory(String yearMonthDay);
+}

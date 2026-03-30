@@ -11,8 +11,8 @@ import org.springframework.context.annotation.Configuration;
  * OllamaProperty ??
  */
 public class OllamaProperty {
-    private String baseUrl; // 声明成员字段
-    private String model; // 声明成员字段
-    private int timeoutMs = 60000; // 声明成员字段
-} // 结束当前代码块
+    private String baseUrl;
+    private String model;
+    private int timeoutMs = 60000;
+}
 

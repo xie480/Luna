@@ -1,132 +1,132 @@
-package org.yilena.luna.rag.pipelines; // define package
+package org.yilena.luna.rag.pipelines;
 
-import org.springframework.stereotype.Component; // import dependency
-import org.yilena.luna.rag.adapters.EmbeddingProvider; // import dependency
-import org.yilena.luna.rag.config.RagProperties; // import dependency
-import org.yilena.luna.rag.fusion.EvidenceFusionService; // import dependency
-import org.yilena.luna.rag.models.Evidence; // import dependency
-import org.yilena.luna.rag.models.QueryObject; // import dependency
-import org.yilena.luna.rag.models.RetrievalRequest; // import dependency
-import org.yilena.luna.rag.models.RetrievalResponse; // import dependency
-import org.yilena.luna.rag.models.RetrievalRoute; // import dependency
-import org.yilena.luna.rag.models.RetrievalSource; // import dependency
-import org.yilena.luna.rag.models.RoutePlan; // import dependency
-import org.yilena.luna.rag.planner.ModelDrivenRagPlanner; // import dependency
-import org.yilena.luna.rag.rankers.EvidenceCompressor; // import dependency
-import org.yilena.luna.rag.rankers.EvidenceDeduplicator; // import dependency
-import org.yilena.luna.rag.rankers.EvidenceReranker; // import dependency
-import org.yilena.luna.rag.retrievers.BaseRetriever; // import dependency
+import org.springframework.stereotype.Component;
+import org.yilena.luna.rag.adapters.EmbeddingProvider;
+import org.yilena.luna.rag.config.RagProperties;
+import org.yilena.luna.rag.fusion.EvidenceFusionService;
+import org.yilena.luna.rag.models.Evidence;
+import org.yilena.luna.rag.models.QueryObject;
+import org.yilena.luna.rag.models.RetrievalRequest;
+import org.yilena.luna.rag.models.RetrievalResponse;
+import org.yilena.luna.rag.models.RetrievalRoute;
+import org.yilena.luna.rag.models.RetrievalSource;
+import org.yilena.luna.rag.models.RoutePlan;
+import org.yilena.luna.rag.planner.ModelDrivenRagPlanner;
+import org.yilena.luna.rag.rankers.EvidenceCompressor;
+import org.yilena.luna.rag.rankers.EvidenceDeduplicator;
+import org.yilena.luna.rag.rankers.EvidenceReranker;
+import org.yilena.luna.rag.retrievers.BaseRetriever;
 
-import java.util.ArrayList; // import dependency
-import java.util.HashMap; // import dependency
-import java.util.List; // import dependency
-import java.util.Map; // import dependency
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
-@Component // declare annotation
-public class AgenticPipeline extends AbstractRetrievalPipeline { // define class
+@Component
+public class AgenticPipeline extends AbstractRetrievalPipeline {
 
-    private final EmbeddingProvider embeddingProvider; // business logic
+    private final EmbeddingProvider embeddingProvider;
 
-    public AgenticPipeline( // business logic
-            List<BaseRetriever> retrievers, // business logic
-            EvidenceReranker evidenceReranker, // business logic
-            EvidenceDeduplicator evidenceDeduplicator, // business logic
-            EvidenceCompressor evidenceCompressor, // business logic
-            RagProperties ragProperties, // business logic
-            ModelDrivenRagPlanner modelDrivenRagPlanner, // business logic
-            EvidenceFusionService evidenceFusionService, // business logic
-            EmbeddingProvider embeddingProvider // business logic
-    ) { // block start
-        super(retrievers.stream().collect(java.util.stream.Collectors.toMap(BaseRetriever::source, it -> it)), // enum or const item
-                evidenceReranker, evidenceDeduplicator, evidenceCompressor, // enum or const item
-                ragProperties, modelDrivenRagPlanner, evidenceFusionService); // enum or const item
-        this.embeddingProvider = embeddingProvider; // assignment or init
-    } // block end
+    public AgenticPipeline(
+            List<BaseRetriever> retrievers,
+            EvidenceReranker evidenceReranker,
+            EvidenceDeduplicator evidenceDeduplicator,
+            EvidenceCompressor evidenceCompressor,
+            RagProperties ragProperties,
+            ModelDrivenRagPlanner modelDrivenRagPlanner,
+            EvidenceFusionService evidenceFusionService,
+            EmbeddingProvider embeddingProvider
+    ) {
+        super(retrievers.stream().collect(java.util.stream.Collectors.toMap(BaseRetriever::source, it -> it)),
+                evidenceReranker, evidenceDeduplicator, evidenceCompressor,
+                ragProperties, modelDrivenRagPlanner, evidenceFusionService);
+        this.embeddingProvider = embeddingProvider;
+    }
 
-    @Override // declare annotation
-    public RetrievalRoute route() { // method definition
-        return RetrievalRoute.AGENTIC; // return result
-    } // block end
+    @Override
+    public RetrievalRoute route() {
+        return RetrievalRoute.AGENTIC;
+    }
 
-    @Override // declare annotation
-    public RetrievalResponse execute(QueryObject queryObject, RoutePlan plan, RetrievalRequest request) { // method definition
-        List<RetrievalSource> sources = resolveSources(request); // assignment or init
-        long totalBudgetMs = resolveTimeoutMs(request); // assignment or init
-        long deadline = System.currentTimeMillis() + totalBudgetMs; // assignment or init
+    @Override
+    public RetrievalResponse execute(QueryObject queryObject, RoutePlan plan, RetrievalRequest request) {
+        List<RetrievalSource> sources = resolveSources(request);
+        long totalBudgetMs = resolveTimeoutMs(request);
+        long deadline = System.currentTimeMillis() + totalBudgetMs;
 
-        List<ModelDrivenRagPlanner.AgentStage> stages = getModelDrivenRagPlanner() // assignment or init
-                .planAgentStages(queryObject.getRewrittenQuery(), sources, 3); // business logic
+        List<ModelDrivenRagPlanner.AgentStage> stages = getModelDrivenRagPlanner()
+                .planAgentStages(queryObject.getRewrittenQuery(), sources, 3);
 
-        Map<RetrievalSource, List<Evidence>> cumulative = initGrouped(sources); // assignment or init
-        List<Map<String, Object>> stageMeta = new ArrayList<>(); // assignment or init
-        boolean timeoutReached = false; // assignment or init
+        Map<RetrievalSource, List<Evidence>> cumulative = initGrouped(sources);
+        List<Map<String, Object>> stageMeta = new ArrayList<>();
+        boolean timeoutReached = false;
 
-        for (int i = 0; i < stages.size(); i++) { // loop logic
-            long remaining = remainingMs(deadline); // assignment or init
-            if (remaining < 120) { // branch logic
-                timeoutReached = true; // assignment or init
-                break; // enum or const item
-            } // block end
+        for (int i = 0; i < stages.size(); i++) {
+            long remaining = remainingMs(deadline);
+            if (remaining < 120) {
+                timeoutReached = true;
+                break;
+            }
 
-            ModelDrivenRagPlanner.AgentStage stage = stages.get(i); // assignment or init
-            QueryObject stageQuery = buildStageQuery(queryObject, stage.getRewrittenQuery()); // assignment or init
-            RetrievalRequest stageRequest = withTimeout(request, remaining); // assignment or init
-            List<RetrievalSource> stageSources = stage.getSources() == null || stage.getSources().isEmpty() // assignment or init
-                    ? sources // business logic
-                    : stage.getSources(); // business logic
+            ModelDrivenRagPlanner.AgentStage stage = stages.get(i);
+            QueryObject stageQuery = buildStageQuery(queryObject, stage.getRewrittenQuery());
+            RetrievalRequest stageRequest = withTimeout(request, remaining);
+            List<RetrievalSource> stageSources = stage.getSources() == null || stage.getSources().isEmpty()
+                    ? sources
+                    : stage.getSources();
 
-            SourceRetrieveOutcome stageOutcome = retrieveBySources( // assignment or init
-                    stageQuery, // enum or const item
-                    plan.getTopKConfig(), // business logic
-                    stageSources, // enum or const item
-                    true, // enum or const item
-                    true, // enum or const item
-                    stageRequest, // enum or const item
-                    remaining // business logic
-            ); // business logic
+            SourceRetrieveOutcome stageOutcome = retrieveBySources(
+                    stageQuery,
+                    plan.getTopKConfig(),
+                    stageSources,
+                    true,
+                    true,
+                    stageRequest,
+                    remaining
+            );
 
-            cumulative = mergeBySource(cumulative, stageOutcome.grouped(), sources); // assignment or init
+            cumulative = mergeBySource(cumulative, stageOutcome.grouped(), sources);
 
-            Map<String, Object> singleStageMeta = new HashMap<>(); // assignment or init
-            singleStageMeta.put("stage_index", i + 1); // business logic
-            singleStageMeta.put("objective", stage.getObjective()); // business logic
-            singleStageMeta.put("query", stage.getRewrittenQuery()); // business logic
-            singleStageMeta.put("sources", stageSources.stream().map(RetrievalSource::value).toList()); // business logic
-            singleStageMeta.put("evidence_count", totalEvidenceCount(stageOutcome.grouped())); // business logic
-            singleStageMeta.put("timed_out_sources", stageOutcome.timedOutSources().stream().map(RetrievalSource::value).toList()); // business logic
-            stageMeta.add(singleStageMeta); // business logic
-        } // block end
+            Map<String, Object> singleStageMeta = new HashMap<>();
+            singleStageMeta.put("stage_index", i + 1);
+            singleStageMeta.put("objective", stage.getObjective());
+            singleStageMeta.put("query", stage.getRewrittenQuery());
+            singleStageMeta.put("sources", stageSources.stream().map(RetrievalSource::value).toList());
+            singleStageMeta.put("evidence_count", totalEvidenceCount(stageOutcome.grouped()));
+            singleStageMeta.put("timed_out_sources", stageOutcome.timedOutSources().stream().map(RetrievalSource::value).toList());
+            stageMeta.add(singleStageMeta);
+        }
 
-        EvidenceFusionService.FusionResult finalFusion = getEvidenceFusionService().fuse( // assignment or init
-                queryObject.getRewrittenQuery(), // business logic
-                cumulative, // enum or const item
-                plan.getTopKConfig(), // business logic
-                sources, // enum or const item
-                true // business logic
-        ); // business logic
+        EvidenceFusionService.FusionResult finalFusion = getEvidenceFusionService().fuse(
+                queryObject.getRewrittenQuery(),
+                cumulative,
+                plan.getTopKConfig(),
+                sources,
+                true
+        );
 
-        Map<String, Object> meta = new HashMap<>(finalFusion.meta()); // assignment or init
-        meta.put("agentic_stage_count", stageMeta.size()); // business logic
-        meta.put("agentic_stages", stageMeta); // business logic
-        meta.put("agentic_timeout_reached", timeoutReached); // business logic
+        Map<String, Object> meta = new HashMap<>(finalFusion.meta());
+        meta.put("agentic_stage_count", stageMeta.size());
+        meta.put("agentic_stages", stageMeta);
+        meta.put("agentic_timeout_reached", timeoutReached);
 
-        return RetrievalResponse.builder() // return result
-                .route(route()) // business logic
-                .rewrittenQuery(queryObject.getRewrittenQuery()) // business logic
-                .evidences(finalFusion.grouped()) // business logic
-                .meta(meta) // business logic
-                .build(); // business logic
-    } // block end
+        return RetrievalResponse.builder()
+                .route(route())
+                .rewrittenQuery(queryObject.getRewrittenQuery())
+                .evidences(finalFusion.grouped())
+                .meta(meta)
+                .build();
+    }
 
-    private QueryObject buildStageQuery(QueryObject original, String stageRewrittenQuery) { // method definition
-        if (stageRewrittenQuery == null || stageRewrittenQuery.isBlank() // branch logic
-                || stageRewrittenQuery.equals(original.getRewrittenQuery())) { // block start
-            return original; // return result
-        } // block end
-        String stageEmbedding = embeddingProvider.embedding(stageRewrittenQuery); // assignment or init
-        return original.toBuilder() // return result
-                .rewrittenQuery(stageRewrittenQuery) // business logic
-                .embedding(stageEmbedding == null || stageEmbedding.isBlank() ? original.getEmbedding() : stageEmbedding) // assignment or init
-                .build(); // business logic
-    } // block end
-} // block end
+    private QueryObject buildStageQuery(QueryObject original, String stageRewrittenQuery) {
+        if (stageRewrittenQuery == null || stageRewrittenQuery.isBlank()
+                || stageRewrittenQuery.equals(original.getRewrittenQuery())) {
+            return original;
+        }
+        String stageEmbedding = embeddingProvider.embedding(stageRewrittenQuery);
+        return original.toBuilder()
+                .rewrittenQuery(stageRewrittenQuery)
+                .embedding(stageEmbedding == null || stageEmbedding.isBlank() ? original.getEmbedding() : stageEmbedding)
+                .build();
+    }
+}

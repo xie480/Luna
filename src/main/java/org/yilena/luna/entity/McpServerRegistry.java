@@ -27,45 +27,45 @@ import java.util.Map;
  */
 public class McpServerRegistry implements Serializable {
 
-    private static final long serialVersionUID = 1L; // 声明成员字段
+    private static final long serialVersionUID = 1L;
 
-    @JsonSerialize(using = ToStringSerializer.class) // 声明注解
-    @TableId(value = "id", type = IdType.ASSIGN_ID) // 声明注解
-    private Long id; // 声明成员字段
+    @JsonSerialize(using = ToStringSerializer.class)
+    @TableId(value = "id", type = IdType.ASSIGN_ID)
+    private Long id;
 
-    @TableField("server_code") // 声明注解
-    private String serverCode; // 声明成员字段
+    @TableField("server_code")
+    private String serverCode;
 
-    @TableField("server_name") // 声明注解
-    private String serverName; // 声明成员字段
+    @TableField("server_name")
+    private String serverName;
 
-    @TableField("description") // 声明注解
-    private String description; // 声明成员字段
+    @TableField("description")
+    private String description;
 
-    @TableField("base_url") // 声明注解
-    private String baseUrl; // 声明成员字段
+    @TableField("base_url")
+    private String baseUrl;
 
-    @TableField("transport_type") // 声明注解
-    private String transportType; // 声明成员字段
+    @TableField("transport_type")
+    private String transportType;
 
-    @TableField("auth_type") // 声明注解
-    private String authType; // 声明成员字段
+    @TableField("auth_type")
+    private String authType;
 
-    @TableField(value = "auth_config", typeHandler = JsonbTypeHandler.class) // 声明注解
-    private Map<String, Object> authConfig; // 声明成员字段
+    @TableField(value = "auth_config", typeHandler = JsonbTypeHandler.class)
+    private Map<String, Object> authConfig;
 
-    @TableField("enabled") // 声明注解
-    private Boolean enabled; // 声明成员字段
+    @TableField("enabled")
+    private Boolean enabled;
 
-    @TableField("health_status") // 声明注解
-    private String healthStatus; // 声明成员字段
+    @TableField("health_status")
+    private String healthStatus;
 
-    @TableField("last_sync_at") // 声明注解
-    private LocalDateTime lastSyncAt; // 声明成员字段
+    @TableField("last_sync_at")
+    private LocalDateTime lastSyncAt;
 
-    @TableField(value = "created_at", fill = FieldFill.INSERT) // 声明注解
-    private LocalDateTime createdAt; // 声明成员字段
+    @TableField(value = "created_at", fill = FieldFill.INSERT)
+    private LocalDateTime createdAt;
 
-    @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE) // 声明注解
-    private LocalDateTime updatedAt; // 声明成员字段
-} // 结束当前代码块
+    @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE)
+    private LocalDateTime updatedAt;
+}

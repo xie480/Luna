@@ -1,9 +1,9 @@
-package org.yilena.luna.mapper; // define package
+package org.yilena.luna.mapper;
 
-import com.baomidou.mybatisplus.core.mapper.BaseMapper; // import dependency
-import org.apache.ibatis.annotations.Mapper; // import dependency
-import org.yilena.luna.entity.McpServerRegistry; // import dependency
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import org.apache.ibatis.annotations.Mapper;
+import org.yilena.luna.entity.McpServerRegistry;
 
-@Mapper // declare annotation
-public interface McpServerRegistryMapper extends BaseMapper<McpServerRegistry> { // define interface
-} // block end
+@Mapper
+public interface McpServerRegistryMapper extends BaseMapper<McpServerRegistry> {
+}

@@ -22,39 +22,39 @@ import org.yilena.luna.service.UserPreferenceService;
  */
 public class UserPreferenceController extends BasePageQueryController {
 
-    private final UserPreferenceService userPreferenceService; // 声明成员字段
+    private final UserPreferenceService userPreferenceService;
 
-    @PostMapping({"", "/page"}) // 声明注解
-    @Operation(summary = "分页查询用户偏好") // 声明注解
-    public ResponseEntity<Object> page(@RequestBody(required = false) UserPreferencePageQueryRequest req) { // 定义方法签名
-        try { // 尝试执行核心逻辑
-            UserPreferencePageQueryRequest request = req == null ? new UserPreferencePageQueryRequest() : req; // 执行赋值操作
-            Page<UserPreference> page = new Page<>(normalizePageNo(request.getPageNo()), normalizePageSize(request.getPageSize())); // 执行赋值操作
+    @PostMapping({"", "/page"})
+    @Operation(summary = "分页查询用户偏好")
+    public ResponseEntity<Object> page(@RequestBody(required = false) UserPreferencePageQueryRequest req) {
+        try {
+            UserPreferencePageQueryRequest request = req == null ? new UserPreferencePageQueryRequest() : req;
+            Page<UserPreference> page = new Page<>(normalizePageNo(request.getPageNo()), normalizePageSize(request.getPageSize()));
 
-            LambdaQueryWrapper<UserPreference> wrapper = new LambdaQueryWrapper<>(); // 执行赋值操作
-            if (hasText(request.getPrefKey())) { // 进行条件判断
-                wrapper.like(UserPreference::getPrefKey, request.getPrefKey().trim()); // 执行语句逻辑
-            } // 结束当前代码块
-            if (hasText(request.getPrefValue())) { // 进行条件判断
-                wrapper.like(UserPreference::getPrefValue, request.getPrefValue().trim()); // 执行语句逻辑
-            } // 结束当前代码块
-            if (hasText(request.getDescription())) { // 进行条件判断
-                wrapper.like(UserPreference::getDescription, request.getDescription().trim()); // 执行语句逻辑
-            } // 结束当前代码块
-            if (hasText(request.getStartTime())) { // 进行条件判断
-                wrapper.ge(UserPreference::getCreatedAt, parseDateTime(request.getStartTime())); // 执行语句逻辑
-            } // 结束当前代码块
-            if (hasText(request.getEndTime())) { // 进行条件判断
-                wrapper.le(UserPreference::getCreatedAt, parseDateTime(request.getEndTime())); // 执行语句逻辑
-            } // 结束当前代码块
-            wrapper.orderByDesc(UserPreference::getCreatedAt); // 执行语句逻辑
+            LambdaQueryWrapper<UserPreference> wrapper = new LambdaQueryWrapper<>();
+            if (hasText(request.getPrefKey())) {
+                wrapper.like(UserPreference::getPrefKey, request.getPrefKey().trim());
+            }
+            if (hasText(request.getPrefValue())) {
+                wrapper.like(UserPreference::getPrefValue, request.getPrefValue().trim());
+            }
+            if (hasText(request.getDescription())) {
+                wrapper.like(UserPreference::getDescription, request.getDescription().trim());
+            }
+            if (hasText(request.getStartTime())) {
+                wrapper.ge(UserPreference::getCreatedAt, parseDateTime(request.getStartTime()));
+            }
+            if (hasText(request.getEndTime())) {
+                wrapper.le(UserPreference::getCreatedAt, parseDateTime(request.getEndTime()));
+            }
+            wrapper.orderByDesc(UserPreference::getCreatedAt);
 
-            IPage<UserPreference> result = userPreferenceService.page(page, wrapper); // 执行赋值操作
-            return ResponseEntity.ok(PagedResponse.from(result)); // 返回处理结果
-        } catch (IllegalArgumentException e) { // 开始新的代码块
-            return ResponseEntity.badRequest().body(error("参数错误: " + e.getMessage())); // 返回处理结果
-        } catch (Exception e) { // 开始新的代码块
-            return ResponseEntity.internalServerError().body(error("查询用户偏好失败: " + e.getMessage())); // 返回处理结果
-        } // 结束当前代码块
-    } // 结束当前代码块
-} // 结束当前代码块
+            IPage<UserPreference> result = userPreferenceService.page(page, wrapper);
+            return ResponseEntity.ok(PagedResponse.from(result));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(error("参数错误: " + e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(error("查询用户偏好失败: " + e.getMessage()));
+        }
+    }
+}

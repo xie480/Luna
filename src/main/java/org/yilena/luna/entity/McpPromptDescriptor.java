@@ -17,12 +17,12 @@ import java.util.Map;
  */
 public class McpPromptDescriptor implements Serializable {
 
-    private static final long serialVersionUID = 1L; // 声明成员字段
+    private static final long serialVersionUID = 1L;
 
-    private String serverCode; // 声明成员字段
-    private String promptName; // 声明成员字段
-    private String title; // 声明成员字段
-    private String description; // 声明成员字段
-    private Map<String, Object> argumentsSchema; // 声明成员字段
-    private String version; // 声明成员字段
-} // 结束当前代码块
+    private String serverCode;
+    private String promptName;
+    private String title;
+    private String description;
+    private Map<String, Object> argumentsSchema;
+    private String version;
+}

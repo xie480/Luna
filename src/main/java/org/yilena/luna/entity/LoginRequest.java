@@ -9,8 +9,8 @@ import lombok.Data;
  * LoginRequest ??
  */
 public class LoginRequest {
-    @Schema(description = "用户名") // 声明注解
-    private String username; // 声明成员字段
-    @Schema(description = "密码") // 声明注解
-    private String password; // 声明成员字段
-} // 结束当前代码块
+    @Schema(description = "用户名")
+    private String username;
+    @Schema(description = "密码")
+    private String password;
+}

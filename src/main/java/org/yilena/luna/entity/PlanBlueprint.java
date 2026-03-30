@@ -22,26 +22,26 @@ import java.util.Map;
  */
 public class PlanBlueprint implements Serializable {
 
-    private static final long serialVersionUID = 1L; // 声明成员字段
+    private static final long serialVersionUID = 1L;
 
-    @TableId(value = "id", type = IdType.ASSIGN_ID) // 声明注解
-    private Long id; // 声明成员字段
+    @TableId(value = "id", type = IdType.ASSIGN_ID)
+    private Long id;
 
-    @TableField("plan_id") // 声明注解
-    private String planId; // 声明成员字段
+    @TableField("plan_id")
+    private String planId;
 
-    @TableField("plan_version") // 声明注解
-    private Integer planVersion; // 声明成员字段
+    @TableField("plan_version")
+    private Integer planVersion;
 
-    @TableField(value = "blueprint_json", typeHandler = JsonbTypeHandler.class) // 声明注解
-    private Map<String, Object> blueprintJson; // 声明成员字段
+    @TableField(value = "blueprint_json", typeHandler = JsonbTypeHandler.class)
+    private Map<String, Object> blueprintJson;
 
-    @TableField("generated_by_model") // 声明注解
-    private String generatedByModel; // 声明成员字段
+    @TableField("generated_by_model")
+    private String generatedByModel;
 
-    @TableField("generated_at") // 声明注解
-    private LocalDateTime generatedAt; // 声明成员字段
+    @TableField("generated_at")
+    private LocalDateTime generatedAt;
 
-    @TableField(value = "created_at", fill = FieldFill.INSERT) // 声明注解
-    private LocalDateTime createdAt; // 声明成员字段
-} // 结束当前代码块
+    @TableField(value = "created_at", fill = FieldFill.INSERT)
+    private LocalDateTime createdAt;
+}

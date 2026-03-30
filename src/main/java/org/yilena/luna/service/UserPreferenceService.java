@@ -7,4 +7,4 @@ import org.yilena.luna.entity.UserPreference;
  * 用戶偏好服務接口
  */
 public interface UserPreferenceService extends IService<UserPreference> {
-} // 结束当前代码块
+}

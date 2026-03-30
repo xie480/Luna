@@ -1,9 +1,9 @@
-package org.yilena.luna.gate; // define package
+package org.yilena.luna.gate;
 
-import org.yilena.luna.entity.ExecutionResult; // import dependency
-import org.yilena.luna.entity.Resource; // import dependency
+import org.yilena.luna.entity.ExecutionResult;
+import org.yilena.luna.entity.Resource;
 
-public interface ToolExecutionGateway { // define interface
+public interface ToolExecutionGateway {
 
-    ExecutionResult executeTool(String sessionId, Resource resource, String argsJson); // business logic
-} // block end
+    ExecutionResult executeTool(String sessionId, Resource resource, String argsJson);
+}

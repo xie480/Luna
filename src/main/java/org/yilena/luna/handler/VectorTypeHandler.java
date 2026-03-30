@@ -12,26 +12,26 @@ import java.sql.*;
  */
 public class VectorTypeHandler extends BaseTypeHandler<String> {
 
-    @Override // 声明注解
-    public void setNonNullParameter(PreparedStatement ps, int i, String parameter, JdbcType jdbcType) throws SQLException { // 定义方法签名
-        PGobject vector = new PGobject(); // 执行赋值操作
-        vector.setType("vector"); // 执行语句逻辑
-        vector.setValue(parameter); // 执行语句逻辑
-        ps.setObject(i, vector); // 执行语句逻辑
-    } // 结束当前代码块
+    @Override
+    public void setNonNullParameter(PreparedStatement ps, int i, String parameter, JdbcType jdbcType) throws SQLException {
+        PGobject vector = new PGobject();
+        vector.setType("vector");
+        vector.setValue(parameter);
+        ps.setObject(i, vector);
+    }
 
-    @Override // 声明注解
-    public String getNullableResult(ResultSet rs, String columnName) throws SQLException { // 定义方法签名
-        return rs.getString(columnName); // 返回处理结果
-    } // 结束当前代码块
+    @Override
+    public String getNullableResult(ResultSet rs, String columnName) throws SQLException {
+        return rs.getString(columnName);
+    }
 
-    @Override // 声明注解
-    public String getNullableResult(ResultSet rs, int columnIndex) throws SQLException { // 定义方法签名
-        return rs.getString(columnIndex); // 返回处理结果
-    } // 结束当前代码块
+    @Override
+    public String getNullableResult(ResultSet rs, int columnIndex) throws SQLException {
+        return rs.getString(columnIndex);
+    }
 
-    @Override // 声明注解
-    public String getNullableResult(CallableStatement cs, int columnIndex) throws SQLException { // 定义方法签名
-        return cs.getString(columnIndex); // 返回处理结果
-    } // 结束当前代码块
-} // 结束当前代码块
+    @Override
+    public String getNullableResult(CallableStatement cs, int columnIndex) throws SQLException {
+        return cs.getString(columnIndex);
+    }
+}

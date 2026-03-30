@@ -1,154 +1,154 @@
-package org.yilena.luna.rag.fusion; // define package
+package org.yilena.luna.rag.fusion;
 
-import lombok.RequiredArgsConstructor; // import dependency
-import org.springframework.stereotype.Component; // import dependency
-import org.yilena.luna.rag.models.Evidence; // import dependency
-import org.yilena.luna.rag.models.RetrievalSource; // import dependency
-import org.yilena.luna.rag.planner.ModelDrivenRagPlanner; // import dependency
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
+import org.yilena.luna.rag.models.Evidence;
+import org.yilena.luna.rag.models.RetrievalSource;
+import org.yilena.luna.rag.planner.ModelDrivenRagPlanner;
 
-import java.util.ArrayList; // import dependency
-import java.util.Collections; // import dependency
-import java.util.Comparator; // import dependency
-import java.util.EnumMap; // import dependency
-import java.util.HashMap; // import dependency
-import java.util.LinkedHashSet; // import dependency
-import java.util.List; // import dependency
-import java.util.Map; // import dependency
-import java.util.Set; // import dependency
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
-@Component // declare annotation
-@RequiredArgsConstructor // declare annotation
-public class EvidenceFusionService { // define class
+@Component
+@RequiredArgsConstructor
+public class EvidenceFusionService {
 
-    private final ModelDrivenRagPlanner modelDrivenRagPlanner; // business logic
+    private final ModelDrivenRagPlanner modelDrivenRagPlanner;
 
-    public FusionResult fuse( // business logic
-            String query, // business logic
-            Map<RetrievalSource, List<Evidence>> grouped, // business logic
-            Map<RetrievalSource, Integer> topKConfig, // business logic
-            List<RetrievalSource> targetSources, // business logic
-            boolean preferMidModel // business logic
-    ) { // block start
-        List<RetrievalSource> sources = targetSources == null || targetSources.isEmpty() // assignment or init
-                ? RetrievalSource.all() // business logic
-                : targetSources; // business logic
+    public FusionResult fuse(
+            String query,
+            Map<RetrievalSource, List<Evidence>> grouped,
+            Map<RetrievalSource, Integer> topKConfig,
+            List<RetrievalSource> targetSources,
+            boolean preferMidModel
+    ) {
+        List<RetrievalSource> sources = targetSources == null || targetSources.isEmpty()
+                ? RetrievalSource.all()
+                : targetSources;
 
-        List<Evidence> all = new ArrayList<>(); // assignment or init
-        for (RetrievalSource source : sources) { // loop logic
-            all.addAll(grouped.getOrDefault(source, List.of())); // business logic
-        } // block end
-        if (all.isEmpty()) { // branch logic
-            Map<RetrievalSource, List<Evidence>> empty = new EnumMap<>(RetrievalSource.class); // define class
-            for (RetrievalSource source : sources) { // loop logic
-                empty.put(source, List.of()); // business logic
-            } // block end
-            return new FusionResult(empty, List.of(), Map.of("global_candidates", 0)); // return result
-        } // block end
+        List<Evidence> all = new ArrayList<>();
+        for (RetrievalSource source : sources) {
+            all.addAll(grouped.getOrDefault(source, List.of()));
+        }
+        if (all.isEmpty()) {
+            Map<RetrievalSource, List<Evidence>> empty = new EnumMap<>(RetrievalSource.class);
+            for (RetrievalSource source : sources) {
+                empty.put(source, List.of());
+            }
+            return new FusionResult(empty, List.of(), Map.of("global_candidates", 0));
+        }
 
-        int before = all.size(); // assignment or init
-        List<Evidence> deduplicated = globalDeduplicate(all); // assignment or init
-        int globalLimit = resolveGlobalLimit(topKConfig, sources); // assignment or init
-        List<Evidence> ranked = modelDrivenRagPlanner.rerankGlobally(query, deduplicated, globalLimit, preferMidModel); // assignment or init
+        int before = all.size();
+        List<Evidence> deduplicated = globalDeduplicate(all);
+        int globalLimit = resolveGlobalLimit(topKConfig, sources);
+        List<Evidence> ranked = modelDrivenRagPlanner.rerankGlobally(query, deduplicated, globalLimit, preferMidModel);
 
-        Map<RetrievalSource, List<Evidence>> redistributed = redistributeBySource(ranked, topKConfig, sources); // assignment or init
-        List<RetrievalSource> hitSources = redistributed.entrySet().stream() // assignment or init
-                .filter(entry -> !entry.getValue().isEmpty()) // business logic
-                .map(Map.Entry::getKey) // business logic
-                .toList(); // business logic
+        Map<RetrievalSource, List<Evidence>> redistributed = redistributeBySource(ranked, topKConfig, sources);
+        List<RetrievalSource> hitSources = redistributed.entrySet().stream()
+                .filter(entry -> !entry.getValue().isEmpty())
+                .map(Map.Entry::getKey)
+                .toList();
 
-        Map<String, Object> meta = new HashMap<>(); // assignment or init
-        meta.put("global_candidates", before); // business logic
-        meta.put("global_after_dedup", deduplicated.size()); // business logic
-        meta.put("global_dedup_removed", Math.max(0, before - deduplicated.size())); // business logic
-        meta.put("hit_sources", hitSources.stream().map(RetrievalSource::value).toList()); // business logic
-        return new FusionResult(redistributed, hitSources, meta); // return result
-    } // block end
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("global_candidates", before);
+        meta.put("global_after_dedup", deduplicated.size());
+        meta.put("global_dedup_removed", Math.max(0, before - deduplicated.size()));
+        meta.put("hit_sources", hitSources.stream().map(RetrievalSource::value).toList());
+        return new FusionResult(redistributed, hitSources, meta);
+    }
 
-    private List<Evidence> globalDeduplicate(List<Evidence> evidences) { // method definition
-        Map<String, Evidence> byKey = new HashMap<>(); // assignment or init
-        Map<String, Set<String>> fusedSources = new HashMap<>(); // assignment or init
-        for (Evidence evidence : evidences) { // loop logic
-            String key = normalize(evidence.getContent()); // assignment or init
-            Evidence existing = byKey.get(key); // assignment or init
-            if (existing == null || evidence.getScore() > existing.getScore()) { // branch logic
-                byKey.put(key, evidence); // business logic
-            } // block end
-            fusedSources.computeIfAbsent(key, ignored -> new LinkedHashSet<>()).add(evidence.getSource().value()); // business logic
-        } // block end
-        List<Evidence> result = new ArrayList<>(); // assignment or init
-        for (Map.Entry<String, Evidence> entry : byKey.entrySet()) { // loop logic
-            Evidence evidence = entry.getValue(); // assignment or init
-            Set<String> mergedSources = fusedSources.getOrDefault(entry.getKey(), Set.of(evidence.getSource().value())); // assignment or init
-            Map<String, Object> metadata = new HashMap<>(evidence.getMetadata()); // assignment or init
-            metadata.put("fused_sources", mergedSources); // business logic
-            result.add(evidence.toBuilder().metadata(metadata).build()); // business logic
-        } // block end
-        result.sort(Comparator.comparingDouble(Evidence::getScore).reversed()); // business logic
-        return result; // return result
-    } // block end
+    private List<Evidence> globalDeduplicate(List<Evidence> evidences) {
+        Map<String, Evidence> byKey = new HashMap<>();
+        Map<String, Set<String>> fusedSources = new HashMap<>();
+        for (Evidence evidence : evidences) {
+            String key = normalize(evidence.getContent());
+            Evidence existing = byKey.get(key);
+            if (existing == null || evidence.getScore() > existing.getScore()) {
+                byKey.put(key, evidence);
+            }
+            fusedSources.computeIfAbsent(key, ignored -> new LinkedHashSet<>()).add(evidence.getSource().value());
+        }
+        List<Evidence> result = new ArrayList<>();
+        for (Map.Entry<String, Evidence> entry : byKey.entrySet()) {
+            Evidence evidence = entry.getValue();
+            Set<String> mergedSources = fusedSources.getOrDefault(entry.getKey(), Set.of(evidence.getSource().value()));
+            Map<String, Object> metadata = new HashMap<>(evidence.getMetadata());
+            metadata.put("fused_sources", mergedSources);
+            result.add(evidence.toBuilder().metadata(metadata).build());
+        }
+        result.sort(Comparator.comparingDouble(Evidence::getScore).reversed());
+        return result;
+    }
 
-    private Map<RetrievalSource, List<Evidence>> redistributeBySource( // business logic
-            List<Evidence> ranked, // business logic
-            Map<RetrievalSource, Integer> topKConfig, // business logic
-            List<RetrievalSource> sources // business logic
-    ) { // block start
-        Map<RetrievalSource, List<Evidence>> result = new EnumMap<>(RetrievalSource.class); // define class
-        for (RetrievalSource source : sources) { // loop logic
-            result.put(source, new ArrayList<>()); // business logic
-        } // block end
-        for (Evidence evidence : ranked) { // loop logic
-            RetrievalSource source = evidence.getSource(); // assignment or init
-            if (!result.containsKey(source)) { // branch logic
-                continue; // enum or const item
-            } // block end
-            int limit = Math.max(1, topKConfig.getOrDefault(source, 3)); // assignment or init
-            List<Evidence> bucket = result.get(source); // assignment or init
-            if (bucket.size() < limit) { // branch logic
-                bucket.add(evidence); // business logic
-            } // block end
-            if (isAllBucketsFull(result, topKConfig)) { // branch logic
-                break; // enum or const item
-            } // block end
-        } // block end
-        for (RetrievalSource source : sources) { // loop logic
-            result.put(source, Collections.unmodifiableList(result.get(source))); // business logic
-        } // block end
-        return Collections.unmodifiableMap(result); // return result
-    } // block end
+    private Map<RetrievalSource, List<Evidence>> redistributeBySource(
+            List<Evidence> ranked,
+            Map<RetrievalSource, Integer> topKConfig,
+            List<RetrievalSource> sources
+    ) {
+        Map<RetrievalSource, List<Evidence>> result = new EnumMap<>(RetrievalSource.class);
+        for (RetrievalSource source : sources) {
+            result.put(source, new ArrayList<>());
+        }
+        for (Evidence evidence : ranked) {
+            RetrievalSource source = evidence.getSource();
+            if (!result.containsKey(source)) {
+                continue;
+            }
+            int limit = Math.max(1, topKConfig.getOrDefault(source, 3));
+            List<Evidence> bucket = result.get(source);
+            if (bucket.size() < limit) {
+                bucket.add(evidence);
+            }
+            if (isAllBucketsFull(result, topKConfig)) {
+                break;
+            }
+        }
+        for (RetrievalSource source : sources) {
+            result.put(source, Collections.unmodifiableList(result.get(source)));
+        }
+        return Collections.unmodifiableMap(result);
+    }
 
-    private boolean isAllBucketsFull(Map<RetrievalSource, List<Evidence>> result, Map<RetrievalSource, Integer> topKConfig) { // method definition
-        for (Map.Entry<RetrievalSource, List<Evidence>> entry : result.entrySet()) { // loop logic
-            int limit = Math.max(1, topKConfig.getOrDefault(entry.getKey(), 3)); // assignment or init
-            if (entry.getValue().size() < limit) { // branch logic
-                return false; // return result
-            } // block end
-        } // block end
-        return true; // return result
-    } // block end
+    private boolean isAllBucketsFull(Map<RetrievalSource, List<Evidence>> result, Map<RetrievalSource, Integer> topKConfig) {
+        for (Map.Entry<RetrievalSource, List<Evidence>> entry : result.entrySet()) {
+            int limit = Math.max(1, topKConfig.getOrDefault(entry.getKey(), 3));
+            if (entry.getValue().size() < limit) {
+                return false;
+            }
+        }
+        return true;
+    }
 
-    private int resolveGlobalLimit(Map<RetrievalSource, Integer> topKConfig, List<RetrievalSource> sources) { // method definition
-        int total = 0; // assignment or init
-        for (RetrievalSource source : sources) { // loop logic
-            total += Math.max(1, topKConfig.getOrDefault(source, 3)); // assignment or init
-        } // block end
-        return Math.max(1, total); // return result
-    } // block end
+    private int resolveGlobalLimit(Map<RetrievalSource, Integer> topKConfig, List<RetrievalSource> sources) {
+        int total = 0;
+        for (RetrievalSource source : sources) {
+            total += Math.max(1, topKConfig.getOrDefault(source, 3));
+        }
+        return Math.max(1, total);
+    }
 
-    private String normalize(String content) { // method definition
-        if (content == null) { // branch logic
-            return ""; // return result
-        } // block end
-        String normalized = content.replaceAll("\\s+", " ").trim().toLowerCase(); // assignment or init
-        if (normalized.length() <= 320) { // branch logic
-            return normalized; // return result
-        } // block end
-        return normalized.substring(0, 320); // return result
-    } // block end
+    private String normalize(String content) {
+        if (content == null) {
+            return "";
+        }
+        String normalized = content.replaceAll("\\s+", " ").trim().toLowerCase();
+        if (normalized.length() <= 320) {
+            return normalized;
+        }
+        return normalized.substring(0, 320);
+    }
 
-    public record FusionResult( // define record
-            Map<RetrievalSource, List<Evidence>> grouped, // business logic
-            List<RetrievalSource> hitSources, // business logic
-            Map<String, Object> meta // business logic
-    ) { // block start
-    } // block end
-} // block end
+    public record FusionResult(
+            Map<RetrievalSource, List<Evidence>> grouped,
+            List<RetrievalSource> hitSources,
+            Map<String, Object> meta
+    ) {
+    }
+}

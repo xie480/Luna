@@ -1,24 +1,24 @@
-package org.yilena.luna.enums; // define package
+package org.yilena.luna.enums;
 
 /*
-    情感枚举 // business logic
+    情感枚举
  */
-public enum EmotionEnum { // define enum
-    Angry, // enum or const item
-    Despair, // enum or const item
-    Fearful, // enum or const item
-    Shocked, // enum or const item
-    Shy, // enum or const item
-    Smile, // enum or const item
-    Soft, // enum or const item
-    Solemn; // enum or const item
+public enum EmotionEnum {
+    Angry,
+    Despair,
+    Fearful,
+    Shocked,
+    Shy,
+    Smile,
+    Soft,
+    Solemn;
 
-    public static boolean contains(String emotion) { // method definition
-        for (EmotionEnum value : values()) { // loop logic
-            if (value.name().equals(emotion)) { // branch logic
-                return true; // return result
-            } // block end
-        } // block end
-        return false; // return result
-    } // block end
-} // block end
+    public static boolean contains(String emotion) {
+        for (EmotionEnum value : values()) {
+            if (value.name().equals(emotion)) {
+                return true;
+            }
+        }
+        return false;
+    }
+}

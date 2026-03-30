@@ -17,11 +17,11 @@ import java.util.Map;
  */
 public class McpToolCallResult implements Serializable {
 
-    private static final long serialVersionUID = 1L; // 声明成员字段
+    private static final long serialVersionUID = 1L;
 
-    private String status; // 声明成员字段
-    private String serverCode; // 声明成员字段
-    private String toolName; // 声明成员字段
-    private Map<String, Object> data; // 声明成员字段
-    private String rawResult; // 声明成员字段
-} // 结束当前代码块
+    private String status;
+    private String serverCode;
+    private String toolName;
+    private Map<String, Object> data;
+    private String rawResult;
+}

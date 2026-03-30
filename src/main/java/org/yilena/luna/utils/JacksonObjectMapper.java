@@ -23,18 +23,18 @@ import static com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKN
  */
 public class JacksonObjectMapper extends ObjectMapper {
 
-    public JacksonObjectMapper() { // 定义方法签名
-        super(); // 执行语句逻辑
-        this.configure(FAIL_ON_UNKNOWN_PROPERTIES, false); // 执行语句逻辑
-        this.getDeserializationConfig().withoutFeatures(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES); // 执行语句逻辑
-        SimpleModule simpleModule = new SimpleModule() // 执行赋值操作
-                .addDeserializer(LocalDateTime.class, new LocalDateTimeDeserializer(DateTimeFormatter.ofPattern(DateTimeConstant.FORMAT_YYYYMMDDHHMM))) // 执行当前逻辑
-                .addDeserializer(LocalDate.class, new LocalDateDeserializer(DateTimeFormatter.ofPattern(DateTimeConstant.FORMAT_YYYYMMDD))) // 执行当前逻辑
-                .addDeserializer(LocalTime.class, new LocalTimeDeserializer(DateTimeFormatter.ofPattern(DateTimeConstant.FORMAT_HHMMSS))) // 执行当前逻辑
-                .addSerializer(LocalDateTime.class, new LocalDateTimeSerializer(DateTimeFormatter.ofPattern(DateTimeConstant.FORMAT_YYYYMMDDHHMM))) // 执行当前逻辑
-                .addSerializer(LocalDate.class, new LocalDateSerializer(DateTimeFormatter.ofPattern(DateTimeConstant.FORMAT_YYYYMMDD))) // 执行当前逻辑
-                .addSerializer(LocalTime.class, new LocalTimeSerializer(DateTimeFormatter.ofPattern(DateTimeConstant.FORMAT_HHMMSS))); // 执行语句逻辑
+    public JacksonObjectMapper() {
+        super();
+        this.configure(FAIL_ON_UNKNOWN_PROPERTIES, false);
+        this.getDeserializationConfig().withoutFeatures(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+        SimpleModule simpleModule = new SimpleModule()
+                .addDeserializer(LocalDateTime.class, new LocalDateTimeDeserializer(DateTimeFormatter.ofPattern(DateTimeConstant.FORMAT_YYYYMMDDHHMM)))
+                .addDeserializer(LocalDate.class, new LocalDateDeserializer(DateTimeFormatter.ofPattern(DateTimeConstant.FORMAT_YYYYMMDD)))
+                .addDeserializer(LocalTime.class, new LocalTimeDeserializer(DateTimeFormatter.ofPattern(DateTimeConstant.FORMAT_HHMMSS)))
+                .addSerializer(LocalDateTime.class, new LocalDateTimeSerializer(DateTimeFormatter.ofPattern(DateTimeConstant.FORMAT_YYYYMMDDHHMM)))
+                .addSerializer(LocalDate.class, new LocalDateSerializer(DateTimeFormatter.ofPattern(DateTimeConstant.FORMAT_YYYYMMDD)))
+                .addSerializer(LocalTime.class, new LocalTimeSerializer(DateTimeFormatter.ofPattern(DateTimeConstant.FORMAT_HHMMSS)));
 
-        this.registerModule(simpleModule); // 执行语句逻辑
-    } // 结束当前代码块
-} // 结束当前代码块
+        this.registerModule(simpleModule);
+    }
+}

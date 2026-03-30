@@ -10,24 +10,24 @@ import lombok.Data;
  */
 public class UserPreferencePageQueryRequest {
 
-    @Schema(description = "页码，从1开始", example = "1") // 声明注解
-    private Long pageNo = 1L; // 声明成员字段
+    @Schema(description = "页码，从1开始", example = "1")
+    private Long pageNo = 1L;
 
-    @Schema(description = "每页大小，最大200", example = "10") // 声明注解
-    private Long pageSize = 10L; // 声明成员字段
+    @Schema(description = "每页大小，最大200", example = "10")
+    private Long pageSize = 10L;
 
-    @Schema(description = "偏好键模糊查询") // 声明注解
-    private String prefKey; // 声明成员字段
+    @Schema(description = "偏好键模糊查询")
+    private String prefKey;
 
-    @Schema(description = "偏好值模糊查询") // 声明注解
-    private String prefValue; // 声明成员字段
+    @Schema(description = "偏好值模糊查询")
+    private String prefValue;
 
-    @Schema(description = "描述模糊查询") // 声明注解
-    private String description; // 声明成员字段
+    @Schema(description = "描述模糊查询")
+    private String description;
 
-    @Schema(description = "开始时间，格式 yyyy-MM-dd HH:mm:ss") // 声明注解
-    private String startTime; // 声明成员字段
+    @Schema(description = "开始时间，格式 yyyy-MM-dd HH:mm:ss")
+    private String startTime;
 
-    @Schema(description = "结束时间，格式 yyyy-MM-dd HH:mm:ss") // 声明注解
-    private String endTime; // 声明成员字段
-} // 结束当前代码块
+    @Schema(description = "结束时间，格式 yyyy-MM-dd HH:mm:ss")
+    private String endTime;
+}

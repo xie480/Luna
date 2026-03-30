@@ -11,7 +11,7 @@ import org.springframework.context.annotation.Configuration;
  * QwenProperty ??
  */
 public class QwenProperty {
-    private String apiKey; // 声明成员字段
-    private String LunaId; // 声明成员字段
-    private String SummaryId; // 声明成员字段
-} // 结束当前代码块
+    private String apiKey;
+    private String LunaId;
+    private String SummaryId;
+}

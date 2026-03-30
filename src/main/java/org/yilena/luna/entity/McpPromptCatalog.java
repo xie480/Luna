@@ -29,48 +29,48 @@ import java.util.Map;
  */
 public class McpPromptCatalog implements Serializable {
 
-    private static final long serialVersionUID = 1L; // 声明成员字段
+    private static final long serialVersionUID = 1L;
 
-    @JsonSerialize(using = ToStringSerializer.class) // 声明注解
-    @TableId(value = "id", type = IdType.ASSIGN_ID) // 声明注解
-    private Long id; // 声明成员字段
+    @JsonSerialize(using = ToStringSerializer.class)
+    @TableId(value = "id", type = IdType.ASSIGN_ID)
+    private Long id;
 
-    @TableField("server_code") // 声明注解
-    private String serverCode; // 声明成员字段
+    @TableField("server_code")
+    private String serverCode;
 
-    @TableField("prompt_name") // 声明注解
-    private String promptName; // 声明成员字段
+    @TableField("prompt_name")
+    private String promptName;
 
-    @TableField("title") // 声明注解
-    private String title; // 声明成员字段
+    @TableField("title")
+    private String title;
 
-    @TableField("description") // 声明注解
-    private String description; // 声明成员字段
+    @TableField("description")
+    private String description;
 
-    @TableField(value = "arguments_schema", typeHandler = JsonbTypeHandler.class) // 声明注解
-    private Map<String, Object> argumentsSchema; // 声明成员字段
+    @TableField(value = "arguments_schema", typeHandler = JsonbTypeHandler.class)
+    private Map<String, Object> argumentsSchema;
 
-    @TableField(value = "raw_payload", typeHandler = JsonbTypeHandler.class) // 声明注解
-    private Map<String, Object> rawPayload; // 声明成员字段
+    @TableField(value = "raw_payload", typeHandler = JsonbTypeHandler.class)
+    private Map<String, Object> rawPayload;
 
-    @TableField(value = "tags", typeHandler = JsonbTypeHandler.class) // 声明注解
-    private List<String> tags; // 声明成员字段
+    @TableField(value = "tags", typeHandler = JsonbTypeHandler.class)
+    private List<String> tags;
 
-    @TableField("enabled") // 声明注解
-    private Boolean enabled; // 声明成员字段
+    @TableField("enabled")
+    private Boolean enabled;
 
-    @TableField("version") // 声明注解
-    private String version; // 声明成员字段
+    @TableField("version")
+    private String version;
 
-    @TableField(value = "embedding", typeHandler = VectorTypeHandler.class) // 声明注解
-    private String embedding; // 声明成员字段
+    @TableField(value = "embedding", typeHandler = VectorTypeHandler.class)
+    private String embedding;
 
-    @TableField("synced_at") // 声明注解
-    private LocalDateTime syncedAt; // 声明成员字段
+    @TableField("synced_at")
+    private LocalDateTime syncedAt;
 
-    @TableField(value = "created_at", fill = FieldFill.INSERT) // 声明注解
-    private LocalDateTime createdAt; // 声明成员字段
+    @TableField(value = "created_at", fill = FieldFill.INSERT)
+    private LocalDateTime createdAt;
 
-    @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE) // 声明注解
-    private LocalDateTime updatedAt; // 声明成员字段
-} // 结束当前代码块
+    @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE)
+    private LocalDateTime updatedAt;
+}
