@@ -30,7 +30,7 @@ public class SwaggerStartupPrinter implements ApplicationRunner {
         System.out.println("   http://localhost:" + port + contextPath + "/v3/api-docs");
         System.out.println();
         System.out.println("📄 接口文档:");
-        System.out.println("   http://localhost:" + port + "/doc.html#/home");
+        System.out.println("   http://localhost:" + port + contextPath + "/swagger-ui.html");
         System.out.println("=================================================");
         System.out.println();
     }

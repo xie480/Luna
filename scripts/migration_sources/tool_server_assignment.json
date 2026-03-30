@@ -1,0 +1,84 @@
+{
+  "servers": [
+    {
+      "server_code": "code-ops-server",
+      "server_name": "Code Ops MCP Server",
+      "description": "Build, test, patch, git, and source operations",
+      "base_url": "http://localhost:8080/mcp",
+      "transport_type": "HTTP",
+      "enabled": true
+    },
+    {
+      "server_code": "plan-execution-server",
+      "server_name": "Plan Execution MCP Server",
+      "description": "Plan execution, node status, checkpoints, reports, and events",
+      "base_url": "http://localhost:8080/mcp",
+      "transport_type": "HTTP",
+      "enabled": true
+    },
+    {
+      "server_code": "search-intel-server",
+      "server_name": "Search Intel MCP Server",
+      "description": "Web/news/image/lens search and scraping",
+      "base_url": "http://localhost:8080/mcp",
+      "transport_type": "HTTP",
+      "enabled": true
+    },
+    {
+      "server_code": "knowledge-memory-server",
+      "server_name": "Knowledge and Memory MCP Server",
+      "description": "Knowledge base, memory, preference, and schedule operations",
+      "base_url": "http://localhost:8080/mcp",
+      "transport_type": "HTTP",
+      "enabled": true
+    },
+    {
+      "server_code": "desktop-automation-server",
+      "server_name": "Desktop Automation MCP Server",
+      "description": "Desktop screenshot and UI detection tools",
+      "base_url": "http://localhost:8080/mcp",
+      "transport_type": "HTTP",
+      "enabled": true
+    }
+  ],
+  "tool_assignments": [
+    { "tool_name": "acquire_execution_lock", "server_code": "plan-execution-server" },
+    { "tool_name": "append_node_output", "server_code": "plan-execution-server" },
+    { "tool_name": "apply_unified_patch", "server_code": "code-ops-server" },
+    { "tool_name": "capture_desktop_screenshot", "server_code": "desktop-automation-server" },
+    { "tool_name": "checkpoint_plan_state", "server_code": "plan-execution-server" },
+    { "tool_name": "collect_test_report", "server_code": "code-ops-server" },
+    { "tool_name": "detect_ui_elements", "server_code": "desktop-automation-server" },
+    { "tool_name": "emit_plan_event_sse", "server_code": "plan-execution-server" },
+    { "tool_name": "git_create_checkpoint", "server_code": "code-ops-server" },
+    { "tool_name": "git_rollback_checkpoint", "server_code": "code-ops-server" },
+    { "tool_name": "image_search", "server_code": "search-intel-server" },
+    { "tool_name": "lens_search", "server_code": "search-intel-server" },
+    { "tool_name": "list_phase_nodes", "server_code": "plan-execution-server" },
+    { "tool_name": "load_plan_blueprint", "server_code": "plan-execution-server" },
+    { "tool_name": "manage_knowledge_base", "server_code": "knowledge-memory-server" },
+    { "tool_name": "manage_log", "server_code": "knowledge-memory-server" },
+    { "tool_name": "manage_memory", "server_code": "knowledge-memory-server" },
+    { "tool_name": "manage_schedule_task", "server_code": "knowledge-memory-server" },
+    { "tool_name": "manage_user_preference", "server_code": "knowledge-memory-server" },
+    { "tool_name": "news_search", "server_code": "search-intel-server" },
+    { "tool_name": "open_browser_with_file", "server_code": "plan-execution-server" },
+    { "tool_name": "query_plan_progress", "server_code": "plan-execution-server" },
+    { "tool_name": "read_repo_tree", "server_code": "code-ops-server" },
+    { "tool_name": "read_source_file", "server_code": "code-ops-server" },
+    { "tool_name": "record_plan_audit_log", "server_code": "plan-execution-server" },
+    { "tool_name": "release_execution_lock", "server_code": "plan-execution-server" },
+    { "tool_name": "run_build_command", "server_code": "code-ops-server" },
+    { "tool_name": "run_format_command", "server_code": "code-ops-server" },
+    { "tool_name": "run_lint_command", "server_code": "code-ops-server" },
+    { "tool_name": "run_test_command", "server_code": "code-ops-server" },
+    { "tool_name": "save_plan_blueprint", "server_code": "plan-execution-server" },
+    { "tool_name": "scan_dependency_vulnerabilities", "server_code": "code-ops-server" },
+    { "tool_name": "search_symbol_references", "server_code": "code-ops-server" },
+    { "tool_name": "update_node_status", "server_code": "plan-execution-server" },
+    { "tool_name": "web_scrape", "server_code": "search-intel-server" },
+    { "tool_name": "web_search", "server_code": "search-intel-server" },
+    { "tool_name": "write_html_report_file", "server_code": "plan-execution-server" },
+    { "tool_name": "write_source_file", "server_code": "code-ops-server" }
+  ]
+}

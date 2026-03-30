@@ -7,7 +7,13 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.yilena.luna.entity.McpSkill;
 import org.yilena.luna.entity.McpTool;
+import org.yilena.luna.entity.McpPromptCatalog;
+import org.yilena.luna.entity.McpResourceCatalog;
+import org.yilena.luna.entity.McpServerRegistry;
+import org.yilena.luna.entity.McpToolCatalog;
+import org.yilena.luna.entity.McpToolImplMapping;
 import org.yilena.luna.entity.Resource;
+import org.yilena.luna.entity.WorkflowTemplate;
 import org.yilena.luna.service.McpService;
 
 import java.util.List;
@@ -132,5 +138,43 @@ public class McpController {
     @Operation(summary = "Sync json/tool and json/skill into catalog tables")
     public ResponseEntity<?> syncCatalogFromJson() {
         return ResponseEntity.ok(mcpService.syncCatalogFromJson());
+    }
+
+    // ===== Migration upsert endpoints (full-field) =====
+
+    @PostMapping("/migrate/server-registry")
+    @Operation(summary = "Upsert mcp_server_registry (full-field)")
+    public ResponseEntity<McpServerRegistry> upsertServerRegistry(@RequestBody McpServerRegistry registry) {
+        return ResponseEntity.ok(mcpService.upsertServerRegistry(registry));
+    }
+
+    @PostMapping("/migrate/tool-catalog")
+    @Operation(summary = "Upsert mcp_tool_catalog (full-field)")
+    public ResponseEntity<McpToolCatalog> upsertToolCatalog(@RequestBody McpToolCatalog toolCatalog) {
+        return ResponseEntity.ok(mcpService.upsertToolCatalog(toolCatalog));
+    }
+
+    @PostMapping("/migrate/tool-impl-mapping")
+    @Operation(summary = "Upsert mcp_tool_impl_mapping (full-field)")
+    public ResponseEntity<McpToolImplMapping> upsertToolImplMapping(@RequestBody McpToolImplMapping mapping) {
+        return ResponseEntity.ok(mcpService.upsertToolImplMapping(mapping));
+    }
+
+    @PostMapping("/migrate/prompt-catalog")
+    @Operation(summary = "Upsert mcp_prompt_catalog (full-field)")
+    public ResponseEntity<McpPromptCatalog> upsertPromptCatalog(@RequestBody McpPromptCatalog promptCatalog) {
+        return ResponseEntity.ok(mcpService.upsertPromptCatalog(promptCatalog));
+    }
+
+    @PostMapping("/migrate/resource-catalog")
+    @Operation(summary = "Upsert mcp_resource_catalog (full-field)")
+    public ResponseEntity<McpResourceCatalog> upsertResourceCatalog(@RequestBody McpResourceCatalog resourceCatalog) {
+        return ResponseEntity.ok(mcpService.upsertResourceCatalog(resourceCatalog));
+    }
+
+    @PostMapping("/migrate/workflow-template")
+    @Operation(summary = "Upsert workflow_template (full-field)")
+    public ResponseEntity<WorkflowTemplate> upsertWorkflowTemplate(@RequestBody WorkflowTemplate workflowTemplate) {
+        return ResponseEntity.ok(mcpService.upsertWorkflowTemplate(workflowTemplate));
     }
 }

@@ -40,25 +40,25 @@ create table plan_node
     updated_at             timestamp default CURRENT_TIMESTAMP not null
 );
 
-comment on table plan_node is '计划任务节点�?;
+comment on table plan_node is '计划任务节点�?;
 
 comment on column plan_node.node_type is '0-ANALYZE,1-TOOL,2-SKILL(legacy),3-VALIDATE,4-SUMMARIZE(legacy),5-REPORT,6-CODE,7-PROMPT,8-RESOURCE,9-WORKFLOW';
 
 comment on column plan_node.dependencies is '依赖节点ID列表(JSON)';
 
-comment on column plan_node.parallel_group is '并行组标�?;
+comment on column plan_node.parallel_group is '并行组标�?;
 
 comment on column plan_node.status is '节点状态编码：0-PENDING,1-RUNNING,2-SUCCESS,3-FAILED,4-BLOCKED,5-APPROVAL_PENDING,6-SKIPPED';
 
 comment on column plan_node.retry_policy is '重试策略(JSON)';
 
-comment on column plan_node.model_hint is '模型提示编码�?-SMALL,1-MID,2-BIG,3-FLASH';
+comment on column plan_node.model_hint is '模型提示编码�?-SMALL,1-MID,2-BIG,3-FLASH';
 
-comment on column plan_node.resource_hint is '候选资源提�?JSON)';
+comment on column plan_node.resource_hint is '候选资源提�?JSON)';
 
-comment on column plan_node.output_for_next is '传递给下游节点的关键数�?;
+comment on column plan_node.output_for_next is '传递给下游节点的关键数�?;
 
-comment on column plan_node.risk_level is '风险等级编码�?-LOW,1-MEDIUM,2-HIGH';
+comment on column plan_node.risk_level is '风险等级编码�?-LOW,1-MEDIUM,2-HIGH';
 
 comment on column plan_node.cost_ms is '节点执行耗时(毫秒)';
 

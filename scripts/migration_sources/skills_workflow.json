@@ -1,0 +1,979 @@
+[
+  {
+    "name": "aggregate_phase_outputs",
+    "description": "阶段节点输出聚合技能。在阶段节点执行后，聚合 outputForNext 有效输出，提炼关键字段并可回写汇总节点，同时记录审计日志与可选 SSE 事件。",
+    "version": "1.3.0",
+    "owner": "openclaw",
+    "beanName": "planNodeTools",
+    "methodName": "aggregatePhaseOutputs",
+    "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"planId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"计划ID\"},\"phaseId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"阶段ID\"},\"summaryNodeId\":{\"type\":\"string\",\"description\":\"可选汇总节点ID，传入则回写 outputForNext\"}},\"required\":[\"planId\",\"phaseId\"]}",
+    "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"data\":{\"type\":\"object\",\"description\":\"聚合结果\"},\"message\":{\"type\":\"string\",\"description\":\"聚合说明\"}}}",
+    "runMode": "SYNC",
+    "requiredCapabilities": [
+      "LIST_PHASE_NODES",
+      "APPEND_NODE_OUTPUT",
+      "RECORD_PLAN_AUDIT_LOG",
+      "EMIT_PLAN_EVENT_SSE"
+    ],
+    "toolSlots": [
+      {
+        "slot": "list_nodes",
+        "capability": "LIST_PHASE_NODES",
+        "required": true
+      },
+      {
+        "slot": "append_summary",
+        "capability": "APPEND_NODE_OUTPUT",
+        "required": false
+      },
+      {
+        "slot": "audit_log",
+        "capability": "RECORD_PLAN_AUDIT_LOG",
+        "required": true
+      },
+      {
+        "slot": "emit_event",
+        "capability": "EMIT_PLAN_EVENT_SSE",
+        "required": false
+      }
+    ],
+    "thoughtChain": [
+      "加载阶段节点并筛选存在 outputForNext 的有效节点输出。",
+      "生成阶段聚合结果；若传入 summaryNodeId 则回写该节点 outputForNext。",
+      "记录审计日志并可选推送 SSE，确保阶段中继行为可追溯。"
+    ]
+  },
+  {
+    "name": "analyze_test_failure_and_fix",
+    "description": "测试失败报告聚合与修复前置分析技能。接收测试报告目录，解析 JUnit XML 报告并提取失败用例摘要，输出结构化统计结果供后续“源码分析-补丁生成-补丁应用-重跑验证-必要回滚”链路消费。当前 method 绑定为报告聚合入口（collectTestReport），修复与回滚步骤由上层编排基于 toolSlots 串联执行。",
+    "version": "1.2.0",
+    "owner": "openclaw",
+    "beanName": "codeOpsTools",
+    "methodName": "collectTestReport",
+    "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"reportDirs\":{\"type\":\"string\",\"minLength\":1,\"description\":\"测试报告目录，支持逗号分隔或JSON数组字符串\"},\"parserType\":{\"type\":\"string\",\"description\":\"报告解析器类型\"}},\"required\":[\"reportDirs\"]}",
+    "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"data\":{\"type\":\"object\",\"properties\":{\"passed\":{\"type\":\"integer\"},\"failed\":{\"type\":\"integer\"},\"skipped\":{\"type\":\"integer\"},\"total\":{\"type\":\"integer\"},\"failedCases\":{\"type\":\"array\"}}},\"message\":{\"type\":\"string\"}}}",
+    "runMode": "SYNC",
+    "requiredCapabilities": [
+      "COLLECT_TEST_REPORT",
+      "READ_SOURCE_FILE",
+      "APPLY_UNIFIED_PATCH",
+      "RUN_TEST_COMMAND",
+      "GIT_ROLLBACK_CHECKPOINT"
+    ],
+    "toolSlots": [
+      {
+        "slot": "collect_test_report",
+        "capability": "COLLECT_TEST_REPORT",
+        "required": true
+      },
+      {
+        "slot": "read_source",
+        "capability": "READ_SOURCE_FILE",
+        "required": true
+      },
+      {
+        "slot": "apply_fix_patch",
+        "capability": "APPLY_UNIFIED_PATCH",
+        "required": true
+      },
+      {
+        "slot": "rerun_tests",
+        "capability": "RUN_TEST_COMMAND",
+        "required": true
+      },
+      {
+        "slot": "rollback_if_needed",
+        "capability": "GIT_ROLLBACK_CHECKPOINT",
+        "required": false
+      }
+    ],
+    "thoughtChain": [
+      "调用【collect_test_report】测试报告收集工具，解析指定目录下的 JUnit XML 报告并提取失败用例信息。",
+      "将失败用例与统计结果作为后续修复链路输入，调用【read_source】读取相关源码上下文。",
+      "调用【apply_fix_patch】尝试应用修复补丁，并调用【rerun_tests】验证修复效果。",
+      "若验证失败，调用【rollback_if_needed】将仓库回退到修复前检查点。"
+    ]
+  },
+  {
+    "name": "checkpoint_plan_state",
+    "description": "计划执行关键节点状态快照与检查点创建技能。在关键卡点将当前计划状态序列化为 JSON 快照，计算快照哈希并原子持久化到检查点表，成功后记录审计日志并可选通过 SSE 推送检查点创建事件。",
+    "version": "1.2.0",
+    "owner": "openclaw",
+    "beanName": "planCheckpointTools",
+    "methodName": "checkpointPlanState",
+    "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"planId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"计划ID\"},\"phaseId\":{\"type\":\"string\",\"description\":\"阶段ID，可选\"},\"nodeId\":{\"type\":\"string\",\"description\":\"节点ID，可选\"},\"checkpointData\":{\"type\":\"string\",\"minLength\":2,\"description\":\"检查点快照JSON字符串\"},\"createdBy\":{\"type\":\"string\",\"description\":\"创建人或来源标识，可选\"}},\"required\":[\"planId\",\"checkpointData\"]}",
+    "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\",\"description\":\"执行状态\"},\"data\":{\"type\":\"object\",\"properties\":{\"checkpointId\":{\"type\":\"string\"},\"snapshotHash\":{\"type\":\"string\"}}},\"message\":{\"type\":\"string\"}}}",
+    "runMode": "SYNC",
+    "requiredCapabilities": [
+      "CHECKPOINT_PLAN_STATE",
+      "RECORD_PLAN_AUDIT_LOG",
+      "EMIT_PLAN_EVENT_SSE"
+    ],
+    "toolSlots": [
+      {
+        "slot": "save_checkpoint",
+        "capability": "CHECKPOINT_PLAN_STATE",
+        "required": true
+      },
+      {
+        "slot": "audit_log",
+        "capability": "RECORD_PLAN_AUDIT_LOG",
+        "required": true
+      },
+      {
+        "slot": "emit_event",
+        "capability": "EMIT_PLAN_EVENT_SSE",
+        "required": false
+      }
+    ],
+    "thoughtChain": [
+      "调用【save_checkpoint】检查点持久化工具，将 checkpointData 与 planId、phaseId、nodeId、createdBy 一并写入检查点表；写入前计算 SHA-256 作为 snapshotHash 并返回 checkpointId。",
+      "调用【audit_log】审计日志工具，记录 PLAN_CHECKPOINT_CREATED 事件，沉淀 checkpointId、snapshotHash 等关键字段。",
+      "调用【emit_event】SSE事件推送工具，向前端推送 PLAN_CHECKPOINT_CREATED 事件；推送失败不影响主流程返回。"
+    ]
+  },
+  {
+    "name": "execute_plan_phase",
+    "description": "计划阶段执行主技能。接收指定计划的阶段 ID，在阶段执行开始前获取分布式互斥锁防止并发重入，加载该阶段下所有待执行节点，基于 DAG 拓扑排序将节点划分为多个可并行批次，依次驱动每个节点完成状态流转（PENDING→RUNNING→SUCCESS/FAILED），实时写入节点输出数据并传递给下游节点，统计阶段整体进度并通过 SSE 推送实时事件，阶段执行完毕后释放互斥锁确保资源回收。适用于多阶段计划中单阶段的标准化调度执行，是 PlanOrchestratorService 按阶段顺序驱动的核心执行单元。",
+    "version": "1.1.0",
+    "owner": "openclaw",
+    "beanName": "planOrchestratorServiceImpl",
+    "methodName": "runPhase",
+    "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"planId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"计划ID\"},\"phaseId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"阶段ID\"}},\"required\":[\"planId\",\"phaseId\"]}",
+    "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\",\"description\":\"执行状态\"},\"planId\":{\"type\":\"string\"},\"phaseId\":{\"type\":\"string\"},\"successCount\":{\"type\":\"integer\",\"description\":\"成功节点数\"},\"failCount\":{\"type\":\"integer\",\"description\":\"失败节点数\"},\"progress\":{\"type\":\"object\",\"description\":\"计划进度快照\"},\"costMs\":{\"type\":\"integer\",\"description\":\"阶段耗时(毫秒)\"}}}",
+    "runMode": "SYNC",
+    "requiredCapabilities": [
+      "ACQUIRE_EXECUTION_LOCK",
+      "LIST_PHASE_NODES",
+      "UPDATE_NODE_STATUS",
+      "APPEND_NODE_OUTPUT",
+      "QUERY_PLAN_PROGRESS",
+      "RECORD_PLAN_AUDIT_LOG",
+      "EMIT_PLAN_EVENT_SSE",
+      "RELEASE_EXECUTION_LOCK"
+    ],
+    "toolSlots": [
+      {
+        "slot": "acquire_lock",
+        "capability": "ACQUIRE_EXECUTION_LOCK",
+        "required": true
+      },
+      {
+        "slot": "list_nodes",
+        "capability": "LIST_PHASE_NODES",
+        "required": true
+      },
+      {
+        "slot": "update_status",
+        "capability": "UPDATE_NODE_STATUS",
+        "required": true
+      },
+      {
+        "slot": "append_output",
+        "capability": "APPEND_NODE_OUTPUT",
+        "required": true
+      },
+      {
+        "slot": "query_progress",
+        "capability": "QUERY_PLAN_PROGRESS",
+        "required": true
+      },
+      {
+        "slot": "audit_log",
+        "capability": "RECORD_PLAN_AUDIT_LOG",
+        "required": true
+      },
+      {
+        "slot": "emit_event",
+        "capability": "EMIT_PLAN_EVENT_SSE",
+        "required": true
+      },
+      {
+        "slot": "release_lock",
+        "capability": "RELEASE_EXECUTION_LOCK",
+        "required": true
+      }
+    ],
+    "thoughtChain": [
+      "调用【acquire_lock】执行锁获取工具，要干什么：在阶段执行开始前抢占分布式互斥锁，防止同一阶段被并发重复调度；怎么做：以 planId+phaseId 为 lockKey、当前执行实例标识为 owner，设置 TTL=600 秒调用 Redis SETNX，获取成功后继续，失败则返回错误终止本次执行，避免节点被重复驱动。",
+      "调用【list_nodes】阶段节点列表工具，要干什么：加载当前阶段下所有待执行节点的完整定义，作为 DAG 拓扑排序的输入；怎么做：以 planId 与 phaseId 为条件查询 plan_node 表，按 createdAt 升序返回节点列表，提取 nodeId、nodeType、dependencies、resourceHint、maxRetry 等字段，用于后续批次划分与执行调度。",
+      "调用【update_status】节点状态更新工具，要干什么：在每个节点执行前后实时更新其状态，驱动节点状态机流转；怎么做：节点开始时将 status 更新为 RUNNING 并记录 startedAt，执行成功时更新为 SUCCESS 并写入 costMs，执行失败时更新为 FAILED 并写入 failReason 与已消耗的重试次数，确保节点状态与实际执行进度实时同步。",
+      "调用【append_output】节点输出追加工具，要干什么：将节点执行结果持久化并提取关键数据传递给下游节点；怎么做：将 AgentService 返回的工具执行结果序列化为 outputJson，同时提取精简的 outputForNext 字段（仅保留下游所需的关键字段）用于下游节点的输入上下文注入，调用接口原子写入数据库，避免中间数据丢失。",
+      "调用【query_progress】计划进度查询工具，要干什么：在阶段执行完毕后获取全局节点状态分布快照，用于上层汇总与事件推送；怎么做：以 planId 为参数查询所有节点的 status 字段，按状态分组统计 PENDING/RUNNING/SUCCESS/FAILED/SKIPPED 数量，返回结构化进度对象，供阶段结束事件与计划总进度展示使用。",
+      "调用【audit_log】审计日志工具，要干什么：将阶段开始与结束事件记录到审计链路，确保执行轨迹完整可追溯；怎么做：分别在阶段开始时写入 PLAN_PHASE_STARTED 事件、结束时写入 PLAN_PHASE_FINISHED 事件，包含 planId、phaseId、phaseOrder、status、successCount、failCount 等字段，生成唯一 traceId 落库。",
+      "调用【emit_event】SSE事件推送工具，要干什么：向前端实时推送阶段与节点级别的执行状态变更事件，驱动可视化图谱刷新；怎么做：在阶段开始/结束与每个节点 RUNNING/SUCCESS/FAILED 状态变更时，封装对应 eventType 与 payload，通过 SSE 通道推送给订阅客户端，确保前端可视化节点图谱颜色与进度实时更新。",
+      "调用【release_lock】执行锁释放工具，要干什么：在阶段执行完毕后（无论成功或失败）释放分布式互斥锁，确保后续阶段可正常调度；怎么做：以相同 lockKey 与 owner 通过 Lua 脚本原子校验后删除 Redis key，防止误删其他实例持有的锁，释放完成后返回最终阶段执行结果（successCount、failCount、costMs）。"
+    ]
+  },
+  {
+    "name": "generate_code_patch",
+    "description": "代码补丁生成与安全应用技能。接收代码任务目标与目标仓库路径，先读取补丁涉及的相关源文件为大模型提供完整代码上下文，在执行变更前创建 Git 检查点保障可回滚，可选地将大模型预处理后的文件版本预写入磁盘，随后将 unified diff 格式补丁以先 dry-run 验证、后正式应用的两阶段方式原子施加到代码仓库，若应用失败则自动触发 Git 回滚恢复到检查点状态，确保每次代码变更操作原子安全。适用于 Agent 自动编码、批量文件修改、跨模块重构等需要精确控制变更范围与可回滚保障的代码工程场景。",
+    "version": "1.1.0",
+    "owner": "openclaw",
+    "beanName": "codeOpsTools",
+    "methodName": "applyUnifiedPatch",
+    "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"repoPath\":{\"type\":\"string\",\"minLength\":1,\"description\":\"仓库路径\"},\"patchText\":{\"type\":\"string\",\"minLength\":1,\"description\":\"unified diff文本\"},\"checkOnly\":{\"type\":\"boolean\",\"description\":\"仅检查不应用\"}},\"required\":[\"repoPath\",\"patchText\"]}",
+    "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"data\":{\"type\":\"object\",\"properties\":{\"checkOnly\":{\"type\":\"boolean\"},\"checkOnlyResult\":{\"type\":\"string\"},\"appliedFiles\":{\"type\":\"array\"},\"failedFiles\":{\"type\":\"array\"},\"exitCode\":{\"type\":\"integer\"},\"stdoutTail\":{\"type\":\"string\"},\"stderrTail\":{\"type\":\"string\"}}},\"message\":{\"type\":\"string\"}}}",
+    "runMode": "SYNC",
+    "requiredCapabilities": [
+      "READ_SOURCE_FILE",
+      "WRITE_SOURCE_FILE",
+      "APPLY_UNIFIED_PATCH",
+      "GIT_CREATE_CHECKPOINT",
+      "GIT_ROLLBACK_CHECKPOINT"
+    ],
+    "toolSlots": [
+      {
+        "slot": "read_source",
+        "capability": "READ_SOURCE_FILE",
+        "required": true
+      },
+      {
+        "slot": "write_source",
+        "capability": "WRITE_SOURCE_FILE",
+        "required": false
+      },
+      {
+        "slot": "create_checkpoint",
+        "capability": "GIT_CREATE_CHECKPOINT",
+        "required": true
+      },
+      {
+        "slot": "apply_patch",
+        "capability": "APPLY_UNIFIED_PATCH",
+        "required": true
+      },
+      {
+        "slot": "rollback_checkpoint",
+        "capability": "GIT_ROLLBACK_CHECKPOINT",
+        "required": false
+      }
+    ],
+    "thoughtChain": [
+      "调用【read_source】源码读取工具，读取补丁涉及的目标源文件内容以为大模型提供变更前的完整代码上下文；解析 patchText 中的文件路径列表，逐一调用 READ_SOURCE_FILE 能力读取文件内容，设置 maxBytes 限制防止超大文件导致上下文溢出，将内容提供给大模型作为生成或审核补丁的参考依据。",
+      "调用【write_source】源码写入工具，在补丁应用前将大模型修订后的文件版本预写入磁盘进行可选预处理；当需要对补丁内容进行格式规范化或预处理时，将修订后的文件内容以 backup=true 模式写入，保留原始文件备份到 .bak 文件，此槽位为可选步骤，不需要预处理时直接跳过。",
+      "调用【create_checkpoint】Git检查点创建工具，在应用补丁前为代码仓库创建可回滚的 Git 快照确保变更操作有安全退路；以 commit 模式执行 git add -A && git commit，生成包含当前变更前状态的提交，记录返回的 checkpointId（commit hash）作为回滚目标，确保补丁应用失败时有明确的恢复点。",
+      "调用【apply_patch】补丁应用工具，将 unified diff 格式的补丁内容两阶段原子应用到目标代码仓库；先以 checkOnly=true 调用 git apply --check 进行 dry-run 验证补丁合法性与冲突情况，验证通过后再以正式模式执行 git apply --whitespace=nowarn，记录应用成功与失败的文件列表，返回 exitCode 与 stdout/stderr 摘要。",
+      "调用【rollback_checkpoint】Git回滚工具，当补丁应用失败时将代码库回退到检查点状态确保仓库现场干净可继续后续流程；以 hard 模式执行 git reset 到 create_checkpoint 返回的 checkpointId，强制恢复所有文件到快照状态，记录 currentHead 确认回滚成功，此槽位为可选步骤，仅在 apply_patch 失败时触发。"
+    ]
+  },
+  {
+    "name": "generate_task_report_and_open",
+    "description": "计划任务收尾与 HTML 报告生成技能。对指定计划的所有阶段与节点执行结果进行全量汇总，统计各节点成功/失败/跳过数量与耗时，由模板引擎生成结构完整的 HTML 任务报告文件，将报告持久化写入本地磁盘并落库存档，随后尝试调用系统桌面接口自动唤起浏览器打开报告，最终通过 SSE 推送报告就绪事件通知前端。适用于计划执行完毕后的成果展示、审计归档以及向用户呈现可视化执行摘要，无论计划成功还是失败均应调用本技能生成报告。",
+    "version": "1.1.0",
+    "owner": "openclaw",
+    "beanName": "planOrchestratorServiceImpl",
+    "methodName": "finalizeAndReport",
+    "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"planId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"计划ID\"}},\"required\":[\"planId\"]}",
+    "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"planId\":{\"type\":\"string\"},\"finalStatus\":{\"type\":\"string\",\"description\":\"最终状态：SUCCESS/FAILED/PARTIAL/CANCELLED\"},\"writeResult\":{\"type\":\"object\",\"description\":\"报告写入结果\"},\"openResult\":{\"type\":\"object\",\"description\":\"浏览器唤起结果\"}}}",
+    "runMode": "SYNC",
+    "requiredCapabilities": [
+      "WRITE_HTML_REPORT_FILE",
+      "OPEN_BROWSER_WITH_FILE",
+      "RECORD_PLAN_AUDIT_LOG",
+      "EMIT_PLAN_EVENT_SSE"
+    ],
+    "toolSlots": [
+      {
+        "slot": "write_report",
+        "capability": "WRITE_HTML_REPORT_FILE",
+        "required": true
+      },
+      {
+        "slot": "open_report",
+        "capability": "OPEN_BROWSER_WITH_FILE",
+        "required": false
+      },
+      {
+        "slot": "audit_log",
+        "capability": "RECORD_PLAN_AUDIT_LOG",
+        "required": true
+      },
+      {
+        "slot": "emit_report_event",
+        "capability": "EMIT_PLAN_EVENT_SSE",
+        "required": true
+      }
+    ],
+    "thoughtChain": [
+      "调用【write_report】HTML报告写入工具，将汇总好的计划执行结果渲染为完整 HTML 报告并持久化到磁盘；以 planId 为文件名，将包含节点统计、阶段详情、耗时与错误信息的 HTML 字符串原子写入 outputDir 目录，同时将报告路径与内容落库存档，返回 reportPath 与 reportUrl。",
+      "调用【open_report】浏览器唤起工具，尝试在本机浏览器中自动打开生成的 HTML 报告以提升结果可见性；以 reportPath 为参数调用系统 Desktop API 唤起默认浏览器，若桌面环境不支持则记录 FAILED 标记但不中断主流程，此槽位为可选步骤。",
+      "调用【audit_log】审计日志工具，将报告生成事件记录到计划审计链路确保收尾操作可追溯；以 PLAN_REPORT_READY 事件类型、INFO 级别写入 planId、finalStatus、reportPath 等字段，生成唯一 traceId 并落库。",
+      "调用【emit_report_event】SSE事件推送工具，向前端实时推送报告就绪通知以触发可视化界面刷新；以 PLAN_REPORT_READY 事件类型封装 planId、reportUrl、openResult、finalStatus 等字段，通过 SSE 通道推送给订阅客户端。"
+    ]
+  },
+  {
+    "name": "generate_test_cases",
+    "description": "自动化测试用例生成与执行技能。接收项目工作目录与测试命令，由大模型根据现有代码逻辑与变更内容自动生成单元测试、集成测试或端到端测试用例，将生成的测试文件写入对应目录后立即执行测试命令，最终收集结构化测试报告并输出通过率、失败用例与覆盖率摘要。适用于代码新增功能后的测试补全、重构后的回归测试生成以及 CI/CD 流水线中的自动化测试保障。",
+    "version": "1.1.0",
+    "owner": "openclaw",
+    "beanName": "codeOpsTools",
+    "methodName": "runTestCommand",
+    "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"workDir\":{\"type\":\"string\",\"minLength\":1,\"description\":\"项目目录\"},\"command\":{\"type\":\"string\",\"minLength\":1,\"description\":\"测试命令\"},\"timeoutSec\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":3600,\"description\":\"超时时间秒\"}},\"required\":[\"workDir\",\"command\"]}",
+    "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"data\":{\"type\":\"object\",\"properties\":{\"exitCode\":{\"type\":\"integer\"},\"stdoutTail\":{\"type\":\"string\"},\"stderrTail\":{\"type\":\"string\"},\"costMs\":{\"type\":\"integer\"}}},\"message\":{\"type\":\"string\"}}}",
+    "runMode": "SYNC",
+    "requiredCapabilities": [
+      "WRITE_SOURCE_FILE",
+      "RUN_TEST_COMMAND",
+      "COLLECT_TEST_REPORT",
+      "RECORD_PLAN_AUDIT_LOG"
+    ],
+    "toolSlots": [
+      {
+        "slot": "write_test_file",
+        "capability": "WRITE_SOURCE_FILE",
+        "required": true
+      },
+      {
+        "slot": "run_tests",
+        "capability": "RUN_TEST_COMMAND",
+        "required": true
+      },
+      {
+        "slot": "collect_report",
+        "capability": "COLLECT_TEST_REPORT",
+        "required": true
+      },
+      {
+        "slot": "audit_log",
+        "capability": "RECORD_PLAN_AUDIT_LOG",
+        "required": false
+      }
+    ],
+    "thoughtChain": [
+      "调用【write_test_file】源码写入工具，要干什么：将大模型生成的测试用例代码写入项目对应的测试目录；怎么做：根据被测类的包路径推导测试文件目标路径，以 UTF-8 编码写入文件，若文件已存在则先备份再覆盖，确保测试文件落盘成功后再继续。",
+      "调用【run_tests】测试命令执行工具，要干什么：在项目工作目录下执行测试命令，触发新写入的测试用例运行；怎么做：以 workDir 为工作目录、command 为执行指令启动子进程，设置 timeoutSec 超时保护，实时收集 stdout/stderr 输出流，等待进程退出并记录 exitCode 与耗时。",
+      "调用【collect_report】测试报告收集工具，要干什么：解析测试执行产生的 XML 报告文件，汇总通过率与失败详情；怎么做：扫描 workDir 下的 surefire-reports 或 test-results 目录，解析所有 JUnit XML 文件，统计 passed/failed/skipped/total 数量，提取失败用例的 className、name 与错误摘要。",
+      "调用【audit_log】审计日志工具，要干什么：将测试生成与执行结果记录到计划审计链路；怎么做：以 PLAN_TEST_RESULT 事件类型写入 planId、nodeId、测试通过率与失败用例摘要，生成 traceId，此槽位为可选步骤，失败不阻断主流程。"
+    ]
+  },
+  {
+    "name": "intel_research_pipeline",
+    "description": "全网情报检索与多源汇总技能。接收用户指定的情报主题，并行调用网页搜索与新闻搜索工具构建候选来源池，对高分来源进行深度正文抓取，经过事实归并与去重后调用情报汇总工具生成结构化情报产出，支持要点列表、报告体、时间线三种输出风格。适用于竞品动态跟踪、行业政策研究、热点事件快速聚合、投资标的情报收集等场景，最终输出可直接用于前端展示或下游分析的标准化情报摘要。",
+    "version": "1.0.0",
+    "owner": "System",
+    "beanName": "orchestrationSkills",
+    "methodName": "intelResearchPipeline",
+    "runMode": "ASYNC",
+    "requiredCapabilities": [
+      "WEB_SEARCH",
+      "NEWS_SEARCH",
+      "WEB_FETCH",
+      "INTEL_SUMMARIZE"
+    ],
+    "toolSlots": [
+      {
+        "slot": "web",
+        "capability": "WEB_SEARCH",
+        "required": true
+      },
+      {
+        "slot": "news",
+        "capability": "NEWS_SEARCH",
+        "required": true
+      },
+      {
+        "slot": "fetch",
+        "capability": "WEB_FETCH",
+        "required": false
+      },
+      {
+        "slot": "summarize",
+        "capability": "INTEL_SUMMARIZE",
+        "required": true
+      }
+    ],
+    "thoughtChain": [
+      "调用【web】网页搜索工具，以 topic 为关键词在全网范围内检索相关内容来源；结合 timeRange 参数限定时间窗口，提取搜索结果的标题、摘要与链接，按相关性与可信度初步排序，形成候选来源池 A。",
+      "调用【news】新闻搜索工具，针对同一主题专项检索新闻媒体渠道的最新报道；以相同 topic 与 timeRange 调用新闻搜索接口，补充网页搜索未覆盖的权威媒体来源，合并去重后形成扩展候选来源池 B，合并 A+B 并按发布时间与来源权重排序，保留前 maxSources 条。",
+      "调用【fetch】网页抓取工具，对排名靠前的候选来源抓取完整正文以提升情报深度；当 needDeepScrape=true 时，对高分来源逐一发起抓取请求，提取正文段落并过滤广告与导航噪音，记录抓取成功与失败状态，失败来源降级为仅使用摘要，此槽位为可选步骤。",
+      "调用【summarize】情报汇总工具，对归并后的全量内容进行事实提炼并生成结构化情报产出；将正文与摘要内容输入汇总模型，抽取关键事件、主体、时间、数字与核心观点，标记冲突信息与不确定项，按 outputStyle（BULLET/REPORT/TIMELINE）组织输出，生成 summary 主文、highlights 要点列表与 sources 来源清单。"
+    ],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "topic": {
+          "type": "string",
+          "description": "情报主题（必填），例如：'广州低空经济政策进展'。"
+        },
+        "timeRange": {
+          "type": "string",
+          "enum": [
+            "24H",
+            "7D",
+            "30D",
+            "ALL"
+          ],
+          "description": "时间范围（可选）。可选值：24H=近24小时；7D=近7天；30D=近30天；ALL=不限。默认 7D。"
+        },
+        "maxSources": {
+          "type": "integer",
+          "description": "最大来源数量（可选），建议 5-30，默认 12。"
+        },
+        "needDeepScrape": {
+          "type": "boolean",
+          "description": "是否抓取正文（可选）。true=对候选来源进行网页抓取；false=仅基于搜索摘要。默认 true。"
+        },
+        "outputStyle": {
+          "type": "string",
+          "enum": [
+            "BULLET",
+            "REPORT",
+            "TIMELINE"
+          ],
+          "description": "输出风格（可选）。BULLET=要点列表；REPORT=报告体；TIMELINE=时间线。默认 BULLET。"
+        }
+      },
+      "required": [
+        "topic"
+      ]
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "执行状态，常见值：success 或 error。"
+        },
+        "summary": {
+          "type": "string",
+          "description": "情报汇总正文。"
+        },
+        "sources": {
+          "type": "array",
+          "description": "来源列表，元素通常包含 title/link/snippet/publishedAt 等。"
+        },
+        "highlights": {
+          "type": "array",
+          "description": "关键信息点列表。"
+        }
+      }
+    }
+  },
+  {
+    "name": "plan_code_change_tasks",
+    "description": "代码变更任务规划技能。接收用户描述的代码需求目标，先读取代码仓库目录结构全面了解模块划分与文件布局，再可选地搜索目标符号的引用关系以评估变更影响范围，在充分理解现有代码上下文的基础上调用 Master Planner 大模型将需求拆解为可执行的代码子任务序列，产出包含代码修改节点、构建验证节点、测试执行节点、回滚保障节点与报告收尾节点的完整计划蓝图，持久化蓝图并通过 SSE 推送计划创建事件，触发计划执行闭环。适用于功能新增、Bug 修复、重构优化、依赖升级等各类代码工程任务的自动化规划与执行，是代码类任务进入 OpenClaw 调度体系的标准入口。",
+    "version": "1.1.0",
+    "owner": "openclaw",
+    "beanName": "planOrchestratorServiceImpl",
+    "methodName": "createAndRunPlan",
+    "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"sessionId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"稳定会话ID\"},\"userGoal\":{\"type\":\"string\",\"minLength\":1,\"description\":\"代码任务目标\"}},\"required\":[\"sessionId\",\"userGoal\"]}",
+    "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"planId\":{\"type\":\"string\"},\"phaseResults\":{\"type\":\"array\"},\"reportResult\":{\"type\":\"object\"},\"message\":{\"type\":\"string\"}}}",
+    "runMode": "SYNC",
+    "requiredCapabilities": [
+      "READ_REPO_TREE",
+      "SEARCH_SYMBOL_REFERENCES",
+      "SAVE_PLAN_BLUEPRINT",
+      "EMIT_PLAN_EVENT_SSE",
+      "RECORD_PLAN_AUDIT_LOG"
+    ],
+    "toolSlots": [
+      {
+        "slot": "read_repo",
+        "capability": "READ_REPO_TREE",
+        "required": true
+      },
+      {
+        "slot": "search_refs",
+        "capability": "SEARCH_SYMBOL_REFERENCES",
+        "required": false
+      },
+      {
+        "slot": "save_blueprint",
+        "capability": "SAVE_PLAN_BLUEPRINT",
+        "required": true
+      },
+      {
+        "slot": "emit_event",
+        "capability": "EMIT_PLAN_EVENT_SSE",
+        "required": true
+      },
+      {
+        "slot": "audit_log",
+        "capability": "RECORD_PLAN_AUDIT_LOG",
+        "required": true
+      }
+    ],
+    "thoughtChain": [
+      "调用【read_repo】仓库目录树读取工具，要干什么：获取代码仓库的完整目录结构，为大模型提供代码架构上下文；怎么做：以 repoPath 为根目录，设置 maxDepth=4 遍历目录树，过滤 .git/node_modules/target 等无效目录，返回文件树列表，供大模型理解模块划分、包结构与文件布局，以便准确识别需要修改的目标文件范围。",
+      "调用【search_refs】符号引用搜索工具，要干什么：查找目标变更符号在代码库中的所有引用位置，评估变更影响范围；怎么做：以需求中涉及的核心类名、方法名、接口名为关键词全库搜索，返回引用文件路径与行号列表，辅助大模型识别需要同步修改的联动文件，避免遗漏改动点，此槽位为可选步骤。",
+      "调用【save_blueprint】蓝图保存工具，要干什么：将大模型生成的代码任务计划蓝图持久化到数据库；怎么做：传入 planId、planVersion 与包含代码修改/构建/测试/回滚/报告节点的完整蓝图 JSON，执行 upsert 操作写入 plan_blueprint 表，确保蓝图落库成功后再触发执行，返回 savedToDb 标志与版本号。",
+      "调用【emit_event】SSE事件推送工具，要干什么：向前端推送计划创建事件，使可视化界面及时展示新建计划的阶段与节点图谱；怎么做：以 PLAN_CREATED 事件类型封装 planId、sessionId、userGoal 与节点数量等字段，通过 SSE 通道推送给订阅客户端，确保前端在规划完成后立即看到可视化图谱。",
+      "调用【audit_log】审计日志工具，要干什么：将代码任务计划创建事件记录到审计链路，确保规划决策完整可追溯；怎么做：以 PLAN_CREATED 事件类型、INFO 级别写入 planId、sessionId、userGoal、蓝图版本号等字段，生成唯一 traceId 落库，为后续计划复盘与问题溯源提供完整记录。"
+    ]
+  },
+  {
+    "name": "plan_user_requirement_bigmodel",
+    "description": "使用大模型一次性生成并落地全局计划蓝图的总规划入口技能。接收用户的自然语言目标描述，调用 Master Planner 大模型对目标进行深度理解与任务拆解，输出包含阶段划分、节点依赖关系、风险提示与执行策略的完整蓝图 JSON，随后将蓝图持久化到数据库，初始化 Phase/Node/Edge 记录，并触发计划执行闭环。适用于用户首次提出复杂跨阶段任务时的一站式规划与启动场景，例如：代码重构、情报研究、多步工程任务等。",
+    "version": "1.1.0",
+    "owner": "openclaw",
+    "beanName": "planOrchestratorServiceImpl",
+    "methodName": "createAndRunPlan",
+    "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"sessionId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"稳定会话ID，建议使用JWT jti；若未提供将由服务端兜底\"},\"userGoal\":{\"type\":\"string\",\"minLength\":1,\"description\":\"用户目标，建议包含期望结果、范围与约束\"}},\"required\":[\"sessionId\",\"userGoal\"]}",
+    "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\",\"description\":\"执行状态：success/error\"},\"planId\":{\"type\":\"string\",\"description\":\"计划ID\"},\"message\":{\"type\":\"string\",\"description\":\"结果说明\"},\"phaseResult\":{\"type\":\"object\",\"description\":\"阶段执行结果\"},\"reportResult\":{\"type\":\"object\",\"description\":\"报告生成结果\"}}}",
+    "runMode": "SYNC",
+    "requiredCapabilities": [
+      "SAVE_PLAN_BLUEPRINT",
+      "RECORD_PLAN_AUDIT_LOG",
+      "EMIT_PLAN_EVENT_SSE"
+    ],
+    "toolSlots": [
+      {
+        "slot": "save_blueprint",
+        "capability": "SAVE_PLAN_BLUEPRINT",
+        "required": true
+      },
+      {
+        "slot": "audit_log",
+        "capability": "RECORD_PLAN_AUDIT_LOG",
+        "required": true
+      },
+      {
+        "slot": "emit_event",
+        "capability": "EMIT_PLAN_EVENT_SSE",
+        "required": true
+      }
+    ],
+    "thoughtChain": [
+      "调用【save_blueprint】蓝图保存工具，将大模型输出的全局计划蓝图 JSON 持久化到数据库；传入 planId、planVersion、blueprintJson 与生成模型标识，执行 upsert 操作，确保蓝图落库成功后再继续后续流程。",
+      "调用【audit_log】审计日志工具，记录计划创建事件到审计链路确保每次规划行为可追溯；以 PLAN_CREATED 事件类型、INFO 级别写入 planId、sessionId、userGoal 等关键字段，生成唯一 traceId。",
+      "调用【emit_event】SSE 事件推送工具，向前端实时推送计划创建与执行状态变更事件；以 PLAN_CREATED / PLAN_FINISHED 等事件类型封装 payload，通过 SSE 通道推送给订阅客户端，确保前端可视化界面及时更新。"
+    ]
+  },
+  {
+    "name": "publish_plan_sse_events",
+    "description": "计划执行过程中的 SSE 事件标准化发布与审计落库技能。接收计划 ID、阶段 ID、节点 ID、事件类型、事件级别与结构化 payload，先将事件原子写入审计日志表形成持久化记录，再通过 SSE 通道将事件推送至前端订阅客户端，驱动可视化图谱的节点状态、进度条与日志面板实时刷新；双通道执行结果独立记录，任意一方失败均不中断另一方，最终返回 recordOk 与 sseOk 双标记供调用方评估事件送达质量。适用于计划执行全链路中阶段启动/完成、节点状态流转、重规划、检查点创建、报告就绪等各类关键事件的统一发布入口，是计划可观测性体系的核心基础设施。",
+    "version": "1.1.0",
+    "owner": "openclaw",
+    "beanName": "planEventTools",
+    "methodName": "emitPlanEvent",
+    "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"clientId\":{\"type\":\"string\",\"description\":\"客户端ID，默认default\"},\"planId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"计划ID\"},\"phaseId\":{\"type\":\"string\",\"description\":\"阶段ID，可空\"},\"nodeId\":{\"type\":\"string\",\"description\":\"节点ID，可空\"},\"level\":{\"type\":\"string\",\"enum\":[\"INFO\",\"WARN\",\"ERROR\"],\"description\":\"事件级别\"},\"eventType\":{\"type\":\"string\",\"minLength\":1,\"description\":\"事件类型\"},\"payload\":{\"type\":\"object\",\"description\":\"事件载荷\"},\"traceId\":{\"type\":\"string\",\"description\":\"链路ID，可选\"}},\"required\":[\"planId\",\"level\",\"eventType\",\"payload\"]}",
+    "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"data\":{\"type\":\"object\",\"properties\":{\"record\":{\"type\":\"object\"},\"sse\":{\"type\":\"object\"},\"recordOk\":{\"type\":\"boolean\"},\"sseOk\":{\"type\":\"boolean\"}}},\"message\":{\"type\":\"string\"}}}",
+    "runMode": "SYNC",
+    "requiredCapabilities": [
+      "EMIT_PLAN_EVENT_SSE",
+      "RECORD_PLAN_AUDIT_LOG"
+    ],
+    "toolSlots": [
+      {
+        "slot": "emit_event",
+        "capability": "EMIT_PLAN_EVENT_SSE",
+        "required": true
+      },
+      {
+        "slot": "audit_log",
+        "capability": "RECORD_PLAN_AUDIT_LOG",
+        "required": true
+      }
+    ],
+    "thoughtChain": [
+      "调用【emit_event】SSE事件推送工具，将结构化计划事件通过 SSE 通道实时推送至前端订阅客户端；以 clientId 定位目标订阅连接，将 planId、phaseId、nodeId、eventType、level 与 payload 封装为标准 SSE 消息帧并发送，驱动前端可视化图谱的节点颜色、进度条与日志面板同步刷新；若 clientId 对应连接不存在则广播至所有活跃订阅，记录推送结果并以 sseOk 标记返回，推送失败不中断审计日志写入流程。",
+      "调用【audit_log】审计日志工具，将本次事件发布行为原子写入计划审计链路，确保每个关键事件均有持久化记录可供事后查询与回放；以输入的 eventType 与 level 为类型和级别，将 planId、phaseId、nodeId、payload 摘要与可选 traceId 写入 luna_log 表，若调用方未传入 traceId 则服务端自动生成唯一值，记录落库结果并以 recordOk 标记返回，写入失败不阻断 SSE 推送结果的最终返回。"
+    ]
+  },
+  {
+    "name": "replan_failed_nodes",
+    "description": "失败节点局部重规划分析技能。枚举计划内失败节点并提取失败原因，结合全局进度给出修复方向（重试、替换工具、降级、跳过），将分析结论写入节点 outputForNext，并记录审计日志与 SSE 事件。",
+    "version": "1.3.0",
+    "owner": "openclaw",
+    "beanName": "planNodeTools",
+    "methodName": "replanFailedNodes",
+    "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"planId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"计划ID\"}},\"required\":[\"planId\"]}",
+    "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"data\":{\"type\":\"object\",\"description\":\"进度与失败分布\"},\"message\":{\"type\":\"string\",\"description\":\"重规划建议说明\"}}}",
+    "runMode": "SYNC",
+    "requiredCapabilities": [
+      "QUERY_PLAN_PROGRESS",
+      "APPEND_NODE_OUTPUT",
+      "RECORD_PLAN_AUDIT_LOG",
+      "EMIT_PLAN_EVENT_SSE"
+    ],
+    "toolSlots": [
+      {
+        "slot": "query_progress",
+        "capability": "QUERY_PLAN_PROGRESS",
+        "required": true
+      },
+      {
+        "slot": "append_replan_output",
+        "capability": "APPEND_NODE_OUTPUT",
+        "required": true
+      },
+      {
+        "slot": "audit_log",
+        "capability": "RECORD_PLAN_AUDIT_LOG",
+        "required": true
+      },
+      {
+        "slot": "emit_replan_event",
+        "capability": "EMIT_PLAN_EVENT_SSE",
+        "required": false
+      }
+    ],
+    "thoughtChain": [
+      "查询计划节点状态，筛选 FAILED 节点并提取 failReason、retryCount、maxRetry 等信息。",
+      "生成重规划建议并写入失败节点 outputForNext，确保后续节点与报告可引用。",
+      "记录 PLAN_REPLANNED 审计事件，并可选推送 SSE 通知前端更新图谱。"
+    ]
+  },
+  {
+    "name": "search_ingest_kb",
+    "description": "搜索即入库技能。接收用户指定的检索主题与目标知识库范围，先调用网页搜索获取候选来源，再对高价值链接执行网页抓取提取正文，经过清洗去重后写入知识库，形成可供后续 RAG 检索复用的持久化知识资产。适用于主动扩充领域知识库、竞品情报积累、研究资料归档等场景。",
+    "version": "1.1.0",
+    "owner": "System",
+    "beanName": "orchestrationSkills",
+    "methodName": "searchIngestKnowledgeBase",
+    "runMode": "ASYNC",
+    "requiredCapabilities": [
+      "WEB_SEARCH",
+      "WEB_FETCH",
+      "KB_INSERT"
+    ],
+    "toolSlots": [
+      {
+        "slot": "search",
+        "capability": "WEB_SEARCH",
+        "required": true
+      },
+      {
+        "slot": "fetch",
+        "capability": "WEB_FETCH",
+        "required": true
+      },
+      {
+        "slot": "kb",
+        "capability": "KB_INSERT",
+        "required": true
+      }
+    ],
+    "thoughtChain": [
+      "调用【search】搜索工具，以 query 与 timeRange 发起全网检索，获得候选来源标题、摘要、链接并按相关性排序。",
+      "调用【fetch】网页抓取工具，对筛选后的高价值来源提取正文并过滤导航、广告等噪音内容。",
+      "调用【kb】知识库写入工具，将清洗去重后的内容写入知识库，返回 insertedCount、skippedCount 与 sourceList。"
+    ],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "检索主题（必填）。例如“香港AI监管政策最新进展”。"
+        },
+        "targetKb": {
+          "type": "string",
+          "description": "目标知识库标识（可选）。不传时使用系统默认知识库。"
+        },
+        "timeRange": {
+          "type": "string",
+          "enum": [
+            "24H",
+            "7D",
+            "30D",
+            "ALL"
+          ],
+          "description": "检索时间范围（可选）。默认 7D。"
+        },
+        "maxFetch": {
+          "type": "integer",
+          "description": "最大抓取来源数（可选）。建议 1-20，默认 8。"
+        },
+        "dedup": {
+          "type": "boolean",
+          "description": "是否去重（可选）。true=去重；false=保留重复。默认 true。"
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "执行状态，常见值：success 或 error。"
+        },
+        "insertedCount": {
+          "type": "integer",
+          "description": "成功写入知识库的条数。"
+        },
+        "skippedCount": {
+          "type": "integer",
+          "description": "被跳过条数（抓取失败、去重命中或内容无效）。"
+        },
+        "sourceList": {
+          "type": "array",
+          "description": "参与处理的来源列表，通常包含 title/url/status 等字段。"
+        }
+      }
+    }
+  },
+  {
+    "name": "summarize_code_changes_for_report",
+    "description": "代码变更摘要生成与任务报告收尾技能。在代码任务执行完毕后，聚合当前计划中所有代码节点的执行结果、测试通过率与执行日志，由大模型提炼出结构化的代码变更摘要（变更文件列表、改动原因、影响范围、测试验证结论），将摘要注入 HTML 任务报告，完成报告写入、浏览器唤起与 SSE 事件推送的完整收尾闭环。适用于编码 Agent 完成代码任务后向用户呈现可视化变更摘要，以及 CI/CD 任务结束后的自动化报告归档，无论计划成功还是失败均应调用本技能生成报告。",
+    "version": "1.1.0",
+    "owner": "openclaw",
+    "beanName": "planOrchestratorServiceImpl",
+    "methodName": "finalizeAndReport",
+    "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"planId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"计划ID\"}},\"required\":[\"planId\"]}",
+    "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"planId\":{\"type\":\"string\"},\"finalStatus\":{\"type\":\"string\"},\"reportPath\":{\"type\":\"string\"},\"reportUrl\":{\"type\":\"string\"},\"openResult\":{\"type\":\"string\"},\"message\":{\"type\":\"string\"}}}",
+    "runMode": "SYNC",
+    "requiredCapabilities": [
+      "QUERY_PLAN_PROGRESS",
+      "RECORD_PLAN_AUDIT_LOG",
+      "WRITE_HTML_REPORT_FILE",
+      "OPEN_BROWSER_WITH_FILE",
+      "EMIT_PLAN_EVENT_SSE"
+    ],
+    "toolSlots": [
+      {
+        "slot": "query_progress",
+        "capability": "QUERY_PLAN_PROGRESS",
+        "required": true
+      },
+      {
+        "slot": "audit_log",
+        "capability": "RECORD_PLAN_AUDIT_LOG",
+        "required": true
+      },
+      {
+        "slot": "write_report",
+        "capability": "WRITE_HTML_REPORT_FILE",
+        "required": true
+      },
+      {
+        "slot": "open_report",
+        "capability": "OPEN_BROWSER_WITH_FILE",
+        "required": false
+      },
+      {
+        "slot": "emit_event",
+        "capability": "EMIT_PLAN_EVENT_SSE",
+        "required": true
+      }
+    ],
+    "thoughtChain": [
+      "调用【query_progress】计划进度查询工具，要干什么：获取当前计划所有节点（尤其是 CODE 类型节点）的执行结果与状态分布；怎么做：以 planId 为参数查询全量节点列表，过滤出 nodeType=CODE 的节点，提取每个节点的 outputForNext 字段，汇总变更文件路径、测试通过率、失败原因等关键信息，形成可供报告使用的代码变更摘要原材料。",
+      "调用【audit_log】审计日志工具，要干什么：在报告生成前将代码变更摘要汇总事件记录到审计链路，确保代码任务执行轨迹完整可追溯；怎么做：以 PLAN_CODE_PATCH_READY 事件类型、INFO 级别写入 planId、代码节点数量、变更文件数等摘要字段，生成唯一 traceId 落库，为后续审计提供完整决策依据。",
+      "调用【write_report】HTML报告写入工具，要干什么：将包含代码变更摘要的完整 HTML 报告原子写入磁盘并落库存档；怎么做：以 planId 为文件名，将渲染好的 HTML 字符串（含变更文件列表、测试通过率、阶段详情与耗时）写入 outputDir 目录，先写 .tmp 临时文件再原子 move 为正式文件，同时将 reportPath、reportUrl 与报告内容持久化到 plan_report 表，返回访问路径。",
+      "调用【open_report】浏览器唤起工具，要干什么：尝试在本机浏览器中自动打开代码变更报告，便于开发者直接查阅；怎么做：以 reportPath 为参数调用系统 Desktop API 唤起默认浏览器，若桌面环境不支持（如 headless 环境）则记录 FAILED 标记但不中断主流程，此槽位为可选步骤，失败不影响后续 SSE 推送。",
+      "调用【emit_event】SSE事件推送工具，要干什么：向前端推送报告就绪事件，通知前端展示代码变更摘要与报告链接；怎么做：以 PLAN_REPORT_READY 事件类型封装 planId、reportUrl、finalStatus、openResult 等字段，通过 SSE 通道推送给订阅客户端，确保前端可视化界面立即刷新并展示报告入口。"
+    ]
+  },
+  {
+    "name": "system_audit_diagnosis",
+    "description": "系统审计诊断技能。按指定条件（模块、动作、日志类型、时间范围）从日志表检索历史记录，对返回日志进行时间线整理与错误聚类，识别高频异常模式、首发时间、传播范围与关联链路，由大模型生成根因分析结论、证据日志清单与分层修复建议（立刻止血/短期修复/长期治理），可选将诊断摘要回写到日志表形成完整审计链路。适用于生产故障复盘、系统异常自动诊断、定期健康巡检以及 Agent 执行异常的根因定位，是系统可观测性闭环的核心诊断组件。",
+    "version": "1.0.0",
+    "owner": "System",
+    "beanName": "orchestrationSkills",
+    "methodName": "systemAuditDiagnosis",
+    "runMode": "ASYNC",
+    "requiredCapabilities": [
+      "LOG_QUERY",
+      "LOG_INSERT",
+      "DIAGNOSIS_SUMMARIZE"
+    ],
+    "toolSlots": [
+      {
+        "slot": "logQuery",
+        "capability": "LOG_QUERY",
+        "required": true
+      },
+      {
+        "slot": "logInsert",
+        "capability": "LOG_INSERT",
+        "required": false
+      },
+      {
+        "slot": "diagnose",
+        "capability": "DIAGNOSIS_SUMMARIZE",
+        "required": true
+      }
+    ],
+    "thoughtChain": [
+      "调用【logQuery】日志查询工具，要干什么：按条件检索指定时间范围与模块内的历史日志记录，构建诊断数据集；怎么做：以 targetModule、targetAction、logType、startTime、endTime 为过滤条件查询 luna_log 表，按 create_at 倒序返回最多 maxLogs 条记录，提取 log_type、module、action、content、error_message、cost_time、trace_id 等字段，按时间线排列后作为诊断模型的输入原料。",
+      "调用【logInsert】日志写入工具，要干什么：将诊断摘要与关键证据索引回写到日志表，形成可追溯的审计链；怎么做：当 writeBackDiagnosisLog=true 时，以 SYSTEM_EVENT 类型构建诊断日志实体，将根因结论、修复建议摘要与关键证据日志 ID 列表写入 content 与 request_data 字段并落库，此槽位为可选步骤，写入失败不阻断诊断结果返回。",
+      "调用【diagnose】诊断汇总工具，要干什么：对日志数据集进行根因分析并生成结构化诊断报告；怎么做：将时间线整理后的日志条目输入诊断模型，识别高频错误模式、首发时间点与影响传播路径，提取关键证据日志片段，按「立刻止血/短期修复/长期治理」三层输出修复建议，返回 diagnosis、rootCauses、suggestions 与 evidenceLogs 结构化字段。"
+    ],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "targetModule": {
+          "type": "string",
+          "description": "目标模块（可选），例如：chat/tool/system。"
+        },
+        "targetAction": {
+          "type": "string",
+          "description": "目标动作（可选），例如：chat/manage_memory。"
+        },
+        "logType": {
+          "type": "string",
+          "enum": [
+            "ERROR",
+            "TOOL_CALL",
+            "SYSTEM_EVENT",
+            "API_CALL",
+            "LUNA_OUTPUT",
+            "SELF_UPDATE"
+          ],
+          "description": "日志类型（可选）。可选值：ERROR=异常；TOOL_CALL=工具调用；SYSTEM_EVENT=系统事件；API_CALL=接口调用；LUNA_OUTPUT=Luna输出；SELF_UPDATE=自我更新。"
+        },
+        "startTime": {
+          "type": "string",
+          "description": "开始时间（可选），格式：yyyy-MM-dd HH:mm:ss。"
+        },
+        "endTime": {
+          "type": "string",
+          "description": "结束时间（可选），格式：yyyy-MM-dd HH:mm:ss。"
+        },
+        "maxLogs": {
+          "type": "integer",
+          "description": "最大分析日志条数（可选），建议 20-500，默认 100。"
+        },
+        "writeBackDiagnosisLog": {
+          "type": "boolean",
+          "description": "是否回写诊断日志（可选）。true=写回；false=不写回。默认 true。"
+        }
+      }
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "执行状态，常见值：success 或 error。"
+        },
+        "diagnosis": {
+          "type": "string",
+          "description": "诊断结论文本。"
+        },
+        "rootCauses": {
+          "type": "array",
+          "description": "可能根因列表。"
+        },
+        "suggestions": {
+          "type": "array",
+          "description": "修复建议列表。"
+        },
+        "evidenceLogs": {
+          "type": "array",
+          "description": "关键证据日志列表（脱敏）。"
+        }
+      }
+    }
+  },
+  {
+    "name": "user_profile_build",
+    "description": "用户个人画像构建与持续更新技能。对输入的对话文本进行深度信息抽取，识别用户的稳定偏好特征（昵称、作息习惯、语气偏好、职业背景、兴趣领域、格式要求、禁忌项等），经过置信度过滤与去重归一化后批量写入用户偏好表，可选同步写入长期记忆表，形成持续演化的个性化用户画像资产，供后续对话的 RAG 检索与 System Prompt 个性化注入使用。适用于首次建立用户画像、对话后增量更新画像以及定期画像回顾与修订等场景，是 Luna 个性化能力的核心数据基础设施。",
+    "version": "1.0.0",
+    "owner": "System",
+    "beanName": "orchestrationSkills",
+    "methodName": "buildUserProfile",
+    "runMode": "SYNC",
+    "requiredCapabilities": [
+      "PREFERENCE_UPSERT",
+      "MEMORY_INSERT"
+    ],
+    "toolSlots": [
+      {
+        "slot": "preference",
+        "capability": "PREFERENCE_UPSERT",
+        "required": true
+      },
+      {
+        "slot": "memory",
+        "capability": "MEMORY_INSERT",
+        "required": false
+      }
+    ],
+    "thoughtChain": [
+      "调用【preference】用户偏好写入工具，将从对话文本中抽取并通过置信度过滤的画像项执行幂等 upsert 写入用户偏好表；以 prefKey/prefValue/description 为字段，对置信度高于 minConfidence 的画像项执行 INSERT 或 UPDATE，同义键合并归一化，冲突项以最近且高置信为准，统计 preferenceUpserts 数量并返回落库的 profileItems 列表。",
+      "调用【memory】长期记忆写入工具，当 profileScope=PREFERENCE_AND_MEMORY 时将高价值画像事件同步写入长期记忆表以增强跨会话记忆连续性；将重要画像项以 PREFERENCE 类型构建 Memory 实体，调用 MEMORY_INSERT 能力写入 luna_memory 表，生成向量 embedding 供后续 RAG 检索，统计 memoryInserts 数量，此槽位为可选步骤。"
+    ],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "description": "会话ID（可选，建议传 JWT jti）。"
+        },
+        "dialogueText": {
+          "type": "string",
+          "description": "待抽取画像的对话文本（必填）。"
+        },
+        "profileScope": {
+          "type": "string",
+          "enum": [
+            "PREFERENCE_ONLY",
+            "PREFERENCE_AND_MEMORY"
+          ],
+          "description": "写入范围（可选）。PREFERENCE_ONLY=仅写偏好；PREFERENCE_AND_MEMORY=偏好+记忆都写。默认 PREFERENCE_AND_MEMORY。"
+        },
+        "minConfidence": {
+          "type": "number",
+          "description": "最小置信度阈值（可选），范围 0-1，默认 0.75。低于阈值的不落库。"
+        }
+      },
+      "required": [
+        "dialogueText"
+      ]
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "执行状态，常见值：success 或 error。"
+        },
+        "preferenceUpserts": {
+          "type": "integer",
+          "description": "偏好写入/更新条数。"
+        },
+        "memoryInserts": {
+          "type": "integer",
+          "description": "长期记忆新增条数。"
+        },
+        "profileItems": {
+          "type": "array",
+          "description": "抽取并落库的画像项（含 key/value/confidence）。"
+        }
+      }
+    }
+  },
+  {
+    "name": "validate_plan_blueprint",
+    "description": "计划蓝图加载与完整性校验技能。从数据库按 planId（可指定版本号）加载目标蓝图 JSON，对蓝图核心字段进行结构完整性检查，包括阶段定义是否齐全、节点依赖关系是否形成有效 DAG、必填字段是否缺失、资源类型与能力标识是否合法等，校验通过后将蓝图内容与来源元数据一并返回，校验失败时返回具体错误描述；无论校验结果如何，均将本次校验行为写入计划审计链路，并可选通过 SSE 向前端推送蓝图加载与校验结果事件。",
+    "version": "1.2.0",
+    "owner": "openclaw",
+    "beanName": "planBlueprintTools",
+    "methodName": "loadPlanBlueprint",
+    "inputSchema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"planId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"计划ID\"},\"planVersion\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"可选版本号；不传则加载最新版本\"}},\"required\":[\"planId\"]}",
+    "outputSchema": "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\",\"description\":\"执行状态\"},\"data\":{\"type\":\"object\",\"description\":\"蓝图内容、来源与校验结果\"},\"message\":{\"type\":\"string\",\"description\":\"补充说明\"}}}",
+    "runMode": "SYNC",
+    "requiredCapabilities": [
+      "LOAD_PLAN_BLUEPRINT",
+      "RECORD_PLAN_AUDIT_LOG",
+      "EMIT_PLAN_EVENT_SSE"
+    ],
+    "toolSlots": [
+      {
+        "slot": "load_blueprint",
+        "capability": "LOAD_PLAN_BLUEPRINT",
+        "required": true
+      },
+      {
+        "slot": "audit_log",
+        "capability": "RECORD_PLAN_AUDIT_LOG",
+        "required": true
+      },
+      {
+        "slot": "emit_event",
+        "capability": "EMIT_PLAN_EVENT_SSE",
+        "required": false
+      }
+    ],
+    "thoughtChain": [
+      "调用【load_blueprint】蓝图加载工具，从数据库中按 planId 读取目标计划蓝图；若请求中携带 planVersion 则加载指定版本，否则默认取最新版本；读取成功后对蓝图 JSON 执行结构完整性校验，包括阶段数量是否大于零、每个阶段是否包含合法节点定义、节点间 dependencies/edges 是否构成有效 DAG（无环）、必填字段（nodeId/name）是否齐全；校验失败返回错误描述，校验通过返回完整蓝图与元信息。",
+      "调用【audit_log】审计日志工具，将本次蓝图加载与校验行为完整记录到计划审计链路；通过写入 PLAN_BLUEPRINT_VALIDATED 或 PLAN_BLUEPRINT_INVALID 事件，沉淀 planId、planVersion、校验结论与错误摘要，确保可追溯。",
+      "调用【emit_event】SSE事件推送工具，将蓝图加载与校验结果实时推送到前端订阅客户端；推送失败不阻断主流程。"
+    ]
+  }
+]

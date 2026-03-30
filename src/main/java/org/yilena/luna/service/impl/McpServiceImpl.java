@@ -32,6 +32,7 @@ public class McpServiceImpl implements McpService {
     private final McpResourceCatalogMapper resourceCatalogMapper;
     private final McpToolImplMappingMapper toolImplMappingMapper;
     private final WorkflowTemplateMapper workflowTemplateMapper;
+    private final McpServerRegistryMapper serverRegistryMapper;
     private final McpClientAdapter mcpClientAdapter;
     private final LlmClientUtil llmClientUtil;
     private final ObjectMapper objectMapper;
@@ -240,6 +241,94 @@ public class McpServiceImpl implements McpService {
             return Map.of("status", "error", "message", e.getMessage());
         }
         return Map.of("status", "success", "toolCount", toolCount, "workflowCount", workflowCount, "promptCount", promptCount, "warnings", warnings);
+    }
+
+    @Override
+    public McpServerRegistry upsertServerRegistry(McpServerRegistry registry) {
+        if (registry == null || blank(registry.getServerCode())) {
+            throw new IllegalArgumentException("serverCode required");
+        }
+        McpServerRegistry exist = serverRegistryMapper.selectOne(new LambdaQueryWrapper<McpServerRegistry>()
+                .eq(McpServerRegistry::getServerCode, registry.getServerCode())
+                .last("LIMIT 1"));
+        if (exist != null) registry.setId(exist.getId());
+        if (registry.getId() == null) serverRegistryMapper.insert(registry);
+        else serverRegistryMapper.updateById(registry);
+        return registry;
+    }
+
+    @Override
+    public McpToolCatalog upsertToolCatalog(McpToolCatalog toolCatalog) {
+        if (toolCatalog == null || blank(toolCatalog.getServerCode()) || blank(toolCatalog.getToolName())) {
+            throw new IllegalArgumentException("serverCode/toolName required");
+        }
+        McpToolCatalog exist = toolCatalogMapper.selectOne(new LambdaQueryWrapper<McpToolCatalog>()
+                .eq(McpToolCatalog::getServerCode, toolCatalog.getServerCode())
+                .eq(McpToolCatalog::getToolName, toolCatalog.getToolName())
+                .last("LIMIT 1"));
+        if (exist != null) toolCatalog.setId(exist.getId());
+        if (toolCatalog.getId() == null) toolCatalogMapper.insert(toolCatalog);
+        else toolCatalogMapper.updateById(toolCatalog);
+        return toolCatalog;
+    }
+
+    @Override
+    public McpToolImplMapping upsertToolImplMapping(McpToolImplMapping mapping) {
+        if (mapping == null || blank(mapping.getServerCode()) || blank(mapping.getToolName())) {
+            throw new IllegalArgumentException("serverCode/toolName required");
+        }
+        McpToolImplMapping exist = toolImplMappingMapper.selectOne(new LambdaQueryWrapper<McpToolImplMapping>()
+                .eq(McpToolImplMapping::getServerCode, mapping.getServerCode())
+                .eq(McpToolImplMapping::getToolName, mapping.getToolName())
+                .last("LIMIT 1"));
+        if (exist != null) mapping.setId(exist.getId());
+        if (mapping.getId() == null) toolImplMappingMapper.insert(mapping);
+        else toolImplMappingMapper.updateById(mapping);
+        return mapping;
+    }
+
+    @Override
+    public McpPromptCatalog upsertPromptCatalog(McpPromptCatalog promptCatalog) {
+        if (promptCatalog == null || blank(promptCatalog.getServerCode()) || blank(promptCatalog.getPromptName())) {
+            throw new IllegalArgumentException("serverCode/promptName required");
+        }
+        McpPromptCatalog exist = promptCatalogMapper.selectOne(new LambdaQueryWrapper<McpPromptCatalog>()
+                .eq(McpPromptCatalog::getServerCode, promptCatalog.getServerCode())
+                .eq(McpPromptCatalog::getPromptName, promptCatalog.getPromptName())
+                .last("LIMIT 1"));
+        if (exist != null) promptCatalog.setId(exist.getId());
+        if (promptCatalog.getId() == null) promptCatalogMapper.insert(promptCatalog);
+        else promptCatalogMapper.updateById(promptCatalog);
+        return promptCatalog;
+    }
+
+    @Override
+    public McpResourceCatalog upsertResourceCatalog(McpResourceCatalog resourceCatalog) {
+        if (resourceCatalog == null || blank(resourceCatalog.getServerCode()) || blank(resourceCatalog.getResourceUri())) {
+            throw new IllegalArgumentException("serverCode/resourceUri required");
+        }
+        McpResourceCatalog exist = resourceCatalogMapper.selectOne(new LambdaQueryWrapper<McpResourceCatalog>()
+                .eq(McpResourceCatalog::getServerCode, resourceCatalog.getServerCode())
+                .eq(McpResourceCatalog::getResourceUri, resourceCatalog.getResourceUri())
+                .last("LIMIT 1"));
+        if (exist != null) resourceCatalog.setId(exist.getId());
+        if (resourceCatalog.getId() == null) resourceCatalogMapper.insert(resourceCatalog);
+        else resourceCatalogMapper.updateById(resourceCatalog);
+        return resourceCatalog;
+    }
+
+    @Override
+    public WorkflowTemplate upsertWorkflowTemplate(WorkflowTemplate workflowTemplate) {
+        if (workflowTemplate == null || blank(workflowTemplate.getWorkflowName())) {
+            throw new IllegalArgumentException("workflowName required");
+        }
+        WorkflowTemplate exist = workflowTemplateMapper.selectOne(new LambdaQueryWrapper<WorkflowTemplate>()
+                .eq(WorkflowTemplate::getWorkflowName, workflowTemplate.getWorkflowName())
+                .last("LIMIT 1"));
+        if (exist != null) workflowTemplate.setId(exist.getId());
+        if (workflowTemplate.getId() == null) workflowTemplateMapper.insert(workflowTemplate);
+        else workflowTemplateMapper.updateById(workflowTemplate);
+        return workflowTemplate;
     }
 
     private void syncToolFile(Map<String, Object> m) {

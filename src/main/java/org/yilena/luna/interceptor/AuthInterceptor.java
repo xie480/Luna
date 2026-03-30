@@ -16,25 +16,25 @@ public class AuthInterceptor implements HandlerInterceptor {
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
-        String token = request.getHeader("Authorization");
-        if (!authService.validateToken(token)) {
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.setContentType("application/json;charset=UTF-8");
-            response.getWriter().write("{\"error\": \"未授权，请先登录\"}");
-            return false;
-        }
-
-        String jti = authService.extractJti(token);
-        if (jti == null || jti.isBlank()) {
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.setContentType("application/json;charset=UTF-8");
-            response.getWriter().write("{\"error\": \"token无效或已过期\"}");
-            return false;
-        }
-
-        // 将 JWT jti 作为本次请求的稳定 sessionId
-        AuthContextHolder.setSessionId(jti);
-        request.setAttribute("SESSION_ID", jti);
+//        String token = request.getHeader("Authorization");
+//        if (!authService.validateToken(token)) {
+//            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+//            response.setContentType("application/json;charset=UTF-8");
+//            response.getWriter().write("{\"error\": \"未授权，请先登录\"}");
+//            return false;
+//        }
+//
+//        String jti = authService.extractJti(token);
+//        if (jti == null || jti.isBlank()) {
+//            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+//            response.setContentType("application/json;charset=UTF-8");
+//            response.getWriter().write("{\"error\": \"token无效或已过期\"}");
+//            return false;
+//        }
+//
+//        // 将 JWT jti 作为本次请求的稳定 sessionId
+//        AuthContextHolder.setSessionId(jti);
+//        request.setAttribute("SESSION_ID", jti);
         return true;
     }
 

@@ -18,7 +18,7 @@ public class SwaggerConfig {
     public GroupedOpenApi userApi() {
         return GroupedOpenApi.builder()
                 .group("Luna服务接口")
-                .pathsToMatch("/luna/api/**")
+                .pathsToMatch("/**")
                 .build();
     }
 

@@ -5,10 +5,16 @@ import org.yilena.luna.entity.McpPromptResult;
 import org.yilena.luna.entity.McpResourceDescriptor;
 import org.yilena.luna.entity.McpResourceResult;
 import org.yilena.luna.entity.McpSkill;
+import org.yilena.luna.entity.McpPromptCatalog;
+import org.yilena.luna.entity.McpResourceCatalog;
+import org.yilena.luna.entity.McpServerRegistry;
 import org.yilena.luna.entity.McpTool;
 import org.yilena.luna.entity.McpToolCallResult;
 import org.yilena.luna.entity.McpToolDescriptor;
+import org.yilena.luna.entity.McpToolCatalog;
+import org.yilena.luna.entity.McpToolImplMapping;
 import org.yilena.luna.entity.Resource;
+import org.yilena.luna.entity.WorkflowTemplate;
 
 import java.util.List;
 import java.util.Map;
@@ -50,4 +56,17 @@ public interface McpService {
 
     // Sync json/tool and json/skill into catalog tables.
     Map<String, Object> syncCatalogFromJson();
+
+    // Migration upsert APIs (full-field)
+    McpServerRegistry upsertServerRegistry(McpServerRegistry registry);
+
+    McpToolCatalog upsertToolCatalog(McpToolCatalog toolCatalog);
+
+    McpToolImplMapping upsertToolImplMapping(McpToolImplMapping mapping);
+
+    McpPromptCatalog upsertPromptCatalog(McpPromptCatalog promptCatalog);
+
+    McpResourceCatalog upsertResourceCatalog(McpResourceCatalog resourceCatalog);
+
+    WorkflowTemplate upsertWorkflowTemplate(WorkflowTemplate workflowTemplate);
 }
