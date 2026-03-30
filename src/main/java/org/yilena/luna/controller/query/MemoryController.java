@@ -29,9 +29,11 @@ public class MemoryController extends BasePageQueryController {
     @Operation(summary = "分页查询长期记忆")
     public ResponseEntity<Object> page(@RequestBody(required = false) MemoryPageQueryRequest req) {
         try {
+            // 请求体为空时使用默认查询对象，保证分页参数可用。
             MemoryPageQueryRequest request = req == null ? new MemoryPageQueryRequest() : req;
             Page<Memory> page = new Page<>(normalizePageNo(request.getPageNo()), normalizePageSize(request.getPageSize()));
 
+            // 按入参动态拼接查询条件，仅对非空字段生效。
             LambdaQueryWrapper<Memory> wrapper = new LambdaQueryWrapper<>();
             if (hasText(request.getSessionId())) {
                 wrapper.eq(Memory::getSessionId, request.getSessionId().trim());
@@ -56,6 +58,7 @@ public class MemoryController extends BasePageQueryController {
             }
             wrapper.orderByDesc(Memory::getCreatedAt);
 
+            // 执行分页查询并统一封装分页返回结构。
             IPage<Memory> result = memoryService.page(page, wrapper);
             return ResponseEntity.ok(PagedResponse.from(result));
         } catch (IllegalArgumentException e) {

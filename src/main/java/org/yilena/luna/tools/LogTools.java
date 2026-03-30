@@ -43,6 +43,7 @@ public class LogTools extends BaseTool {
             @RequestParam(value = "id", required = false) Long id,
             @RequestParam(value = "beforeTime", required = false) String beforeTime) {
         try {
+            // INSERT 分支：创建日志实体并落库。
             if ("INSERT".equalsIgnoreCase(action)) {
                 LunaLog log = LunaLog.builder()
                         .logType(logType != null ? LogType.valueOf(logType.toUpperCase()) : LogType.SYSTEM_EVENT)
@@ -53,6 +54,7 @@ public class LogTools extends BaseTool {
                 lunaLogService.save(log);
                 return success("日志插入成功，ID: " + log.getId());
             } else if ("QUERY".equalsIgnoreCase(action)) {
+                // QUERY 分支：按可选条件动态拼接查询。
                 LambdaQueryWrapper<LunaLog> wrapper = new LambdaQueryWrapper<>();
                 if (id != null) wrapper.eq(LunaLog::getId, id);
                 if (logType != null) wrapper.eq(LunaLog::getLogType, LogType.valueOf(logType.toUpperCase()));
@@ -65,6 +67,7 @@ public class LogTools extends BaseTool {
                 wrapper.last("LIMIT " + (limit != null ? limit : 50));
                 return success(lunaLogService.list(wrapper));
             } else if ("DELETE".equalsIgnoreCase(action)) {
+                // DELETE 分支：支持按 ID 删除或按时间批量清理。
                 if (id != null) {
                     lunaLogService.removeById(id);
                     return success("已删除日志 ID: " + id);

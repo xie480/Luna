@@ -26,9 +26,12 @@ public class ApprovalController {
     @PostMapping("/approval")
     @Operation(summary = "提交审批结果", description = "前端用户点击同意或拒绝后调用此接口")
     public ResponseEntity<Object> submitApproval(@RequestBody Map<String, Object> body) {
+        // 统一提取并规整审批任务 ID。
         String taskId = body.get("taskId") == null ? null : String.valueOf(body.get("taskId")).trim();
+        // 兼容布尔值、数字和字符串等多种 approved 入参类型。
         Boolean approved = parseApproved(body.get("approved"));
 
+        // taskId/approved 缺失时直接返回 400，避免无效状态落库。
         if (taskId == null || taskId.isBlank() || approved == null) {
             return ResponseEntity.badRequest().body(Map.of(
                     "status", "error",
@@ -36,12 +39,15 @@ public class ApprovalController {
             ));
         }
 
+        // 调用审批服务更新任务状态并触发后续流程。
         String result = approvalService.processApproval(taskId, approved);
 
         try {
+            // 服务层返回 JSON 字符串时转换成结构化对象回传前端。
             JsonNode node = objectMapper.readTree(result);
             return ResponseEntity.ok(node);
         } catch (Exception ignore) {
+            // 非 JSON 结果兜底按原文返回，避免响应丢失。
             return ResponseEntity.ok(Map.of("raw", result));
         }
     }

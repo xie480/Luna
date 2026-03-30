@@ -28,6 +28,7 @@ public class LunaLogConsumer implements RocketMQListener<LogMessage> {
     @Override
     public void onMessage(LogMessage msg) {
         try {
+            // 将 MQ 日志消息映射为数据库实体。
             LunaLog logEntity = LunaLog.builder()
                     .logType(msg.getLogType())
                     .module(msg.getModule())
@@ -42,6 +43,7 @@ public class LunaLogConsumer implements RocketMQListener<LogMessage> {
                     .createAt(LocalDateTime.ofInstant(Instant.ofEpochMilli(msg.getCreateTime()), ZoneId.systemDefault()))
                     .build();
 
+            // 异步写入日志表。
             lunaLogService.save(logEntity);
         } catch (Exception e) {
             log.error("日誌異步落庫失敗", e);

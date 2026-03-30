@@ -44,6 +44,7 @@ public class SearchTools extends BaseTool {
         }
 
         try {
+            // 将请求体序列化并构造 Serper HTTP 请求。
             String jsonBody = objectMapper.writeValueAsString(payload);
             MediaType mediaType = MediaType.parse("application/json");
             RequestBody body = RequestBody.create(mediaType, jsonBody);
@@ -59,6 +60,7 @@ public class SearchTools extends BaseTool {
 
             try (Response response = client.newCall(request).execute()) {
                 if (response.isSuccessful() && response.body() != null) {
+                    // 成功时解析为 JSON 并按统一 success 结构返回。
                     String responseString = response.body().string();
                     log.info("【Tool Debug】Serper API 成功返回数据，长度: {} 字符", responseString.length());
                     log.debug("【Tool Debug】Serper API 原始返回内容: {}", responseString);
@@ -66,6 +68,7 @@ public class SearchTools extends BaseTool {
                     JsonNode jsonNode = objectMapper.readTree(responseString);
                     return success(jsonNode);
                 } else {
+                    // 失败时记录 HTTP 状态码与响应体，便于排障。
                     String errorBody = response.body() != null ? response.body().string() : "";
                     log.error("【Tool Debug】Serper API 请求失败: HTTP {}, Body: {}", response.code(), errorBody);
                     return error("搜索请求失败: HTTP " + response.code());
@@ -81,6 +84,7 @@ public class SearchTools extends BaseTool {
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.SEARCH_WEB, type = LogType.TOOL_CALL, content = "执行网页搜索")
     public String web_search(@RequestParam("query") String query) {
         log.info("【Tool Debug】大模型触发了 web_search 工具，关键词: {}", query);
+        // 组装网页搜索参数并调用 search 端点。
         Map<String, Object> payload = new HashMap<>();
         payload.put("q", query);
         payload.put("gl", "cn");
@@ -92,6 +96,7 @@ public class SearchTools extends BaseTool {
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.SEARCH_IMAGES, type = LogType.TOOL_CALL, content = "执行图片搜索")
     public String image_search(@RequestParam("query") String query) {
         log.info("【Tool Debug】大模型触发了 image_search 工具，关键词: {}", query);
+        // 组装图片搜索参数并调用 images 端点。
         Map<String, Object> payload = new HashMap<>();
         payload.put("q", query);
         payload.put("gl", "cn");
@@ -103,6 +108,7 @@ public class SearchTools extends BaseTool {
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.SEARCH_NEWS, type = LogType.TOOL_CALL, content = "执行新闻搜索")
     public String news_search(@RequestParam("query") String query) {
         log.info("【Tool Debug】大模型触发了 news_search 工具，关键词: {}", query);
+        // 组装新闻搜索参数并调用 news 端点。
         Map<String, Object> payload = new HashMap<>();
         payload.put("q", query);
         payload.put("gl", "cn");
@@ -114,6 +120,7 @@ public class SearchTools extends BaseTool {
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.SEARCH_LENS, type = LogType.TOOL_CALL, content = "执行以图搜图")
     public String lens_search(@RequestParam("url") String url) {
         log.info("【Tool Debug】大模型触发了 lens_search 工具，URL: {}", url);
+        // 组装以图搜图参数并调用 lens 端点。
         Map<String, Object> payload = new HashMap<>();
         payload.put("url", url);
         payload.put("gl", "cn");
@@ -125,6 +132,7 @@ public class SearchTools extends BaseTool {
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.SCRAPE_WEB, type = LogType.TOOL_CALL, content = "抓取网页内容")
     public String web_scrape(@RequestParam("url") String url) {
         log.info("【Tool Debug】大模型触发了 web_scrape 工具，URL: {}", url);
+        // 组装网页抓取参数并调用 scrape 端点。
         Map<String, Object> payload = new HashMap<>();
         payload.put("url", url);
         return executeSerperRequest("scrape", payload);

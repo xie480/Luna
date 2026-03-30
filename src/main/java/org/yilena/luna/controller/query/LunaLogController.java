@@ -29,9 +29,11 @@ public class LunaLogController extends BasePageQueryController {
     @Operation(summary = "分页查询日志")
     public ResponseEntity<Object> page(@RequestBody(required = false) LunaLogPageQueryRequest req) {
         try {
+            // 请求体为空时使用默认查询对象，保证分页参数可用。
             LunaLogPageQueryRequest request = req == null ? new LunaLogPageQueryRequest() : req;
             Page<LunaLog> page = new Page<>(normalizePageNo(request.getPageNo()), normalizePageSize(request.getPageSize()));
 
+            // 按入参动态拼接查询条件，仅对非空字段生效。
             LambdaQueryWrapper<LunaLog> wrapper = new LambdaQueryWrapper<>();
             if (hasText(request.getLogType())) {
                 wrapper.eq(LunaLog::getLogType, LogType.valueOf(request.getLogType().trim().toUpperCase()));
@@ -59,6 +61,7 @@ public class LunaLogController extends BasePageQueryController {
             }
             wrapper.orderByDesc(LunaLog::getCreateAt);
 
+            // 执行分页查询并统一封装分页返回结构。
             IPage<LunaLog> result = lunaLogService.page(page, wrapper);
             return ResponseEntity.ok(PagedResponse.from(result));
         } catch (IllegalArgumentException e) {

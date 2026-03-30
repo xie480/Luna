@@ -28,9 +28,11 @@ public class UserPreferenceController extends BasePageQueryController {
     @Operation(summary = "分页查询用户偏好")
     public ResponseEntity<Object> page(@RequestBody(required = false) UserPreferencePageQueryRequest req) {
         try {
+            // 请求体为空时使用默认查询对象，保证分页参数可用。
             UserPreferencePageQueryRequest request = req == null ? new UserPreferencePageQueryRequest() : req;
             Page<UserPreference> page = new Page<>(normalizePageNo(request.getPageNo()), normalizePageSize(request.getPageSize()));
 
+            // 按入参动态拼接查询条件，仅对非空字段生效。
             LambdaQueryWrapper<UserPreference> wrapper = new LambdaQueryWrapper<>();
             if (hasText(request.getPrefKey())) {
                 wrapper.like(UserPreference::getPrefKey, request.getPrefKey().trim());
@@ -49,6 +51,7 @@ public class UserPreferenceController extends BasePageQueryController {
             }
             wrapper.orderByDesc(UserPreference::getCreatedAt);
 
+            // 执行分页查询并统一封装分页返回结构。
             IPage<UserPreference> result = userPreferenceService.page(page, wrapper);
             return ResponseEntity.ok(PagedResponse.from(result));
         } catch (IllegalArgumentException e) {

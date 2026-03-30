@@ -39,6 +39,7 @@ public class KnowledgeBaseTools extends BaseTool {
             @RequestParam(value = "sourcePath", required = false) String sourcePath,
             @RequestParam(value = "query", required = false) String query) {
         try {
+            // INSERT 分支：写入新知识片段到知识库。
             if ("INSERT".equalsIgnoreCase(action)) {
                 if (title == null || content == null || sourceType == null) {
                     return error("INSERT 必须提供 title, content 和 sourceType");
@@ -51,6 +52,7 @@ public class KnowledgeBaseTools extends BaseTool {
                 knowledgeBaseService.addKnowledge(title, content, st, sourcePath);
                 return success("知识库写入成功");
             } else if ("QUERY".equalsIgnoreCase(action)) {
+                // QUERY 分支：按语义检索返回 TopK 结果。
                 if (query == null) return error("QUERY 必须提供 query");
                 return success(knowledgeBaseService.searchKnowledge(query, 5));
             }

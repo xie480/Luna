@@ -29,9 +29,11 @@ public class KnowledgeBaseController extends BasePageQueryController {
     @Operation(summary = "分页查询知识库")
     public ResponseEntity<Object> page(@RequestBody(required = false) KnowledgeBasePageQueryRequest req) {
         try {
+            // 请求体为空时使用默认查询对象，保证分页参数可用。
             KnowledgeBasePageQueryRequest request = req == null ? new KnowledgeBasePageQueryRequest() : req;
             Page<KnowledgeBase> page = new Page<>(normalizePageNo(request.getPageNo()), normalizePageSize(request.getPageSize()));
 
+            // 按入参动态拼接查询条件，仅对非空字段生效。
             LambdaQueryWrapper<KnowledgeBase> wrapper = new LambdaQueryWrapper<>();
             if (hasText(request.getTitle())) {
                 wrapper.like(KnowledgeBase::getTitle, request.getTitle().trim());
@@ -53,6 +55,7 @@ public class KnowledgeBaseController extends BasePageQueryController {
             }
             wrapper.orderByDesc(KnowledgeBase::getCreatedAt);
 
+            // 执行分页查询并统一封装分页返回结构。
             IPage<KnowledgeBase> result = knowledgeBaseService.page(page, wrapper);
             return ResponseEntity.ok(PagedResponse.from(result));
         } catch (IllegalArgumentException e) {

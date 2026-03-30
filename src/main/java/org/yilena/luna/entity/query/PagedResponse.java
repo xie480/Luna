@@ -24,6 +24,7 @@ public class PagedResponse<T> {
     private List<T> records;
 
     public static <T> PagedResponse<T> from(IPage<T> page) {
+        // 将 MyBatis Plus 分页对象转换为前端统一分页结构。
         return PagedResponse.<T>builder()
                 .total(page.getTotal())
                 .pages(page.getPages())

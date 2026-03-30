@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
  */
 public class RunaApplication {
     public static void main(String[] args) {
+        // 启动 Spring Boot 应用并加载全部自动配置。
         SpringApplication.run(RunaApplication.class, args);
     }
 }

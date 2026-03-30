@@ -19,9 +19,11 @@ public class SwaggerStartupPrinter implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
+        // 读取运行端口与上下文路径，拼接最终访问地址。
         String port = environment.getProperty("server.port", "8001");
         String contextPath = environment.getProperty("server.servlet.context-path", "");
 
+        // 应用启动完成后输出 Swagger 访问入口，便于本地联调。
         System.out.println();
         System.out.println("=================================================");
         System.out.println("🚀 Luna启动成功");

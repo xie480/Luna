@@ -25,6 +25,10 @@ import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
 import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.mq.dto.SummaryMessage;
+import org.yilena.luna.memory.MemoryWritePipelineService;
+import org.yilena.luna.memory.SessionOrchestratorService;
+import org.yilena.luna.memory.model.OrchestrationDecision;
+import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.prompt.PromptAssembler;
 import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.properties.GeminiProperty;
@@ -75,6 +79,8 @@ public class ChatServiceImpl implements ChatService {
     private final RocketMQTemplate rocketMQTemplate;
     // 新的通用 RAG 统一入口（已从 ChatService 中解耦）
     private final RetrievalService retrievalService;
+    private final SessionOrchestratorService sessionOrchestratorService;
+    private final MemoryWritePipelineService memoryWritePipelineService;
     // 局部 JSON 处理器，仅在本类用于解析/构造响应片段
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -103,14 +109,20 @@ public class ChatServiceImpl implements ChatService {
 
         // RAG 三类上下文片段（知识/偏好/长期记忆）
         List<String> knowledgeSnippets = Collections.emptyList();
+        String runtimeSessionId = Optional.ofNullable(AuthContextHolder.getSessionId())
+                .filter(s -> !s.isBlank())
+                .orElse(keyPrefix);
+        OrchestrationDecision orchestrationDecision = sessionOrchestratorService.onUserInput(runtimeSessionId, input);
+        StructuredContextPackage contextPackage = orchestrationDecision.getContextPackage();
+        knowledgeSnippets = extractTaskKnowledgeSnippets(contextPackage);
         List<String> preferenceSnippets = Collections.emptyList();
-        List<String> longTermMemorySnippets = Collections.emptyList();
+        List<String> longTermMemorySnippets = extractTaskLongTermSnippets(contextPackage);
 
         try {
             // 2) RAG 检索阶段：由统一 RetrievalService 负责路由/召回/rerank/结构化返回
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_RETRIEVING, LunaStateConstant.VALUE_RETRIEVING);
             // 鉴权层写入的 jti 作为稳定 sessionId，用于 memory source 精准过滤
-            String sessionId = AuthContextHolder.getSessionId();
+            String sessionId = runtimeSessionId;
             RetrievalRequest retrievalRequest = RetrievalRequest.builder()
                     .query(input)
                     .sessionId(sessionId)
@@ -118,8 +130,8 @@ public class ChatServiceImpl implements ChatService {
             RetrievalResponse retrievalResponse = retrievalService.retrieve(retrievalRequest);
             // 将统一 evidence 转成现有 prompt 体系可消费的字符串片段
             knowledgeSnippets = toKnowledgeSnippets(retrievalResponse);
-            preferenceSnippets = toPreferenceSnippets(retrievalResponse);
-            longTermMemorySnippets = toMemorySnippets(retrievalResponse);
+            preferenceSnippets = mergePreferenceSnippets(preferenceSnippets, toPreferenceSnippets(retrievalResponse));
+            longTermMemorySnippets = mergeMemorySnippets(longTermMemorySnippets, toMemorySnippets(retrievalResponse));
         } catch (Exception e) {
             // RAG 失败不阻断主对话链路，按“无 RAG 片段”继续
             log.error("并行 RAG 总流程异常: {}", e.getMessage(), e);
@@ -136,6 +148,7 @@ public class ChatServiceImpl implements ChatService {
         List<String> memorySnippets = recent.stream()
                 .map(m -> m.getRole().name() + ": " + m.getContent() + ": " + m.getTime())
                 .collect(Collectors.toList());
+        memorySnippets.addAll(extractRuntimeMessageSnippets(contextPackage));
 
         // 4) 若触发上下文摘要标记，则异步投递摘要任务并刷新会话视图
         if (ServiceCommunicateUtil.getSymbol(SymbolConstant.CONTEXT_SUMMARY_FLAG) == 1) {
@@ -211,6 +224,7 @@ public class ChatServiceImpl implements ChatService {
         // AOP 日志模块通过该 ThreadLocal 覆盖默认响应内容
         LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(result.raw());
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.LUNA, result.replyText(), LocalTime.now()));
+        memoryWritePipelineService.writeAfterTurn(runtimeSessionId, input, result.replyText(), contextPackage);
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
 
         return ResponseEntity.ok(tryParseJsonNode(result.valid()));
@@ -440,6 +454,85 @@ public class ChatServiceImpl implements ChatService {
 
     // 与旧代码兼容的小型返回载体：raw 用于日志，valid 用于返回，replyText 用于会话落盘
     private record SendToLuna(String raw, String valid, String replyText) {
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> extractTaskKnowledgeSnippets(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getTaskContext() == null) {
+            return Collections.emptyList();
+        }
+        Object raw = contextPackage.getTaskContext().get("knowledge");
+        if (!(raw instanceof List<?> list)) {
+            return Collections.emptyList();
+        }
+        return ((List<Map<String, Object>>) list).stream()
+                .map(item -> String.format("title: %s\ncontent: %s",
+                        nullSafe(stringValue(item.get("title"))),
+                        nullSafe(stringValue(item.get("chunk_text")))))
+                .toList();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> extractTaskLongTermSnippets(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getTaskContext() == null) {
+            return Collections.emptyList();
+        }
+        List<String> snippets = new ArrayList<>();
+        Object factsRaw = contextPackage.getTaskContext().get("task_facts");
+        if (factsRaw instanceof List<?> facts) {
+            snippets.addAll(((List<Map<String, Object>>) facts).stream()
+                    .map(item -> String.format("task_fact: %s=%s",
+                            nullSafe(stringValue(item.get("fact_key"))),
+                            nullSafe(stringValue(item.get("fact_value_text")))))
+                    .toList());
+        }
+        Object episodesRaw = contextPackage.getTaskContext().get("task_episodes");
+        if (episodesRaw instanceof List<?> episodes) {
+            snippets.addAll(((List<Map<String, Object>>) episodes).stream()
+                    .map(item -> String.format("task_episode: %s | %s",
+                            nullSafe(stringValue(item.get("episode_type"))),
+                            nullSafe(stringValue(item.get("trajectory_summary")))))
+                    .toList());
+        }
+        return snippets;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> extractRuntimeMessageSnippets(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getRuntime() == null) {
+            return Collections.emptyList();
+        }
+        Object raw = contextPackage.getRuntime().get("recent_messages");
+        if (!(raw instanceof List<?> list)) {
+            return Collections.emptyList();
+        }
+        return ((List<Map<String, Object>>) list).stream()
+                .map(item -> String.format("%s: %s",
+                        nullSafe(stringValue(item.get("role"))),
+                        nullSafe(stringValue(item.get("content_text")))))
+                .toList();
+    }
+
+    private List<String> mergePreferenceSnippets(List<String> base, List<String> extra) {
+        if (extra == null || extra.isEmpty()) {
+            return base;
+        }
+        List<String> merged = new ArrayList<>(base == null ? Collections.emptyList() : base);
+        merged.addAll(extra);
+        return merged;
+    }
+
+    private List<String> mergeMemorySnippets(List<String> base, List<String> extra) {
+        if (extra == null || extra.isEmpty()) {
+            return base;
+        }
+        List<String> merged = new ArrayList<>(base == null ? Collections.emptyList() : base);
+        merged.addAll(extra);
+        return merged;
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? "" : String.valueOf(value);
     }
 
     private List<String> toKnowledgeSnippets(RetrievalResponse response) {

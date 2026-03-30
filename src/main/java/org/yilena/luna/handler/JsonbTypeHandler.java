@@ -21,6 +21,7 @@ public class JsonbTypeHandler extends JacksonTypeHandler {
     @Override
     public void setNonNullParameter(PreparedStatement ps, int i, Object parameter, JdbcType jdbcType) throws SQLException {
         if (ps != null) {
+            // 将对象序列化为 PostgreSQL jsonb，确保 SQL 参数类型正确。
             PGobject jsonObject = new PGobject();
             jsonObject.setType("jsonb");
             jsonObject.setValue(toJson(parameter));

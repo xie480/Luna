@@ -36,6 +36,7 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
 
     @Override
     public void onMessage(SkillExecutionMessage msg) {
+        // 先做基础消息校验，避免无效任务进入执行链路。
         if (msg == null) {
             log.error("SkillAsync MQ：收到空消息，忽略处理");
             return;
@@ -47,6 +48,7 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
             return;
         }
 
+        // 资源缺失时直接落失败态并通知前端。
         if (msg.getResource() == null) {
             log.error("SkillAsync MQ：消息缺少 resource，taskId={}", taskId);
             markTaskFailed(taskId, "resource is null", null, 0L);
@@ -59,13 +61,16 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
         String argsJson = (msg.getArgsJson() == null || msg.getArgsJson().isBlank()) ? "{}" : msg.getArgsJson();
         long start = System.currentTimeMillis();
 
+        // 任务进入运行态，便于前端轮询/回显。
         markTaskRunning(taskId, skillName);
         log.info("SkillAsync MQ：开始执行异步技能任务，taskId={}, skillName={}", taskId, skillName);
 
         try {
+            // 执行技能主流程并统计耗时。
             String result = skillExecutor.executeLoop(msg.getResource(), argsJson);
             long costMs = System.currentTimeMillis() - start;
 
+            // 结果体声明失败时，按业务失败路径处理。
             boolean failedByResult = isErrorResult(result);
             if (failedByResult) {
                 String errMsg = extractErrorMessage(result);
@@ -79,6 +84,7 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
             }
 
             log.info("SkillAsync MQ：任务执行成功，taskId={}, skillName={}, costMs={}", taskId, skillName, costMs);
+            // 成功态写回 Redis，并通过 SSE 通知前端完成。
             markTaskCompleted(taskId, result, skillName, costMs);
             notifyAsyncResult(taskId, true, result, "", null, skillName, "COMPLETED", costMs);
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_THINKING, "异步技能执行完成：" + skillName);
@@ -89,18 +95,21 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
 
             log.error("SkillAsync MQ：任务执行异常，taskId={}, skillName={}, costMs={}, err={}", taskId, skillName, costMs, err, e);
 
+            // 异常态写回 Redis 并广播失败事件。
             markTaskFailed(taskId, err, skillName, costMs);
             notifyAsyncResult(taskId, false, null, "SKILL_EXECUTION_EXCEPTION", err, skillName, "FAILED", costMs);
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_THINKING, "异步技能执行异常：" + skillName);
 
             throw new RuntimeException("Async skill execution failed, taskId=" + taskId + ", err=" + err, e);
         } finally {
+            // 无论成功失败都将全局状态恢复到空闲态。
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
         }
     }
 
     private void markTaskRunning(String taskId, String skillName) {
         String key = TASK_REDIS_KEY_PREFIX + taskId;
+        // 维护任务运行态快照，供轮询接口读取。
         Map<String, String> fields = new HashMap<>();
         fields.put("taskId", taskId);
         fields.put("status", "RUNNING");
@@ -111,6 +120,7 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
 
     private void markTaskCompleted(String taskId, String result, String skillName, long costMs) {
         String key = TASK_REDIS_KEY_PREFIX + taskId;
+        // 维护任务完成态快照并记录结果。
         Map<String, String> fields = new HashMap<>();
         fields.put("taskId", taskId);
         fields.put("status", "COMPLETED");
@@ -123,6 +133,7 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
 
     private void markTaskFailed(String taskId, String error, String skillName, long costMs) {
         String key = TASK_REDIS_KEY_PREFIX + taskId;
+        // 维护任务失败态快照并记录错误信息。
         Map<String, String> fields = new HashMap<>();
         fields.put("taskId", taskId);
         fields.put("status", "FAILED");
@@ -136,6 +147,7 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
     private void notifyAsyncResult(String taskId, boolean success, String result, String errorCode, String error,
                                    String skillName, String status, long costMs) {
         try {
+            // 组装统一事件载荷并通过 SSE 推送异步执行结果。
             Map<String, Object> payload = new HashMap<>();
             payload.put("eventType", "SKILL_ASYNC_RESULT");
             payload.put("taskId", taskId);
@@ -165,6 +177,7 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
             return true;
         }
         try {
+            // 约定 status=error/failed 视为业务失败。
             JsonNode node = objectMapper.readTree(result);
             if (node.has("status")) {
                 String status = node.get("status").asText("");

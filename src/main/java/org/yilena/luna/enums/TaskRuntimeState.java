@@ -1,0 +1,19 @@
+package org.yilena.luna.enums;
+
+public enum TaskRuntimeState {
+    IDLE,
+    UNDERSTANDING,
+    CONTEXT_BUILDING,
+    PLANNING,
+    WAITING_PLAN_CONFIRMATION,
+    EXECUTING,
+    WAITING_TOOL,
+    WAITING_USER,
+    WAITING_APPROVAL,
+    REFLECTING,
+    REPLANNING,
+    REPORTING,
+    COMPLETED,
+    FAILED,
+    CANCELLED
+}
