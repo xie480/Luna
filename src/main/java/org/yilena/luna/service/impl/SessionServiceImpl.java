@@ -1,132 +1,133 @@
 package org.yilena.luna.service.impl;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-import org.yilena.luna.constants.RedisKeyConstant;
-import org.yilena.luna.constants.SymbolConstant;
 import org.yilena.luna.entity.ChatMessage;
 import org.yilena.luna.service.SessionService;
-import org.yilena.luna.utils.ServiceCommunicateUtil;
 
+import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-
+import java.util.Map;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
-/**
- * SessionServiceImpl ??
- */
 public class SessionServiceImpl implements SessionService {
 
-    private final StringRedisTemplate redis;
-    private final ObjectMapper mapper;
-
-    // 单日会话最大字数限制 (适配 Gemini Pro 的大上下文窗口，提升至 10万字)
-    private static final int MAX_CHARACTERS = 100000;
+    private final JdbcTemplate jdbcTemplate;
 
     @Override
     public void appendMessage(String keyPrefix, ChatMessage msg) {
-        // 将时间截断到秒级，去掉毫秒部分
-        msg.setTime(msg.getTime().truncatedTo(ChronoUnit.SECONDS));
+        if (keyPrefix == null || keyPrefix.isBlank() || msg == null) {
+            return;
+        }
         try {
-            // 转为JSON
-            String json = mapper.writeValueAsString(msg);
-            String key = String.format(RedisKeyConstant.CONTEXT_KEY_PREFIX, keyPrefix);
-            // 加入上下文
-            redis.opsForList().rightPush(key, json);
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException(e);
+            jdbcTemplate.update(
+                    "insert into conversation_message(session_id, role, message_type, content_text, created_at) values (?, ?, 'TEXT', ?, ?)",
+                    keyPrefix,
+                    toDbRole(msg.getRole()),
+                    msg.getContent(),
+                    toCreatedAt(msg.getTime())
+            );
+        } catch (Exception e) {
+            log.warn("append message failed, sessionId={}, err={}", keyPrefix, e.getMessage());
         }
     }
 
     @Override
     public List<ChatMessage> getRecentMessages(String keyPrefix, boolean isOld) {
-        String key = String.format(RedisKeyConstant.CONTEXT_KEY_PREFIX, keyPrefix);
-        // 获取所有历史记录
-        List<String> jsons = redis.opsForList().range(key, 0, -1);
-        if (jsons == null){
+        if (keyPrefix == null || keyPrefix.isBlank()) {
             return Collections.emptyList();
         }
-        // 计算长度
-        int len = 0;
-        // 反序列化
-        List<ChatMessage> out = new ArrayList<>(jsons.size());
-        for (String s : jsons) {
-            try {
-                len += s.length();
-                out.add(mapper.readValue(s, ChatMessage.class));
-            } catch (JsonProcessingException ex) {
-                log.error("解析数据失败: {}", s, ex);
+        try {
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                    "select role, content_text, created_at from conversation_message where session_id = ? order by created_at asc limit 300",
+                    keyPrefix
+            );
+            List<ChatMessage> out = new ArrayList<>(rows.size());
+            for (Map<String, Object> row : rows) {
+                String role = str(row.get("role"));
+                String content = str(row.get("content_text"));
+                LocalTime time = toLocalTime(row.get("created_at"));
+                out.add(new ChatMessage(fromDbRole(role), content, time));
             }
+            return out;
+        } catch (Exception e) {
+            log.warn("read messages failed, sessionId={}, err={}", keyPrefix, e.getMessage());
+            return Collections.emptyList();
         }
-        
-        // 仅根据字数长度来判断是否需要触发上下文压缩
-        if (!isOld && len > MAX_CHARACTERS) {
-            // 通知chatService应该要压缩了
-            log.info("当前会话字数已达 {}，触发上下文压缩标志", len);
-            ServiceCommunicateUtil.addSymbol(SymbolConstant.CONTEXT_SUMMARY_FLAG, 1);
-        }
-        return out;
     }
 
+    @Override
     public void clearSession(String sessionId) {
-        String key = String.format(RedisKeyConstant.CONTEXT_KEY_PREFIX, sessionId);
-
-        List<String> rawList = redis.opsForList().range(key, 0, -1);
-        if (rawList == null || rawList.isEmpty()) {
-            log.info("清理会话历史：Redis 中不存在会话记录，sessionId={}", sessionId);
+        if (sessionId == null || sessionId.isBlank()) {
             return;
         }
-
-        List<String> retainedMessages = new ArrayList<>();
-        int removedCount = 0;
-
-        for (int i = 0; i < rawList.size(); i++) {
-            String raw = rawList.get(i);
-            try {
-                ChatMessage msg = mapper.readValue(raw, ChatMessage.class);
-                if (msg == null || msg.getRole() == null) {
-                    // 异常数据直接保留，避免误删
-                    retainedMessages.add(raw);
-                    continue;
-                }
-                // 仅删除 USER / LUNA
-                if (msg.getRole() == ChatMessage.Role.USER || msg.getRole() == ChatMessage.Role.LUNA) {
-                    removedCount++;
-                    continue;
-                }
-                retainedMessages.add(raw);
-            } catch (Exception e) {
-                log.warn("解析 Redis 中的聊天消息失败，已保留该条记录，sessionId={}, index={}, 错误信息={}", sessionId, i, e.getMessage());
-                retainedMessages.add(raw);
-            }
+        try {
+            jdbcTemplate.update(
+                    "delete from conversation_message where session_id = ? and role in ('USER','ASSISTANT')",
+                    sessionId
+            );
+        } catch (Exception e) {
+            log.warn("clear session failed, sessionId={}, err={}", sessionId, e.getMessage());
         }
-        // 重写 Redis List
-        redis.delete(key);
-        if (!retainedMessages.isEmpty()) {
-            redis.opsForList().rightPushAll(key, retainedMessages);
-        }
-        log.info("清理会话历史完成：已删除 USER/LUNA 消息，sessionId={}, 删除条数={}, 剩余条数={}", sessionId, removedCount, retainedMessages.size());
     }
 
-
-
-    // 将历史压缩成一条summary
     @Override
     public void replaceHistoryWithSummary(String sessionId, String summary) {
-        ChatMessage summaryMsg = new ChatMessage(ChatMessage.Role.CONTEXT_SUMMARY, summary, LocalTime.now());
-        log.info("开始用 SUMMARY 替换历史聊天记录");
         clearSession(sessionId);
-        appendMessage(sessionId, summaryMsg);
-        log.info("历史聊天记录已成功压缩为 SUMMARY");
+        appendMessage(sessionId, new ChatMessage(ChatMessage.Role.CONTEXT_SUMMARY, summary, LocalTime.now()));
+    }
+
+    private LocalDateTime toCreatedAt(LocalTime time) {
+        LocalTime safeTime = time == null ? LocalTime.now() : time;
+        return LocalDateTime.now()
+                .withHour(safeTime.getHour())
+                .withMinute(safeTime.getMinute())
+                .withSecond(safeTime.getSecond());
+    }
+
+    private LocalTime toLocalTime(Object value) {
+        if (value instanceof java.sql.Timestamp timestamp) {
+            return timestamp.toLocalDateTime().toLocalTime();
+        }
+        if (value instanceof LocalDateTime dateTime) {
+            return dateTime.toLocalTime();
+        }
+        return LocalTime.now();
+    }
+
+    private String toDbRole(ChatMessage.Role role) {
+        if (role == null) {
+            return "ASSISTANT";
+        }
+        return switch (role) {
+            case USER -> "USER";
+            case LUNA -> "ASSISTANT";
+            case CONTEXT_SUMMARY -> "SUMMARY";
+            case STARTUP -> "SYSTEM";
+            case SHUTDOWN -> "SYSTEM";
+        };
+    }
+
+    private ChatMessage.Role fromDbRole(String role) {
+        if (role == null || role.isBlank()) {
+            return ChatMessage.Role.LUNA;
+        }
+        return switch (role) {
+            case "USER" -> ChatMessage.Role.USER;
+            case "ASSISTANT" -> ChatMessage.Role.LUNA;
+            case "SUMMARY" -> ChatMessage.Role.CONTEXT_SUMMARY;
+            default -> ChatMessage.Role.LUNA;
+        };
+    }
+
+    private String str(Object value) {
+        return value == null ? "" : String.valueOf(value);
     }
 }

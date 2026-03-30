@@ -18,12 +18,14 @@ public class OfflineMemoryLearningJob {
         int archived = archiveLowQualityMemory();
         int mergedTaskFacts = mergeDuplicateTaskFacts();
         int mergedRelationFacts = mergeDuplicateRelationalFacts();
+        int taskStatsSynced = syncTaskProcedureStatsFromEpisodes();
+        int relationStatsSynced = syncRelationalProcedureStatsFromEpisodes();
         int taskProcRanked = rankTaskProcedures();
         int relationProcRanked = rankRelationalProcedures();
         int profileUpdated = calibrateRelationalProfileScores();
 
-        log.info("offline learning done: archived={}, mergedTaskFacts={}, mergedRelationFacts={}, taskProcRanked={}, relationProcRanked={}, profileUpdated={}",
-                archived, mergedTaskFacts, mergedRelationFacts, taskProcRanked, relationProcRanked, profileUpdated);
+        log.info("offline learning done: archived={}, mergedTaskFacts={}, mergedRelationFacts={}, taskStatsSynced={}, relationStatsSynced={}, taskProcRanked={}, relationProcRanked={}, profileUpdated={}",
+                archived, mergedTaskFacts, mergedRelationFacts, taskStatsSynced, relationStatsSynced, taskProcRanked, relationProcRanked, profileUpdated);
     }
 
     private int archiveLowQualityMemory() {
@@ -92,6 +94,52 @@ public class OfflineMemoryLearningJob {
                             "confidence_score = case when usage_count <= 0 then confidence_score else " +
                             "least(greatest((success_count::numeric + 1) / (usage_count::numeric + 2), 0.05), 0.98) end, " +
                             "updated_at = current_timestamp"
+            );
+        } catch (Exception ignore) {
+            return 0;
+        }
+    }
+
+    private int syncTaskProcedureStatsFromEpisodes() {
+        try {
+            return jdbcTemplate.update(
+                    "with stats as (" +
+                            "select " +
+                            "count(*) filter (where episode_type = 'SUCCESS') as success_cnt, " +
+                            "count(*) filter (where episode_type = 'FAILURE') as fail_cnt, " +
+                            "count(*) as usage_cnt " +
+                            "from task_episode where created_at >= current_timestamp - interval '30 day'" +
+                            ") " +
+                            "update task_procedure_pattern p set " +
+                            "usage_count = greatest(p.usage_count, coalesce(stats.usage_cnt, 0)), " +
+                            "success_count = greatest(p.success_count, coalesce(stats.success_cnt, 0)), " +
+                            "fail_count = greatest(p.fail_count, coalesce(stats.fail_cnt, 0)), " +
+                            "updated_at = current_timestamp " +
+                            "from stats " +
+                            "where p.name = 'default_task_execution'"
+            );
+        } catch (Exception ignore) {
+            return 0;
+        }
+    }
+
+    private int syncRelationalProcedureStatsFromEpisodes() {
+        try {
+            return jdbcTemplate.update(
+                    "with stats as (" +
+                            "select " +
+                            "count(*) filter (where coalesce(response_effectiveness, 0.5) >= 0.65) as success_cnt, " +
+                            "count(*) filter (where coalesce(response_effectiveness, 0.5) < 0.65) as fail_cnt, " +
+                            "count(*) as usage_cnt " +
+                            "from relational_episode where created_at >= current_timestamp - interval '30 day'" +
+                            ") " +
+                            "update relational_procedure_pattern p set " +
+                            "usage_count = greatest(p.usage_count, coalesce(stats.usage_cnt, 0)), " +
+                            "success_count = greatest(p.success_count, coalesce(stats.success_cnt, 0)), " +
+                            "fail_count = greatest(p.fail_count, coalesce(stats.fail_cnt, 0)), " +
+                            "updated_at = current_timestamp " +
+                            "from stats " +
+                            "where p.name = 'default_relational_support'"
             );
         } catch (Exception ignore) {
             return 0;

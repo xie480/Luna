@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.enums.ModelType;
+import org.yilena.luna.enums.RelationalRuntimeState;
+import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
 import org.yilena.luna.llm.LlmResponse;
@@ -33,9 +35,9 @@ public class DefaultThreeStageResponseService implements ThreeStageResponseServi
             String relationTemplate = findTemplate(contextPackage, "relational_template", "companion_prompt");
             String hybridTemplate = findTemplate(contextPackage, "hybrid_template", "task_with_empathy_prompt");
 
-            String taskDraft = callModel(buildTaskDraftPrompt(userInput, toolContext, contextPackage, taskTemplate));
-            String relationalDraft = callModel(buildRelationalDraftPrompt(userInput, contextPackage, relationTemplate));
-            String synthesis = callModel(buildSynthesisPrompt(taskDraft, relationalDraft, hybridTemplate));
+            String taskDraft = callModel(buildTaskDraftPrompt(userInput, toolContext, contextPackage, taskTemplate), resolveTaskModelName(contextPackage));
+            String relationalDraft = callModel(buildRelationalDraftPrompt(userInput, contextPackage, relationTemplate), resolveSocialModelName(contextPackage));
+            String synthesis = callModel(buildSynthesisPrompt(taskDraft, relationalDraft, hybridTemplate), resolveSynthesisModelName());
             return synthesis == null ? "" : synthesis.trim();
         } catch (Exception ignore) {
             return "";
@@ -135,11 +137,11 @@ public class DefaultThreeStageResponseService implements ThreeStageResponseServi
                 """.formatted(templateName, nonEmpty(taskDraft), nonEmpty(relationalDraft));
     }
 
-    private String callModel(String prompt) {
+    private String callModel(String prompt, String modelName) {
         try {
             LlmRequest request = LlmRequest.builder()
                     .modelType(ModelType.OPENAI_COMPATIBLE)
-                    .modelName(geminiProperty.getFlash().getModelName())
+                    .modelName(modelName)
                     .messages(java.util.List.of(LlmMessage.user(prompt)))
                     .enablePromptInjectionCheck(true)
                     .build();
@@ -152,5 +154,38 @@ public class DefaultThreeStageResponseService implements ThreeStageResponseServi
 
     private String nonEmpty(String text) {
         return text == null || text.isBlank() ? "(empty)" : text.trim();
+    }
+
+    private String resolveTaskModelName(StructuredContextPackage contextPackage) {
+        TaskRuntimeState taskState = contextPackage.getTaskState();
+        if ((taskState == TaskRuntimeState.PLANNING || taskState == TaskRuntimeState.REPLANNING || taskState == TaskRuntimeState.EXECUTING)
+                && geminiProperty.getCode() != null && geminiProperty.getCode().getModelName() != null) {
+            return geminiProperty.getCode().getModelName();
+        }
+        if (geminiProperty.getBig() != null && geminiProperty.getBig().getModelName() != null) {
+            return geminiProperty.getBig().getModelName();
+        }
+        return geminiProperty.getFlash().getModelName();
+    }
+
+    private String resolveSocialModelName(StructuredContextPackage contextPackage) {
+        RelationalRuntimeState relationalState = contextPackage.getRelationalState();
+        if ((relationalState == RelationalRuntimeState.EMOTIONAL_SUPPORT
+                || relationalState == RelationalRuntimeState.FRAGILE_MOMENT
+                || relationalState == RelationalRuntimeState.REPAIRING)
+                && geminiProperty.getChat() != null && geminiProperty.getChat().getModelName() != null) {
+            return geminiProperty.getChat().getModelName();
+        }
+        if (geminiProperty.getFlash() != null && geminiProperty.getFlash().getModelName() != null) {
+            return geminiProperty.getFlash().getModelName();
+        }
+        return geminiProperty.getBig().getModelName();
+    }
+
+    private String resolveSynthesisModelName() {
+        if (geminiProperty.getFlash() != null && geminiProperty.getFlash().getModelName() != null) {
+            return geminiProperty.getFlash().getModelName();
+        }
+        return geminiProperty.getBig().getModelName();
     }
 }

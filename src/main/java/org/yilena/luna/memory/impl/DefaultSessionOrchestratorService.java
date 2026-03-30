@@ -14,7 +14,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -26,7 +25,6 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
     @Override
     public OrchestrationDecision onUserInput(String sessionId, String userInput) {
         String normalizedSessionId = sessionId == null || sessionId.isBlank() ? "default-session" : sessionId;
-        String traceId = UUID.randomUUID().toString();
         Long principalId = principalIdOf(normalizedSessionId);
 
         TaskRuntimeState previousTaskState = getCurrentTaskState(normalizedSessionId);
@@ -37,7 +35,6 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
 
         upsertPrincipal(principalId, normalizedSessionId);
         upsertSession(normalizedSessionId, principalId, nextTaskState, nextRelationalState, userInput);
-        insertEvent(normalizedSessionId, userInput, traceId);
 
         if (previousTaskState != nextTaskState) {
             insertTransition(normalizedSessionId, "TASK", previousTaskState.name(), nextTaskState.name(), userInput);
@@ -179,17 +176,6 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
             );
         } catch (Exception ignore) {
             return null;
-        }
-    }
-
-    private void insertEvent(String sessionId, String userInput, String traceId) {
-        try {
-            jdbcTemplate.update(
-                    "insert into event_inbox(session_id, event_type, payload_json, status, trace_id, created_at, updated_at) " +
-                            "values (?, 'USER_INPUT', jsonb_build_object('text', ?), 'PROCESSED', ?, current_timestamp, current_timestamp)",
-                    sessionId, userInput, traceId
-            );
-        } catch (Exception ignore) {
         }
     }
 

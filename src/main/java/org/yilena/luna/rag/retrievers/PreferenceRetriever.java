@@ -1,9 +1,8 @@
 package org.yilena.luna.rag.retrievers;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
-import org.yilena.luna.entity.UserPreference;
-import org.yilena.luna.rag.adapters.PgRetrievalAdapter;
 import org.yilena.luna.rag.models.Evidence;
 import org.yilena.luna.rag.models.QueryObject;
 import org.yilena.luna.rag.models.RetrievalSource;
@@ -14,12 +13,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.IntStream;
 
-/** 偏好检索器，负责用户偏好向量召回并构建可消费证据。 */
 @Component
 @RequiredArgsConstructor
 public class PreferenceRetriever implements BaseRetriever {
 
-    private final PgRetrievalAdapter pgRetrievalAdapter;
+    private final JdbcTemplate jdbcTemplate;
 
     @Override
     public RetrievalSource source() {
@@ -28,43 +26,56 @@ public class PreferenceRetriever implements BaseRetriever {
 
     @Override
     public List<Evidence> retrieve(QueryObject queryObject, int topK, Map<String, Object> filters) {
-        String vector = queryObject.getEmbedding();
-        if (vector == null || vector.isBlank() || "[]".equals(vector.trim())) {
+        String sessionId = queryObject.getSessionId();
+        if (sessionId == null || sessionId.isBlank()) {
             return Collections.emptyList();
         }
-        List<UserPreference> records = pgRetrievalAdapter.searchPreferenceByVector(vector, topK);
-        if (records == null || records.isEmpty()) {
+        List<Map<String, Object>> rows = queryPreferenceRows(sessionId, topK <= 0 ? 10 : topK);
+        if (rows.isEmpty()) {
             return Collections.emptyList();
         }
-        return IntStream.range(0, records.size())
-                .mapToObj(index -> toEvidence(records.get(index), index, records.size()))
+        return IntStream.range(0, rows.size())
+                .mapToObj(index -> toEvidence(rows.get(index), index, rows.size()))
                 .toList();
     }
 
-    private Evidence toEvidence(UserPreference preference, int index, int total) {
+    private List<Map<String, Object>> queryPreferenceRows(String sessionId, int topK) {
+        try {
+            return jdbcTemplate.queryForList(
+                    "select cast(fact_id as varchar) as id, fact_key as pref_key, fact_value_text as pref_value, description " +
+                            "from relational_semantic_fact where deleted = false and principal_id = cast(abs(hashtext(?)) as bigint) " +
+                            "order by updated_at desc limit ?",
+                    sessionId, topK
+            );
+        } catch (Exception ignore) {
+            return Collections.emptyList();
+        }
+    }
+
+    private Evidence toEvidence(Map<String, Object> row, int index, int total) {
         Map<String, Object> metadata = new HashMap<>();
-        metadata.put("raw_id", preference.getId());
-        metadata.put("pref_key", preference.getPrefKey());
-        metadata.put("pref_value", preference.getPrefValue());
+        metadata.put("raw_id", row.get("id"));
+        metadata.put("pref_key", str(row.get("pref_key")));
+        metadata.put("pref_value", str(row.get("pref_value")));
         return Evidence.builder()
-                .id("preference:" + preference.getId())
+                .id("preference:" + str(row.get("id")))
                 .source(RetrievalSource.PREFERENCE)
                 .type("preference")
-                .title(preference.getPrefKey())
-                .content(buildContent(preference))
+                .title(str(row.get("pref_key")))
+                .content(buildContent(row))
                 .score(rankScore(index, total))
                 .metadata(metadata)
                 .build();
     }
 
-    private String buildContent(UserPreference preference) {
-        return "pref_key=" + nullSafe(preference.getPrefKey())
-                + ", pref_value=" + nullSafe(preference.getPrefValue())
-                + ", description=" + nullSafe(preference.getDescription());
+    private String buildContent(Map<String, Object> row) {
+        return "pref_key=" + str(row.get("pref_key"))
+                + ", pref_value=" + str(row.get("pref_value"))
+                + ", description=" + str(row.get("description"));
     }
 
-    private String nullSafe(String value) {
-        return value == null ? "" : value;
+    private String str(Object value) {
+        return value == null ? "" : String.valueOf(value);
     }
 
     private double rankScore(int index, int total) {
