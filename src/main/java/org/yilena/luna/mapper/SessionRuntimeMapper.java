@@ -27,6 +27,24 @@ public interface SessionRuntimeMapper {
     Long selectCurrentPlanIdBySession(@Param("sessionId") String sessionId);
 
     @Select("""
+            select pi.plan_id, pi.status, pi.current_loop_index, pi.updated_at
+            from plan_instance pi
+            where pi.session_id = #{sessionId}
+            order by case when pi.status in (1, 2) then 0 else 1 end, pi.updated_at desc
+            limit 1
+            """)
+    Map<String, Object> selectLatestPlanRuntimeBySession(@Param("sessionId") String sessionId);
+
+    @Select("""
+            select pn.plan_id, pn.node_id, pn.status, pn.retry_count, pn.max_retry, pn.updated_at
+            from plan_node pn
+            where pn.plan_id = #{planId}
+            order by case when pn.status in (1, 5) then 0 else 1 end, pn.updated_at desc
+            limit 1
+            """)
+    Map<String, Object> selectLatestNodeRuntimeByPlanId(@Param("planId") String planId);
+
+    @Select("""
             select active_node_id
             from task_working_memory
             where session_id = #{sessionId}

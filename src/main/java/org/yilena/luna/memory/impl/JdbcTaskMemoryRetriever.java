@@ -2,6 +2,7 @@ package org.yilena.luna.memory.impl;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.mapper.RuntimeReadMapper;
 import org.yilena.luna.memory.MemoryHotLayerService;
 import org.yilena.luna.memory.TaskMemoryRetriever;
@@ -21,9 +22,8 @@ public class JdbcTaskMemoryRetriever implements TaskMemoryRetriever {
     private final MemoryHotLayerService memoryHotLayerService;
 
     @Override
-    public Map<String, Object> retrieve(String sessionId, String userInput) {
+    public Map<String, Object> retrieve(String sessionId, String userInput, TaskRuntimeState taskState) {
         Map<String, Object> result = new HashMap<>();
-        String queryVector = queryVector(userInput);
         Map<String, Object> workingCached = memoryHotLayerService.getWorkingMemoryCache(sessionId);
         Map<String, Object> workingMemory;
         List<Map<String, Object>> workingSlots;
@@ -45,13 +45,49 @@ public class JdbcTaskMemoryRetriever implements TaskMemoryRetriever {
 
         result.put("working_memory", workingMemory);
         result.put("working_slots", workingSlots);
-        result.put("task_facts", queryList(() -> runtimeReadMapper.selectTaskSemanticFacts(sessionId, queryVector)));
-        result.put("task_episodes", queryList(() -> runtimeReadMapper.selectTaskEpisodes(sessionId, queryVector)));
         result.put("task_episode_steps", queryList(() -> runtimeReadMapper.selectTaskEpisodeSteps(sessionId)));
-        result.put("task_procedures", queryList(() -> runtimeReadMapper.selectTaskProcedures(queryVector)));
-        result.put("knowledge", queryList(() -> runtimeReadMapper.selectKnowledgeChunks(queryVector)));
         result.put("plan_context", planContext);
+
+        boolean semanticRetrievalEnabled = shouldUseSemanticRetrieval(taskState, userInput, workingMemory, workingSlots, planContext);
+        String queryVector = semanticRetrievalEnabled ? queryVector(userInput) : null;
+        result.put("semantic_retrieval_enabled", semanticRetrievalEnabled);
+
+        if (semanticRetrievalEnabled) {
+            result.put("task_facts", queryList(() -> runtimeReadMapper.selectTaskSemanticFacts(sessionId, queryVector)));
+            result.put("task_episodes", queryList(() -> runtimeReadMapper.selectTaskEpisodes(sessionId, queryVector)));
+            result.put("task_procedures", queryList(() -> runtimeReadMapper.selectTaskProcedures(queryVector)));
+            result.put("knowledge", queryList(() -> runtimeReadMapper.selectKnowledgeChunks(queryVector)));
+        } else {
+            result.put("task_facts", Collections.emptyList());
+            result.put("task_episodes", Collections.emptyList());
+            result.put("task_procedures", Collections.emptyList());
+            result.put("knowledge", Collections.emptyList());
+        }
         return result;
+    }
+
+    private boolean shouldUseSemanticRetrieval(TaskRuntimeState taskState,
+                                               String userInput,
+                                               Map<String, Object> workingMemory,
+                                               List<Map<String, Object>> workingSlots,
+                                               Map<String, Object> planContext) {
+        if (taskState == TaskRuntimeState.CONTEXT_BUILDING
+                || taskState == TaskRuntimeState.PLANNING
+                || taskState == TaskRuntimeState.REPLANNING
+                || taskState == TaskRuntimeState.REFLECTING) {
+            return true;
+        }
+
+        if (containsAny(userInput,
+                "remember", "previous", "history", "knowledge", "document", "reference", "best practice",
+                "回忆", "之前", "上次", "历史", "经验", "案例", "知识", "文档", "参考", "规则", "偏好", "流程", "步骤")) {
+            return true;
+        }
+
+        boolean hasWorkingContext = !(workingMemory == null || workingMemory.isEmpty())
+                || (workingSlots != null && !workingSlots.isEmpty())
+                || !(planContext == null || planContext.isEmpty());
+        return !hasWorkingContext;
     }
 
     private String queryVector(String userInput) {
@@ -101,5 +137,18 @@ public class JdbcTaskMemoryRetriever implements TaskMemoryRetriever {
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> asList(Object value) {
         return value instanceof List<?> list ? (List<Map<String, Object>>) list : Collections.emptyList();
+    }
+
+    private boolean containsAny(String text, String... words) {
+        if (text == null || words == null) {
+            return false;
+        }
+        String lowerText = text.toLowerCase();
+        for (String word : words) {
+            if (word != null && !word.isBlank() && lowerText.contains(word.toLowerCase())) {
+                return true;
+            }
+        }
+        return false;
     }
 }

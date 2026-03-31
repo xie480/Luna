@@ -147,21 +147,23 @@ public interface MemoryWriteMapper {
 
     @Insert("""
             insert into task_semantic_fact(principal_id, scope_type, fact_type, fact_key, fact_value_text, confidence_score, stability_score, source_type, source_ref, deleted, created_at, updated_at)
-            select s.principal_id, 'USER', #{factType}, #{factKey}, #{factValue}, 0.72, 0.72, #{sourceType}, #{sourceRef}, false, current_timestamp, current_timestamp
+            select s.principal_id, 'USER', #{factType}, #{factKey}, #{factValue}, #{confidenceScore}, #{stabilityScore}, #{sourceType}, #{sourceRef}, false, current_timestamp, current_timestamp
             from agent_session s
             where s.session_id = #{sessionId}
             """)
     int insertTaskSemanticFact(@Param("sessionId") String sessionId, @Param("factType") String factType, @Param("factKey") String factKey,
-                               @Param("factValue") String factValue, @Param("sourceType") String sourceType, @Param("sourceRef") String sourceRef);
+                               @Param("factValue") String factValue, @Param("sourceType") String sourceType, @Param("sourceRef") String sourceRef,
+                               @Param("confidenceScore") double confidenceScore, @Param("stabilityScore") double stabilityScore);
 
     @Insert("""
             insert into relational_semantic_fact(principal_id, fact_type, fact_key, fact_value_text, confidence_score, stability_score, source_type, source_ref, deleted, created_at, updated_at)
-            select s.principal_id, #{factType}, #{factKey}, #{factValue}, 0.75, 0.75, #{sourceType}, #{sourceRef}, false, current_timestamp, current_timestamp
+            select s.principal_id, #{factType}, #{factKey}, #{factValue}, #{confidenceScore}, #{stabilityScore}, #{sourceType}, #{sourceRef}, false, current_timestamp, current_timestamp
             from agent_session s
             where s.session_id = #{sessionId}
             """)
     int insertRelationalSemanticFact(@Param("sessionId") String sessionId, @Param("factType") String factType, @Param("factKey") String factKey,
-                                     @Param("factValue") String factValue, @Param("sourceType") String sourceType, @Param("sourceRef") String sourceRef);
+                                     @Param("factValue") String factValue, @Param("sourceType") String sourceType, @Param("sourceRef") String sourceRef,
+                                     @Param("confidenceScore") double confidenceScore, @Param("stabilityScore") double stabilityScore);
 
     @Update("""
             insert into relational_profile(

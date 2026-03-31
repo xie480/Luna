@@ -43,8 +43,8 @@ public class DefaultContextCompilerService implements ContextCompilerService {
         }
 
         Map<String, Object> runtime = runtimeRetriever.retrieve(sessionId);
-        Map<String, Object> taskContext = taskMemoryRetriever.retrieve(sessionId, userInput);
-        Map<String, Object> relationalContext = relationalMemoryRetriever.retrieve(sessionId, userInput);
+        Map<String, Object> taskContext = taskMemoryRetriever.retrieve(sessionId, userInput, taskState);
+        Map<String, Object> relationalContext = relationalMemoryRetriever.retrieve(sessionId, userInput, relationalState);
 
         List<Map<String, Object>> recentMessages = safeList(runtime.get("recent_messages"));
         List<Map<String, Object>> capabilities = capabilityPolicyRouterService.routeForContext(

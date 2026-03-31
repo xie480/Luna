@@ -18,6 +18,7 @@ import org.yilena.luna.service.McpService;
 import org.yilena.luna.sse.LunaStatusPublisher;
 import org.yilena.luna.utils.AuthContextHolder;
 import org.yilena.luna.utils.LlmClientUtil;
+import org.yilena.luna.utils.ToolCallingContextHolder;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -136,8 +137,10 @@ public class SkillExecutor {
                         String.format("Luna 正在执行技能步骤 %d/%d：%s", i + 1, slots.size(), stepDesc)
                 );
 
+                Resource matchedTool = null;
+                String toolArgs = "{}";
                 try {
-                    Resource matchedTool = selectBestToolByCapability(slot.getCapability(), inputNode);
+                    matchedTool = selectBestToolByCapability(slot.getCapability(), inputNode);
 
                     if (matchedTool == null) {
                         if (Boolean.TRUE.equals(slot.getRequired())) {
@@ -155,7 +158,7 @@ public class SkillExecutor {
                     step.put("toolName", matchedTool.getName());
                     step.put("toolId", matchedTool.getId());
 
-                    String toolArgs = buildToolArgs(inputNode, state);
+                    toolArgs = buildToolArgs(inputNode, state);
                     step.put("toolArgs", safeToNode(toolArgs));
 
                     String sessionId = AuthContextHolder.getSessionId();
@@ -173,6 +176,7 @@ public class SkillExecutor {
                     step.put("toolResult", toolResultNode != null ? toolResultNode : toolResult);
                     step.put("status", stepSuccess ? "SUCCESS" : "FAILED");
                     step.put("costMs", System.currentTimeMillis() - stepStart);
+                    recordToolTrace(matchedTool, toolArgs, toolResult, stepSuccess ? "SUCCESS" : "FAILED", null, System.currentTimeMillis() - stepStart);
 
                     state.put(slot.getSlot(), toolResultNode != null ? toolResultNode : toolResult);
 
@@ -190,6 +194,7 @@ public class SkillExecutor {
                     step.put("status", "FAILED");
                     step.put("error", e.getMessage());
                     step.put("costMs", System.currentTimeMillis() - stepStart);
+                    recordToolTrace(matchedTool, toolArgs, null, "FAILED", e.getMessage(), System.currentTimeMillis() - stepStart);
                     stepResults.add(step);
 
                     if (Boolean.TRUE.equals(slot.getRequired())) {
@@ -333,6 +338,23 @@ public class SkillExecutor {
         } catch (Exception e) {
             return "{\"status\":\"error\",\"message\":\"execution serialization failed\"}";
         }
+    }
+
+    private void recordToolTrace(Resource tool,
+                                 String inputJson,
+                                 String outputJson,
+                                 String status,
+                                 String errorMessage,
+                                 long latencyMs) {
+        Map<String, Object> trace = new LinkedHashMap<>();
+        trace.put("tool_name", tool == null ? "unknown_tool" : tool.getName());
+        trace.put("call_status", status == null ? "UNKNOWN" : status);
+        trace.put("source_type", "TOOL");
+        trace.put("normalized_input", safeToNode(inputJson) == null ? Map.of("raw", inputJson == null ? "" : inputJson) : safeToNode(inputJson));
+        trace.put("normalized_output", safeToNode(outputJson) == null ? Map.of("raw", outputJson == null ? "" : outputJson) : safeToNode(outputJson));
+        trace.put("error_message", errorMessage == null ? "" : errorMessage);
+        trace.put("latency_ms", Math.max(0L, latencyMs));
+        ToolCallingContextHolder.appendToolExecutionTrace(trace);
     }
 
     private String error(String errorCode, String message, String skillName, String missingToolSlot, String missingCapability) {

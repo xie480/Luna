@@ -9,9 +9,12 @@ import org.yilena.luna.mapper.MemoryWriteMapper;
 import org.yilena.luna.memory.MemoryWritePipelineService;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -29,9 +32,10 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
         insertMessage(sessionId, "ASSISTANT", assistantReply);
         updateSessionState(sessionId, contextPackage);
         upsertTaskWorkingMemory(sessionId, userInput, assistantReply, contextPackage);
-        upsertRelationalWorkingMemory(sessionId, contextPackage);
-        extractAndPersistSemanticFacts(sessionId, userInput);
-        upsertRelationalLongTermMemory(sessionId, userInput, contextPackage);
+        RelationalWorkingSnapshot relationalSnapshot = resolveRelationalWorkingSnapshot(userInput, contextPackage);
+        upsertRelationalWorkingMemory(sessionId, contextPackage, relationalSnapshot);
+        extractAndPersistSemanticFacts(sessionId, userInput, assistantReply, contextPackage, relationalSnapshot);
+        upsertRelationalLongTermMemory(sessionId, userInput, contextPackage, relationalSnapshot);
         buildEpisodes(sessionId, userInput, assistantReply, contextPackage);
         reflectAndMineProcedures(sessionId, userInput, assistantReply, contextPackage);
         updateProcedureStatistics(userInput, contextPackage);
@@ -119,7 +123,9 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
         }
     }
 
-    private void upsertRelationalWorkingMemory(String sessionId, StructuredContextPackage contextPackage) {
+    private void upsertRelationalWorkingMemory(String sessionId,
+                                               StructuredContextPackage contextPackage,
+                                               RelationalWorkingSnapshot snapshot) {
         String relationalState = contextPackage != null && contextPackage.getRelationalState() != null
                 ? contextPackage.getRelationalState().name()
                 : RelationalRuntimeState.LIGHT_CHAT.name();
@@ -127,17 +133,83 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
             memoryWriteMapper.upsertRelationalWorking(
                     sessionId,
                     relationalState,
-                    "NEUTRAL",
-                    0.65,
-                    inferTone(relationalState),
-                    "task_forward",
-                    "solve_task",
-                    toJson(List.of()),
-                    toJson(List.of()),
-                    toJson(List.of())
+                    snapshot.inferredEmotion(),
+                    snapshot.emotionConfidence(),
+                    snapshot.desiredTone(),
+                    snapshot.supportIntent(),
+                    snapshot.interactionGoal(),
+                    toJson(snapshot.cautionFlags()),
+                    toJson(snapshot.bondSignals()),
+                    toJson(snapshot.sensitiveSignals())
             );
         } catch (Exception ignore) {
         }
+    }
+
+    private RelationalWorkingSnapshot resolveRelationalWorkingSnapshot(String userInput, StructuredContextPackage contextPackage) {
+        Map<String, Object> relationalContext = contextPackage == null ? Map.of() : asMap(contextPackage.getRelationalContext());
+        Map<String, Object> working = asMap(relationalContext.get("working_memory"));
+        Map<String, Object> profile = asMap(relationalContext.get("profile"));
+        Map<String, Object> socialDraft = resolveSocialDraft(contextPackage);
+
+        String relationalState = contextPackage != null && contextPackage.getRelationalState() != null
+                ? contextPackage.getRelationalState().name()
+                : RelationalRuntimeState.LIGHT_CHAT.name();
+
+        String inferredEmotion = firstNonBlank(
+                asText(socialDraft.get("inferred_emotion")),
+                asText(working.get("inferred_emotion")),
+                inferEmotionFromInput(userInput, relationalState)
+        );
+        double emotionConfidence = bounded(
+                firstPositive(
+                        asDouble(socialDraft.get("emotion_confidence"), 0.0),
+                        asDouble(working.get("emotion_confidence"), 0.0),
+                        inferEmotionConfidence(userInput, inferredEmotion)
+                ),
+                0.35,
+                0.98
+        );
+        String desiredTone = firstNonBlank(
+                asText(socialDraft.get("recommended_tone")),
+                asText(working.get("desired_tone")),
+                asText(profile.get("preferred_tone")),
+                inferTone(relationalState)
+        );
+        String supportIntent = firstNonBlank(
+                asText(socialDraft.get("support_intent")),
+                asText(working.get("support_intent")),
+                inferSupportIntent(userInput, relationalState)
+        );
+        String interactionGoal = firstNonBlank(
+                asText(socialDraft.get("interaction_goal")),
+                asText(working.get("interaction_goal")),
+                inferInteractionGoal(relationalState)
+        );
+
+        List<String> cautionFlags = mergeSignals(
+                asStringList(socialDraft.get("boundary_hints")),
+                extractSignalsSafe(asText(userInput), "别", "不要", "不喜欢", "敏感", "冒犯", "boundary")
+        );
+        List<String> bondSignals = mergeSignals(
+                asStringList(socialDraft.get("closing_style")),
+                extractSignalsSafe(asText(userInput), "谢谢", "一起", "陪我", "信任", "太好了", "庆祝")
+        );
+        List<String> sensitiveSignals = mergeSignals(
+                asStringList(relationalContext.get("boundary_rules")),
+                extractSignalsSafe(asText(userInput), "难受", "焦虑", "崩溃", "撑不住", "不舒服")
+        );
+
+        return new RelationalWorkingSnapshot(
+                inferredEmotion,
+                emotionConfidence,
+                desiredTone,
+                supportIntent,
+                interactionGoal,
+                cautionFlags,
+                bondSignals,
+                sensitiveSignals
+        );
     }
 
     private String inferTone(String relationalState) {
@@ -147,50 +219,258 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
         if ("CELEBRATING".equals(relationalState)) {
             return "warm_and_positive";
         }
+        if ("REPAIRING".equals(relationalState)) {
+            return "careful_and_humble";
+        }
         return "clear_and_friendly";
     }
 
-    private void extractAndPersistSemanticFacts(String sessionId, String userInput) {
-        String text = userInput == null ? "" : userInput.trim();
-        if (text.isEmpty()) {
-            return;
+    private String inferSupportIntent(String userInput, String relationalState) {
+        String lower = userInput == null ? "" : userInput.toLowerCase(Locale.ROOT);
+        if (containsAny(lower, "先听", "listen", "先别给方案", "安慰", "陪我")) {
+            return "listen_first";
         }
-        String lower = text.toLowerCase(Locale.ROOT);
-        if (containsAny(lower, "以后", "从现在", "默认", "prefer", "always", "请用", "输出用")) {
-            insertTaskSemanticFact(sessionId, "PREFERENCE", "explicit_output_preference", summarize(text, 220), "USER_INPUT");
+        if ("REPAIRING".equals(relationalState)) {
+            return "repair_alignment";
         }
-        if (containsAny(lower, "我在做", "我们做", "行业", "业务", "b 端", "b端", "saas")) {
-            insertTaskSemanticFact(sessionId, "DOMAIN_FACT", "explicit_domain_fact", summarize(text, 220), "USER_INPUT");
+        if ("CELEBRATING".equals(relationalState)) {
+            return "amplify_positive";
         }
-        if (containsAny(lower, "default", "prefer", "markdown", "format", "style", "偏好", "默认")) {
-            insertTaskSemanticFact(sessionId, "PREFERENCE", "auto_extracted_task_pref", text, "USER_INPUT");
+        if ("EMOTIONAL_SUPPORT".equals(relationalState) || "FRAGILE_MOMENT".equals(relationalState)) {
+            return "stabilize_emotion";
         }
-        if (containsAny(lower, "do not call me", "don't lecture", "uncomfortable", "need support first", "别叫我", "先别给方案", "不喜欢说教")) {
-            insertRelationalSemanticFact(sessionId, "BOUNDARY", "auto_extracted_relation_boundary", text, "USER_INPUT");
+        return "task_forward";
+    }
+
+    private String inferInteractionGoal(String relationalState) {
+        if ("REPAIRING".equals(relationalState)) {
+            return "confirm_alignment";
         }
-        if (containsAny(lower, "先听", "先安慰", "先陪我", "listen first", "comfort first")) {
-            insertRelationalSemanticFact(sessionId, "SUPPORT_STYLE", "explicit_support_style", summarize(text, 220), "USER_INPUT");
+        if ("EMOTIONAL_SUPPORT".equals(relationalState) || "FRAGILE_MOMENT".equals(relationalState)) {
+            return "stabilize_then_progress";
+        }
+        if ("CELEBRATING".equals(relationalState)) {
+            return "anchor_momentum";
+        }
+        return "solve_task";
+    }
+
+    private String inferEmotionFromInput(String userInput, String relationalState) {
+        String lower = userInput == null ? "" : userInput.toLowerCase(Locale.ROOT);
+        if (containsAny(lower, "焦虑", "紧张", "anxious", "压力")) {
+            return "anxious";
+        }
+        if (containsAny(lower, "崩溃", "撑不住", "难受", "sad", "down")) {
+            return "sad";
+        }
+        if (containsAny(lower, "开心", "太好了", "celebrate", "great")) {
+            return "positive";
+        }
+        if ("REPAIRING".equals(relationalState)) {
+            return "uneasy";
+        }
+        if ("EMOTIONAL_SUPPORT".equals(relationalState) || "FRAGILE_MOMENT".equals(relationalState)) {
+            return "tired";
+        }
+        return "calm";
+    }
+
+    private double inferEmotionConfidence(String userInput, String inferredEmotion) {
+        String lower = userInput == null ? "" : userInput.toLowerCase(Locale.ROOT);
+        if (containsAny(lower, "我很", "真的", "非常", "特别", "today i feel")) {
+            return 0.83;
+        }
+        if (containsAny(lower, "可能", "有点", "maybe", "perhaps")) {
+            return 0.58;
+        }
+        if ("calm".equals(inferredEmotion)) {
+            return 0.50;
+        }
+        return 0.70;
+    }
+
+    private void extractAndPersistSemanticFacts(String sessionId,
+                                                String userInput,
+                                                String assistantReply,
+                                                StructuredContextPackage contextPackage,
+                                                RelationalWorkingSnapshot relationalSnapshot) {
+        List<SemanticFactCandidate> candidates = new ArrayList<>();
+        candidates.addAll(extractStructuredTaskSemanticFacts(userInput, assistantReply, contextPackage));
+        candidates.addAll(extractStructuredRelationalFacts(userInput, contextPackage, relationalSnapshot));
+        if (candidates.isEmpty()) {
+            candidates.addAll(extractFallbackSemanticFacts(userInput));
+        }
+
+        Set<String> dedupe = new LinkedHashSet<>();
+        for (SemanticFactCandidate candidate : candidates) {
+            if (candidate == null || candidate.factValue().isBlank()) {
+                continue;
+            }
+            String dedupeKey = (candidate.domain() + "|" + candidate.factType() + "|" + candidate.factKey() + "|" + candidate.factValue()).toLowerCase(Locale.ROOT);
+            if (!dedupe.add(dedupeKey)) {
+                continue;
+            }
+            if ("TASK".equals(candidate.domain())) {
+                insertTaskSemanticFact(
+                        sessionId,
+                        candidate.factType(),
+                        candidate.factKey(),
+                        candidate.factValue(),
+                        candidate.sourceType(),
+                        candidate.confidence(),
+                        candidate.stability()
+                );
+            } else {
+                insertRelationalSemanticFact(
+                        sessionId,
+                        candidate.factType(),
+                        candidate.factKey(),
+                        candidate.factValue(),
+                        candidate.sourceType(),
+                        candidate.confidence(),
+                        candidate.stability()
+                );
+            }
         }
     }
 
-    private void upsertRelationalLongTermMemory(String sessionId, String userInput, StructuredContextPackage contextPackage) {
+    private List<SemanticFactCandidate> extractStructuredTaskSemanticFacts(String userInput,
+                                                                           String assistantReply,
+                                                                           StructuredContextPackage contextPackage) {
+        if (contextPackage == null) {
+            return List.of();
+        }
+        Map<String, Object> taskContext = asMap(contextPackage.getTaskContext());
+        List<Map<String, Object>> taskFacts = asMapList(taskContext.get("task_facts"));
+        List<SemanticFactCandidate> out = new ArrayList<>();
+        for (Map<String, Object> fact : taskFacts) {
+            String value = summarize(asText(fact.get("fact_value_text")), 220);
+            if (value.isBlank() || !isSupportedByCurrentTurn(value, userInput, assistantReply)) {
+                continue;
+            }
+            out.add(new SemanticFactCandidate(
+                    "TASK",
+                    firstNonBlank(asText(fact.get("fact_type")).toUpperCase(Locale.ROOT), "DOMAIN_FACT"),
+                    firstNonBlank(asText(fact.get("fact_key")), "context_reinforced_fact"),
+                    value,
+                    "CONTEXT_REINFORCED",
+                    bounded(asDouble(fact.get("confidence_score"), 0.74) + 0.04, 0.45, 0.98),
+                    bounded(asDouble(fact.get("stability_score"), 0.74) + 0.05, 0.40, 0.98)
+            ));
+        }
+        return out;
+    }
+
+    private List<SemanticFactCandidate> extractStructuredRelationalFacts(String userInput,
+                                                                         StructuredContextPackage contextPackage,
+                                                                         RelationalWorkingSnapshot snapshot) {
+        if (contextPackage == null) {
+            return List.of();
+        }
+        Map<String, Object> relationalContext = asMap(contextPackage.getRelationalContext());
+        Map<String, Object> profile = asMap(relationalContext.get("profile"));
+        List<Map<String, Object>> boundaryRules = asMapList(relationalContext.get("boundary_rules"));
+        List<SemanticFactCandidate> out = new ArrayList<>();
+
+        for (Map<String, Object> rule : boundaryRules) {
+            String ruleKey = firstNonBlank(asText(rule.get("rule_key")), "boundary_rule");
+            String ruleValue = summarize(asText(rule.get("rule_value")), 160);
+            if (ruleValue.isBlank()) {
+                continue;
+            }
+            if (isSupportedByCurrentTurn(ruleValue, userInput, snapshot.supportIntent())) {
+                out.add(new SemanticFactCandidate(
+                        "RELATION",
+                        "BOUNDARY",
+                        ruleKey,
+                        ruleValue,
+                        "CONTEXT_RULE",
+                        bounded(asDouble(rule.get("confidence_score"), 0.78), 0.45, 0.98),
+                        0.86
+                ));
+            }
+        }
+
+        String preferredTone = asText(profile.get("preferred_tone"));
+        if (!preferredTone.isBlank() && isSupportedByCurrentTurn(preferredTone, userInput, snapshot.desiredTone())) {
+            out.add(new SemanticFactCandidate(
+                    "RELATION",
+                    "INTERACTION_STYLE",
+                    "preferred_tone",
+                    preferredTone,
+                    "PROFILE_REINFORCED",
+                    0.78,
+                    0.80
+            ));
+        }
+
+        if (!snapshot.supportIntent().isBlank() && containsAny(snapshot.supportIntent(), "listen", "repair", "stabilize")) {
+            out.add(new SemanticFactCandidate(
+                    "RELATION",
+                    "SUPPORT_STYLE",
+                    "dynamic_support_intent",
+                    snapshot.supportIntent(),
+                    "SOCIAL_DRAFT",
+                    bounded(snapshot.emotionConfidence() * 0.90, 0.45, 0.95),
+                    0.62
+            ));
+        }
+
+        return out;
+    }
+
+    private List<SemanticFactCandidate> extractFallbackSemanticFacts(String userInput) {
+        String text = userInput == null ? "" : userInput.trim();
+        if (text.isEmpty()) {
+            return List.of();
+        }
+        String lower = text.toLowerCase(Locale.ROOT);
+        List<SemanticFactCandidate> out = new ArrayList<>();
+        if (containsAny(lower, "以后", "从现在", "默认", "prefer", "always", "请用", "输出用")) {
+            out.add(new SemanticFactCandidate("TASK", "PREFERENCE", "explicit_output_preference", summarize(text, 220), "USER_INPUT", 0.84, 0.83));
+        }
+        if (containsAny(lower, "我在做", "我们做", "行业", "业务", "b 端", "b端", "saas")) {
+            out.add(new SemanticFactCandidate("TASK", "DOMAIN_FACT", "explicit_domain_fact", summarize(text, 220), "USER_INPUT", 0.80, 0.86));
+        }
+        if (containsAny(lower, "default", "prefer", "markdown", "format", "style", "偏好", "默认")) {
+            out.add(new SemanticFactCandidate("TASK", "PREFERENCE", "auto_extracted_task_pref", summarize(text, 220), "USER_INPUT", 0.68, 0.58));
+        }
+        if (containsAny(lower, "do not call me", "don't lecture", "uncomfortable", "need support first", "别叫我", "先别给方案", "不喜欢说教")) {
+            out.add(new SemanticFactCandidate("RELATION", "BOUNDARY", "auto_extracted_relation_boundary", summarize(text, 220), "USER_INPUT", 0.82, 0.79));
+        }
+        if (containsAny(lower, "先听", "先安慰", "先陪我", "listen first", "comfort first")) {
+            out.add(new SemanticFactCandidate("RELATION", "SUPPORT_STYLE", "explicit_support_style", summarize(text, 220), "USER_INPUT", 0.80, 0.72));
+        }
+        return out;
+    }
+
+    private void upsertRelationalLongTermMemory(String sessionId,
+                                                String userInput,
+                                                StructuredContextPackage contextPackage,
+                                                RelationalWorkingSnapshot snapshot) {
         String lower = userInput == null ? "" : userInput.toLowerCase(Locale.ROOT);
+        Map<String, Object> relationalContext = contextPackage == null ? Map.of() : asMap(contextPackage.getRelationalContext());
+        Map<String, Object> profile = asMap(relationalContext.get("profile"));
+        String preferredTone = firstNonBlank(asText(profile.get("preferred_tone")), snapshot.desiredTone());
+        String supportStyle = firstNonBlank(asText(profile.get("emotional_support_style")), snapshot.supportIntent());
+        double trustScore = bounded(0.52 + snapshot.emotionConfidence() * 0.38 + ("REPAIRING".equals(snapshot.interactionGoal()) ? -0.06 : 0.04), 0.35, 0.96);
+        double intimacyScore = bounded(0.48 + snapshot.emotionConfidence() * 0.34 + (containsAny(lower, "一起", "陪我", "信任", "long term") ? 0.08 : 0.0), 0.30, 0.95);
         try {
             memoryWriteMapper.upsertRelationalProfile(
                     sessionId,
                     contextPackage != null && contextPackage.getRelationalState() != null ? contextPackage.getRelationalState().name() : "FAMILIARIZING",
-                    "",
-                    containsAny(lower, "简短", "直接") ? "concise_direct" : "clear_and_friendly",
-                    containsAny(lower, "先别给方案", "先听我说") ? "listen_first" : "balanced",
+                    firstNonBlank(asText(profile.get("preferred_name")), ""),
+                    firstNonBlank(preferredTone, containsAny(lower, "简短", "直接") ? "concise_direct" : "clear_and_friendly"),
+                    firstNonBlank(supportStyle, containsAny(lower, "先别给方案", "先听我说") ? "listen_first" : "balanced"),
                     "neutral",
                     "medium",
-                    toJson(Map.of("source", "online_pipeline")),
-                    toJson(Map.of("source", "online_pipeline")),
-                    toJson(List.of()),
+                    toJson(Map.of("source", "online_pipeline", "interaction_goal", snapshot.interactionGoal())),
+                    toJson(Map.of("source", "online_pipeline", "caution_flags", snapshot.cautionFlags())),
+                    toJson(snapshot.sensitiveSignals()),
                     toJson(extractComfortTriggers(lower)),
                     toJson(extractNoGoPatterns(lower)),
-                    0.65,
-                    0.62
+                    trustScore,
+                    intimacyScore
             );
         } catch (Exception ignore) {
         }
@@ -204,7 +484,7 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
                     toJson(extractSignals(lower, "难受", "低落", "失望")),
                     toJson(extractComfortTriggers(lower)),
                     toJson(List.of("small_steps")),
-                    containsAny(lower, "崩溃", "撑不住") ? 0.55 : 0.72
+                    bounded(0.46 + snapshot.emotionConfidence() * 0.40, 0.35, 0.92)
             );
         } catch (Exception ignore) {
         }
@@ -214,16 +494,46 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
         tryInsertBoundaryRule(sessionId, lower, "PACE", "listen_before_advice", "先别给方案");
     }
 
-    private void insertTaskSemanticFact(String sessionId, String factType, String factKey, String factValue, String sourceType) {
+    private void insertTaskSemanticFact(String sessionId,
+                                        String factType,
+                                        String factKey,
+                                        String factValue,
+                                        String sourceType,
+                                        double confidence,
+                                        double stability) {
         try {
-            memoryWriteMapper.insertTaskSemanticFact(sessionId, factType, factKey, factValue, sourceType, sessionId);
+            memoryWriteMapper.insertTaskSemanticFact(
+                    sessionId,
+                    factType,
+                    factKey,
+                    factValue,
+                    sourceType,
+                    sessionId,
+                    bounded(confidence, 0.20, 0.99),
+                    bounded(stability, 0.20, 0.99)
+            );
         } catch (Exception ignore) {
         }
     }
 
-    private void insertRelationalSemanticFact(String sessionId, String factType, String factKey, String factValue, String sourceType) {
+    private void insertRelationalSemanticFact(String sessionId,
+                                              String factType,
+                                              String factKey,
+                                              String factValue,
+                                              String sourceType,
+                                              double confidence,
+                                              double stability) {
         try {
-            memoryWriteMapper.insertRelationalSemanticFact(sessionId, factType, factKey, factValue, sourceType, sessionId);
+            memoryWriteMapper.insertRelationalSemanticFact(
+                    sessionId,
+                    factType,
+                    factKey,
+                    factValue,
+                    sourceType,
+                    sessionId,
+                    bounded(confidence, 0.20, 0.99),
+                    bounded(stability, 0.20, 0.99)
+            );
         } catch (Exception ignore) {
         }
     }
@@ -448,6 +758,186 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
             memoryWriteMapper.upsertEpisodeSummaryRelations(sessionId);
         } catch (Exception ignore) {
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> asMap(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            return (Map<String, Object>) map;
+        }
+        return Map.of();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> asMapList(Object value) {
+        if (value instanceof List<?> list) {
+            List<Map<String, Object>> out = new ArrayList<>();
+            for (Object item : list) {
+                if (item instanceof Map<?, ?> map) {
+                    out.add((Map<String, Object>) map);
+                }
+            }
+            return out;
+        }
+        return List.of();
+    }
+
+    private String asText(Object value) {
+        if (value == null) {
+            return "";
+        }
+        return String.valueOf(value).trim();
+    }
+
+    private double asDouble(Object value, double fallback) {
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        if (value == null) {
+            return fallback;
+        }
+        try {
+            return Double.parseDouble(String.valueOf(value));
+        } catch (Exception ignore) {
+            return fallback;
+        }
+    }
+
+    private Map<String, Object> resolveSocialDraft(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getPromptPolicy() == null) {
+            return Map.of();
+        }
+        Object raw = contextPackage.getPromptPolicy().get("social_draft");
+        if (raw instanceof Map<?, ?> map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> out = (Map<String, Object>) map;
+            return out;
+        }
+        return Map.of();
+    }
+
+    private List<String> mergeSignals(List<String> first, List<String> second) {
+        Set<String> merged = new LinkedHashSet<>();
+        if (first != null) {
+            merged.addAll(first.stream().filter(s -> s != null && !s.isBlank()).map(String::trim).toList());
+        }
+        if (second != null) {
+            merged.addAll(second.stream().filter(s -> s != null && !s.isBlank()).map(String::trim).toList());
+        }
+        return merged.stream().toList();
+    }
+
+    private List<String> asStringList(Object value) {
+        if (value instanceof String text) {
+            if (text.isBlank()) {
+                return List.of();
+            }
+            return List.of(text.trim());
+        }
+        if (value instanceof List<?> list) {
+            List<String> out = new ArrayList<>();
+            for (Object item : list) {
+                if (item == null) {
+                    continue;
+                }
+                if (item instanceof Map<?, ?> map) {
+                    String key = asText(map.get("rule_key"));
+                    String val = asText(map.get("rule_value"));
+                    String packed = (key + ":" + val).trim();
+                    if (!packed.isBlank() && !":".equals(packed)) {
+                        out.add(packed);
+                    }
+                    continue;
+                }
+                String text = asText(item);
+                if (!text.isBlank()) {
+                    out.add(text);
+                }
+            }
+            return out;
+        }
+        return List.of();
+    }
+
+    private List<String> extractSignalsSafe(String text, String... words) {
+        return extractSignals(text == null ? "" : text.toLowerCase(Locale.ROOT), words);
+    }
+
+    private boolean isSupportedByCurrentTurn(String factValue, String userInput, String assistantReply) {
+        String fact = asText(factValue).toLowerCase(Locale.ROOT);
+        if (fact.isBlank()) {
+            return false;
+        }
+        String merged = (asText(userInput) + " " + asText(assistantReply)).toLowerCase(Locale.ROOT);
+        if (merged.isBlank()) {
+            return false;
+        }
+        return merged.contains(fact)
+                || fact.contains(merged)
+                || containsAny(merged, splitToKeywords(fact));
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) {
+            return "";
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
+    }
+
+    private double firstPositive(double... values) {
+        if (values == null) {
+            return 0.0;
+        }
+        for (double value : values) {
+            if (value > 0.0) {
+                return value;
+            }
+        }
+        return 0.0;
+    }
+
+    private double bounded(double value, double min, double max) {
+        if (Double.isNaN(value) || Double.isInfinite(value)) {
+            return min;
+        }
+        if (value < min) {
+            return min;
+        }
+        return Math.min(value, max);
+    }
+
+    private String[] splitToKeywords(String text) {
+        if (text == null || text.isBlank()) {
+            return new String[0];
+        }
+        return java.util.Arrays.stream(text.split("[,;|\\s]+"))
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .toArray(String[]::new);
+    }
+
+    private record SemanticFactCandidate(String domain,
+                                         String factType,
+                                         String factKey,
+                                         String factValue,
+                                         String sourceType,
+                                         double confidence,
+                                         double stability) {
+    }
+
+    private record RelationalWorkingSnapshot(String inferredEmotion,
+                                             double emotionConfidence,
+                                             String desiredTone,
+                                             String supportIntent,
+                                             String interactionGoal,
+                                             List<String> cautionFlags,
+                                             List<String> bondSignals,
+                                             List<String> sensitiveSignals) {
     }
 
     private LearningSignal deriveLearningSignal(StructuredContextPackage contextPackage, String userInput, String assistantReply) {

@@ -12,6 +12,7 @@ import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.utils.AuthContextHolder;
 
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -53,7 +54,9 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
 
         TaskRuntimeState previousTaskState = getCurrentTaskState(normalizedSessionId);
         RelationalRuntimeState previousRelationalState = getCurrentRelationalState(normalizedSessionId);
-        TaskRuntimeState nextTaskState = inferTaskState(previousTaskState, eventType, signal, payloadJson);
+        ExecutionSnapshot executionSnapshot = resolveExecutionSnapshot(normalizedSessionId);
+
+        TaskRuntimeState nextTaskState = inferTaskState(previousTaskState, eventType, signal, payloadJson, executionSnapshot);
         RelationalRuntimeState nextRelationalState = inferRelationalState(previousRelationalState, eventType, signal, payloadJson);
 
         Long inferredPlanId = inferPlanId(payloadJson, signal);
@@ -107,10 +110,16 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
         }
     }
 
-    private TaskRuntimeState inferTaskState(TaskRuntimeState previous, String eventType, String signal, String payloadJson) {
+    private TaskRuntimeState inferTaskState(TaskRuntimeState previous,
+                                            String eventType,
+                                            String signal,
+                                            String payloadJson,
+                                            ExecutionSnapshot executionSnapshot) {
         String type = safeUpper(eventType);
         String text = safeLower(signal);
         String payload = safeLower(payloadJson);
+
+        TaskRuntimeState runtimeDriven = inferTaskStateFromExecution(executionSnapshot, previous);
 
         if ("TOOL_RESULT".equals(type)) {
             if (containsAny(payload, "\"status\":\"pending\"", "\"pending\"", "\"waiting\"")) {
@@ -124,7 +133,10 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
                 return TaskRuntimeState.WAITING_PLAN_CONFIRMATION;
             }
             if (containsAny(payload, "\"status\":\"failed\"", "\"error\"", "\"failed\"")) {
-                return TaskRuntimeState.REFLECTING;
+                return runtimeDriven == TaskRuntimeState.FAILED ? TaskRuntimeState.FAILED : TaskRuntimeState.REFLECTING;
+            }
+            if (runtimeDriven != null) {
+                return runtimeDriven;
             }
             if (previous == TaskRuntimeState.WAITING_APPROVAL || previous == TaskRuntimeState.WAITING_TOOL || previous == TaskRuntimeState.EXECUTING) {
                 return TaskRuntimeState.EXECUTING;
@@ -134,51 +146,50 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
 
         if ("APPROVAL".equals(type)) {
             if (containsAny(payload, "\"approved\":true", "\"approved\":1", "\"approved\":\"true\"")) {
-                return TaskRuntimeState.EXECUTING;
+                return runtimeDriven == null ? TaskRuntimeState.EXECUTING : runtimeDriven;
             }
             if (containsAny(payload, "\"approved\":false", "\"approved\":0", "\"approved\":\"false\"")) {
                 return TaskRuntimeState.CANCELLED;
             }
-            return TaskRuntimeState.WAITING_APPROVAL;
+            return runtimeDriven == null ? TaskRuntimeState.WAITING_APPROVAL : runtimeDriven;
         }
 
         if ("SYSTEM".equals(type) || "TIMER".equals(type)) {
+            if (runtimeDriven != null) {
+                return runtimeDriven;
+            }
             if (previous == TaskRuntimeState.IDLE || previous == TaskRuntimeState.COMPLETED || previous == TaskRuntimeState.CANCELLED) {
                 return previous;
             }
             return TaskRuntimeState.REPORTING;
         }
 
+        if (containsAny(text, "cancel", "stop", "abort", "取消", "终止", "停止")) {
+            return TaskRuntimeState.CANCELLED;
+        }
+
+        if (runtimeDriven != null) {
+            if (runtimeDriven == TaskRuntimeState.WAITING_PLAN_CONFIRMATION) {
+                if (containsAny(text, "confirm", "approved", "yes", "go ahead", "execute plan", "确认", "同意", "按这个计划", "开始执行")) {
+                    return TaskRuntimeState.EXECUTING;
+                }
+                if (containsAny(text, "reject", "modify plan", "change plan", "replan", "不同意", "重做计划", "改方案", "调整计划")) {
+                    return TaskRuntimeState.REPLANNING;
+                }
+            }
+            return runtimeDriven;
+        }
+
         if (previous == TaskRuntimeState.WAITING_PLAN_CONFIRMATION) {
-            if (containsAny(text,
-                    "confirm",
-                    "approved",
-                    "yes",
-                    "go ahead",
-                    "execute plan",
-                    "确认",
-                    "同意",
-                    "按这个计划",
-                    "开始执行")) {
+            if (containsAny(text, "confirm", "approved", "yes", "go ahead", "execute plan", "确认", "同意", "按这个计划", "开始执行")) {
                 return TaskRuntimeState.EXECUTING;
             }
-            if (containsAny(text,
-                    "reject",
-                    "modify plan",
-                    "change plan",
-                    "replan",
-                    "不同意",
-                    "重做计划",
-                    "改方案",
-                    "调整计划")) {
+            if (containsAny(text, "reject", "modify plan", "change plan", "replan", "不同意", "重做计划", "改方案", "调整计划")) {
                 return TaskRuntimeState.REPLANNING;
             }
             return TaskRuntimeState.WAITING_PLAN_CONFIRMATION;
         }
 
-        if (containsAny(text, "cancel", "stop", "abort", "取消", "终止", "停止")) {
-            return TaskRuntimeState.CANCELLED;
-        }
         if (containsAny(text, "done", "completed", "finish", "完成", "搞定", "结束")) {
             return TaskRuntimeState.COMPLETED;
         }
@@ -188,13 +199,7 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
         if (containsAny(text, "pending", "wait tool", "tool result", "callback", "等待工具", "回调", "待返回")) {
             return TaskRuntimeState.WAITING_TOOL;
         }
-        if (containsAny(text,
-                "confirm plan",
-                "approve plan",
-                "confirm the plan",
-                "确认计划",
-                "确认方案",
-                "计划确认")) {
+        if (containsAny(text, "confirm plan", "approve plan", "confirm the plan", "确认计划", "确认方案", "计划确认")) {
             return TaskRuntimeState.WAITING_PLAN_CONFIRMATION;
         }
         if (containsAny(text, "plan", "roadmap", "strategy", "规划", "计划", "方案")) {
@@ -222,6 +227,47 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
             return TaskRuntimeState.UNDERSTANDING;
         }
         return previous == null ? TaskRuntimeState.UNDERSTANDING : previous;
+    }
+
+    private TaskRuntimeState inferTaskStateFromExecution(ExecutionSnapshot snapshot, TaskRuntimeState previous) {
+        if (snapshot == null || snapshot.planStatus == null) {
+            return null;
+        }
+
+        if (snapshot.nodeStatus == NodeExecutionStatus.APPROVAL_PENDING) {
+            return TaskRuntimeState.WAITING_APPROVAL;
+        }
+        if (snapshot.planStatus == PlanExecutionStatus.WAITING_USER_APPROVAL) {
+            return TaskRuntimeState.WAITING_PLAN_CONFIRMATION;
+        }
+        if (snapshot.planStatus == PlanExecutionStatus.RUNNING) {
+            if (snapshot.nodeStatus == NodeExecutionStatus.RUNNING) {
+                return TaskRuntimeState.EXECUTING;
+            }
+            if (snapshot.nodeStatus == NodeExecutionStatus.PENDING || snapshot.nodeStatus == NodeExecutionStatus.BLOCKED) {
+                return TaskRuntimeState.EXECUTING;
+            }
+            if (snapshot.nodeStatus == NodeExecutionStatus.FAILED) {
+                return TaskRuntimeState.REFLECTING;
+            }
+            if (snapshot.nodeStatus == NodeExecutionStatus.SUCCESS) {
+                return TaskRuntimeState.REPORTING;
+            }
+            return previous == null ? TaskRuntimeState.EXECUTING : previous;
+        }
+        if (snapshot.planStatus == PlanExecutionStatus.PENDING) {
+            return TaskRuntimeState.PLANNING;
+        }
+        if (snapshot.planStatus == PlanExecutionStatus.SUCCESS) {
+            return TaskRuntimeState.COMPLETED;
+        }
+        if (snapshot.planStatus == PlanExecutionStatus.FAILED) {
+            return TaskRuntimeState.FAILED;
+        }
+        if (snapshot.planStatus == PlanExecutionStatus.CANCELLED) {
+            return TaskRuntimeState.CANCELLED;
+        }
+        return null;
     }
 
     private RelationalRuntimeState inferRelationalState(RelationalRuntimeState previous, String eventType, String signal, String payloadJson) {
@@ -260,6 +306,123 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
             return RelationalRuntimeState.COMPANION_MODE;
         }
         return RelationalRuntimeState.LIGHT_CHAT;
+    }
+
+    private ExecutionSnapshot resolveExecutionSnapshot(String sessionId) {
+        try {
+            Map<String, Object> planRuntime = sessionRuntimeMapper.selectLatestPlanRuntimeBySession(sessionId);
+            if (planRuntime == null || planRuntime.isEmpty()) {
+                return null;
+            }
+            String planId = stringValue(planRuntime.get("plan_id"));
+            Map<String, Object> nodeRuntime = planId == null || planId.isBlank()
+                    ? Map.of()
+                    : sessionRuntimeMapper.selectLatestNodeRuntimeByPlanId(planId);
+            return new ExecutionSnapshot(
+                    parsePlanExecutionStatus(planRuntime.get("status")),
+                    parseNodeExecutionStatus(nodeRuntime.get("status"))
+            );
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    private PlanExecutionStatus parsePlanExecutionStatus(Object rawStatus) {
+        if (rawStatus == null) {
+            return null;
+        }
+        Integer numeric = toInteger(rawStatus);
+        if (numeric != null) {
+            return switch (numeric) {
+                case 0 -> PlanExecutionStatus.PENDING;
+                case 1 -> PlanExecutionStatus.RUNNING;
+                case 2 -> PlanExecutionStatus.WAITING_USER_APPROVAL;
+                case 3 -> PlanExecutionStatus.SUCCESS;
+                case 4 -> PlanExecutionStatus.FAILED;
+                case 5 -> PlanExecutionStatus.CANCELLED;
+                default -> null;
+            };
+        }
+        String text = safeUpper(String.valueOf(rawStatus));
+        if (text.contains("PENDING")) {
+            return PlanExecutionStatus.PENDING;
+        }
+        if (text.contains("RUNNING")) {
+            return PlanExecutionStatus.RUNNING;
+        }
+        if (text.contains("WAITING_USER_APPROVAL") || text.contains("WAITING_APPROVAL")) {
+            return PlanExecutionStatus.WAITING_USER_APPROVAL;
+        }
+        if (text.contains("SUCCESS")) {
+            return PlanExecutionStatus.SUCCESS;
+        }
+        if (text.contains("FAILED")) {
+            return PlanExecutionStatus.FAILED;
+        }
+        if (text.contains("CANCELLED")) {
+            return PlanExecutionStatus.CANCELLED;
+        }
+        return null;
+    }
+
+    private NodeExecutionStatus parseNodeExecutionStatus(Object rawStatus) {
+        if (rawStatus == null) {
+            return null;
+        }
+        Integer numeric = toInteger(rawStatus);
+        if (numeric != null) {
+            return switch (numeric) {
+                case 0 -> NodeExecutionStatus.PENDING;
+                case 1 -> NodeExecutionStatus.RUNNING;
+                case 2 -> NodeExecutionStatus.SUCCESS;
+                case 3 -> NodeExecutionStatus.FAILED;
+                case 4 -> NodeExecutionStatus.BLOCKED;
+                case 5 -> NodeExecutionStatus.APPROVAL_PENDING;
+                case 6 -> NodeExecutionStatus.SKIPPED;
+                default -> null;
+            };
+        }
+        String text = safeUpper(String.valueOf(rawStatus));
+        if (text.contains("PENDING") && text.contains("APPROVAL")) {
+            return NodeExecutionStatus.APPROVAL_PENDING;
+        }
+        if (text.contains("PENDING")) {
+            return NodeExecutionStatus.PENDING;
+        }
+        if (text.contains("RUNNING")) {
+            return NodeExecutionStatus.RUNNING;
+        }
+        if (text.contains("SUCCESS")) {
+            return NodeExecutionStatus.SUCCESS;
+        }
+        if (text.contains("FAILED")) {
+            return NodeExecutionStatus.FAILED;
+        }
+        if (text.contains("BLOCKED")) {
+            return NodeExecutionStatus.BLOCKED;
+        }
+        if (text.contains("SKIPPED")) {
+            return NodeExecutionStatus.SKIPPED;
+        }
+        return null;
+    }
+
+    private Integer toInteger(Object raw) {
+        if (raw instanceof Number number) {
+            return number.intValue();
+        }
+        if (raw == null) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(String.valueOf(raw).trim());
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    private String stringValue(Object raw) {
+        return raw == null ? "" : String.valueOf(raw);
     }
 
     private Long inferPlanId(String payloadJson, String signal) {
@@ -399,5 +562,27 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
             }
         }
         return false;
+    }
+
+    private record ExecutionSnapshot(PlanExecutionStatus planStatus, NodeExecutionStatus nodeStatus) {
+    }
+
+    private enum PlanExecutionStatus {
+        PENDING,
+        RUNNING,
+        WAITING_USER_APPROVAL,
+        SUCCESS,
+        FAILED,
+        CANCELLED
+    }
+
+    private enum NodeExecutionStatus {
+        PENDING,
+        RUNNING,
+        SUCCESS,
+        FAILED,
+        BLOCKED,
+        APPROVAL_PENDING,
+        SKIPPED
     }
 }

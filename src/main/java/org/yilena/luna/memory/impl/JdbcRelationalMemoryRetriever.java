@@ -2,6 +2,7 @@ package org.yilena.luna.memory.impl;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import org.yilena.luna.enums.RelationalRuntimeState;
 import org.yilena.luna.mapper.RuntimeReadMapper;
 import org.yilena.luna.memory.RelationalMemoryRetriever;
 import org.yilena.luna.utils.LlmClientUtil;
@@ -19,17 +20,65 @@ public class JdbcRelationalMemoryRetriever implements RelationalMemoryRetriever 
     private final LlmClientUtil llmClientUtil;
 
     @Override
-    public Map<String, Object> retrieve(String sessionId, String userInput) {
+    public Map<String, Object> retrieve(String sessionId, String userInput, RelationalRuntimeState relationalState) {
         Map<String, Object> result = new HashMap<>();
-        String queryVector = queryVector(userInput);
-        result.put("working_memory", queryOne(() -> runtimeReadMapper.selectRelationalWorkingMemory(sessionId)));
-        result.put("profile", queryOne(() -> runtimeReadMapper.selectRelationalProfile(sessionId)));
-        result.put("semantic_facts", queryList(() -> runtimeReadMapper.selectRelationalSemanticFacts(sessionId, queryVector)));
-        result.put("episodes", queryList(() -> runtimeReadMapper.selectRelationalEpisodes(sessionId, queryVector)));
-        result.put("procedures", queryList(() -> runtimeReadMapper.selectRelationalProcedures(queryVector)));
-        result.put("emotional_baseline", queryOne(() -> runtimeReadMapper.selectEmotionalBaseline(sessionId)));
-        result.put("boundary_rules", queryList(() -> runtimeReadMapper.selectBoundaryRules(sessionId)));
+        Map<String, Object> workingMemory = queryOne(() -> runtimeReadMapper.selectRelationalWorkingMemory(sessionId));
+        Map<String, Object> profile = queryOne(() -> runtimeReadMapper.selectRelationalProfile(sessionId));
+        Map<String, Object> emotionalBaseline = queryOne(() -> runtimeReadMapper.selectEmotionalBaseline(sessionId));
+        List<Map<String, Object>> boundaryRules = queryList(() -> runtimeReadMapper.selectBoundaryRules(sessionId));
+
+        result.put("working_memory", workingMemory);
+        result.put("profile", profile);
+        result.put("emotional_baseline", emotionalBaseline);
+        result.put("boundary_rules", boundaryRules);
+
+        boolean semanticRetrievalEnabled = shouldUseSemanticRetrieval(
+                relationalState,
+                userInput,
+                workingMemory,
+                profile,
+                emotionalBaseline,
+                boundaryRules
+        );
+        String queryVector = semanticRetrievalEnabled ? queryVector(userInput) : null;
+        result.put("semantic_retrieval_enabled", semanticRetrievalEnabled);
+
+        if (semanticRetrievalEnabled) {
+            result.put("semantic_facts", queryList(() -> runtimeReadMapper.selectRelationalSemanticFacts(sessionId, queryVector)));
+            result.put("episodes", queryList(() -> runtimeReadMapper.selectRelationalEpisodes(sessionId, queryVector)));
+            result.put("procedures", queryList(() -> runtimeReadMapper.selectRelationalProcedures(queryVector)));
+        } else {
+            result.put("semantic_facts", Collections.emptyList());
+            result.put("episodes", Collections.emptyList());
+            result.put("procedures", Collections.emptyList());
+        }
         return result;
+    }
+
+    private boolean shouldUseSemanticRetrieval(RelationalRuntimeState relationalState,
+                                               String userInput,
+                                               Map<String, Object> workingMemory,
+                                               Map<String, Object> profile,
+                                               Map<String, Object> emotionalBaseline,
+                                               List<Map<String, Object>> boundaryRules) {
+        if (relationalState == RelationalRuntimeState.DEEP_TALK
+                || relationalState == RelationalRuntimeState.EMOTIONAL_SUPPORT
+                || relationalState == RelationalRuntimeState.FRAGILE_MOMENT
+                || relationalState == RelationalRuntimeState.REPAIRING) {
+            return true;
+        }
+
+        if (containsAny(userInput,
+                "remember", "previous", "preference", "boundary", "support style", "address me",
+                "记得", "之前", "上次", "偏好", "边界", "称呼", "安慰", "支持方式", "别叫我", "关系")) {
+            return true;
+        }
+
+        boolean hasNearContext = !(workingMemory == null || workingMemory.isEmpty())
+                || !(profile == null || profile.isEmpty())
+                || !(emotionalBaseline == null || emotionalBaseline.isEmpty())
+                || (boundaryRules != null && !boundaryRules.isEmpty());
+        return !hasNearContext;
     }
 
     private String queryVector(String userInput) {
@@ -69,5 +118,18 @@ public class JdbcRelationalMemoryRetriever implements RelationalMemoryRetriever 
     @FunctionalInterface
     private interface SqlListSupplier {
         List<Map<String, Object>> get();
+    }
+
+    private boolean containsAny(String text, String... words) {
+        if (text == null || words == null) {
+            return false;
+        }
+        String lowerText = text.toLowerCase();
+        for (String word : words) {
+            if (word != null && !word.isBlank() && lowerText.contains(word.toLowerCase())) {
+                return true;
+            }
+        }
+        return false;
     }
 }

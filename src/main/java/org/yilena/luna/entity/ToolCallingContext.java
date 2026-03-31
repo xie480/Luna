@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Tool Calling 期间的续跑上下文
@@ -22,4 +23,5 @@ public class ToolCallingContext {
     private List<String> knowledgeSnippets;
     private List<String> preferenceSnippets;
     private List<String> longTermMemorySnippets;
+    private List<Map<String, Object>> toolExecutionTraces;
 }

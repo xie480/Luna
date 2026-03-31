@@ -56,9 +56,11 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 @Slf4j
 @Service
@@ -108,10 +110,7 @@ public class ChatServiceImpl implements ChatService {
                 contextNodeId(contextPackage),
                 "ORCHESTRATION_DECISION",
                 "states selected",
-                toJsonSafe(Map.of(
-                        "taskState", decision == null ? null : decision.getTaskState(),
-                        "relationalState", decision == null ? null : decision.getRelationalState()
-                ))
+                toJsonSafe(buildDecisionStatePayload(decision))
         );
 
         List<String> knowledgeSnippets = extractTaskKnowledgeSnippets(contextPackage);
@@ -155,6 +154,7 @@ public class ChatServiceImpl implements ChatService {
                 .knowledgeSnippets(knowledgeSnippets)
                 .preferenceSnippets(preferenceSnippets)
                 .longTermMemorySnippets(longTermMemorySnippets)
+                .toolExecutionTraces(new CopyOnWriteArrayList<>())
                 .build());
 
         String toolContext = null;
@@ -173,17 +173,18 @@ public class ChatServiceImpl implements ChatService {
             toolError = ex.getMessage();
             throw ex;
         } finally {
+            List<Map<String, Object>> toolExecutionTraces = ToolCallingContextHolder.snapshotToolExecutionTraces();
             ToolCallingContextHolder.clear();
-            runtimeAuditService.persistToolExecutionTrace(
+            persistToolExecutionTraces(
                     runtimeSessionId,
                     contextPlanId(contextPackage),
                     contextNodeId(contextPackage),
-                    "agent_tool_chain",
-                    toolStatus,
-                    toJsonSafe(Map.of("userInput", input)),
+                    input,
                     toolContext,
+                    toolStatus,
                     toolError,
-                    System.currentTimeMillis() - toolStartAt
+                    System.currentTimeMillis() - toolStartAt,
+                    toolExecutionTraces
             );
             eventIngressService.ingestToolResult(runtimeSessionId, Map.of(
                     "status", toolStatus.toLowerCase(),
@@ -594,6 +595,107 @@ public class ChatServiceImpl implements ChatService {
         }
         String base = toolContext == null || toolContext.isBlank() ? "{}" : toolContext;
         return base + "\n\n[THREE_STAGE_SYNTHESIS_BRIEF]\n" + brief;
+    }
+
+    private void persistToolExecutionTraces(String sessionId,
+                                            Long planId,
+                                            Long nodeId,
+                                            String userInput,
+                                            String toolContext,
+                                            String chainStatus,
+                                            String chainError,
+                                            long chainLatencyMs,
+                                            List<Map<String, Object>> traces) {
+        List<Map<String, Object>> safeTraces = traces == null ? List.of() : traces;
+        if (safeTraces.isEmpty()) {
+            runtimeAuditService.persistToolExecutionTrace(
+                    sessionId,
+                    planId,
+                    nodeId,
+                    "agent_tool_chain",
+                    chainStatus,
+                    toJsonSafe(Map.of("userInput", userInput == null ? "" : userInput)),
+                    toolContext,
+                    chainError,
+                    Math.max(0L, chainLatencyMs)
+            );
+            return;
+        }
+
+        int sequence = 1;
+        for (Map<String, Object> trace : safeTraces) {
+            Map<String, Object> normalizedInput = new LinkedHashMap<>();
+            normalizedInput.put("sequence", sequence);
+            normalizedInput.put("source_type", stringValue(trace.get("source_type")));
+            normalizedInput.put("payload", trace.getOrDefault("normalized_input", Map.of()));
+
+            Map<String, Object> normalizedOutput = new LinkedHashMap<>();
+            normalizedOutput.put("sequence", sequence);
+            normalizedOutput.put("source_type", stringValue(trace.get("source_type")));
+            normalizedOutput.put("payload", trace.getOrDefault("normalized_output", Map.of()));
+
+            runtimeAuditService.persistToolExecutionTrace(
+                    sessionId,
+                    planId,
+                    nodeId,
+                    normalizeToolName(trace.get("tool_name"), sequence),
+                    normalizeCallStatus(trace.get("call_status")),
+                    toJsonSafe(normalizedInput),
+                    toJsonSafe(normalizedOutput),
+                    stringValue(trace.get("error_message")),
+                    normalizeLatency(trace.get("latency_ms"))
+            );
+            sequence++;
+        }
+
+        runtimeAuditService.persistToolExecutionTrace(
+                sessionId,
+                planId,
+                nodeId,
+                "agent_tool_chain",
+                chainStatus,
+                toJsonSafe(Map.of(
+                        "userInput", userInput == null ? "" : userInput,
+                        "traceCount", safeTraces.size()
+                )),
+                toJsonSafe(Map.of(
+                        "toolContext", toolContext == null ? "" : toolContext,
+                        "chainStatus", chainStatus == null ? "" : chainStatus
+                )),
+                chainError,
+                Math.max(0L, chainLatencyMs)
+        );
+    }
+
+    private String normalizeToolName(Object rawName, int sequence) {
+        String name = stringValue(rawName);
+        if (name == null || name.isBlank()) {
+            return "tool_call_" + sequence;
+        }
+        return name;
+    }
+
+    private String normalizeCallStatus(Object rawStatus) {
+        String status = stringValue(rawStatus);
+        if (status == null || status.isBlank()) {
+            return "UNKNOWN";
+        }
+        return status.toUpperCase();
+    }
+
+    private Long normalizeLatency(Object rawLatency) {
+        Long value = toLong(rawLatency);
+        if (value == null) {
+            return null;
+        }
+        return Math.max(0L, value);
+    }
+
+    private Map<String, Object> buildDecisionStatePayload(OrchestrationDecision decision) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("taskState", decision == null || decision.getTaskState() == null ? "" : decision.getTaskState().name());
+        payload.put("relationalState", decision == null || decision.getRelationalState() == null ? "" : decision.getRelationalState().name());
+        return payload;
     }
 
     private List<String> toKnowledgeSnippets(RetrievalResponse response) {
