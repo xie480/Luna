@@ -13,6 +13,8 @@ import org.yilena.luna.rag.rankers.EvidenceCompressor;
 import org.yilena.luna.rag.rankers.EvidenceDeduplicator;
 import org.yilena.luna.rag.rankers.EvidenceReranker;
 import org.yilena.luna.rag.retrievers.BaseRetriever;
+
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,10 +44,18 @@ public class SearchPipeline extends AbstractRetrievalPipeline {
 
     @Override
     public RetrievalResponse execute(QueryObject queryObject, RoutePlan plan, RetrievalRequest request) {
+        Map<String, Object> searchFilters = new HashMap<>();
+        if (queryObject.getPossibleFilters() != null) {
+            searchFilters.putAll(queryObject.getPossibleFilters());
+        }
+        searchFilters.put("search_mode", "exact_first");
+        searchFilters.put("retrieval_strategy", "keyword_fts_exact_then_vector");
+        QueryObject searchQuery = queryObject.toBuilder().possibleFilters(searchFilters).build();
+
         SourceRetrieveOutcome outcome = retrieveBySources(
-                queryObject,
+                searchQuery,
                 plan.getTopKConfig(),
-                resolveSources(request),
+                plan.getSources() == null || plan.getSources().isEmpty() ? resolveSources(request) : new ArrayList<>(plan.getSources()),
                 true,
                 false,
                 request,

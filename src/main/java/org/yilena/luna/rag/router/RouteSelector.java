@@ -6,8 +6,10 @@ import org.yilena.luna.rag.config.RagProperties;
 import org.yilena.luna.rag.models.QueryObject;
 import org.yilena.luna.rag.models.RetrievalRequest;
 import org.yilena.luna.rag.models.RetrievalRoute;
+import org.yilena.luna.rag.models.RetrievalSource;
 import org.yilena.luna.rag.models.RoutePlan;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -24,8 +26,12 @@ public class RouteSelector {
                 : request.getAllowedRoutes();
 
         RetrievalRoute route = selectRoute(queryObject, request, allowedRoutes);
+        List<RetrievalSource> sources = request.getSourceScope() == null || request.getSourceScope().isEmpty()
+                ? RetrievalSource.all()
+                : new ArrayList<>(request.getSourceScope());
         return RoutePlan.builder()
                 .route(route)
+                .sources(sources)
                 .queryType(queryObject.getQueryType())
                 .needsRewrite(route == RetrievalRoute.MODULAR || route == RetrievalRoute.AGENTIC)
                 .needsRerank(true)

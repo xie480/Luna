@@ -10,6 +10,11 @@ spring:
   application:
     name: runa
 
+  config:
+    import:
+      - optional:classpath:route_rules.yaml
+      - optional:classpath:retrieval.yaml
+
   profiles:
     active: dev
 
@@ -156,4 +161,15 @@ rocketmq:
     send-message-timeout: 2000
     retry-times-when-send-failed: 1
     retry-times-when-send-async-failed: 1
+
+luna:
+  rag:
+    default-timeout-ms: 2500
+    compression-max-chars: 500
+    compression-summary-sentences: 2
+    compression-merge-similarity-chars: 80
+    agentic-max-steps: 4
+    agentic-max-calls: 6
+    agentic-max-total-top-k: 24
+    agentic-min-evidence: 4
 

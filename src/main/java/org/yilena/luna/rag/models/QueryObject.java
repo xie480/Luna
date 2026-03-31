@@ -22,10 +22,13 @@ public class QueryObject {
     String rewrittenQuery;
     // 会话 ID
     String sessionId;
-    // embedding 向量字符串
-    String embedding;
+    // embedding 向量
+    List<Double> embedding;
     // 查询类型标签（precise_lookup / analysis_reasoning / ...）
     String queryType;
+    // 查询标签（精确检索、时间窗口、偏好键命中等）
+    @Builder.Default
+    List<String> queryTags = Collections.emptyList();
 
     // 对话上下文（预留）
     @Builder.Default

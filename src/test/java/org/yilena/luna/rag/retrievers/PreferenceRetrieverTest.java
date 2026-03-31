@@ -1,0 +1,61 @@
+package org.yilena.luna.rag.retrievers;
+
+import org.junit.jupiter.api.Test;
+import org.yilena.luna.mapper.RagMemoryMapper;
+import org.yilena.luna.rag.models.Evidence;
+import org.yilena.luna.rag.models.QueryObject;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+class PreferenceRetrieverTest {
+
+    @Test
+    void shouldKeepTopThreeCorePreferences() {
+        RagMemoryMapper mapper = mock(RagMemoryMapper.class);
+        PreferenceRetriever retriever = new PreferenceRetriever(mapper);
+
+        List<Map<String, Object>> rows = List.of(
+                row("1", "response_length", "short", 1.0, LocalDateTime.now()),
+                row("2", "response_style", "direct", 0.7, LocalDateTime.now().minusDays(1)),
+                row("3", "tone", "neutral", 0.6, LocalDateTime.now().minusDays(3)),
+                row("4", "emoji", "none", 0.5, LocalDateTime.now().minusDays(10))
+        );
+        when(mapper.selectPreferenceByExactOrTrigram(eq("response_length"), anyString(), anyInt())).thenReturn(rows);
+        when(mapper.selectPreferenceByVector(anyString(), anyInt())).thenReturn(List.of());
+
+        QueryObject queryObject = QueryObject.builder()
+                .originalQuery("偏好里有没有回答长度设置")
+                .normalizedQuery("偏好里有没有回答长度设置")
+                .rewrittenQuery("偏好里有没有回答长度设置")
+                .embedding(List.of(0.2, 0.3))
+                .queryTags(List.of("key_match_priority"))
+                .possibleFilters(Map.of("pref_key", "response_length"))
+                .build();
+
+        List<Evidence> result = retriever.retrieve(queryObject, 10, queryObject.getPossibleFilters());
+
+        assertEquals(3, result.size());
+        assertEquals("preference:1", result.get(0).getId());
+    }
+
+    private Map<String, Object> row(String id, String key, String value, double score, LocalDateTime time) {
+        return Map.of(
+                "id", id,
+                "pref_key", key,
+                "pref_value", value,
+                "description", key + "=" + value,
+                "key_match_score", score,
+                "text_match_score", score,
+                "updated_at", time
+        );
+    }
+}

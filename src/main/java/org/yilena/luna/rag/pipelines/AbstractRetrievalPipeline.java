@@ -194,6 +194,10 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
         return modelDrivenRagPlanner;
     }
 
+    protected RagProperties getRagProperties() {
+        return ragProperties;
+    }
+
     protected Map<RetrievalSource, List<Evidence>> mergeBySource(
             Map<RetrievalSource, List<Evidence>> left,
             Map<RetrievalSource, List<Evidence>> right,

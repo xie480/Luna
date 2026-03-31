@@ -53,4 +53,14 @@ public class RagProperties {
     private List<String> preciseKeywords = List.of("有没有", "哪条", "那个", "上次", "设置", "记录过", "那条");
     // 分析类关键词（优先触发 agentic）
     private List<String> analysisKeywords = List.of("分析", "比较", "总结", "变化", "原因", "规律", "为什么", "梳理");
+
+    // Agentic 运行限制
+    private int agenticMaxSteps = 4;
+    private int agenticMaxCalls = 6;
+    private int agenticMaxTotalTopK = 24;
+    private int agenticMinEvidence = 4;
+
+    // 检索压缩策略
+    private int compressionSummarySentences = 2;
+    private int compressionMergeSimilarityChars = 80;
 }

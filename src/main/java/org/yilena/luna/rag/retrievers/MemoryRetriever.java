@@ -8,11 +8,13 @@ import org.yilena.luna.rag.models.QueryObject;
 import org.yilena.luna.rag.models.RetrievalSource;
 
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.IntStream;
+import java.util.Objects;
+import java.time.Duration;
+import java.time.LocalDateTime;
 
 @Component
 @RequiredArgsConstructor
@@ -29,43 +31,149 @@ public class MemoryRetriever implements BaseRetriever {
     public List<Evidence> retrieve(QueryObject queryObject, int topK, Map<String, Object> filters) {
         String sessionId = queryObject.getSessionId();
         if (sessionId == null || sessionId.isBlank()) {
-            return Collections.emptyList();
+            return List.of();
         }
-        List<Map<String, Object>> rows = queryMemoryRows(sessionId, queryObject.getEmbedding(), topK <= 0 ? 10 : topK);
-        if (rows.isEmpty()) {
-            return Collections.emptyList();
+
+        List<String> memoryTypes = resolveMemoryTypes(filters);
+        LocalDateTime endTime = resolveEndTime(filters);
+        LocalDateTime startTime = resolveStartTime(filters, endTime);
+        String vector = toVector(queryObject.getEmbedding());
+        String keyword = effectiveQuery(queryObject);
+
+        List<Map<String, Object>> candidates = new ArrayList<>();
+        boolean exactFirst = queryObject.getQueryTags() != null && queryObject.getQueryTags().contains("exact_match_first");
+        if (exactFirst) {
+            candidates.addAll(safeCall(() -> ragMemoryMapper.selectMemoryByKeyword(
+                    sessionId, keyword, memoryTypes, startTime, endTime, topK
+            )));
+            if (vector != null) {
+                candidates.addAll(safeCall(() -> ragMemoryMapper.selectMemoryByVector(
+                        sessionId, vector, memoryTypes, startTime, endTime, Math.max(topK, topK * 2)
+                )));
+            }
+        } else {
+            if (vector != null) {
+                candidates.addAll(safeCall(() -> ragMemoryMapper.selectMemoryByVector(
+                        sessionId, vector, memoryTypes, startTime, endTime, Math.max(topK, topK * 2)
+                )));
+            }
+            if (candidates.size() < topK) {
+                candidates.addAll(safeCall(() -> ragMemoryMapper.selectMemoryByKeyword(
+                        sessionId, keyword, memoryTypes, startTime, endTime, topK
+                )));
+            }
         }
-        return IntStream.range(0, rows.size())
-                .mapToObj(index -> toEvidence(rows.get(index), index, rows.size()))
+
+        if (candidates.isEmpty()) {
+            return List.of();
+        }
+
+        Map<String, ScoredMemory> merged = new HashMap<>();
+        for (Map<String, Object> row : candidates) {
+            String id = str(row.get("id"));
+            if (id.isBlank()) {
+                continue;
+            }
+            ScoredMemory current = merged.get(id);
+            if (current == null) {
+                merged.put(id, new ScoredMemory(row, queryObject.getQueryTags()));
+            } else {
+                current.merge(row, queryObject.getQueryTags());
+            }
+        }
+        return merged.values().stream()
+                .map(ScoredMemory::toEvidence)
+                .sorted(Comparator.comparingDouble(Evidence::getScore).reversed())
+                .limit(Math.max(1, topK))
                 .toList();
     }
 
-    private List<Map<String, Object>> queryMemoryRows(String sessionId, String queryVector, int topK) {
+    private <T> List<T> safeCall(SupplierWithException<List<T>> supplier) {
         try {
-            List<Map<String, Object>> rows = new ArrayList<>();
-            rows.addAll(ragMemoryMapper.selectTaskFactMemory(sessionId, queryVector, topK));
-            rows.addAll(ragMemoryMapper.selectTaskEpisodeMemory(sessionId, queryVector, Math.max(1, topK / 2)));
-            rows.addAll(ragMemoryMapper.selectRelationalEpisodeMemory(sessionId, queryVector, Math.max(1, topK / 2)));
-            rows.addAll(ragMemoryMapper.selectTaskProcedureMemory(queryVector, Math.max(1, topK / 3)));
-            rows.addAll(ragMemoryMapper.selectRelationalProcedureMemory(queryVector, Math.max(1, topK / 3)));
-            return rows.stream().limit(topK).toList();
+            List<T> rows = supplier.get();
+            return rows == null ? List.of() : rows;
         } catch (Exception ignore) {
-            return Collections.emptyList();
+            return List.of();
         }
     }
 
-    private Evidence toEvidence(Map<String, Object> row, int index, int total) {
+    private String effectiveQuery(QueryObject queryObject) {
+        if (queryObject.getRewrittenQuery() != null && !queryObject.getRewrittenQuery().isBlank()) {
+            return queryObject.getRewrittenQuery();
+        }
+        if (queryObject.getNormalizedQuery() != null && !queryObject.getNormalizedQuery().isBlank()) {
+            return queryObject.getNormalizedQuery();
+        }
+        return Objects.toString(queryObject.getOriginalQuery(), "");
+    }
+
+    private String toVector(List<Double> embedding) {
+        if (embedding == null || embedding.isEmpty()) {
+            return null;
+        }
+        return "[" + embedding.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElse("") + "]";
+    }
+
+    private List<String> resolveMemoryTypes(Map<String, Object> filters) {
+        if (filters == null || filters.isEmpty()) {
+            return List.of();
+        }
+        Object raw = filters.get("memory_type");
+        if (raw == null) {
+            raw = filters.get("memory_types");
+        }
+        if (raw instanceof List<?> list) {
+            return list.stream().map(String::valueOf).filter(s -> !s.isBlank()).toList();
+        }
+        if (raw instanceof String text && !text.isBlank()) {
+            return List.of(text.split(",")).stream().map(String::trim).filter(s -> !s.isBlank()).toList();
+        }
+        return List.of();
+    }
+
+    private LocalDateTime resolveStartTime(Map<String, Object> filters, LocalDateTime endTime) {
+        if (filters == null) {
+            return null;
+        }
+        Object explicit = filters.get("start_time");
+        if (explicit instanceof LocalDateTime time) {
+            return time;
+        }
+        Object window = filters.get("time_window_days");
+        if (window instanceof Number number) {
+            return endTime.minusDays(Math.max(1, number.longValue()));
+        }
+        return null;
+    }
+
+    private LocalDateTime resolveEndTime(Map<String, Object> filters) {
+        if (filters == null) {
+            return LocalDateTime.now();
+        }
+        Object explicit = filters.get("end_time");
+        if (explicit instanceof LocalDateTime time) {
+            return time;
+        }
+        return LocalDateTime.now();
+    }
+
+    private Evidence toEvidence(Map<String, Object> row, double finalScore, double vectorScore, double weightScore, double recencyScore, double typeScore) {
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("raw_id", row.get("id"));
         metadata.put("memory_type", str(row.get("memory_type")));
-        metadata.put("session_id", str(row.get("ref")));
+        metadata.put("session_id", str(row.get("session_id")));
+        metadata.put("weight", intVal(row.get("weight"), 1));
+        metadata.put("vector_score", vectorScore);
+        metadata.put("weight_score", weightScore);
+        metadata.put("recency_score", recencyScore);
+        metadata.put("type_score", typeScore);
         return Evidence.builder()
                 .id("memory:" + str(row.get("id")))
                 .source(RetrievalSource.MEMORY)
                 .type("memory")
                 .title(null)
                 .content(str(row.get("content")))
-                .score(rankScore(index, total))
+                .score(finalScore)
                 .metadata(metadata)
                 .build();
     }
@@ -74,10 +182,95 @@ public class MemoryRetriever implements BaseRetriever {
         return value == null ? "" : String.valueOf(value);
     }
 
-    private double rankScore(int index, int total) {
-        if (total <= 1) {
+    private int intVal(Object value, int fallback) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return Integer.parseInt(str(value));
+        } catch (Exception ignore) {
+            return fallback;
+        }
+    }
+
+    private double recencyScore(Object timeObj) {
+        LocalDateTime time = null;
+        if (timeObj instanceof LocalDateTime dateTime) {
+            time = dateTime;
+        } else if (timeObj != null) {
+            try {
+                time = LocalDateTime.parse(String.valueOf(timeObj).replace(" ", "T"));
+            } catch (Exception ignore) {
+                time = null;
+            }
+        }
+        if (time == null) {
+            return 0.2D;
+        }
+        long days = Math.max(0L, Duration.between(time, LocalDateTime.now()).toDays());
+        return 1.0D / (1.0D + (days / 30.0D));
+    }
+
+    private double typeScore(String memoryType, List<String> queryTags) {
+        String normalized = memoryType == null ? "" : memoryType.toUpperCase();
+        boolean reflective = queryTags != null && queryTags.stream().anyMatch(tag ->
+                "analysis_reasoning".equals(tag) || "needs_recency".equals(tag));
+        if (reflective) {
+            if (normalized.contains("SUMMARY") || normalized.contains("REFLECTION") || "2".equals(normalized) || "3".equals(normalized)) {
+                return 1.0D;
+            }
+            if (normalized.contains("FACT") || "0".equals(normalized)) {
+                return 0.75D;
+            }
+            return 0.55D;
+        }
+        if (normalized.contains("FACT") || normalized.contains("PREFERENCE") || "0".equals(normalized) || "1".equals(normalized)) {
             return 1.0D;
         }
-        return 1.0D - ((double) index / (double) total);
+        return 0.65D;
+    }
+
+    @FunctionalInterface
+    private interface SupplierWithException<T> {
+        T get() throws Exception;
+    }
+
+    private class ScoredMemory {
+        private final Map<String, Object> row;
+        private double vectorScore;
+        private double weightScore;
+        private double recencyScore;
+        private double typeScore;
+
+        private ScoredMemory(Map<String, Object> row, List<String> queryTags) {
+            this.row = new HashMap<>(row);
+            this.vectorScore = Math.max(normalize(row.get("vector_score")), normalize(row.get("text_match_score")));
+            this.weightScore = Math.max(0.0D, Math.min(1.0D, intVal(row.get("weight"), 1) / 10.0D));
+            this.recencyScore = recencyScore(row.get("updated_at"));
+            this.typeScore = typeScore(str(row.get("memory_type")), queryTags);
+        }
+
+        private void merge(Map<String, Object> other, List<String> queryTags) {
+            this.vectorScore = Math.max(this.vectorScore, Math.max(normalize(other.get("vector_score")), normalize(other.get("text_match_score"))));
+            this.weightScore = Math.max(this.weightScore, Math.max(0.0D, Math.min(1.0D, intVal(other.get("weight"), 1) / 10.0D)));
+            this.recencyScore = Math.max(this.recencyScore, recencyScore(other.get("updated_at")));
+            this.typeScore = Math.max(this.typeScore, typeScore(str(other.get("memory_type")), queryTags));
+        }
+
+        private Evidence toEvidence() {
+            double finalScore = 0.55D * vectorScore + 0.20D * weightScore + 0.15D * recencyScore + 0.10D * typeScore;
+            return MemoryRetriever.this.toEvidence(row, finalScore, vectorScore, weightScore, recencyScore, typeScore);
+        }
+
+        private double normalize(Object rawScore) {
+            if (rawScore instanceof Number number) {
+                return Math.max(0.0D, Math.min(1.0D, number.doubleValue()));
+            }
+            try {
+                return Math.max(0.0D, Math.min(1.0D, Double.parseDouble(str(rawScore))));
+            } catch (Exception ignore) {
+                return 0.0D;
+            }
+        }
     }
 }

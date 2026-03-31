@@ -24,24 +24,121 @@ public interface KnowledgeBaseMapper {
      */
     @Select("""
             select
-                kc.chunk_id as id,
-                kd.doc_id as doc_id,
-                kc.chunk_id as chunk_id,
-                kc.chunk_order as chunk_order,
-                kd.title as title,
-                kc.chunk_text as content,
-                kd.source_type as source_type,
-                kd.source_uri as source_path,
-                kc.embedding as embedding,
-                kc.created_at as created_at,
-                kc.created_at as updated_at
-            from knowledge_chunk kc
-            join knowledge_document kd on kd.doc_id = kc.doc_id
-            where kc.embedding is not null
-            order by kc.embedding::vector <-> #{vector}::vector
+                id,
+                id as doc_id,
+                id as chunk_id,
+                0 as chunk_order,
+                title,
+                content,
+                source_type,
+                source_path,
+                embedding,
+                created_at,
+                updated_at
+            from knowledge_base
+            where embedding is not null
+            order by embedding::vector <-> #{vector}::vector
             limit #{topK}
             """)
     List<KnowledgeChunkRecord> searchByVector(@Param("vector") String vector, @Param("topK") int topK);
+
+    @Select("""
+            select
+                id,
+                id as doc_id,
+                id as chunk_id,
+                0 as chunk_order,
+                title,
+                content,
+                source_type,
+                source_path,
+                embedding,
+                created_at,
+                updated_at,
+                1 - (embedding <=> #{vector}::vector) as vector_score
+            from knowledge_base
+            where embedding is not null
+            order by embedding <=> #{vector}::vector
+            limit #{topK}
+            """)
+    List<KnowledgeChunkRecord> searchRagKnowledgeByVector(@Param("vector") String vector, @Param("topK") int topK);
+
+    @Select("""
+            select
+                id,
+                id as doc_id,
+                id as chunk_id,
+                0 as chunk_order,
+                title,
+                content,
+                source_type,
+                source_path,
+                embedding,
+                created_at,
+                updated_at,
+                case
+                    when lower(coalesce(title, '')) = lower(#{query})
+                      or lower(coalesce(content, '')) = lower(#{query}) then 1.0
+                    else 0.0
+                end as fts_score
+            from knowledge_base
+            where lower(coalesce(title, '')) = lower(#{query})
+               or lower(coalesce(content, '')) = lower(#{query})
+            order by updated_at desc
+            limit #{topK}
+            """)
+    List<KnowledgeChunkRecord> searchRagKnowledgeByExact(@Param("query") String query, @Param("topK") int topK);
+
+    @Select("""
+            select
+                id,
+                id as doc_id,
+                id as chunk_id,
+                0 as chunk_order,
+                title,
+                content,
+                source_type,
+                source_path,
+                embedding,
+                created_at,
+                updated_at,
+                ts_rank(
+                  to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(content, '')),
+                  plainto_tsquery('simple', #{query})
+                ) as fts_score
+            from knowledge_base
+            where to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(content, ''))
+                  @@ plainto_tsquery('simple', #{query})
+            order by fts_score desc, updated_at desc
+            limit #{topK}
+            """)
+    List<KnowledgeChunkRecord> searchRagKnowledgeByFts(@Param("query") String query, @Param("topK") int topK);
+
+    @Select("""
+            select
+                id,
+                id as doc_id,
+                id as chunk_id,
+                0 as chunk_order,
+                title,
+                content,
+                source_type,
+                source_path,
+                embedding,
+                created_at,
+                updated_at,
+                case
+                    when coalesce(title, '') ilike concat('%', #{query}, '%') then 1.0
+                    when coalesce(content, '') ilike concat('%', #{query}, '%') then 0.8
+                    else 0.0
+                end as fts_score
+            from knowledge_base
+            where coalesce(title, '') ilike concat('%', #{query}, '%')
+               or coalesce(content, '') ilike concat('%', #{query}, '%')
+            order by fts_score desc, updated_at desc
+            limit #{topK}
+            """)
+    List<KnowledgeChunkRecord> searchRagKnowledgeByKeyword(@Param("query") String query, @Param("topK") int topK);
 
     @Select("""
             select count(1)

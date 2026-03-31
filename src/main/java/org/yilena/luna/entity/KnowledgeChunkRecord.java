@@ -29,6 +29,8 @@ public class KnowledgeChunkRecord implements Serializable {
     private SourceType sourceType;
     private String sourcePath;
     private String embedding;
+    private Double vectorScore;
+    private Double ftsScore;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

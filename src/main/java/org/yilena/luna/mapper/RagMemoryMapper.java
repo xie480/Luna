@@ -4,6 +4,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -11,82 +12,142 @@ import java.util.Map;
 public interface RagMemoryMapper {
 
     @Select("""
-            select cast(fact_id as varchar) as id, 'task_fact' as memory_type, fact_value_text as content, confidence_score as score, source_ref as ref
-            from task_semantic_fact
-            where deleted = false
-              and principal_id = (select principal_id from agent_session where session_id = #{sessionId} limit 1)
+            <script>
+            select
+              cast(id as varchar) as id,
+              cast(memory_type as varchar) as memory_type,
+              content,
+              coalesce(weight, 1) as weight,
+              created_at,
+              updated_at,
+              case
+                when #{queryVector} is null or #{queryVector} = '' or embedding is null then 0.0
+                else (1 - (embedding &lt;=&gt; #{queryVector}::vector))
+              end as vector_score
+            from luna_memory
+            where session_id = #{sessionId}
+              <if test="memoryTypes != null and memoryTypes.size() > 0">
+                and cast(memory_type as varchar) in
+                <foreach collection="memoryTypes" item="mt" open="(" separator="," close=")">
+                    #{mt}
+                </foreach>
+              </if>
+              <if test="startTime != null">
+                and created_at &gt;= #{startTime}
+              </if>
+              <if test="endTime != null">
+                and created_at &lt;= #{endTime}
+              </if>
             order by
-              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 1 else 0 end asc,
-              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 0 else (1 - (embedding <=> #{queryVector}::vector)) end desc,
+              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 1 else 0 end,
+              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 0 else (1 - (embedding &lt;=&gt; #{queryVector}::vector)) end desc,
               updated_at desc
             limit #{topK}
+            </script>
             """)
-    List<Map<String, Object>> selectTaskFactMemory(@Param("sessionId") String sessionId,
+    List<Map<String, Object>> selectMemoryByVector(@Param("sessionId") String sessionId,
                                                    @Param("queryVector") String queryVector,
+                                                   @Param("memoryTypes") List<String> memoryTypes,
+                                                   @Param("startTime") LocalDateTime startTime,
+                                                   @Param("endTime") LocalDateTime endTime,
                                                    @Param("topK") int topK);
 
     @Select("""
-            select cast(episode_id as varchar) as id, 'task_episode' as memory_type, coalesce(outcome_summary, trajectory_summary) as content, importance_score as score, session_id as ref
-            from task_episode
+            <script>
+            select
+              cast(id as varchar) as id,
+              cast(memory_type as varchar) as memory_type,
+              content,
+              coalesce(weight, 1) as weight,
+              created_at,
+              updated_at,
+              case
+                when content ilike concat('%', #{keyword}, '%') then 1.0
+                else 0.0
+              end as text_match_score
+            from luna_memory
             where session_id = #{sessionId}
+              and #{keyword} is not null
+              and #{keyword} != ''
+              and content ilike concat('%', #{keyword}, '%')
+              <if test="memoryTypes != null and memoryTypes.size() > 0">
+                and cast(memory_type as varchar) in
+                <foreach collection="memoryTypes" item="mt" open="(" separator="," close=")">
+                    #{mt}
+                </foreach>
+              </if>
+              <if test="startTime != null">
+                and created_at &gt;= #{startTime}
+              </if>
+              <if test="endTime != null">
+                and created_at &lt;= #{endTime}
+              </if>
             order by
-              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 1 else 0 end asc,
-              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 0 else (1 - (embedding <=> #{queryVector}::vector)) end desc,
-              created_at desc
+              text_match_score desc,
+              weight desc,
+              updated_at desc
             limit #{topK}
+            </script>
             """)
-    List<Map<String, Object>> selectTaskEpisodeMemory(@Param("sessionId") String sessionId,
-                                                      @Param("queryVector") String queryVector,
-                                                      @Param("topK") int topK);
+    List<Map<String, Object>> selectMemoryByKeyword(@Param("sessionId") String sessionId,
+                                                    @Param("keyword") String keyword,
+                                                    @Param("memoryTypes") List<String> memoryTypes,
+                                                    @Param("startTime") LocalDateTime startTime,
+                                                    @Param("endTime") LocalDateTime endTime,
+                                                    @Param("topK") int topK);
 
     @Select("""
-            select cast(episode_id as varchar) as id, 'relational_episode' as memory_type, summary as content, response_effectiveness as score, session_id as ref
-            from relational_episode
-            where session_id = #{sessionId}
+            select
+              cast(id as varchar) as id,
+              pref_key,
+              pref_value,
+              description,
+              created_at,
+              updated_at,
+              case
+                when #{queryVector} is null or #{queryVector} = '' or embedding is null then 0.0
+                else (1 - (embedding <=> #{queryVector}::vector))
+              end as vector_score
+            from user_preference
+            where deleted = 0
             order by
-              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 1 else 0 end asc,
-              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 0 else (1 - (embedding <=> #{queryVector}::vector)) end desc,
-              created_at desc
-            limit #{topK}
-            """)
-    List<Map<String, Object>> selectRelationalEpisodeMemory(@Param("sessionId") String sessionId,
-                                                            @Param("queryVector") String queryVector,
-                                                            @Param("topK") int topK);
-
-    @Select("""
-            select cast(procedure_id as varchar) as id, 'task_procedure' as memory_type, coalesce(description, name) as content, confidence_score as score, 'task_procedure_pattern' as ref
-            from task_procedure_pattern
-            order by
-              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 1 else 0 end asc,
-              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 0 else (1 - (embedding <=> #{queryVector}::vector)) end desc,
-              confidence_score desc
-            limit #{topK}
-            """)
-    List<Map<String, Object>> selectTaskProcedureMemory(@Param("queryVector") String queryVector, @Param("topK") int topK);
-
-    @Select("""
-            select cast(procedure_id as varchar) as id, 'relational_procedure' as memory_type, coalesce(description, name) as content, confidence_score as score, 'relational_procedure_pattern' as ref
-            from relational_procedure_pattern
-            order by
-              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 1 else 0 end asc,
-              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 0 else (1 - (embedding <=> #{queryVector}::vector)) end desc,
-              confidence_score desc
-            limit #{topK}
-            """)
-    List<Map<String, Object>> selectRelationalProcedureMemory(@Param("queryVector") String queryVector, @Param("topK") int topK);
-
-    @Select("""
-            select cast(fact_id as varchar) as id, fact_key as pref_key, fact_value_text as pref_value, description
-            from relational_semantic_fact
-            where deleted = false
-              and principal_id = (select principal_id from agent_session where session_id = #{sessionId} limit 1)
-            order by
-              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 1 else 0 end asc,
+              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 1 else 0 end,
               case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 0 else (1 - (embedding <=> #{queryVector}::vector)) end desc,
               updated_at desc
             limit #{topK}
             """)
-    List<Map<String, Object>> selectPreferenceMemory(@Param("sessionId") String sessionId,
-                                                     @Param("queryVector") String queryVector,
-                                                     @Param("topK") int topK);
+    List<Map<String, Object>> selectPreferenceByVector(@Param("queryVector") String queryVector,
+                                                       @Param("topK") int topK);
+
+    @Select("""
+            <script>
+            select
+              cast(id as varchar) as id,
+              pref_key,
+              pref_value,
+              description,
+              created_at,
+              updated_at,
+              case when pref_key = #{prefKey} then 1.0 else 0.0 end as key_match_score,
+              greatest(
+                case when pref_key = #{prefKey} then 1.0 else 0.0 end,
+                similarity(coalesce(pref_value, ''), coalesce(#{keyword}, '')),
+                similarity(coalesce(description, ''), coalesce(#{keyword}, ''))
+              ) as text_match_score
+            from user_preference
+            where deleted = 0
+              and (
+                (#{prefKey} is not null and #{prefKey} != '' and pref_key = #{prefKey})
+                or (#{keyword} is not null and #{keyword} != '' and (coalesce(pref_value, '') % #{keyword} or coalesce(description, '') % #{keyword}))
+              )
+            order by
+              key_match_score desc,
+              text_match_score desc,
+              updated_at desc
+            limit #{topK}
+            </script>
+            """)
+    List<Map<String, Object>> selectPreferenceByExactOrTrigram(@Param("prefKey") String prefKey,
+                                                                @Param("keyword") String keyword,
+                                                                @Param("topK") int topK);
 }

@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Value;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 @Value
@@ -14,6 +15,9 @@ import java.util.Map;
 public class RoutePlan {
     // 命中路由
     RetrievalRoute route;
+    // 命中数据源
+    @Builder.Default
+    List<RetrievalSource> sources = Collections.emptyList();
     // 是否需要 query rewrite
     boolean needsRewrite;
     // 是否需要 rerank

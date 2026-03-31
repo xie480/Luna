@@ -117,16 +117,19 @@ public class ChatServiceImpl implements ChatService {
         List<String> preferenceSnippets = extractRelationalPreferenceSnippets(contextPackage);
         List<String> longTermMemorySnippets = extractTaskLongTermSnippets(contextPackage);
         List<String> workingMemorySnippets = extractWorkingMemorySnippets(contextPackage);
+        List<String> ragMemorySnippets = new ArrayList<>();
 
         try {
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_RETRIEVING, LunaStateConstant.VALUE_RETRIEVING);
             RetrievalRequest retrievalRequest = RetrievalRequest.builder()
                     .query(input)
                     .sessionId(runtimeSessionId)
-                    .sourceScope(List.of(RetrievalSource.KNOWLEDGE))
+                    .sourceScope(List.of(RetrievalSource.KNOWLEDGE, RetrievalSource.MEMORY, RetrievalSource.PREFERENCE))
                     .build();
             RetrievalResponse retrievalResponse = retrievalService.retrieve(retrievalRequest);
             knowledgeSnippets = toKnowledgeSnippets(retrievalResponse);
+            ragMemorySnippets.addAll(toMemorySnippets(retrievalResponse));
+            preferenceSnippets = mergeDistinct(preferenceSnippets, toPreferenceSnippets(retrievalResponse));
         } catch (Exception e) {
             log.warn("rag retrieve failed: {}", e.getMessage());
         }
@@ -134,6 +137,7 @@ public class ChatServiceImpl implements ChatService {
         List<String> memorySnippets = new ArrayList<>();
         memorySnippets.addAll(workingMemorySnippets);
         memorySnippets.addAll(extractRuntimeMessageSnippets(contextPackage));
+        memorySnippets.addAll(ragMemorySnippets);
         ContextPruner.ContextPayload payload = ContextPruner.ContextPayload.builder()
                 .systemPrompt(PromptTemplates.SYSTEM_PROMPT)
                 .userInput(input)
@@ -702,6 +706,29 @@ public class ChatServiceImpl implements ChatService {
         return getEvidences(response, RetrievalSource.KNOWLEDGE).stream()
                 .map(evidence -> "title: " + nullSafe(evidence.getTitle()) + "\ncontent: " + nullSafe(evidence.getContent()))
                 .toList();
+    }
+
+    private List<String> toMemorySnippets(RetrievalResponse response) {
+        return getEvidences(response, RetrievalSource.MEMORY).stream()
+                .map(evidence -> "memory: " + nullSafe(evidence.getContent()))
+                .toList();
+    }
+
+    private List<String> toPreferenceSnippets(RetrievalResponse response) {
+        return getEvidences(response, RetrievalSource.PREFERENCE).stream()
+                .map(evidence -> "preference: " + nullSafe(evidence.getContent()))
+                .toList();
+    }
+
+    private List<String> mergeDistinct(List<String> left, List<String> right) {
+        java.util.LinkedHashSet<String> merged = new java.util.LinkedHashSet<>();
+        if (left != null) {
+            merged.addAll(left);
+        }
+        if (right != null) {
+            merged.addAll(right);
+        }
+        return new ArrayList<>(merged);
     }
 
     private List<Evidence> getEvidences(RetrievalResponse response, RetrievalSource source) {

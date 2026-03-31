@@ -15,6 +15,7 @@ import org.yilena.luna.rag.rankers.EvidenceDeduplicator;
 import org.yilena.luna.rag.rankers.EvidenceReranker;
 import org.yilena.luna.rag.retrievers.BaseRetriever;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,7 +48,7 @@ public class ModularPipeline extends AbstractRetrievalPipeline {
         SourceRetrieveOutcome outcome = retrieveBySources(
                 queryObject,
                 plan.getTopKConfig(),
-                resolveSources(request),
+                plan.getSources() == null || plan.getSources().isEmpty() ? resolveSources(request) : new ArrayList<>(plan.getSources()),
                 true,
                 true,
                 request,
