@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.mapper.EventInboxMapper;
 import org.yilena.luna.memory.EventIngressService;
+import org.yilena.luna.memory.MemoryHotLayerService;
 import org.yilena.luna.memory.RuntimeAuditService;
 import org.yilena.luna.memory.SessionOrchestratorService;
 import org.yilena.luna.memory.model.OrchestrationDecision;
@@ -24,6 +25,7 @@ public class DefaultEventIngressService implements EventIngressService {
     private final ObjectMapper objectMapper;
     private final SessionOrchestratorService sessionOrchestratorService;
     private final RuntimeAuditService runtimeAuditService;
+    private final MemoryHotLayerService memoryHotLayerService;
 
     @Override
     public OrchestrationDecision ingestUserInput(String sessionId, String userInput) {
@@ -82,6 +84,7 @@ public class DefaultEventIngressService implements EventIngressService {
                     yield orchestrated;
                 }
                 case "TOOL_RESULT" -> {
+                    clearPendingToolCallIfFinished(normalizedSessionId, payload);
                     OrchestrationDecision orchestrated = sessionOrchestratorService.onToolResult(normalizedSessionId, payload.toString());
                     runtimeAuditService.persistDecisionRecord(
                             normalizedSessionId,
@@ -148,13 +151,26 @@ public class DefaultEventIngressService implements EventIngressService {
 
     private OrchestrationDecision ingestEvent(String sessionId, String eventType, Map<String, Object> payload) {
         String normalizedSessionId = sessionId == null || sessionId.isBlank() ? "default-session" : sessionId;
+        String normalizedEventType = normalizeEventType(eventType);
         String traceId = UUID.randomUUID().toString();
         String payloadJson = toJsonSafe(payload);
+        boolean shouldProcess = memoryHotLayerService.tryDedupeEvent(normalizedSessionId, normalizedEventType, payloadJson);
+        if (!shouldProcess) {
+            runtimeAuditService.persistDecisionRecord(
+                    normalizedSessionId,
+                    null,
+                    null,
+                    "EVENT_DEDUPED",
+                    "duplicated event skipped by redis dedupe",
+                    payloadJson
+            );
+            return null;
+        }
         Long eventId = insertPendingEvent(normalizedSessionId, eventType, payloadJson, traceId);
         if (eventId == null) {
             throw new IllegalStateException("event_inbox write failed");
         }
-        return processSingleEvent(eventId, normalizedSessionId, eventType, payloadJson, traceId);
+        return processSingleEvent(eventId, normalizedSessionId, normalizedEventType, payloadJson, traceId);
     }
 
     private Long insertPendingEvent(String sessionId, String eventType, String payloadJson, String traceId) {
@@ -225,6 +241,16 @@ public class DefaultEventIngressService implements EventIngressService {
             return Long.parseLong(String.valueOf(value));
         } catch (Exception ignore) {
             return null;
+        }
+    }
+
+    private void clearPendingToolCallIfFinished(String sessionId, JsonNode payload) {
+        String status = payload.path("status").asText("").toLowerCase();
+        if (!status.isBlank() && ("success".equals(status) || "completed".equals(status) || "failed".equals(status))) {
+            String taskId = payload.path("taskId").asText("");
+            if (!taskId.isBlank()) {
+                memoryHotLayerService.clearPendingToolCall(sessionId, taskId);
+            }
         }
     }
 }

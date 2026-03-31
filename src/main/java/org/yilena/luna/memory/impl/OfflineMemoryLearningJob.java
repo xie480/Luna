@@ -23,9 +23,15 @@ public class OfflineMemoryLearningJob {
         int taskProcRanked = rankTaskProcedures();
         int relationProcRanked = rankRelationalProcedures();
         int profileUpdated = calibrateRelationalProfileScores();
+        int minedTaskRecovery = mineTaskRecoveryFromReflections();
+        int minedRelationRepair = mineRelationRepairFromReflections();
+        int taskContradictions = linkTaskFactContradictions();
+        int relationContradictions = linkRelationalFactContradictions();
+        int episodeGeneralizations = linkEpisodeGeneralizations();
 
-        log.info("offline learning done: archived={}, mergedTaskFacts={}, mergedRelationFacts={}, taskStatsSynced={}, relationStatsSynced={}, taskProcRanked={}, relationProcRanked={}, profileUpdated={}",
-                archived, mergedTaskFacts, mergedRelationFacts, taskStatsSynced, relationStatsSynced, taskProcRanked, relationProcRanked, profileUpdated);
+        log.info("offline learning done: archived={}, mergedTaskFacts={}, mergedRelationFacts={}, taskStatsSynced={}, relationStatsSynced={}, taskProcRanked={}, relationProcRanked={}, profileUpdated={}, minedTaskRecovery={}, minedRelationRepair={}, taskContradictions={}, relationContradictions={}, episodeGeneralizations={}",
+                archived, mergedTaskFacts, mergedRelationFacts, taskStatsSynced, relationStatsSynced, taskProcRanked, relationProcRanked, profileUpdated,
+                minedTaskRecovery, minedRelationRepair, taskContradictions, relationContradictions, episodeGeneralizations);
     }
 
     private int archiveLowQualityMemory() {
@@ -87,6 +93,46 @@ public class OfflineMemoryLearningJob {
     private int calibrateRelationalProfileScores() {
         try {
             return offlineLearningMapper.calibrateRelationalProfileScores();
+        } catch (Exception ignore) {
+            return 0;
+        }
+    }
+
+    private int mineTaskRecoveryFromReflections() {
+        try {
+            return offlineLearningMapper.mineTaskRecoveryFromReflections();
+        } catch (Exception ignore) {
+            return 0;
+        }
+    }
+
+    private int mineRelationRepairFromReflections() {
+        try {
+            return offlineLearningMapper.mineRelationRepairFromReflections();
+        } catch (Exception ignore) {
+            return 0;
+        }
+    }
+
+    private int linkTaskFactContradictions() {
+        try {
+            return offlineLearningMapper.linkTaskFactContradictions();
+        } catch (Exception ignore) {
+            return 0;
+        }
+    }
+
+    private int linkRelationalFactContradictions() {
+        try {
+            return offlineLearningMapper.linkRelationalFactContradictions();
+        } catch (Exception ignore) {
+            return 0;
+        }
+    }
+
+    private int linkEpisodeGeneralizations() {
+        try {
+            return offlineLearningMapper.linkEpisodeGeneralizations();
         } catch (Exception ignore) {
             return 0;
         }

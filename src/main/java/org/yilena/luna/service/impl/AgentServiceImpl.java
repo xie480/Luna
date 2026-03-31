@@ -10,14 +10,18 @@ import org.yilena.luna.common.utils.JsonSchemaValidator;
 import org.yilena.luna.entity.ChatMessage;
 import org.yilena.luna.entity.ExecutionResult;
 import org.yilena.luna.entity.Resource;
+import org.yilena.luna.enums.RelationalRuntimeState;
 import org.yilena.luna.enums.ResourceType;
+import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.executor.SkillExecutor;
 import org.yilena.luna.gate.ExecutionGate;
 import org.yilena.luna.gate.ToolExecutionGateway;
 import org.yilena.luna.prompt.PromptTemplates;
+import org.yilena.luna.router.CapabilityPolicyRouterService;
 import org.yilena.luna.router.ToolRouter;
 import org.yilena.luna.service.AgentService;
 import org.yilena.luna.service.McpService;
+import org.yilena.luna.service.PlanOrchestratorService;
 import org.yilena.luna.service.SessionService;
 import org.yilena.luna.utils.AuthContextHolder;
 
@@ -43,13 +47,28 @@ public class AgentServiceImpl implements AgentService {
     private final McpService mcpService;
     private final ObjectMapper objectMapper;
     private final SessionService sessionService;
+    private final CapabilityPolicyRouterService capabilityPolicyRouterService;
+    private final PlanOrchestratorService planOrchestratorService;
 
     @Override
     public String processToolCalling(String sessionId, String input) {
+        return processToolCalling(sessionId, input, null, null);
+    }
+
+    @Override
+    public String processToolCalling(String sessionId,
+                                     String input,
+                                     TaskRuntimeState taskState,
+                                     RelationalRuntimeState relationalState) {
         log.info("processToolCalling, sessionId={}, input={}", sessionId, input);
 
+        if (capabilityPolicyRouterService.shouldTriggerPlanOrchestration(input, taskState)) {
+            String stableSessionId = resolveStableSessionId(sessionId);
+            return planOrchestratorService.createAndRunPlan(stableSessionId, input, false);
+        }
+
         // 第一步：按输入召回候选工具/资源，若无候选则直接跳过工具链。
-        List<Resource> candidates = toolRouter.findCandidates(input);
+        List<Resource> candidates = toolRouter.findCandidates(input, taskState, relationalState);
         if (candidates.isEmpty()) {
             return null;
         }
@@ -91,6 +110,11 @@ public class AgentServiceImpl implements AgentService {
             String uri = target.getResourceUri() == null ? target.getName() : target.getResourceUri();
             return toJson(Map.of("status", "success", "data",
                     mcpService.readResource(target.getServerCode(), uri)));
+        }
+        if (ResourceType.STRATEGY.equals(target.getType())
+                && capabilityPolicyRouterService.shouldTriggerPlanOrchestration(input, taskState)) {
+            String stableSessionId = resolveStableSessionId(sessionId);
+            return planOrchestratorService.createAndRunPlan(stableSessionId, input, false);
         }
 
         // TOOL 类型走统一网关执行，并优先透传底层 rawResult（保留原始上下文）。

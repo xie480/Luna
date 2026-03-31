@@ -4,14 +4,15 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.enums.RelationalRuntimeState;
 import org.yilena.luna.enums.TaskRuntimeState;
-import org.yilena.luna.mapper.CapabilityMapper;
 import org.yilena.luna.memory.ContextCompilerService;
+import org.yilena.luna.memory.MemoryHotLayerService;
 import org.yilena.luna.memory.ResponseSynthesizerService;
 import org.yilena.luna.memory.RelationalMemoryRetriever;
 import org.yilena.luna.memory.RuntimeRetriever;
 import org.yilena.luna.memory.SocialReasonerService;
 import org.yilena.luna.memory.TaskMemoryRetriever;
 import org.yilena.luna.memory.model.StructuredContextPackage;
+import org.yilena.luna.router.CapabilityPolicyRouterService;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -26,21 +27,33 @@ public class DefaultContextCompilerService implements ContextCompilerService {
     private final RuntimeRetriever runtimeRetriever;
     private final TaskMemoryRetriever taskMemoryRetriever;
     private final RelationalMemoryRetriever relationalMemoryRetriever;
+    private final MemoryHotLayerService memoryHotLayerService;
     private final SocialReasonerService socialReasonerService;
     private final ResponseSynthesizerService responseSynthesizerService;
-    private final CapabilityMapper capabilityMapper;
+    private final CapabilityPolicyRouterService capabilityPolicyRouterService;
 
     @Override
     public StructuredContextPackage compile(String sessionId,
                                             String userInput,
                                             TaskRuntimeState taskState,
                                             RelationalRuntimeState relationalState) {
+        StructuredContextPackage cached = memoryHotLayerService.getCompiledContextCache(sessionId, userInput, taskState, relationalState);
+        if (cached != null) {
+            return cached;
+        }
+
         Map<String, Object> runtime = runtimeRetriever.retrieve(sessionId);
         Map<String, Object> taskContext = taskMemoryRetriever.retrieve(sessionId, userInput);
         Map<String, Object> relationalContext = relationalMemoryRetriever.retrieve(sessionId, userInput);
 
         List<Map<String, Object>> recentMessages = safeList(runtime.get("recent_messages"));
-        List<Map<String, Object>> capabilities = queryCapabilities();
+        List<Map<String, Object>> capabilities = capabilityPolicyRouterService.routeForContext(
+                sessionId,
+                userInput,
+                taskState,
+                relationalState,
+                24
+        );
         Map<String, Object> socialDraft = socialReasonerService.buildRelationalDraft(
                 sessionId,
                 userInput,
@@ -57,7 +70,7 @@ public class DefaultContextCompilerService implements ContextCompilerService {
         Map<String, Object> promptPolicy = buildPromptPolicy(taskState, relationalState, socialDraft, synthesisPolicy);
         Map<String, Integer> budget = buildTokenBudget(taskState, relationalState);
 
-        return StructuredContextPackage.builder()
+        StructuredContextPackage contextPackage = StructuredContextPackage.builder()
                 .sessionId(sessionId)
                 .taskState(taskState)
                 .relationalState(relationalState)
@@ -69,23 +82,13 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                 .promptPolicy(promptPolicy)
                 .tokenBudgetPlan(budget)
                 .build();
+        memoryHotLayerService.putCompiledContextCache(sessionId, userInput, taskState, relationalState, contextPackage);
+        return contextPackage;
     }
 
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> safeList(Object value) {
         return value instanceof List<?> list ? (List<Map<String, Object>>) list : Collections.emptyList();
-    }
-
-    private List<Map<String, Object>> queryCapabilities() {
-        try {
-            capabilityMapper.syncToolsIntoRegistry();
-            capabilityMapper.syncPromptsIntoRegistry();
-            capabilityMapper.syncResourcesIntoRegistry();
-            capabilityMapper.syncWorkflowsIntoRegistry();
-            return capabilityMapper.selectTopCapabilities();
-        } catch (Exception ignore) {
-            return Collections.emptyList();
-        }
     }
 
     private Map<String, Object> buildPromptPolicy(TaskRuntimeState taskState,

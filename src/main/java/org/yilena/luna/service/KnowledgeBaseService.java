@@ -1,15 +1,15 @@
 package org.yilena.luna.service;
 
-import com.baomidou.mybatisplus.extension.service.IService;
-import org.yilena.luna.entity.KnowledgeBase;
+import org.yilena.luna.entity.KnowledgeChunkRecord;
 import org.yilena.luna.enums.SourceType;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
  * 知識庫服務接口
  */
-public interface KnowledgeBaseService extends IService<KnowledgeBase> {
+public interface KnowledgeBaseService {
 
     /**
      * 添加知識到知識庫 (包含分片和向量化)
@@ -26,5 +26,21 @@ public interface KnowledgeBaseService extends IService<KnowledgeBase> {
      * @param topK 返回數量
      * @return 匹配的知識列表
      */
-    List<KnowledgeBase> searchKnowledge(String query, int topK);
+    List<KnowledgeChunkRecord> searchKnowledge(String query, int topK);
+
+    Long countKnowledge(String title,
+                        String content,
+                        String sourceType,
+                        String sourcePath,
+                        LocalDateTime startTime,
+                        LocalDateTime endTime);
+
+    List<KnowledgeChunkRecord> pageKnowledge(String title,
+                                             String content,
+                                             String sourceType,
+                                             String sourcePath,
+                                             LocalDateTime startTime,
+                                             LocalDateTime endTime,
+                                             long pageNo,
+                                             long pageSize);
 }

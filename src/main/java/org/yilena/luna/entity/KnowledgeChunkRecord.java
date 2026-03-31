@@ -10,26 +10,24 @@ import java.io.Serializable;
 import java.time.LocalDateTime;
 
 /**
- * 兼容 DTO（retired）。
- * <p>
- * memory v2 后知识库真相源为 knowledge_document + knowledge_chunk，
- * 不再映射 legacy knowledge_base 表。
+ * knowledge_document + knowledge_chunk 联合查询结果。
  */
-@Deprecated
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class KnowledgeBase implements Serializable {
+public class KnowledgeChunkRecord implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
     private Long id;
+    private Long docId;
+    private Long chunkId;
+    private Integer chunkOrder;
     private String title;
     private String content;
     private SourceType sourceType;
     private String sourcePath;
-    private String vectorId;
     private String embedding;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

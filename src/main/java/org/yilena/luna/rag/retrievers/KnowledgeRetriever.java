@@ -2,7 +2,7 @@ package org.yilena.luna.rag.retrievers;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import org.yilena.luna.entity.KnowledgeBase;
+import org.yilena.luna.entity.KnowledgeChunkRecord;
 import org.yilena.luna.rag.adapters.PgRetrievalAdapter;
 import org.yilena.luna.rag.models.Evidence;
 import org.yilena.luna.rag.models.QueryObject;
@@ -32,7 +32,7 @@ public class KnowledgeRetriever implements BaseRetriever {
         if (vector == null || vector.isBlank() || "[]".equals(vector.trim())) {
             return Collections.emptyList();
         }
-        List<KnowledgeBase> records = pgRetrievalAdapter.searchKnowledgeByVector(vector, topK);
+        List<KnowledgeChunkRecord> records = pgRetrievalAdapter.searchKnowledgeByVector(vector, topK);
         if (records == null || records.isEmpty()) {
             return Collections.emptyList();
         }
@@ -41,13 +41,15 @@ public class KnowledgeRetriever implements BaseRetriever {
                 .toList();
     }
 
-    private Evidence toEvidence(KnowledgeBase kb, int index, int total) {
+    private Evidence toEvidence(KnowledgeChunkRecord kb, int index, int total) {
         Map<String, Object> metadata = new HashMap<>();
-        metadata.put("raw_id", kb.getId());
+        metadata.put("raw_id", kb.getChunkId() != null ? kb.getChunkId() : kb.getId());
+        metadata.put("doc_id", kb.getDocId());
+        metadata.put("chunk_id", kb.getChunkId());
         metadata.put("source_type", kb.getSourceType() != null ? kb.getSourceType().getValue() : null);
         metadata.put("source_path", kb.getSourcePath());
         return Evidence.builder()
-                .id("knowledge:" + kb.getId())
+                .id("knowledge_chunk:" + (kb.getChunkId() != null ? kb.getChunkId() : kb.getId()))
                 .source(RetrievalSource.KNOWLEDGE)
                 .type("knowledge")
                 .title(kb.getTitle())

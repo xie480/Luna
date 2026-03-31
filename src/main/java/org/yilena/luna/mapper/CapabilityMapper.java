@@ -105,6 +105,64 @@ public interface CapabilityMapper {
             """)
     int syncWorkflowsIntoRegistry();
 
+    @Update("""
+            insert into capability_registry(
+                capability_type, server_code, capability_name, title, description,
+                input_schema, output_schema, metadata_json, requires_approval, sensitivity,
+                enabled, version, updated_at
+            )
+            select
+                'STRATEGY', 'task_procedure', concat('strategy:task:', p.name), p.name, p.description,
+                p.trigger_conditions_json, p.pattern_steps_json,
+                jsonb_build_object(
+                    'procedure_type', p.procedure_type,
+                    'source_kind', p.source_kind,
+                    'confidence_score', p.confidence_score,
+                    'usage_count', p.usage_count
+                ),
+                false, 'LOW', true, '1', current_timestamp
+            from task_procedure_pattern p
+            on conflict (capability_name)
+            do update set
+                title = excluded.title,
+                description = excluded.description,
+                input_schema = excluded.input_schema,
+                output_schema = excluded.output_schema,
+                metadata_json = excluded.metadata_json,
+                enabled = excluded.enabled,
+                updated_at = current_timestamp
+            """)
+    int syncTaskStrategiesIntoRegistry();
+
+    @Update("""
+            insert into capability_registry(
+                capability_type, server_code, capability_name, title, description,
+                input_schema, output_schema, metadata_json, requires_approval, sensitivity,
+                enabled, version, updated_at
+            )
+            select
+                'STRATEGY', 'relation_procedure', concat('strategy:relation:', p.name), p.name, p.description,
+                p.trigger_conditions_json, p.pattern_steps_json,
+                jsonb_build_object(
+                    'procedure_type', p.procedure_type,
+                    'source_kind', p.source_kind,
+                    'confidence_score', p.confidence_score,
+                    'usage_count', p.usage_count
+                ),
+                false, 'LOW', true, '1', current_timestamp
+            from relational_procedure_pattern p
+            on conflict (capability_name)
+            do update set
+                title = excluded.title,
+                description = excluded.description,
+                input_schema = excluded.input_schema,
+                output_schema = excluded.output_schema,
+                metadata_json = excluded.metadata_json,
+                enabled = excluded.enabled,
+                updated_at = current_timestamp
+            """)
+    int syncRelationalStrategiesIntoRegistry();
+
     @Select("""
             select capability_id, capability_type, capability_name, title, description, requires_approval, sensitivity
             from capability_registry

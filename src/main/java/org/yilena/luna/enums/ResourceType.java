@@ -13,7 +13,8 @@ public enum ResourceType {
     SKILL("SKILL", "Legacy composite skill"),
     PROMPT("PROMPT", "Prompt template"),
     RESOURCE("RESOURCE", "Readable resource"),
-    WORKFLOW("WORKFLOW", "Workflow template");
+    WORKFLOW("WORKFLOW", "Workflow template"),
+    STRATEGY("STRATEGY", "Policy strategy");
 
     @EnumValue
     @JsonValue

@@ -4,10 +4,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.entity.Resource;
+import org.yilena.luna.enums.RelationalRuntimeState;
 import org.yilena.luna.enums.ResourceType;
 import org.yilena.luna.enums.RunMode;
 import org.yilena.luna.enums.Sensitivity;
-import org.yilena.luna.mapper.CapabilityMapper;
+import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.service.McpService;
 
 import java.util.Collections;
@@ -21,11 +22,15 @@ import java.util.Map;
 public class ToolRouter {
 
     private final McpService mcpService;
-    private final CapabilityMapper capabilityMapper;
+    private final CapabilityPolicyRouterService capabilityPolicyRouterService;
 
     public List<Resource> findCandidates(String query) {
+        return findCandidates(query, null, null);
+    }
+
+    public List<Resource> findCandidates(String query, TaskRuntimeState taskState, RelationalRuntimeState relationalState) {
         log.info("search candidates by query [{}]", query);
-        List<Resource> capabilityCandidates = fromCapabilityRegistry(query);
+        List<Resource> capabilityCandidates = fromCapabilityRegistry(query, taskState, relationalState);
         if (!capabilityCandidates.isEmpty()) {
             return capabilityCandidates.size() > 10 ? capabilityCandidates.subList(0, 10) : capabilityCandidates;
         }
@@ -33,16 +38,18 @@ public class ToolRouter {
         return fallback.size() > 10 ? fallback.subList(0, 10) : fallback;
     }
 
-    private List<Resource> fromCapabilityRegistry(String query) {
+    private List<Resource> fromCapabilityRegistry(String query, TaskRuntimeState taskState, RelationalRuntimeState relationalState) {
         if (query == null || query.isBlank()) {
             return Collections.emptyList();
         }
         try {
-            capabilityMapper.syncToolsIntoRegistry();
-            capabilityMapper.syncPromptsIntoRegistry();
-            capabilityMapper.syncResourcesIntoRegistry();
-            capabilityMapper.syncWorkflowsIntoRegistry();
-            List<Map<String, Object>> rows = capabilityMapper.searchCapabilityCandidates(query, 20);
+            List<Map<String, Object>> rows = capabilityPolicyRouterService.routeForExecution(
+                    "",
+                    query,
+                    taskState,
+                    relationalState,
+                    20
+            );
             return rows.stream().map(this::toResource).toList();
         } catch (Exception ignore) {
             return Collections.emptyList();
@@ -71,6 +78,7 @@ public class ToolRouter {
             case "WORKFLOW" -> ResourceType.WORKFLOW;
             case "PROMPT" -> ResourceType.PROMPT;
             case "RESOURCE" -> ResourceType.RESOURCE;
+            case "STRATEGY" -> ResourceType.STRATEGY;
             default -> ResourceType.TOOL;
         };
     }

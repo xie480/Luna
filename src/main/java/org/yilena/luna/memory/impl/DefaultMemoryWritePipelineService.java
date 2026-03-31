@@ -156,11 +156,20 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
             return;
         }
         String lower = text.toLowerCase(Locale.ROOT);
+        if (containsAny(lower, "以后", "从现在", "默认", "prefer", "always", "请用", "输出用")) {
+            insertTaskSemanticFact(sessionId, "PREFERENCE", "explicit_output_preference", summarize(text, 220), "USER_INPUT");
+        }
+        if (containsAny(lower, "我在做", "我们做", "行业", "业务", "b 端", "b端", "saas")) {
+            insertTaskSemanticFact(sessionId, "DOMAIN_FACT", "explicit_domain_fact", summarize(text, 220), "USER_INPUT");
+        }
         if (containsAny(lower, "default", "prefer", "markdown", "format", "style", "偏好", "默认")) {
             insertTaskSemanticFact(sessionId, "PREFERENCE", "auto_extracted_task_pref", text, "USER_INPUT");
         }
         if (containsAny(lower, "do not call me", "don't lecture", "uncomfortable", "need support first", "别叫我", "先别给方案", "不喜欢说教")) {
             insertRelationalSemanticFact(sessionId, "BOUNDARY", "auto_extracted_relation_boundary", text, "USER_INPUT");
+        }
+        if (containsAny(lower, "先听", "先安慰", "先陪我", "listen first", "comfort first")) {
+            insertRelationalSemanticFact(sessionId, "SUPPORT_STYLE", "explicit_support_style", summarize(text, 220), "USER_INPUT");
         }
     }
 
@@ -293,19 +302,19 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
         if (contextPackage == null) {
             return;
         }
+        LearningSignal signal = deriveLearningSignal(contextPackage, userInput, assistantReply);
+        ensureTaskPlanningProcedure();
         ensureTaskExecutionProcedure();
         ensureRelationalSupportProcedure();
 
         TaskRuntimeState taskState = contextPackage.getTaskState();
         RelationalRuntimeState relationState = contextPackage.getRelationalState();
-        if (taskState == TaskRuntimeState.FAILED || taskState == TaskRuntimeState.REFLECTING) {
-            writeTaskReflection(sessionId, userInput, assistantReply, taskState);
+        if (signal.taskReflectionRequired(taskState)) {
+            writeTaskReflection(sessionId, userInput, assistantReply, taskState, signal.taskReason());
             ensureTaskRecoveryProcedure();
         }
-        String lower = userInput == null ? "" : userInput.toLowerCase(Locale.ROOT);
-        if (relationState == RelationalRuntimeState.REPAIRING
-                || containsAny(lower, "you don't get me", "offended", "uncomfortable", "not this way", "你没懂我", "被冒犯", "不舒服")) {
-            writeRelationalReflection(sessionId, userInput, assistantReply);
+        if (signal.relationReflectionRequired(relationState)) {
+            writeRelationalReflection(sessionId, userInput, assistantReply, signal.relationReason());
             ensureRelationalRepairProcedure();
         }
     }
@@ -318,10 +327,14 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
         RelationalRuntimeState relationState = contextPackage.getRelationalState();
         boolean taskSuccess = taskState == TaskRuntimeState.COMPLETED || taskState == TaskRuntimeState.REPORTING;
         boolean taskFailure = taskState == TaskRuntimeState.FAILED || taskState == TaskRuntimeState.REFLECTING;
+        boolean planningPhase = taskState == TaskRuntimeState.PLANNING || taskState == TaskRuntimeState.REPLANNING;
         String lower = userInput == null ? "" : userInput.toLowerCase(Locale.ROOT);
 
         try {
             memoryWriteMapper.updateTaskExecutionProcedureStats(taskSuccess ? 1 : 0, taskFailure ? 1 : 0);
+            if (planningPhase) {
+                memoryWriteMapper.updateTaskPlanningProcedureStats(taskFailure ? 0 : 1, taskFailure ? 1 : 0);
+            }
             if (taskFailure) {
                 memoryWriteMapper.incrementTaskFailureRecovery();
             }
@@ -346,12 +359,16 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
         }
     }
 
-    private void writeTaskReflection(String sessionId, String userInput, String assistantReply, TaskRuntimeState taskState) {
+    private void writeTaskReflection(String sessionId,
+                                     String userInput,
+                                     String assistantReply,
+                                     TaskRuntimeState taskState,
+                                     String reason) {
         try {
             memoryWriteMapper.insertTaskReflection(
                     sessionId,
                     taskState.name(),
-                    "task_state_trigger",
+                    reason == null || reason.isBlank() ? "task_state_trigger" : reason,
                     summarize(userInput, 220),
                     "execution_quality_risk",
                     summarize(assistantReply, 220)
@@ -360,14 +377,24 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
         }
     }
 
-    private void writeRelationalReflection(String sessionId, String userInput, String assistantReply) {
+    private void writeRelationalReflection(String sessionId,
+                                           String userInput,
+                                           String assistantReply,
+                                           String reason) {
         try {
             memoryWriteMapper.insertRelationalReflection(
                     sessionId,
                     summarize(userInput, 220),
-                    "tone_or_understanding_gap",
+                    reason == null || reason.isBlank() ? "tone_or_understanding_gap" : reason,
                     summarize(assistantReply, 220)
             );
+        } catch (Exception ignore) {
+        }
+    }
+
+    private void ensureTaskPlanningProcedure() {
+        try {
+            memoryWriteMapper.ensureTaskPlanningProcedure();
         } catch (Exception ignore) {
         }
     }
@@ -414,7 +441,72 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
             memoryWriteMapper.refreshEmotionalBaselineRegistry(sessionId);
             memoryWriteMapper.refreshBoundaryRuleRegistry(sessionId);
             memoryWriteMapper.upsertWorkingDerivedRelations(sessionId);
+            memoryWriteMapper.upsertWorkingSupportRelations(sessionId);
+            memoryWriteMapper.upsertTaskContradictionRelations(sessionId);
+            memoryWriteMapper.upsertRelationalContradictionRelations(sessionId);
+            memoryWriteMapper.upsertEpisodeGeneralizationRelations(sessionId);
+            memoryWriteMapper.upsertEpisodeSummaryRelations(sessionId);
         } catch (Exception ignore) {
+        }
+    }
+
+    private LearningSignal deriveLearningSignal(StructuredContextPackage contextPackage, String userInput, String assistantReply) {
+        String inputLower = userInput == null ? "" : userInput.toLowerCase(Locale.ROOT);
+        String replyLower = assistantReply == null ? "" : assistantReply.toLowerCase(Locale.ROOT);
+        int recentToolFailures = countRecentToolFailures(contextPackage);
+        boolean dissatisfaction = containsAny(inputLower, "你没懂", "不对", "不是这个", "offended", "you don't get me", "not this way");
+        boolean explicitFailure = containsAny(inputLower, "失败", "报错", "error", "failed", "重试") || recentToolFailures > 0;
+        boolean highCost = recentToolFailures >= 2 || containsAny(inputLower, "太慢", "花太久", "反复", "cost too high");
+        boolean fragileSignal = containsAny(inputLower, "撑不住", "崩溃", "很难受", "fragile", "overwhelmed");
+        boolean relationGap = dissatisfaction || containsAny(replyLower, "抱歉", "sorry");
+        String taskReason = explicitFailure ? "runtime_failure_signal" : (highCost ? "high_cost_success_signal" : "");
+        String relationReason = relationGap ? "relation_misalignment_signal" : (fragileSignal ? "fragile_support_signal" : "");
+        return new LearningSignal(explicitFailure, highCost, relationGap, fragileSignal, taskReason, relationReason);
+    }
+
+    @SuppressWarnings("unchecked")
+    private int countRecentToolFailures(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getRuntime() == null) {
+            return 0;
+        }
+        Object raw = contextPackage.getRuntime().get("active_tool_results");
+        if (!(raw instanceof List<?> list)) {
+            return 0;
+        }
+        int failures = 0;
+        for (Object item : list) {
+            if (!(item instanceof Map<?, ?> row)) {
+                continue;
+            }
+            Object statusObj = row.get("call_status");
+            Object errorObj = row.get("error_message");
+            String status = statusObj == null ? "" : String.valueOf(statusObj).toLowerCase(Locale.ROOT);
+            String error = errorObj == null ? "" : String.valueOf(errorObj).toLowerCase(Locale.ROOT);
+            if (containsAny(status, "failed", "error") || !error.isBlank()) {
+                failures++;
+            }
+        }
+        return failures;
+    }
+
+    private record LearningSignal(boolean taskFailureSignal,
+                                  boolean highCostSignal,
+                                  boolean relationGapSignal,
+                                  boolean fragileSignal,
+                                  String taskReason,
+                                  String relationReason) {
+        private boolean taskReflectionRequired(TaskRuntimeState taskState) {
+            return taskState == TaskRuntimeState.FAILED
+                    || taskState == TaskRuntimeState.REFLECTING
+                    || taskFailureSignal
+                    || (highCostSignal && (taskState == TaskRuntimeState.COMPLETED || taskState == TaskRuntimeState.REPORTING));
+        }
+
+        private boolean relationReflectionRequired(RelationalRuntimeState relationState) {
+            return relationState == RelationalRuntimeState.REPAIRING
+                    || relationState == RelationalRuntimeState.FRAGILE_MOMENT
+                    || relationGapSignal
+                    || fragileSignal;
         }
     }
 

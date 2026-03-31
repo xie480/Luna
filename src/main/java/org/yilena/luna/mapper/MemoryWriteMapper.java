@@ -297,6 +297,9 @@ public interface MemoryWriteMapper {
     @Update("update task_procedure_pattern set usage_count = usage_count + 1, success_count = success_count + #{successInc}, fail_count = fail_count + #{failInc}, updated_at = current_timestamp where name = 'default_task_execution'")
     int updateTaskExecutionProcedureStats(@Param("successInc") int successInc, @Param("failInc") int failInc);
 
+    @Update("update task_procedure_pattern set usage_count = usage_count + 1, success_count = success_count + #{successInc}, fail_count = fail_count + #{failInc}, updated_at = current_timestamp where name = 'default_task_planning'")
+    int updateTaskPlanningProcedureStats(@Param("successInc") int successInc, @Param("failInc") int failInc);
+
     @Update("update task_procedure_pattern set usage_count = usage_count + 1, fail_count = fail_count + 1, updated_at = current_timestamp where name = 'default_failure_recovery'")
     int incrementTaskFailureRecovery();
 
@@ -321,6 +324,13 @@ public interface MemoryWriteMapper {
             """)
     int insertRelationalReflection(@Param("sessionId") String sessionId, @Param("observation") String observation,
                                    @Param("rootCause") String rootCause, @Param("proposedFix") String proposedFix);
+
+    @Update("""
+            insert into task_procedure_pattern(procedure_type, name, description, trigger_conditions_json, pattern_steps_json, source_kind, confidence_score, usage_count, success_count, fail_count, created_at, updated_at)
+            select 'PLANNING_PATTERN', 'default_task_planning', 'default planning decomposition baseline', jsonb_build_object('trigger','planning_turn'), jsonb_build_array('clarify_goal','decompose_phase','define_success_criteria'), 'ONLINE_RUNTIME', 0.61, 0, 0, 0, current_timestamp, current_timestamp
+            where not exists (select 1 from task_procedure_pattern where name = 'default_task_planning')
+            """)
+    int ensureTaskPlanningProcedure();
 
     @Update("""
             insert into task_procedure_pattern(procedure_type, name, description, trigger_conditions_json, pattern_steps_json, source_kind, confidence_score, usage_count, success_count, fail_count, created_at, updated_at)
@@ -481,4 +491,118 @@ public interface MemoryWriteMapper {
               )
             """)
     int upsertWorkingDerivedRelations(@Param("sessionId") String sessionId);
+
+    @Update("""
+            insert into memory_relation(from_memory_id, to_memory_id, relation_type, weight, created_at)
+            select wm.memory_id, sem.memory_id, 'SUPPORTS', 0.72, current_timestamp
+            from memory_registry wm
+            join memory_registry sem on sem.principal_id = wm.principal_id
+            where wm.ref_table = 'task_working_memory'
+              and wm.ref_id = (
+                    select cast(twm_id as varchar)
+                    from task_working_memory
+                    where session_id = #{sessionId}
+                    limit 1
+              )
+              and sem.ref_table in ('task_semantic_fact','relational_semantic_fact','relational_boundary_rule')
+              and sem.memory_id <> wm.memory_id
+              and not exists (
+                    select 1 from memory_relation r
+                    where r.from_memory_id = wm.memory_id
+                      and r.to_memory_id = sem.memory_id
+                      and r.relation_type = 'SUPPORTS'
+              )
+            """)
+    int upsertWorkingSupportRelations(@Param("sessionId") String sessionId);
+
+    @Update("""
+            insert into memory_relation(from_memory_id, to_memory_id, relation_type, weight, created_at)
+            select latest_mem.memory_id, old_mem.memory_id, 'CONTRADICTS', 0.86, current_timestamp
+            from task_semantic_fact latest
+            join task_semantic_fact old
+              on coalesce(latest.principal_id, -1) = coalesce(old.principal_id, -1)
+             and latest.fact_key = old.fact_key
+             and latest.fact_id > old.fact_id
+             and coalesce(latest.fact_value_text,'') <> coalesce(old.fact_value_text,'')
+             and latest.deleted = false
+             and old.deleted = false
+            join memory_registry latest_mem
+              on latest_mem.ref_table = 'task_semantic_fact'
+             and latest_mem.ref_id = cast(latest.fact_id as varchar)
+            join memory_registry old_mem
+              on old_mem.ref_table = 'task_semantic_fact'
+             and old_mem.ref_id = cast(old.fact_id as varchar)
+            where latest.source_ref = #{sessionId}
+              and not exists (
+                    select 1 from memory_relation r
+                    where r.from_memory_id = latest_mem.memory_id
+                      and r.to_memory_id = old_mem.memory_id
+                      and r.relation_type = 'CONTRADICTS'
+              )
+            """)
+    int upsertTaskContradictionRelations(@Param("sessionId") String sessionId);
+
+    @Update("""
+            insert into memory_relation(from_memory_id, to_memory_id, relation_type, weight, created_at)
+            select latest_mem.memory_id, old_mem.memory_id, 'CONTRADICTS', 0.86, current_timestamp
+            from relational_semantic_fact latest
+            join relational_semantic_fact old
+              on coalesce(latest.principal_id, -1) = coalesce(old.principal_id, -1)
+             and latest.fact_key = old.fact_key
+             and latest.fact_id > old.fact_id
+             and coalesce(latest.fact_value_text,'') <> coalesce(old.fact_value_text,'')
+             and latest.deleted = false
+             and old.deleted = false
+            join memory_registry latest_mem
+              on latest_mem.ref_table = 'relational_semantic_fact'
+             and latest_mem.ref_id = cast(latest.fact_id as varchar)
+            join memory_registry old_mem
+              on old_mem.ref_table = 'relational_semantic_fact'
+             and old_mem.ref_id = cast(old.fact_id as varchar)
+            where latest.source_ref = #{sessionId}
+              and not exists (
+                    select 1 from memory_relation r
+                    where r.from_memory_id = latest_mem.memory_id
+                      and r.to_memory_id = old_mem.memory_id
+                      and r.relation_type = 'CONTRADICTS'
+              )
+            """)
+    int upsertRelationalContradictionRelations(@Param("sessionId") String sessionId);
+
+    @Update("""
+            insert into memory_relation(from_memory_id, to_memory_id, relation_type, weight, created_at)
+            select ep_mem.memory_id, proc_mem.memory_id, 'GENERALIZES', 0.70, current_timestamp
+            from memory_registry ep_mem
+            join memory_registry proc_mem
+              on proc_mem.principal_id = ep_mem.principal_id
+            where ep_mem.ref_table in ('task_episode','relational_episode')
+              and ep_mem.source_ref = 'memory_write_pipeline'
+              and proc_mem.ref_table in ('task_procedure_pattern','relational_procedure_pattern')
+              and ep_mem.principal_id = (select principal_id from agent_session where session_id = #{sessionId} limit 1)
+              and not exists (
+                    select 1 from memory_relation r
+                    where r.from_memory_id = ep_mem.memory_id
+                      and r.to_memory_id = proc_mem.memory_id
+                      and r.relation_type = 'GENERALIZES'
+              )
+            """)
+    int upsertEpisodeGeneralizationRelations(@Param("sessionId") String sessionId);
+
+    @Update("""
+            insert into memory_relation(from_memory_id, to_memory_id, relation_type, weight, created_at)
+            select ep_mem.memory_id, wm.memory_id, 'SUMMARIZES', 0.66, current_timestamp
+            from memory_registry ep_mem
+            join memory_registry wm
+              on wm.principal_id = ep_mem.principal_id
+            where ep_mem.ref_table in ('task_episode','relational_episode')
+              and ep_mem.principal_id = (select principal_id from agent_session where session_id = #{sessionId} limit 1)
+              and wm.ref_table in ('task_working_memory','relational_working_memory')
+              and not exists (
+                    select 1 from memory_relation r
+                    where r.from_memory_id = ep_mem.memory_id
+                      and r.to_memory_id = wm.memory_id
+                      and r.relation_type = 'SUMMARIZES'
+              )
+            """)
+    int upsertEpisodeSummaryRelations(@Param("sessionId") String sessionId);
 }

@@ -1,6 +1,5 @@
 package org.yilena.luna.controller.query;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import io.swagger.v3.oas.annotations.Operation;
@@ -8,11 +7,12 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.yilena.luna.entity.KnowledgeBase;
+import org.yilena.luna.entity.KnowledgeChunkRecord;
 import org.yilena.luna.entity.query.KnowledgeBasePageQueryRequest;
 import org.yilena.luna.entity.query.PagedResponse;
-import org.yilena.luna.enums.SourceType;
 import org.yilena.luna.service.KnowledgeBaseService;
+
+import java.time.LocalDateTime;
 
 @RestController
 @RequestMapping("/luna/api/query/knowledge-base")
@@ -31,37 +31,44 @@ public class KnowledgeBaseController extends BasePageQueryController {
         try {
             // 请求体为空时使用默认查询对象，保证分页参数可用。
             KnowledgeBasePageQueryRequest request = req == null ? new KnowledgeBasePageQueryRequest() : req;
-            Page<KnowledgeBase> page = new Page<>(normalizePageNo(request.getPageNo()), normalizePageSize(request.getPageSize()));
+            long pageNo = normalizePageNo(request.getPageNo());
+            long pageSize = normalizePageSize(request.getPageSize());
+            Page<KnowledgeChunkRecord> page = new Page<>(pageNo, pageSize);
+            LocalDateTime startTime = hasText(request.getStartTime()) ? parseDateTime(request.getStartTime()) : null;
+            LocalDateTime endTime = hasText(request.getEndTime()) ? parseDateTime(request.getEndTime()) : null;
+            String sourceType = hasText(request.getSourceType()) ? request.getSourceType().trim().toUpperCase() : null;
 
-            // 按入参动态拼接查询条件，仅对非空字段生效。
-            LambdaQueryWrapper<KnowledgeBase> wrapper = new LambdaQueryWrapper<>();
-            if (hasText(request.getTitle())) {
-                wrapper.like(KnowledgeBase::getTitle, request.getTitle().trim());
-            }
-            if (hasText(request.getContent())) {
-                wrapper.like(KnowledgeBase::getContent, request.getContent().trim());
-            }
-            if (hasText(request.getSourceType())) {
-                wrapper.eq(KnowledgeBase::getSourceType, SourceType.valueOf(request.getSourceType().trim().toUpperCase()));
-            }
-            if (hasText(request.getSourcePath())) {
-                wrapper.like(KnowledgeBase::getSourcePath, request.getSourcePath().trim());
-            }
-            if (hasText(request.getStartTime())) {
-                wrapper.ge(KnowledgeBase::getCreatedAt, parseDateTime(request.getStartTime()));
-            }
-            if (hasText(request.getEndTime())) {
-                wrapper.le(KnowledgeBase::getCreatedAt, parseDateTime(request.getEndTime()));
-            }
-            wrapper.orderByDesc(KnowledgeBase::getCreatedAt);
-
-            // 执行分页查询并统一封装分页返回结构。
-            IPage<KnowledgeBase> result = knowledgeBaseService.page(page, wrapper);
+            Long total = knowledgeBaseService.countKnowledge(
+                    trimToNull(request.getTitle()),
+                    trimToNull(request.getContent()),
+                    sourceType,
+                    trimToNull(request.getSourcePath()),
+                    startTime,
+                    endTime
+            );
+            page.setTotal(total == null ? 0L : total);
+            page.setRecords(knowledgeBaseService.pageKnowledge(
+                    trimToNull(request.getTitle()),
+                    trimToNull(request.getContent()),
+                    sourceType,
+                    trimToNull(request.getSourcePath()),
+                    startTime,
+                    endTime,
+                    pageNo,
+                    pageSize
+            ));
+            IPage<KnowledgeChunkRecord> result = page;
             return ResponseEntity.ok(PagedResponse.from(result));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(error("参数错误: " + e.getMessage()));
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body(error("查询知识库失败: " + e.getMessage()));
         }
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 }

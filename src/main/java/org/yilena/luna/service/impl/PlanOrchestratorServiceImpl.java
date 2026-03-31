@@ -81,6 +81,11 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
     @Override
     public String createAndRunPlan(String sessionId, String userGoal) {
+        return createAndRunPlan(sessionId, userGoal, true);
+    }
+
+    @Override
+    public String createAndRunPlan(String sessionId, String userGoal, boolean callbackToChat) {
         String planId = null;
         try {
             if (sessionId == null || sessionId.isBlank()) {
@@ -237,7 +242,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             }
 
             String finalResultJson = objectMapper.writeValueAsString(merged);
-            sendFinalResultToLuna(sessionId, finalResultJson);
+            if (callbackToChat) {
+                sendFinalResultToLuna(sessionId, finalResultJson);
+            }
 
             log.info("[Plan] 計劃執行完畢, planId={}, status={}", planId, merged.get("status"));
             return finalResultJson;
@@ -251,7 +258,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             }
             String errJson = error("PLAN_CREATE_RUN_FAILED", "創建並執行計劃失敗: " + e.getMessage());
             try {
-                if (sessionId != null && !sessionId.isBlank()) {
+                if (callbackToChat && sessionId != null && !sessionId.isBlank()) {
                     sendFinalResultToLuna(sessionId, errJson);
                 }
             } catch (Exception ex) {

@@ -17,6 +17,10 @@ public interface PlanOrchestratorService {
      */
     String createAndRunPlan(String sessionId, String userGoal);
 
+    default String createAndRunPlan(String sessionId, String userGoal, boolean callbackToChat) {
+        return createAndRunPlan(sessionId, userGoal);
+    }
+
     /**
      * 执行单阶段
      * @param planId 计划ID

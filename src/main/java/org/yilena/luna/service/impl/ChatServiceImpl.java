@@ -27,6 +27,7 @@ import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
 import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.memory.EventIngressService;
+import org.yilena.luna.memory.MemoryHotLayerService;
 import org.yilena.luna.memory.MemoryWritePipelineService;
 import org.yilena.luna.memory.RuntimeAuditService;
 import org.yilena.luna.memory.ThreeStageResponseService;
@@ -75,6 +76,7 @@ public class ChatServiceImpl implements ChatService {
     private final AgentService agentService;
     private final RetrievalService retrievalService;
     private final EventIngressService eventIngressService;
+    private final MemoryHotLayerService memoryHotLayerService;
     private final MemoryWritePipelineService memoryWritePipelineService;
     private final ThreeStageResponseService threeStageResponseService;
     private final RuntimeAuditService runtimeAuditService;
@@ -160,7 +162,12 @@ public class ChatServiceImpl implements ChatService {
         String toolStatus = "SUCCESS";
         String toolError = null;
         try {
-            toolContext = agentService.processToolCalling(runtimeSessionId, input);
+            toolContext = agentService.processToolCalling(
+                    runtimeSessionId,
+                    input,
+                    decision == null ? null : decision.getTaskState(),
+                    decision == null ? null : decision.getRelationalState()
+            );
         } catch (Exception ex) {
             toolStatus = "FAILED";
             toolError = ex.getMessage();
@@ -198,6 +205,7 @@ public class ChatServiceImpl implements ChatService {
 
         if (isAsyncPending(mergedToolContext)) {
             String pendingReply = buildPendingReply(mergedToolContext);
+            cachePendingToolCall(runtimeSessionId, mergedToolContext);
             memoryWritePipelineService.writeAfterTurn(runtimeSessionId, input, pendingReply, contextPackage);
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
             return ResponseEntity.ok(tryParseJsonNode(pendingReply));
@@ -466,6 +474,23 @@ public class ChatServiceImpl implements ChatService {
         } catch (Exception e) {
             return "{\"emotion\":\"Soft\",\"reply\":\"task is running in background\",\"status\":\"pending\"}";
         }
+    }
+
+    private void cachePendingToolCall(String sessionId, String toolContext) {
+        JsonNode node = tryParseJsonNode(toolContext);
+        if (node == null) {
+            return;
+        }
+        String taskId = node.path("taskId").asText("");
+        if (taskId.isBlank()) {
+            return;
+        }
+        Map<String, Object> payload = new java.util.HashMap<>();
+        payload.put("taskId", taskId);
+        payload.put("skillName", node.path("skillName").asText(""));
+        payload.put("status", "pending");
+        payload.put("toolContext", toolContext == null ? "" : toolContext);
+        memoryHotLayerService.putPendingToolCall(sessionId, taskId, payload);
     }
 
     private List<String> extractTaskKnowledgeSnippets(StructuredContextPackage contextPackage) {

@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import org.yilena.luna.constants.LunaStateConstant;
 import org.yilena.luna.constants.RocketMqConstant;
 import org.yilena.luna.executor.SkillExecutor;
+import org.yilena.luna.memory.MemoryHotLayerService;
 import org.yilena.luna.mq.dto.SkillExecutionMessage;
 import org.yilena.luna.sse.LunaStatusPublisher;
 
@@ -33,6 +34,7 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
     private final LunaStatusPublisher statusPublisher;
+    private final MemoryHotLayerService memoryHotLayerService;
 
     @Override
     public void onMessage(SkillExecutionMessage msg) {
@@ -102,6 +104,7 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
 
             throw new RuntimeException("Async skill execution failed, taskId=" + taskId + ", err=" + err, e);
         } finally {
+            memoryHotLayerService.clearPendingToolCallByTaskId(taskId);
             // 无论成功失败都将全局状态恢复到空闲态。
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
         }
