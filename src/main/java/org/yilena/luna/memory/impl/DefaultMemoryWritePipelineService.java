@@ -63,35 +63,63 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
 
     private void upsertTaskWorkingMemory(String sessionId, String userInput, String assistantReply, StructuredContextPackage contextPackage) {
         String lower = userInput == null ? "" : userInput.toLowerCase(Locale.ROOT);
+        List<String> constraints = extractTaskConstraints(lower);
+        List<String> successCriteria = extractSuccessCriteria(lower);
+        List<String> entities = extractKeyEntities(lower);
+        List<String> questions = extractQuestions(userInput);
+        List<String> risks = extractTaskRisks(lower);
         try {
             memoryWriteMapper.upsertTaskWorking(
                     sessionId,
                     userInput,
                     summarize(userInput, 260),
                     toJson(Map.of("source", "memory_write_pipeline")),
-                    toJson(extractTaskConstraints(lower)),
-                    toJson(extractSuccessCriteria(lower)),
+                    toJson(constraints),
+                    toJson(successCriteria),
                     toJson(List.of()),
-                    toJson(extractKeyEntities(lower)),
+                    toJson(entities),
                     toJson(List.of()),
-                    toJson(extractQuestions(userInput)),
-                    toJson(extractTaskRisks(lower)),
+                    toJson(questions),
+                    toJson(risks),
                     null,
                     null,
                     toJson(List.of()),
                     summarize(assistantReply, 260)
+            );
+            upsertTaskWorkingSlots(sessionId, constraints, successCriteria, entities, questions, risks);
+        } catch (Exception ignore) {
+        }
+    }
+
+    private void upsertTaskWorkingSlots(String sessionId,
+                                        List<String> constraints,
+                                        List<String> successCriteria,
+                                        List<String> entities,
+                                        List<String> questions,
+                                        List<String> risks) {
+        upsertSlot(sessionId, "constraints", "CONSTRAINT", constraints, 90);
+        upsertSlot(sessionId, "success_criteria", "SUCCESS_CRITERIA", successCriteria, 90);
+        upsertSlot(sessionId, "key_entities", "ENTITY", entities, 70);
+        upsertSlot(sessionId, "unresolved_questions", "QUESTION", questions, 80);
+        upsertSlot(sessionId, "risks", "RISK", risks, 85);
+    }
+
+    private void upsertSlot(String sessionId, String slotName, String slotType, Object value, int priority) {
+        try {
+            memoryWriteMapper.upsertTaskWorkingSlot(
+                    sessionId,
+                    slotName,
+                    slotType,
+                    toJson(value),
+                    priority,
+                    "MEMORY_WRITE_PIPELINE",
+                    sessionId
             );
         } catch (Exception ignore) {
         }
     }
 
     private void upsertRelationalWorkingMemory(String sessionId, StructuredContextPackage contextPackage) {
-        String inferredEmotion = "NEUTRAL";
-        String supportIntent = "task_forward";
-        String interactionGoal = "solve_task";
-        List<String> cautionFlags = List.of();
-        List<String> bondSignals = List.of();
-        List<String> sensitiveSignals = List.of();
         String relationalState = contextPackage != null && contextPackage.getRelationalState() != null
                 ? contextPackage.getRelationalState().name()
                 : RelationalRuntimeState.LIGHT_CHAT.name();
@@ -99,14 +127,14 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
             memoryWriteMapper.upsertRelationalWorking(
                     sessionId,
                     relationalState,
-                    inferredEmotion,
+                    "NEUTRAL",
                     0.65,
                     inferTone(relationalState),
-                    supportIntent,
-                    interactionGoal,
-                    toJson(cautionFlags),
-                    toJson(bondSignals),
-                    toJson(sensitiveSignals)
+                    "task_forward",
+                    "solve_task",
+                    toJson(List.of()),
+                    toJson(List.of()),
+                    toJson(List.of())
             );
         } catch (Exception ignore) {
         }
@@ -128,7 +156,7 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
             return;
         }
         String lower = text.toLowerCase(Locale.ROOT);
-        if (containsAny(lower, "default", "prefer", "markdown", "format", "style", "以后默认", "偏好")) {
+        if (containsAny(lower, "default", "prefer", "markdown", "format", "style", "偏好", "默认")) {
             insertTaskSemanticFact(sessionId, "PREFERENCE", "auto_extracted_task_pref", text, "USER_INPUT");
         }
         if (containsAny(lower, "do not call me", "don't lecture", "uncomfortable", "need support first", "别叫我", "先别给方案", "不喜欢说教")) {
@@ -209,6 +237,8 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
                         taskState.name(),
                         taskState == TaskRuntimeState.FAILED ? "needs_replan" : "successful_turn"
                 );
+                Long episodeId = memoryWriteMapper.selectLatestTaskEpisodeId(sessionId);
+                writeEpisodeSteps(episodeId, userInput, assistantReply, taskState);
             } catch (Exception ignore) {
             }
         }
@@ -232,6 +262,33 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
         }
     }
 
+    private void writeEpisodeSteps(Long episodeId, String userInput, String assistantReply, TaskRuntimeState taskState) {
+        if (episodeId == null) {
+            return;
+        }
+        insertEpisodeStep(episodeId, 1, "USER_INPUT", "User Request", summarize(userInput, 400), Map.of());
+        insertEpisodeStep(episodeId, 2, "ASSISTANT_OUTPUT", "Assistant Reply", summarize(assistantReply, 500), Map.of("task_state", taskState.name()));
+    }
+
+    private void insertEpisodeStep(Long episodeId,
+                                   int order,
+                                   String stepType,
+                                   String title,
+                                   String content,
+                                   Map<String, Object> payload) {
+        try {
+            memoryWriteMapper.insertTaskEpisodeStep(
+                    episodeId,
+                    order,
+                    stepType,
+                    title,
+                    content,
+                    toJson(payload)
+            );
+        } catch (Exception ignore) {
+        }
+    }
+
     private void reflectAndMineProcedures(String sessionId, String userInput, String assistantReply, StructuredContextPackage contextPackage) {
         if (contextPackage == null) {
             return;
@@ -247,7 +304,7 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
         }
         String lower = userInput == null ? "" : userInput.toLowerCase(Locale.ROOT);
         if (relationState == RelationalRuntimeState.REPAIRING
-                || containsAny(lower, "you don't get me", "offended", "uncomfortable", "not this way")) {
+                || containsAny(lower, "you don't get me", "offended", "uncomfortable", "not this way", "你没懂我", "被冒犯", "不舒服")) {
             writeRelationalReflection(sessionId, userInput, assistantReply);
             ensureRelationalRepairProcedure();
         }
@@ -279,7 +336,7 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
             return;
         }
         boolean relationFailure = relationState == RelationalRuntimeState.REPAIRING
-                || containsAny(lower, "you don't get me", "offended", "uncomfortable", "not this way");
+                || containsAny(lower, "you don't get me", "offended", "uncomfortable", "not this way", "你没懂我", "被冒犯", "不舒服");
         try {
             memoryWriteMapper.updateRelationalSupportProcedureStats(relationFailure ? 0 : 1, relationFailure ? 1 : 0);
             if (relationFailure) {
@@ -362,7 +419,7 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
     }
 
     private List<String> extractTaskConstraints(String lower) {
-        return extractSignals(lower, "只", "先不", "不要", "必须", "截止");
+        return extractSignals(lower, "不能", "先不", "不要", "必须", "截止");
     }
 
     private List<String> extractSuccessCriteria(String lower) {
@@ -435,8 +492,11 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
     }
 
     private boolean containsAny(String text, String... words) {
+        if (text == null || words == null) {
+            return false;
+        }
         for (String word : words) {
-            if (text.contains(word.toLowerCase(Locale.ROOT))) {
+            if (word != null && text.contains(word.toLowerCase(Locale.ROOT))) {
                 return true;
             }
         }

@@ -12,10 +12,14 @@ import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.utils.AuthContextHolder;
 
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
 public class DefaultSessionOrchestratorService implements SessionOrchestratorService {
+
+    private static final Pattern PLAN_ID_PATTERN = Pattern.compile("\"(?:plan_id|planId|current_plan_id|currentPlanId)\"\\s*:\\s*(\\d+)");
 
     private final SessionRuntimeMapper sessionRuntimeMapper;
     private final ContextCompilerService contextCompilerService;
@@ -51,6 +55,11 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
         RelationalRuntimeState previousRelationalState = getCurrentRelationalState(normalizedSessionId);
         TaskRuntimeState nextTaskState = inferTaskState(previousTaskState, eventType, signal, payloadJson);
         RelationalRuntimeState nextRelationalState = inferRelationalState(previousRelationalState, eventType, signal, payloadJson);
+
+        Long inferredPlanId = inferPlanId(payloadJson, signal);
+        if (inferredPlanId != null) {
+            updateCurrentPlanId(normalizedSessionId, inferredPlanId);
+        }
 
         upsertPrincipal(principalId, normalizedSessionId);
         upsertSession(normalizedSessionId, principalId, agentId, nextTaskState, nextRelationalState, signal);
@@ -107,7 +116,14 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
             if (containsAny(payload, "\"status\":\"pending\"", "\"pending\"", "\"waiting\"")) {
                 return TaskRuntimeState.WAITING_TOOL;
             }
-            if (containsAny(payload, "\"status\":\"failed\"", "\"error\"")) {
+            if (containsAny(payload,
+                    "awaiting_plan_confirmation",
+                    "waiting_plan_confirmation",
+                    "\"plan_status\":\"awaiting_confirmation\"",
+                    "\"need_plan_confirmation\":true")) {
+                return TaskRuntimeState.WAITING_PLAN_CONFIRMATION;
+            }
+            if (containsAny(payload, "\"status\":\"failed\"", "\"error\"", "\"failed\"")) {
                 return TaskRuntimeState.REFLECTING;
             }
             if (previous == TaskRuntimeState.WAITING_APPROVAL || previous == TaskRuntimeState.WAITING_TOOL || previous == TaskRuntimeState.EXECUTING) {
@@ -115,6 +131,7 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
             }
             return TaskRuntimeState.CONTEXT_BUILDING;
         }
+
         if ("APPROVAL".equals(type)) {
             if (containsAny(payload, "\"approved\":true", "\"approved\":1", "\"approved\":\"true\"")) {
                 return TaskRuntimeState.EXECUTING;
@@ -124,6 +141,7 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
             }
             return TaskRuntimeState.WAITING_APPROVAL;
         }
+
         if ("SYSTEM".equals(type) || "TIMER".equals(type)) {
             if (previous == TaskRuntimeState.IDLE || previous == TaskRuntimeState.COMPLETED || previous == TaskRuntimeState.CANCELLED) {
                 return previous;
@@ -131,34 +149,70 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
             return TaskRuntimeState.REPORTING;
         }
 
-        if (containsAny(text, "cancel", "取消", "终止", "stop")) {
+        if (previous == TaskRuntimeState.WAITING_PLAN_CONFIRMATION) {
+            if (containsAny(text,
+                    "confirm",
+                    "approved",
+                    "yes",
+                    "go ahead",
+                    "execute plan",
+                    "确认",
+                    "同意",
+                    "按这个计划",
+                    "开始执行")) {
+                return TaskRuntimeState.EXECUTING;
+            }
+            if (containsAny(text,
+                    "reject",
+                    "modify plan",
+                    "change plan",
+                    "replan",
+                    "不同意",
+                    "重做计划",
+                    "改方案",
+                    "调整计划")) {
+                return TaskRuntimeState.REPLANNING;
+            }
+            return TaskRuntimeState.WAITING_PLAN_CONFIRMATION;
+        }
+
+        if (containsAny(text, "cancel", "stop", "abort", "取消", "终止", "停止")) {
             return TaskRuntimeState.CANCELLED;
         }
-        if (containsAny(text, "done", "完成", "已完成", "搞定")) {
+        if (containsAny(text, "done", "completed", "finish", "完成", "搞定", "结束")) {
             return TaskRuntimeState.COMPLETED;
         }
-        if (containsAny(text, "审批", "approve", "approval", "确认")) {
+        if (containsAny(text, "approval", "approve", "need approval", "审批", "批准", "确认权限")) {
             return TaskRuntimeState.WAITING_APPROVAL;
         }
-        if (containsAny(text, "等待", "pending", "tool result", "回调")) {
+        if (containsAny(text, "pending", "wait tool", "tool result", "callback", "等待工具", "回调", "待返回")) {
             return TaskRuntimeState.WAITING_TOOL;
         }
-        if (containsAny(text, "计划", "规划", "plan", "roadmap", "方案")) {
+        if (containsAny(text,
+                "confirm plan",
+                "approve plan",
+                "confirm the plan",
+                "确认计划",
+                "确认方案",
+                "计划确认")) {
+            return TaskRuntimeState.WAITING_PLAN_CONFIRMATION;
+        }
+        if (containsAny(text, "plan", "roadmap", "strategy", "规划", "计划", "方案")) {
             return TaskRuntimeState.PLANNING;
         }
-        if (containsAny(text, "执行", "实现", "修复", "run", "build", "写代码")) {
+        if (containsAny(text, "execute", "implement", "fix", "run", "build", "coding", "执行", "实现", "修复", "开发")) {
             return TaskRuntimeState.EXECUTING;
         }
-        if (containsAny(text, "总结", "汇报", "报告", "report", "复盘")) {
+        if (containsAny(text, "report", "summary", "retrospective", "汇报", "总结", "报告", "复盘")) {
             return TaskRuntimeState.REPORTING;
         }
-        if (containsAny(text, "失败", "报错", "重试", "replan", "反思")) {
+        if (containsAny(text, "failed", "error", "retry", "replan", "失败", "报错", "重试", "反思")) {
             return previous == TaskRuntimeState.REFLECTING ? TaskRuntimeState.REPLANNING : TaskRuntimeState.REFLECTING;
         }
-        if (containsAny(text, "补充", "上下文", "背景", "context")) {
+        if (containsAny(text, "context", "supplement", "background", "补充", "上下文", "背景")) {
             return TaskRuntimeState.CONTEXT_BUILDING;
         }
-        if (containsAny(text, "等一下", "暂停", "wait", "later")) {
+        if (containsAny(text, "wait", "later", "hold on", "稍后", "先等等", "暂停")) {
             return TaskRuntimeState.WAITING_USER;
         }
         if (previous == TaskRuntimeState.WAITING_USER || previous == TaskRuntimeState.WAITING_TOOL || previous == TaskRuntimeState.WAITING_APPROVAL) {
@@ -184,16 +238,16 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
         if ("TOOL_RESULT".equals(type) && containsAny(payload, "\"error\"", "\"failed\"")) {
             return RelationalRuntimeState.REPAIRING;
         }
-        if (containsAny(text, "撑不住", "焦虑", "崩溃", "很累", "难受", "烦", "低落")) {
+        if (containsAny(text, "anxious", "burnout", "tired", "sad", "stress", "焦虑", "崩溃", "很累", "难受", "低落")) {
             return RelationalRuntimeState.EMOTIONAL_SUPPORT;
         }
-        if (containsAny(text, "没懂我", "误会", "冒犯", "不舒服")) {
+        if (containsAny(text, "misunderstand", "offended", "uncomfortable", "误会", "冒犯", "不舒服")) {
             return RelationalRuntimeState.REPAIRING;
         }
-        if (containsAny(text, "庆祝", "开心", "太好了", "成功了")) {
+        if (containsAny(text, "celebrate", "great", "awesome", "庆祝", "太好了", "成功了", "开心")) {
             return RelationalRuntimeState.CELEBRATING;
         }
-        if (containsAny(text, "聊聊心里话", "倾诉", "深聊", "deep talk")) {
+        if (containsAny(text, "deep talk", "share", "倾诉", "深聊", "聊聊心里话")) {
             return RelationalRuntimeState.DEEP_TALK;
         }
         if (previous == RelationalRuntimeState.COLD_START) {
@@ -202,10 +256,43 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
         if (previous == RelationalRuntimeState.FAMILIARIZING) {
             return RelationalRuntimeState.TRUST_BUILDING;
         }
-        if (previous == RelationalRuntimeState.TRUST_BUILDING && containsAny(text, "一起", "陪我", "长期")) {
+        if (previous == RelationalRuntimeState.TRUST_BUILDING && containsAny(text, "together", "陪我", "长期", "一直")) {
             return RelationalRuntimeState.COMPANION_MODE;
         }
         return RelationalRuntimeState.LIGHT_CHAT;
+    }
+
+    private Long inferPlanId(String payloadJson, String signal) {
+        Long fromPayload = extractPlanId(payloadJson);
+        if (fromPayload != null) {
+            return fromPayload;
+        }
+        return extractPlanId(signal);
+    }
+
+    private Long extractPlanId(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        Matcher matcher = PLAN_ID_PATTERN.matcher(text);
+        if (matcher.find()) {
+            try {
+                return Long.parseLong(matcher.group(1));
+            } catch (Exception ignore) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private void updateCurrentPlanId(String sessionId, Long planId) {
+        if (planId == null) {
+            return;
+        }
+        try {
+            sessionRuntimeMapper.updateCurrentPlanId(sessionId, planId);
+        } catch (Exception ignore) {
+        }
     }
 
     private void upsertSession(String sessionId,
@@ -303,8 +390,11 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
     }
 
     private boolean containsAny(String text, String... words) {
+        if (text == null || words == null) {
+            return false;
+        }
         for (String word : words) {
-            if (text.contains(word.toLowerCase(Locale.ROOT))) {
+            if (word != null && text.contains(word.toLowerCase(Locale.ROOT))) {
                 return true;
             }
         }

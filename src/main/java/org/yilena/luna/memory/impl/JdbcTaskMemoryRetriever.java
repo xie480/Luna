@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.mapper.RuntimeReadMapper;
 import org.yilena.luna.memory.TaskMemoryRetriever;
+import org.yilena.luna.utils.LlmClientUtil;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -15,17 +16,32 @@ import java.util.Map;
 public class JdbcTaskMemoryRetriever implements TaskMemoryRetriever {
 
     private final RuntimeReadMapper runtimeReadMapper;
+    private final LlmClientUtil llmClientUtil;
 
     @Override
     public Map<String, Object> retrieve(String sessionId, String userInput) {
         Map<String, Object> result = new HashMap<>();
+        String queryVector = queryVector(userInput);
         result.put("working_memory", queryOne(() -> runtimeReadMapper.selectTaskWorkingMemory(sessionId)));
-        result.put("task_facts", queryList(() -> runtimeReadMapper.selectTaskSemanticFacts(sessionId)));
-        result.put("task_episodes", queryList(() -> runtimeReadMapper.selectTaskEpisodes(sessionId)));
-        result.put("task_procedures", queryList(runtimeReadMapper::selectTaskProcedures));
-        result.put("knowledge", queryList(runtimeReadMapper::selectKnowledgeChunks));
+        result.put("working_slots", queryList(() -> runtimeReadMapper.selectTaskWorkingSlots(sessionId)));
+        result.put("task_facts", queryList(() -> runtimeReadMapper.selectTaskSemanticFacts(sessionId, queryVector)));
+        result.put("task_episodes", queryList(() -> runtimeReadMapper.selectTaskEpisodes(sessionId, queryVector)));
+        result.put("task_episode_steps", queryList(() -> runtimeReadMapper.selectTaskEpisodeSteps(sessionId)));
+        result.put("task_procedures", queryList(() -> runtimeReadMapper.selectTaskProcedures(queryVector)));
+        result.put("knowledge", queryList(() -> runtimeReadMapper.selectKnowledgeChunks(queryVector)));
         result.put("plan_context", queryOne(() -> runtimeReadMapper.selectLatestPlanContext(sessionId)));
         return result;
+    }
+
+    private String queryVector(String userInput) {
+        if (userInput == null || userInput.isBlank()) {
+            return null;
+        }
+        try {
+            return llmClientUtil.getEmbedding(userInput);
+        } catch (Exception ignore) {
+            return null;
+        }
     }
 
     private Map<String, Object> queryOne(SqlOneSupplier supplier) {

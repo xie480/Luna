@@ -9,6 +9,7 @@ import org.yilena.luna.entity.McpSkill;
 import java.util.List;
 
 @Mapper
+@Deprecated
 public interface McpSkillMapper extends BaseMapper<McpSkill> {
 
     /**
@@ -18,6 +19,6 @@ public interface McpSkillMapper extends BaseMapper<McpSkill> {
      * @param topK 返回數量
      * @return 匹配的記錄
      */
-    @Select("SELECT * FROM mcp_skills WHERE embedding IS NOT NULL ORDER BY embedding::vector <-> #{vector}::vector LIMIT #{topK}")
+    @Select("SELECT * FROM mcp_skills WHERE 1 = 0")
     List<McpSkill> searchByVector(@Param("vector") String vector, @Param("topK") int topK);
 }

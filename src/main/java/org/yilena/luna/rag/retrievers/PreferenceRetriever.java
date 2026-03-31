@@ -30,7 +30,7 @@ public class PreferenceRetriever implements BaseRetriever {
         if (sessionId == null || sessionId.isBlank()) {
             return Collections.emptyList();
         }
-        List<Map<String, Object>> rows = queryPreferenceRows(sessionId, topK <= 0 ? 10 : topK);
+        List<Map<String, Object>> rows = queryPreferenceRows(sessionId, queryObject.getEmbedding(), topK <= 0 ? 10 : topK);
         if (rows.isEmpty()) {
             return Collections.emptyList();
         }
@@ -39,9 +39,9 @@ public class PreferenceRetriever implements BaseRetriever {
                 .toList();
     }
 
-    private List<Map<String, Object>> queryPreferenceRows(String sessionId, int topK) {
+    private List<Map<String, Object>> queryPreferenceRows(String sessionId, String queryVector, int topK) {
         try {
-            return ragMemoryMapper.selectPreferenceMemory(sessionId, topK);
+            return ragMemoryMapper.selectPreferenceMemory(sessionId, queryVector, topK);
         } catch (Exception ignore) {
             return Collections.emptyList();
         }

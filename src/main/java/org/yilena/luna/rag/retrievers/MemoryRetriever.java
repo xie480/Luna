@@ -31,7 +31,7 @@ public class MemoryRetriever implements BaseRetriever {
         if (sessionId == null || sessionId.isBlank()) {
             return Collections.emptyList();
         }
-        List<Map<String, Object>> rows = queryMemoryRows(sessionId, topK <= 0 ? 10 : topK);
+        List<Map<String, Object>> rows = queryMemoryRows(sessionId, queryObject.getEmbedding(), topK <= 0 ? 10 : topK);
         if (rows.isEmpty()) {
             return Collections.emptyList();
         }
@@ -40,12 +40,14 @@ public class MemoryRetriever implements BaseRetriever {
                 .toList();
     }
 
-    private List<Map<String, Object>> queryMemoryRows(String sessionId, int topK) {
+    private List<Map<String, Object>> queryMemoryRows(String sessionId, String queryVector, int topK) {
         try {
             List<Map<String, Object>> rows = new ArrayList<>();
-            rows.addAll(ragMemoryMapper.selectTaskFactMemory(sessionId, topK));
-            rows.addAll(ragMemoryMapper.selectTaskEpisodeMemory(sessionId, Math.max(1, topK / 2)));
-            rows.addAll(ragMemoryMapper.selectRelationalEpisodeMemory(sessionId, Math.max(1, topK / 2)));
+            rows.addAll(ragMemoryMapper.selectTaskFactMemory(sessionId, queryVector, topK));
+            rows.addAll(ragMemoryMapper.selectTaskEpisodeMemory(sessionId, queryVector, Math.max(1, topK / 2)));
+            rows.addAll(ragMemoryMapper.selectRelationalEpisodeMemory(sessionId, queryVector, Math.max(1, topK / 2)));
+            rows.addAll(ragMemoryMapper.selectTaskProcedureMemory(queryVector, Math.max(1, topK / 3)));
+            rows.addAll(ragMemoryMapper.selectRelationalProcedureMemory(queryVector, Math.max(1, topK / 3)));
             return rows.stream().limit(topK).toList();
         } catch (Exception ignore) {
             return Collections.emptyList();

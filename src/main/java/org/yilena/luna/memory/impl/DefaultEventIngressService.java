@@ -73,6 +73,8 @@ public class DefaultEventIngressService implements EventIngressService {
                     OrchestrationDecision orchestrated = sessionOrchestratorService.onUserInput(normalizedSessionId, text);
                     runtimeAuditService.persistDecisionRecord(
                             normalizedSessionId,
+                            null,
+                            null,
                             "EVENT_USER_INPUT",
                             "processed from event_inbox",
                             payload.toString()
@@ -83,6 +85,8 @@ public class DefaultEventIngressService implements EventIngressService {
                     OrchestrationDecision orchestrated = sessionOrchestratorService.onToolResult(normalizedSessionId, payload.toString());
                     runtimeAuditService.persistDecisionRecord(
                             normalizedSessionId,
+                            null,
+                            null,
                             "EVENT_TOOL_RESULT",
                             "tool result processed",
                             payload.toString()
@@ -93,6 +97,8 @@ public class DefaultEventIngressService implements EventIngressService {
                     OrchestrationDecision orchestrated = sessionOrchestratorService.onApproval(normalizedSessionId, payload.toString());
                     runtimeAuditService.persistDecisionRecord(
                             normalizedSessionId,
+                            null,
+                            null,
                             "EVENT_APPROVAL",
                             "approval event processed",
                             payload.toString()
@@ -103,6 +109,8 @@ public class DefaultEventIngressService implements EventIngressService {
                     OrchestrationDecision orchestrated = sessionOrchestratorService.onSystemEvent(normalizedSessionId, normalizedEventType, payload.toString());
                     runtimeAuditService.persistDecisionRecord(
                             normalizedSessionId,
+                            null,
+                            null,
                             "EVENT_" + normalizedEventType,
                             "system event handled",
                             payload.toString()
@@ -112,6 +120,8 @@ public class DefaultEventIngressService implements EventIngressService {
                 default -> {
                     runtimeAuditService.persistDecisionRecord(
                             normalizedSessionId,
+                            null,
+                            null,
                             "EVENT_UNKNOWN",
                             "unknown event type",
                             payload.toString()
@@ -125,6 +135,8 @@ public class DefaultEventIngressService implements EventIngressService {
             markFailed(eventId);
             runtimeAuditService.persistDecisionRecord(
                     normalizedSessionId,
+                    null,
+                    null,
                     "EVENT_FAILED",
                     e.getMessage(),
                     payloadJson == null || payloadJson.isBlank() ? "{}" : payloadJson

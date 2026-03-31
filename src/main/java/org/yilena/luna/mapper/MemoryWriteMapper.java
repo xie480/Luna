@@ -3,6 +3,7 @@ package org.yilena.luna.mapper;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 @Mapper
@@ -18,6 +19,10 @@ public interface MemoryWriteMapper {
             update agent_session
             set task_state = #{taskState},
                 relational_state = #{relationalState},
+                current_plan_id = coalesce(
+                    agent_session.current_plan_id,
+                    (select plan_id from task_working_memory where session_id = #{sessionId} order by updated_at desc limit 1)
+                ),
                 last_agent_message_at = current_timestamp,
                 updated_at = current_timestamp
             where session_id = #{sessionId}
@@ -78,6 +83,29 @@ public interface MemoryWriteMapper {
                           @Param("activeNodeId") Long activeNodeId,
                           @Param("recentToolOutputsJson") String recentToolOutputsJson,
                           @Param("localScratchpad") String localScratchpad);
+
+    @Update("""
+            insert into task_working_memory_slot(twm_id, slot_name, slot_type, slot_value_json, priority, freshness_score, source_type, source_ref, updated_at)
+            select twm.twm_id, #{slotName}, #{slotType}, cast(#{slotValueJson} as jsonb), #{priority}, 1.0, #{sourceType}, #{sourceRef}, current_timestamp
+            from task_working_memory twm
+            where twm.session_id = #{sessionId}
+            on conflict (twm_id, slot_name)
+            do update set
+                slot_type = excluded.slot_type,
+                slot_value_json = excluded.slot_value_json,
+                priority = excluded.priority,
+                freshness_score = excluded.freshness_score,
+                source_type = excluded.source_type,
+                source_ref = excluded.source_ref,
+                updated_at = current_timestamp
+            """)
+    int upsertTaskWorkingSlot(@Param("sessionId") String sessionId,
+                              @Param("slotName") String slotName,
+                              @Param("slotType") String slotType,
+                              @Param("slotValueJson") String slotValueJson,
+                              @Param("priority") int priority,
+                              @Param("sourceType") String sourceType,
+                              @Param("sourceRef") String sourceRef);
 
     @Update("""
             insert into relational_working_memory(
@@ -235,6 +263,26 @@ public interface MemoryWriteMapper {
     int insertTaskEpisode(@Param("sessionId") String sessionId, @Param("episodeType") String episodeType, @Param("title") String title,
                           @Param("trajectorySummary") String trajectorySummary, @Param("outcomeSummary") String outcomeSummary,
                           @Param("outcomeStatus") String outcomeStatus, @Param("lessonsLearned") String lessonsLearned);
+
+    @Select("""
+            select episode_id
+            from task_episode
+            where session_id = #{sessionId}
+            order by created_at desc
+            limit 1
+            """)
+    Long selectLatestTaskEpisodeId(@Param("sessionId") String sessionId);
+
+    @Insert("""
+            insert into task_episode_step(episode_id, step_order, step_type, title, content_text, payload_json, created_at)
+            values (#{episodeId}, #{stepOrder}, #{stepType}, #{title}, #{contentText}, cast(#{payloadJson} as jsonb), current_timestamp)
+            """)
+    int insertTaskEpisodeStep(@Param("episodeId") Long episodeId,
+                              @Param("stepOrder") int stepOrder,
+                              @Param("stepType") String stepType,
+                              @Param("title") String title,
+                              @Param("contentText") String contentText,
+                              @Param("payloadJson") String payloadJson);
 
     @Insert("""
             insert into relational_episode(principal_id, session_id, episode_type, title, summary, emotion_before, emotion_after, support_style_used, interaction_quality, response_effectiveness, created_at)

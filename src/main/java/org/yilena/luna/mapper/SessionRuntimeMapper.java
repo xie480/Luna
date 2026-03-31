@@ -23,6 +23,18 @@ public interface SessionRuntimeMapper {
     @Select("select principal_id from agent_session where session_id = #{sessionId} limit 1")
     Long selectPrincipalIdBySession(@Param("sessionId") String sessionId);
 
+    @Select("select current_plan_id from agent_session where session_id = #{sessionId} limit 1")
+    Long selectCurrentPlanIdBySession(@Param("sessionId") String sessionId);
+
+    @Select("""
+            select active_node_id
+            from task_working_memory
+            where session_id = #{sessionId}
+            order by updated_at desc
+            limit 1
+            """)
+    Long selectActiveNodeIdBySession(@Param("sessionId") String sessionId);
+
     @Select("""
             with existing as (
                 select principal_id
@@ -72,6 +84,14 @@ public interface SessionRuntimeMapper {
                       @Param("taskState") String taskState,
                       @Param("relationalState") String relationalState,
                       @Param("goal") String goal);
+
+    @Update("""
+            update agent_session
+            set current_plan_id = #{planId},
+                updated_at = current_timestamp
+            where session_id = #{sessionId}
+            """)
+    int updateCurrentPlanId(@Param("sessionId") String sessionId, @Param("planId") Long planId);
 
     @Insert("""
             insert into state_transition_log(session_id, state_domain, from_state, to_state, trigger_type, trigger_ref, reason, payload_json, created_at)

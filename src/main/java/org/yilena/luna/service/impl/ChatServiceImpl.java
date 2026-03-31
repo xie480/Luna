@@ -102,6 +102,8 @@ public class ChatServiceImpl implements ChatService {
         runtimeAuditService.persistContextSnapshot(runtimeSessionId, contextPackage);
         runtimeAuditService.persistDecisionRecord(
                 runtimeSessionId,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage),
                 "ORCHESTRATION_DECISION",
                 "states selected",
                 toJsonSafe(Map.of(
@@ -167,6 +169,8 @@ public class ChatServiceImpl implements ChatService {
             ToolCallingContextHolder.clear();
             runtimeAuditService.persistToolExecutionTrace(
                     runtimeSessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
                     "agent_tool_chain",
                     toolStatus,
                     toJsonSafe(Map.of("userInput", input)),
@@ -185,6 +189,8 @@ public class ChatServiceImpl implements ChatService {
         String mergedToolContext = mergeToolContextWithSynthesis(toolContext, synthesisBrief);
         runtimeAuditService.persistDecisionRecord(
                 runtimeSessionId,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage),
                 "RESPONSE_SYNTHESIS",
                 "synthesis generated",
                 toJsonSafe(Map.of("synthesisBrief", synthesisBrief == null ? "" : synthesisBrief))
@@ -354,6 +360,50 @@ public class ChatServiceImpl implements ChatService {
             return geminiProperty.getBig().getModelName();
         }
         return geminiProperty.getFlash().getModelName();
+    }
+
+    private Long contextPlanId(StructuredContextPackage contextPackage) {
+        try {
+            if (contextPackage == null || contextPackage.getRuntime() == null) {
+                return null;
+            }
+            Object session = contextPackage.getRuntime().get("session");
+            if (session instanceof Map<?, ?> row) {
+                return toLong(row.get("current_plan_id"));
+            }
+            return null;
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    private Long contextNodeId(StructuredContextPackage contextPackage) {
+        try {
+            if (contextPackage == null || contextPackage.getTaskContext() == null) {
+                return null;
+            }
+            Object working = contextPackage.getTaskContext().get("working_memory");
+            if (working instanceof Map<?, ?> row) {
+                return toLong(row.get("active_node_id"));
+            }
+            return null;
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    private Long toLong(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (Exception ignore) {
+            return null;
+        }
     }
 
     private JsonNode tryParseJsonNode(String text) {

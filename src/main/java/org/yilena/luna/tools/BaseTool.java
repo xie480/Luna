@@ -5,9 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * BaseTool ??
- */
 public abstract class BaseTool {
 
     protected final ObjectMapper objectMapper;
@@ -23,7 +20,7 @@ public abstract class BaseTool {
             map.put("data", data);
             return objectMapper.writeValueAsString(map);
         } catch (Exception e) {
-            return "{\"status\":\"error\", \"message\":\"JSON序列化失败\"}";
+            return "{\"status\":\"error\", \"message\":\"JSON serialization failed\"}";
         }
     }
 

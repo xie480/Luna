@@ -9,6 +9,7 @@ import org.yilena.luna.entity.McpTool;
 import java.util.List;
 
 @Mapper
+@Deprecated
 public interface McpToolMapper extends BaseMapper<McpTool> {
 
     /**
@@ -19,6 +20,6 @@ public interface McpToolMapper extends BaseMapper<McpTool> {
      * @param topK 返回數量
      * @return 匹配的記錄
      */
-    @Select("SELECT * FROM mcp_tools WHERE embedding IS NOT NULL ORDER BY embedding::vector <-> #{vector}::vector LIMIT #{topK}")
+    @Select("SELECT * FROM mcp_tools WHERE 1 = 0")
     List<McpTool> searchByVector(@Param("vector") String vector, @Param("topK") int topK);
 }

@@ -50,45 +50,80 @@ public interface RuntimeReadMapper {
     Map<String, Object> selectTaskWorkingMemory(@Param("sessionId") String sessionId);
 
     @Select("""
+            select slot_name, slot_type, slot_value_json, priority, freshness_score, source_type, source_ref, updated_at
+            from task_working_memory_slot
+            where twm_id = (
+                select twm_id
+                from task_working_memory
+                where session_id = #{sessionId}
+                limit 1
+            )
+            order by priority desc, updated_at desc
+            limit 20
+            """)
+    List<Map<String, Object>> selectTaskWorkingSlots(@Param("sessionId") String sessionId);
+
+    @Select("""
             select fact_id, fact_type, fact_key, fact_value_text, confidence_score, stability_score, updated_at
             from task_semantic_fact
             where deleted = false
               and (
                     scope_type in ('GLOBAL','SESSION')
-                 or principal_id = (
-                    select principal_id from agent_session where session_id = #{sessionId} limit 1
-                 )
+                 or principal_id = (select principal_id from agent_session where session_id = #{sessionId} limit 1)
               )
-            order by updated_at desc
+            order by
+              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 1 else 0 end asc,
+              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 0 else (1 - (embedding <=> #{queryVector}::vector)) end desc,
+              updated_at desc
             limit 20
             """)
-    List<Map<String, Object>> selectTaskSemanticFacts(@Param("sessionId") String sessionId);
+    List<Map<String, Object>> selectTaskSemanticFacts(@Param("sessionId") String sessionId, @Param("queryVector") String queryVector);
 
     @Select("""
             select episode_id, episode_type, title, trajectory_summary, lessons_learned, created_at
             from task_episode
             where session_id = #{sessionId}
-            order by created_at desc
+            order by
+              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 1 else 0 end asc,
+              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 0 else (1 - (embedding <=> #{queryVector}::vector)) end desc,
+              created_at desc
             limit 8
             """)
-    List<Map<String, Object>> selectTaskEpisodes(@Param("sessionId") String sessionId);
+    List<Map<String, Object>> selectTaskEpisodes(@Param("sessionId") String sessionId, @Param("queryVector") String queryVector);
+
+    @Select("""
+            select tes.episode_id, tes.step_order, tes.step_type, tes.title, tes.content_text, tes.payload_json, tes.created_at
+            from task_episode_step tes
+            join task_episode te on te.episode_id = tes.episode_id
+            where te.session_id = #{sessionId}
+            order by tes.created_at desc, tes.step_order desc
+            limit 20
+            """)
+    List<Map<String, Object>> selectTaskEpisodeSteps(@Param("sessionId") String sessionId);
 
     @Select("""
             select procedure_id, procedure_type, name, description, confidence_score, usage_count
             from task_procedure_pattern
-            order by confidence_score desc, usage_count desc
+            order by
+              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 1 else 0 end asc,
+              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 0 else (1 - (embedding <=> #{queryVector}::vector)) end desc,
+              confidence_score desc,
+              usage_count desc
             limit 8
             """)
-    List<Map<String, Object>> selectTaskProcedures();
+    List<Map<String, Object>> selectTaskProcedures(@Param("queryVector") String queryVector);
 
     @Select("""
             select kc.chunk_id, kd.title, kc.chunk_text, kc.chunk_summary, kc.created_at
             from knowledge_chunk kc
             join knowledge_document kd on kd.doc_id = kc.doc_id
-            order by kc.created_at desc
+            order by
+              case when #{queryVector} is null or #{queryVector} = '' or kc.embedding is null then 1 else 0 end asc,
+              case when #{queryVector} is null or #{queryVector} = '' or kc.embedding is null then 0 else (1 - (kc.embedding <=> #{queryVector}::vector)) end desc,
+              kc.created_at desc
             limit 10
             """)
-    List<Map<String, Object>> selectKnowledgeChunks();
+    List<Map<String, Object>> selectKnowledgeChunks(@Param("queryVector") String queryVector);
 
     @Select("""
             select id, plan_id, node_id, context_package_json, created_at
@@ -116,27 +151,37 @@ public interface RuntimeReadMapper {
             from relational_semantic_fact rsf
             join agent_session s on (s.principal_id = rsf.principal_id or rsf.principal_id is null)
             where s.session_id = #{sessionId} and rsf.deleted = false
-            order by rsf.updated_at desc
+            order by
+              case when #{queryVector} is null or #{queryVector} = '' or rsf.embedding is null then 1 else 0 end asc,
+              case when #{queryVector} is null or #{queryVector} = '' or rsf.embedding is null then 0 else (1 - (rsf.embedding <=> #{queryVector}::vector)) end desc,
+              rsf.updated_at desc
             limit 20
             """)
-    List<Map<String, Object>> selectRelationalSemanticFacts(@Param("sessionId") String sessionId);
+    List<Map<String, Object>> selectRelationalSemanticFacts(@Param("sessionId") String sessionId, @Param("queryVector") String queryVector);
 
     @Select("""
             select episode_id, episode_type, title, summary, support_style_used, interaction_quality, created_at
             from relational_episode
             where session_id = #{sessionId}
-            order by created_at desc
+            order by
+              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 1 else 0 end asc,
+              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 0 else (1 - (embedding <=> #{queryVector}::vector)) end desc,
+              created_at desc
             limit 8
             """)
-    List<Map<String, Object>> selectRelationalEpisodes(@Param("sessionId") String sessionId);
+    List<Map<String, Object>> selectRelationalEpisodes(@Param("sessionId") String sessionId, @Param("queryVector") String queryVector);
 
     @Select("""
             select procedure_id, procedure_type, name, description, confidence_score, usage_count
             from relational_procedure_pattern
-            order by confidence_score desc, usage_count desc
+            order by
+              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 1 else 0 end asc,
+              case when #{queryVector} is null or #{queryVector} = '' or embedding is null then 0 else (1 - (embedding <=> #{queryVector}::vector)) end desc,
+              confidence_score desc,
+              usage_count desc
             limit 8
             """)
-    List<Map<String, Object>> selectRelationalProcedures();
+    List<Map<String, Object>> selectRelationalProcedures(@Param("queryVector") String queryVector);
 
     @Select("""
             select eb.*
