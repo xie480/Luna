@@ -1,8 +1,10 @@
 package org.yilena.luna.memory.impl;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.enums.RelationalRuntimeState;
+import org.yilena.luna.enums.SessionType;
 import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.mapper.SessionRuntimeMapper;
 import org.yilena.luna.memory.ContextCompilerService;
@@ -24,6 +26,10 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
 
     private final SessionRuntimeMapper sessionRuntimeMapper;
     private final ContextCompilerService contextCompilerService;
+    private final SessionTypeResolver sessionTypeResolver;
+
+    @Value("${memory.session-type.enabled:true}")
+    private boolean sessionTypeEnabled;
 
     @Override
     public OrchestrationDecision onUserInput(String sessionId, String userInput) {
@@ -54,10 +60,19 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
 
         TaskRuntimeState previousTaskState = getCurrentTaskState(normalizedSessionId);
         RelationalRuntimeState previousRelationalState = getCurrentRelationalState(normalizedSessionId);
+        SessionType previousSessionType = getCurrentSessionType(normalizedSessionId);
         ExecutionSnapshot executionSnapshot = resolveExecutionSnapshot(normalizedSessionId);
 
         TaskRuntimeState nextTaskState = inferTaskState(previousTaskState, eventType, signal, payloadJson, executionSnapshot);
         RelationalRuntimeState nextRelationalState = inferRelationalState(previousRelationalState, eventType, signal, payloadJson);
+        SessionType nextSessionType = resolveSessionType(
+                signal,
+                eventType,
+                payloadJson,
+                nextTaskState,
+                nextRelationalState,
+                previousSessionType
+        );
 
         Long inferredPlanId = inferPlanId(payloadJson, signal);
         if (inferredPlanId != null) {
@@ -65,7 +80,7 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
         }
 
         upsertPrincipal(principalId, normalizedSessionId);
-        upsertSession(normalizedSessionId, principalId, agentId, nextTaskState, nextRelationalState, signal);
+        upsertSession(normalizedSessionId, principalId, agentId, nextSessionType, nextTaskState, nextRelationalState, signal);
 
         String triggerType = safeUpper(eventType);
         String safePayloadJson = payloadJson == null || payloadJson.isBlank() ? "{}" : payloadJson;
@@ -74,6 +89,9 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
         }
         if (previousRelationalState != nextRelationalState) {
             insertTransition(normalizedSessionId, "RELATION", previousRelationalState.name(), nextRelationalState.name(), triggerType, normalizedSessionId, safePayloadJson);
+        }
+        if (previousSessionType != nextSessionType) {
+            insertTransition(normalizedSessionId, "SESSION_TYPE", previousSessionType.name(), nextSessionType.name(), triggerType, normalizedSessionId, safePayloadJson);
         }
 
         StructuredContextPackage contextPackage = contextCompilerService.compile(
@@ -96,6 +114,26 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
 
     private RelationalRuntimeState getCurrentRelationalState(String sessionId) {
         return parseState(sessionRuntimeMapper.selectRelationalState(sessionId), RelationalRuntimeState.COLD_START);
+    }
+
+    private SessionType getCurrentSessionType(String sessionId) {
+        return SessionType.from(sessionRuntimeMapper.selectSessionType(sessionId));
+    }
+
+    private SessionType resolveSessionType(String signal,
+                                           String eventType,
+                                           String payloadJson,
+                                           TaskRuntimeState taskState,
+                                           RelationalRuntimeState relationalState,
+                                           SessionType previousSessionType) {
+        if (!sessionTypeEnabled) {
+            return SessionType.HYBRID;
+        }
+        try {
+            return sessionTypeResolver.resolve(signal, eventType, payloadJson, taskState, relationalState, previousSessionType);
+        } catch (Exception ignore) {
+            return previousSessionType == null ? SessionType.HYBRID : previousSessionType;
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -461,11 +499,20 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
     private void upsertSession(String sessionId,
                                Long principalId,
                                Long agentId,
+                               SessionType sessionType,
                                TaskRuntimeState taskState,
                                RelationalRuntimeState relationalState,
                                String goal) {
         try {
-            sessionRuntimeMapper.upsertSession(sessionId, principalId, agentId, taskState.name(), relationalState.name(), goal);
+            sessionRuntimeMapper.upsertSession(
+                    sessionId,
+                    principalId,
+                    agentId,
+                    sessionType == null ? SessionType.HYBRID.name() : sessionType.name(),
+                    taskState.name(),
+                    relationalState.name(),
+                    goal
+            );
         } catch (Exception ignore) {
         }
     }
@@ -586,3 +633,4 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
         SKIPPED
     }
 }
+

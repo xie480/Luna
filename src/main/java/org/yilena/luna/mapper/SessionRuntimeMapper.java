@@ -20,6 +20,9 @@ public interface SessionRuntimeMapper {
     @Select("select relational_state from agent_session where session_id = #{sessionId} limit 1")
     String selectRelationalState(@Param("sessionId") String sessionId);
 
+    @Select("select session_type from agent_session where session_id = #{sessionId} limit 1")
+    String selectSessionType(@Param("sessionId") String sessionId);
+
     @Select("select principal_id from agent_session where session_id = #{sessionId} limit 1")
     Long selectPrincipalIdBySession(@Param("sessionId") String sessionId);
 
@@ -85,11 +88,12 @@ public interface SessionRuntimeMapper {
     @Update("""
             insert into agent_session(session_id, principal_id, agent_id, session_type, task_state, relational_state, current_goal,
                                       last_user_message_at, metadata_json, created_at, updated_at)
-            values (#{sessionId}, #{principalId}, #{agentId}, 'HYBRID', #{taskState}, #{relationalState}, #{goal},
+            values (#{sessionId}, #{principalId}, #{agentId}, #{sessionType}, #{taskState}, #{relationalState}, #{goal},
                     current_timestamp, jsonb_build_object('source','session_orchestrator'), current_timestamp, current_timestamp)
             on conflict (session_id)
             do update set principal_id = excluded.principal_id,
                           agent_id = excluded.agent_id,
+                          session_type = excluded.session_type,
                           task_state = excluded.task_state,
                           relational_state = excluded.relational_state,
                           current_goal = excluded.current_goal,
@@ -99,6 +103,7 @@ public interface SessionRuntimeMapper {
     int upsertSession(@Param("sessionId") String sessionId,
                       @Param("principalId") Long principalId,
                       @Param("agentId") Long agentId,
+                      @Param("sessionType") String sessionType,
                       @Param("taskState") String taskState,
                       @Param("relationalState") String relationalState,
                       @Param("goal") String goal);
@@ -167,3 +172,4 @@ public interface SessionRuntimeMapper {
             """)
     List<Map<String, Object>> selectDistinctSessionIdsLike(@Param("pattern") String pattern);
 }
+

@@ -4,11 +4,9 @@ import org.yilena.luna.entity.McpPromptDescriptor;
 import org.yilena.luna.entity.McpPromptResult;
 import org.yilena.luna.entity.McpResourceDescriptor;
 import org.yilena.luna.entity.McpResourceResult;
-import org.yilena.luna.entity.McpSkill;
 import org.yilena.luna.entity.McpPromptCatalog;
 import org.yilena.luna.entity.McpResourceCatalog;
 import org.yilena.luna.entity.McpServerRegistry;
-import org.yilena.luna.entity.McpTool;
 import org.yilena.luna.entity.McpToolCallResult;
 import org.yilena.luna.entity.McpToolDescriptor;
 import org.yilena.luna.entity.McpToolCatalog;
@@ -20,19 +18,6 @@ import java.util.List;
 import java.util.Map;
 
 public interface McpService {
-
-    // Legacy registration API (kept for compatibility).
-    McpTool registerTool(McpTool tool);
-
-    McpTool updateTool(McpTool tool);
-
-    void deleteTool(Long id);
-
-    McpSkill registerSkill(McpSkill skill);
-
-    McpSkill updateSkill(McpSkill skill);
-
-    void deleteSkill(Long id);
 
     // Unified host capability retrieval.
     List<Resource> listAll();

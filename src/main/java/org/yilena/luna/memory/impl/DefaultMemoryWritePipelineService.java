@@ -302,8 +302,16 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
         }
 
         Set<String> dedupe = new LinkedHashSet<>();
+        boolean taskDomainOpen = hasTaskPerceptualSignals(contextPackage, userInput, assistantReply);
+        boolean relationDomainOpen = hasRelationalPerceptualSignals(contextPackage, userInput, relationalSnapshot.supportIntent());
         for (SemanticFactCandidate candidate : candidates) {
             if (candidate == null || candidate.factValue().isBlank()) {
+                continue;
+            }
+            if ("TASK".equals(candidate.domain()) && !taskDomainOpen) {
+                continue;
+            }
+            if ("RELATION".equals(candidate.domain()) && !relationDomainOpen) {
                 continue;
             }
             String dedupeKey = (candidate.domain() + "|" + candidate.factType() + "|" + candidate.factKey() + "|" + candidate.factValue()).toLowerCase(Locale.ROOT);
@@ -359,6 +367,26 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
             ));
         }
         return out;
+    }
+
+    private boolean hasTaskPerceptualSignals(StructuredContextPackage contextPackage, String userInput, String assistantReply) {
+        if (containsAny((asText(userInput) + " " + asText(assistantReply)).toLowerCase(Locale.ROOT),
+                "plan", "execute", "fix", "实现", "修复", "执行")) {
+            return true;
+        }
+        Map<String, Object> taskContext = contextPackage == null ? Map.of() : asMap(contextPackage.getTaskContext());
+        List<Map<String, Object>> taskBuffer = asMapList(taskContext.get("task_perceptual_buffer"));
+        return taskBuffer != null && !taskBuffer.isEmpty();
+    }
+
+    private boolean hasRelationalPerceptualSignals(StructuredContextPackage contextPackage, String userInput, String supportIntent) {
+        if (containsAny((asText(userInput) + " " + asText(supportIntent)).toLowerCase(Locale.ROOT),
+                "support", "listen", "boundary", "comfort", "焦虑", "难受", "边界", "陪我", "先听")) {
+            return true;
+        }
+        Map<String, Object> relationalContext = contextPackage == null ? Map.of() : asMap(contextPackage.getRelationalContext());
+        List<Map<String, Object>> relationBuffer = asMapList(relationalContext.get("relational_perceptual_buffer"));
+        return relationBuffer != null && !relationBuffer.isEmpty();
     }
 
     private List<SemanticFactCandidate> extractStructuredRelationalFacts(String userInput,
@@ -1085,3 +1113,4 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
         return false;
     }
 }
+

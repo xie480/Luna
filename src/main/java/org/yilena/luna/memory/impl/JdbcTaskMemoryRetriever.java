@@ -45,10 +45,12 @@ public class JdbcTaskMemoryRetriever implements TaskMemoryRetriever {
 
         result.put("working_memory", workingMemory);
         result.put("working_slots", workingSlots);
+        List<Map<String, Object>> taskPerceptualBuffer = queryList(() -> runtimeReadMapper.selectTaskPerceptualBuffer(sessionId, 10));
+        result.put("task_perceptual_buffer", taskPerceptualBuffer);
         result.put("task_episode_steps", queryList(() -> runtimeReadMapper.selectTaskEpisodeSteps(sessionId)));
         result.put("plan_context", planContext);
 
-        boolean semanticRetrievalEnabled = shouldUseSemanticRetrieval(taskState, userInput, workingMemory, workingSlots, planContext);
+        boolean semanticRetrievalEnabled = shouldUseSemanticRetrieval(taskState, userInput, workingMemory, workingSlots, planContext, taskPerceptualBuffer);
         String queryVector = semanticRetrievalEnabled ? queryVector(userInput) : null;
         result.put("semantic_retrieval_enabled", semanticRetrievalEnabled);
 
@@ -70,7 +72,8 @@ public class JdbcTaskMemoryRetriever implements TaskMemoryRetriever {
                                                String userInput,
                                                Map<String, Object> workingMemory,
                                                List<Map<String, Object>> workingSlots,
-                                               Map<String, Object> planContext) {
+                                               Map<String, Object> planContext,
+                                               List<Map<String, Object>> taskPerceptualBuffer) {
         if (taskState == TaskRuntimeState.CONTEXT_BUILDING
                 || taskState == TaskRuntimeState.PLANNING
                 || taskState == TaskRuntimeState.REPLANNING
@@ -86,7 +89,8 @@ public class JdbcTaskMemoryRetriever implements TaskMemoryRetriever {
 
         boolean hasWorkingContext = !(workingMemory == null || workingMemory.isEmpty())
                 || (workingSlots != null && !workingSlots.isEmpty())
-                || !(planContext == null || planContext.isEmpty());
+                || !(planContext == null || planContext.isEmpty())
+                || (taskPerceptualBuffer != null && !taskPerceptualBuffer.isEmpty());
         return !hasWorkingContext;
     }
 
@@ -152,3 +156,4 @@ public class JdbcTaskMemoryRetriever implements TaskMemoryRetriever {
         return false;
     }
 }
+

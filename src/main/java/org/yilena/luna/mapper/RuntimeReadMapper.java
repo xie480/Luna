@@ -64,6 +64,16 @@ public interface RuntimeReadMapper {
     List<Map<String, Object>> selectTaskWorkingSlots(@Param("sessionId") String sessionId);
 
     @Select("""
+            select event_id, session_id, message_ref, tool_trace_ref, signal_json, created_at, ttl_at
+            from task_perceptual_buffer
+            where session_id = #{sessionId}
+              and ttl_at > current_timestamp
+            order by created_at desc
+            limit #{limit}
+            """)
+    List<Map<String, Object>> selectTaskPerceptualBuffer(@Param("sessionId") String sessionId, @Param("limit") int limit);
+
+    @Select("""
             select fact_id, fact_type, fact_key, fact_value_text, confidence_score, stability_score, updated_at
             from task_semantic_fact
             where deleted = false
@@ -160,6 +170,16 @@ public interface RuntimeReadMapper {
     List<Map<String, Object>> selectRelationalSemanticFacts(@Param("sessionId") String sessionId, @Param("queryVector") String queryVector);
 
     @Select("""
+            select event_id, session_id, message_ref, emotion_signal_json, boundary_signal_json, created_at, ttl_at
+            from relational_perceptual_buffer
+            where session_id = #{sessionId}
+              and ttl_at > current_timestamp
+            order by created_at desc
+            limit #{limit}
+            """)
+    List<Map<String, Object>> selectRelationalPerceptualBuffer(@Param("sessionId") String sessionId, @Param("limit") int limit);
+
+    @Select("""
             select episode_id, episode_type, title, summary, support_style_used, interaction_quality, created_at
             from relational_episode
             where session_id = #{sessionId}
@@ -202,3 +222,4 @@ public interface RuntimeReadMapper {
             """)
     List<Map<String, Object>> selectBoundaryRules(@Param("sessionId") String sessionId);
 }
+

@@ -127,6 +127,15 @@ inference:
     timeout-ms: 1500
     fallback-local: true
 
+memory:
+  session-type:
+    enabled: true
+  perceptual-buffer:
+    enabled: true
+    ttl-minutes: 90
+  legacy-readonly:
+    enabled: true
+
 serper:
   api-key: fe2bc5deb3372b8fc2823c2031e06a209e20bd75
 
@@ -147,3 +156,4 @@ rocketmq:
     send-message-timeout: 2000
     retry-times-when-send-failed: 1
     retry-times-when-send-async-failed: 1
+

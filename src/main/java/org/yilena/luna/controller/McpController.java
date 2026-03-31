@@ -3,10 +3,9 @@ package org.yilena.luna.controller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.yilena.luna.entity.McpSkill;
-import org.yilena.luna.entity.McpTool;
 import org.yilena.luna.entity.McpPromptCatalog;
 import org.yilena.luna.entity.McpResourceCatalog;
 import org.yilena.luna.entity.McpServerRegistry;
@@ -30,44 +29,42 @@ public class McpController {
 
     private final McpService mcpService;
 
-    // ===== Legacy CRUD API (compatibility) =====
+    // ===== Legacy CRUD API (retired) =====
 
     @PostMapping("/tools")
-    @Operation(summary = "Register tool (legacy)")
-    public ResponseEntity<McpTool> registerTool(@RequestBody McpTool tool) {
-        return ResponseEntity.ok(mcpService.registerTool(tool));
+    @Operation(summary = "Register tool (legacy, retired)")
+    public ResponseEntity<Map<String, Object>> registerTool() {
+        return legacyGone("legacy /mcp/tools write API retired, use /mcp/migrate/tool-catalog and capability_registry path");
     }
 
     @PutMapping("/tools")
-    @Operation(summary = "Update tool (legacy)")
-    public ResponseEntity<McpTool> updateTool(@RequestBody McpTool tool) {
-        return ResponseEntity.ok(mcpService.updateTool(tool));
+    @Operation(summary = "Update tool (legacy, retired)")
+    public ResponseEntity<Map<String, Object>> updateTool() {
+        return legacyGone("legacy /mcp/tools write API retired, use /mcp/migrate/tool-catalog and capability_registry path");
     }
 
     @DeleteMapping("/tools/{id}")
-    @Operation(summary = "Delete tool (legacy)")
-    public ResponseEntity<Void> deleteTool(@PathVariable Long id) {
-        mcpService.deleteTool(id);
-        return ResponseEntity.ok().build();
+    @Operation(summary = "Delete tool (legacy, retired)")
+    public ResponseEntity<Map<String, Object>> deleteTool(@PathVariable Long id) {
+        return legacyGone("legacy /mcp/tools write API retired, use /mcp/migrate/tool-catalog and capability_registry path");
     }
 
     @PostMapping("/skills")
-    @Operation(summary = "Register skill (legacy)")
-    public ResponseEntity<McpSkill> registerSkill(@RequestBody McpSkill skill) {
-        return ResponseEntity.ok(mcpService.registerSkill(skill));
+    @Operation(summary = "Register skill (legacy, retired)")
+    public ResponseEntity<Map<String, Object>> registerSkill() {
+        return legacyGone("legacy /mcp/skills write API retired, use /mcp/migrate/workflow-template or /mcp/migrate/prompt-catalog");
     }
 
     @PutMapping("/skills")
-    @Operation(summary = "Update skill (legacy)")
-    public ResponseEntity<McpSkill> updateSkill(@RequestBody McpSkill skill) {
-        return ResponseEntity.ok(mcpService.updateSkill(skill));
+    @Operation(summary = "Update skill (legacy, retired)")
+    public ResponseEntity<Map<String, Object>> updateSkill() {
+        return legacyGone("legacy /mcp/skills write API retired, use /mcp/migrate/workflow-template or /mcp/migrate/prompt-catalog");
     }
 
     @DeleteMapping("/skills/{id}")
-    @Operation(summary = "Delete skill (legacy)")
-    public ResponseEntity<Void> deleteSkill(@PathVariable Long id) {
-        mcpService.deleteSkill(id);
-        return ResponseEntity.ok().build();
+    @Operation(summary = "Delete skill (legacy, retired)")
+    public ResponseEntity<Map<String, Object>> deleteSkill(@PathVariable Long id) {
+        return legacyGone("legacy /mcp/skills write API retired, use /mcp/migrate/workflow-template or /mcp/migrate/prompt-catalog");
     }
 
     @GetMapping("/resources")
@@ -179,5 +176,12 @@ public class McpController {
     @Operation(summary = "Upsert workflow_template (full-field)")
     public ResponseEntity<WorkflowTemplate> upsertWorkflowTemplate(@RequestBody WorkflowTemplate workflowTemplate) {
         return ResponseEntity.ok(mcpService.upsertWorkflowTemplate(workflowTemplate));
+    }
+
+    private ResponseEntity<Map<String, Object>> legacyGone(String message) {
+        return ResponseEntity.status(HttpStatus.GONE).body(Map.of(
+                "code", HttpStatus.GONE.value(),
+                "message", message
+        ));
     }
 }

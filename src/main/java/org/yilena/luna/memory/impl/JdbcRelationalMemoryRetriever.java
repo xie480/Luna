@@ -31,6 +31,8 @@ public class JdbcRelationalMemoryRetriever implements RelationalMemoryRetriever 
         result.put("profile", profile);
         result.put("emotional_baseline", emotionalBaseline);
         result.put("boundary_rules", boundaryRules);
+        List<Map<String, Object>> relationalPerceptualBuffer = queryList(() -> runtimeReadMapper.selectRelationalPerceptualBuffer(sessionId, 10));
+        result.put("relational_perceptual_buffer", relationalPerceptualBuffer);
 
         boolean semanticRetrievalEnabled = shouldUseSemanticRetrieval(
                 relationalState,
@@ -38,7 +40,8 @@ public class JdbcRelationalMemoryRetriever implements RelationalMemoryRetriever 
                 workingMemory,
                 profile,
                 emotionalBaseline,
-                boundaryRules
+                boundaryRules,
+                relationalPerceptualBuffer
         );
         String queryVector = semanticRetrievalEnabled ? queryVector(userInput) : null;
         result.put("semantic_retrieval_enabled", semanticRetrievalEnabled);
@@ -60,7 +63,8 @@ public class JdbcRelationalMemoryRetriever implements RelationalMemoryRetriever 
                                                Map<String, Object> workingMemory,
                                                Map<String, Object> profile,
                                                Map<String, Object> emotionalBaseline,
-                                               List<Map<String, Object>> boundaryRules) {
+                                               List<Map<String, Object>> boundaryRules,
+                                               List<Map<String, Object>> relationalPerceptualBuffer) {
         if (relationalState == RelationalRuntimeState.DEEP_TALK
                 || relationalState == RelationalRuntimeState.EMOTIONAL_SUPPORT
                 || relationalState == RelationalRuntimeState.FRAGILE_MOMENT
@@ -77,7 +81,8 @@ public class JdbcRelationalMemoryRetriever implements RelationalMemoryRetriever 
         boolean hasNearContext = !(workingMemory == null || workingMemory.isEmpty())
                 || !(profile == null || profile.isEmpty())
                 || !(emotionalBaseline == null || emotionalBaseline.isEmpty())
-                || (boundaryRules != null && !boundaryRules.isEmpty());
+                || (boundaryRules != null && !boundaryRules.isEmpty())
+                || (relationalPerceptualBuffer != null && !relationalPerceptualBuffer.isEmpty());
         return !hasNearContext;
     }
 
@@ -133,3 +138,4 @@ public class JdbcRelationalMemoryRetriever implements RelationalMemoryRetriever 
         return false;
     }
 }
+

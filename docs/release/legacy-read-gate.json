@@ -1,0 +1,15 @@
+{
+  "note": "Fill from legacy_mcp_read_metric statistics before release.",
+  "versions": [
+    {
+      "version": "v0.0.0-placeholder-1",
+      "mcp_tools_read_count": 1,
+      "mcp_skills_read_count": 1
+    },
+    {
+      "version": "v0.0.0-placeholder-2",
+      "mcp_tools_read_count": 1,
+      "mcp_skills_read_count": 1
+    }
+  ]
+}

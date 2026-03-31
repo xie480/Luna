@@ -1,0 +1,27 @@
+name: legacy-guard
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check Legacy Reference Guard
+        run: python scripts/ci/check_legacy_reference_guard.py
+
+      - name: Check Legacy Drop Gate
+        run: python scripts/ci/check_legacy_drop_gate.py
+

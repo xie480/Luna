@@ -3,6 +3,7 @@ package org.yilena.luna.memory.impl;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.enums.RelationalRuntimeState;
+import org.yilena.luna.enums.SessionType;
 import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.memory.ContextCompilerService;
 import org.yilena.luna.memory.MemoryHotLayerService;
@@ -60,6 +61,7 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                 relationalState,
                 relationalContext
         );
+        SessionType sessionType = resolveSessionType(runtime);
         Map<String, Object> synthesisPolicy = responseSynthesizerService.buildSynthesisPolicy(
                 taskState,
                 relationalState,
@@ -67,8 +69,8 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                 relationalContext,
                 socialDraft
         );
-        Map<String, Object> promptPolicy = buildPromptPolicy(taskState, relationalState, socialDraft, synthesisPolicy);
-        Map<String, Integer> budget = buildTokenBudget(taskState, relationalState);
+        Map<String, Object> promptPolicy = buildPromptPolicy(taskState, relationalState, sessionType, socialDraft, synthesisPolicy);
+        Map<String, Integer> budget = buildTokenBudget(taskState, relationalState, sessionType);
 
         StructuredContextPackage contextPackage = StructuredContextPackage.builder()
                 .sessionId(sessionId)
@@ -93,11 +95,13 @@ public class DefaultContextCompilerService implements ContextCompilerService {
 
     private Map<String, Object> buildPromptPolicy(TaskRuntimeState taskState,
                                                   RelationalRuntimeState relationalState,
+                                                  SessionType sessionType,
                                                   Map<String, Object> socialDraft,
                                                   Map<String, Object> synthesisPolicy) {
         Map<String, Object> policy = new LinkedHashMap<>();
         policy.put("task_mode", taskState.name());
         policy.put("social_mode", relationalState.name());
+        policy.put("session_type", sessionType.name());
         policy.put("planner_enabled", taskState == TaskRuntimeState.PLANNING || taskState == TaskRuntimeState.REPLANNING);
         policy.put("executor_enabled", taskState == TaskRuntimeState.EXECUTING || taskState == TaskRuntimeState.REPORTING);
         policy.put("social_reasoner_enabled", true);
@@ -107,10 +111,13 @@ public class DefaultContextCompilerService implements ContextCompilerService {
         return policy;
     }
 
-    private Map<String, Integer> buildTokenBudget(TaskRuntimeState taskState, RelationalRuntimeState relationalState) {
+    private Map<String, Integer> buildTokenBudget(TaskRuntimeState taskState,
+                                                  RelationalRuntimeState relationalState,
+                                                  SessionType sessionType) {
         Map<String, Integer> budget = new HashMap<>();
         if (relationalState == RelationalRuntimeState.EMOTIONAL_SUPPORT || relationalState == RelationalRuntimeState.FRAGILE_MOMENT) {
             budget.put("runtime", 500);
+            budget.put("relational_buffer", 1000);
             budget.put("relational_working", 1800);
             budget.put("relational_profile_semantic", 1200);
             budget.put("relational_episodes", 1500);
@@ -121,6 +128,8 @@ public class DefaultContextCompilerService implements ContextCompilerService {
             return budget;
         }
         budget.put("runtime", 800);
+        budget.put("task_buffer", sessionType == SessionType.COMPANION ? 400 : 900);
+        budget.put("relational_buffer", sessionType == SessionType.TASK ? 300 : 700);
         budget.put("task_working", 2500);
         budget.put("plan_node", 2000);
         budget.put("task_facts", 1000);
@@ -131,4 +140,18 @@ public class DefaultContextCompilerService implements ContextCompilerService {
         budget.put("recent_messages", 300);
         return budget;
     }
+
+    @SuppressWarnings("unchecked")
+    private SessionType resolveSessionType(Map<String, Object> runtime) {
+        if (runtime == null) {
+            return SessionType.HYBRID;
+        }
+        Object session = runtime.get("session");
+        if (session instanceof Map<?, ?> row) {
+            Object raw = ((Map<String, Object>) row).get("session_type");
+            return SessionType.from(raw == null ? null : String.valueOf(raw));
+        }
+        return SessionType.HYBRID;
+    }
 }
+

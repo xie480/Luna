@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.mapper.EventInboxMapper;
+import org.yilena.luna.mapper.PerceptualBufferMapper;
 import org.yilena.luna.memory.EventIngressService;
 import org.yilena.luna.memory.MemoryHotLayerService;
 import org.yilena.luna.memory.RuntimeAuditService;
@@ -13,6 +15,7 @@ import org.yilena.luna.memory.SessionOrchestratorService;
 import org.yilena.luna.memory.model.OrchestrationDecision;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -26,6 +29,13 @@ public class DefaultEventIngressService implements EventIngressService {
     private final SessionOrchestratorService sessionOrchestratorService;
     private final RuntimeAuditService runtimeAuditService;
     private final MemoryHotLayerService memoryHotLayerService;
+    private final PerceptualBufferMapper perceptualBufferMapper;
+
+    @Value("${memory.perceptual-buffer.enabled:true}")
+    private boolean perceptualBufferEnabled;
+
+    @Value("${memory.perceptual-buffer.ttl-minutes:90}")
+    private int perceptualBufferTtlMinutes;
 
     @Override
     public OrchestrationDecision ingestUserInput(String sessionId, String userInput) {
@@ -132,6 +142,7 @@ public class DefaultEventIngressService implements EventIngressService {
                     yield null;
                 }
             };
+            writePerceptualBuffers(normalizedSessionId, normalizedEventType, payload, eventId, traceId);
             markProcessed(eventId);
             return decision;
         } catch (Exception e) {
@@ -253,4 +264,128 @@ public class DefaultEventIngressService implements EventIngressService {
             }
         }
     }
+
+    private void writePerceptualBuffers(String sessionId,
+                                        String eventType,
+                                        JsonNode payload,
+                                        Long eventId,
+                                        String traceId) {
+        if (!perceptualBufferEnabled) {
+            return;
+        }
+        String baseEventRef = eventId == null ? UUID.randomUUID().toString() : String.valueOf(eventId);
+        String messageRef = "event:" + baseEventRef;
+        String payloadJson = payload == null ? "{}" : payload.toString();
+        try {
+            if ("USER_INPUT".equals(eventType) || "TOOL_RESULT".equals(eventType)) {
+                String taskEventId = "TASK-" + baseEventRef;
+                perceptualBufferMapper.upsertTaskBuffer(
+                        taskEventId,
+                        sessionId,
+                        messageRef,
+                        "TOOL_RESULT".equals(eventType) ? traceId : null,
+                        payloadJson,
+                        safeTtlMinutes()
+                );
+            }
+
+            Map<String, Object> emotionSignal = extractEmotionSignal(eventType, payload);
+            Map<String, Object> boundarySignal = extractBoundarySignal(eventType, payload);
+            if (!emotionSignal.isEmpty() || !boundarySignal.isEmpty()) {
+                String relEventId = "REL-" + baseEventRef;
+                perceptualBufferMapper.upsertRelationalBuffer(
+                        relEventId,
+                        sessionId,
+                        messageRef,
+                        toJsonSafe(emotionSignal),
+                        toJsonSafe(boundarySignal),
+                        safeTtlMinutes()
+                );
+            }
+
+            perceptualBufferMapper.deleteExpiredTaskBuffer();
+            perceptualBufferMapper.deleteExpiredRelationalBuffer();
+        } catch (Exception e) {
+            log.debug("perceptual buffer write skipped, session={}, event={}, err={}", sessionId, eventType, e.getMessage());
+        }
+    }
+
+    private Map<String, Object> extractEmotionSignal(String eventType, JsonNode payload) {
+        String corpus = buildSignalCorpus(payload);
+        if (corpus.isBlank()) {
+            return Map.of();
+        }
+        boolean matched = containsAny(
+                corpus,
+                "anxious", "tired", "burnout", "sad", "overwhelmed", "焦虑", "难受", "崩溃", "低落", "撑不住", "压力"
+        );
+        if (!matched && !"APPROVAL".equals(eventType)) {
+            return Map.of();
+        }
+        return Map.of(
+                "event_type", eventType,
+                "matched", matched,
+                "text", summarize(corpus, 220),
+                "created_from", "event_ingress"
+        );
+    }
+
+    private Map<String, Object> extractBoundarySignal(String eventType, JsonNode payload) {
+        String corpus = buildSignalCorpus(payload);
+        if (corpus.isBlank()) {
+            return Map.of();
+        }
+        boolean matched = containsAny(
+                corpus,
+                "boundary", "don't", "do not", "avoid", "uncomfortable", "别", "不要", "不喜欢", "边界", "冒犯", "先别"
+        );
+        boolean rejection = "APPROVAL".equals(eventType) && corpus.contains("\"approved\":false");
+        if (!matched && !rejection) {
+            return Map.of();
+        }
+        return Map.of(
+                "event_type", eventType,
+                "matched", matched || rejection,
+                "text", summarize(corpus, 220),
+                "created_from", "event_ingress"
+        );
+    }
+
+    private String buildSignalCorpus(JsonNode payload) {
+        if (payload == null || payload.isMissingNode()) {
+            return "";
+        }
+        String text = payload.path("text").asText("");
+        String message = payload.path("message").asText("");
+        String status = payload.path("status").asText("");
+        String raw = payload.toString();
+        return (text + " " + message + " " + status + " " + raw).toLowerCase(Locale.ROOT);
+    }
+
+    private boolean containsAny(String text, String... words) {
+        if (text == null || words == null) {
+            return false;
+        }
+        for (String word : words) {
+            if (word != null && text.contains(word.toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private int safeTtlMinutes() {
+        if (perceptualBufferTtlMinutes < 30) {
+            return 30;
+        }
+        return Math.min(perceptualBufferTtlMinutes, 120);
+    }
+
+    private String summarize(String text, int maxLen) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        return text.length() <= maxLen ? text : text.substring(0, maxLen);
+    }
 }
+

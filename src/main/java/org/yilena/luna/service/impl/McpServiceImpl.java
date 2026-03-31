@@ -41,8 +41,7 @@ public class McpServiceImpl implements McpService {
     private final LlmClientUtil llmClientUtil;
     private final ObjectMapper objectMapper;
 
-    @Override
-    public McpTool registerTool(McpTool tool) {
+    private McpTool registerToolCompat(McpTool tool) {
         if (tool == null || blank(tool.getName()) || blank(tool.getBeanName()) || blank(tool.getMethodName())) {
             throw new IllegalArgumentException("tool name/beanName/methodName required");
         }
@@ -72,64 +71,6 @@ public class McpServiceImpl implements McpService {
         tool.setId(row.getId());
         tool.setEmbedding(row.getEmbedding());
         return tool;
-    }
-
-    @Override
-    public McpTool updateTool(McpTool tool) {
-        if (tool == null || tool.getId() == null) throw new IllegalArgumentException("tool id required");
-        McpToolCatalog row = toolCatalogMapper.selectById(tool.getId());
-        if (row == null) throw new IllegalArgumentException("tool not found");
-        if (!blank(tool.getName())) {
-            row.setToolName(tool.getName().trim());
-            row.setTitle(tool.getName().trim());
-        }
-        if (tool.getDescription() != null) row.setDescription(tool.getDescription());
-        if (tool.getVersion() != null) row.setVersion(tool.getVersion());
-        if (tool.getInputSchema() != null) row.setInputSchema(jsonMap(tool.getInputSchema()));
-        if (tool.getOutputSchema() != null) row.setOutputSchema(jsonMap(tool.getOutputSchema()));
-        if (tool.getRequiresApproval() != null) row.setRequiresApproval(tool.getRequiresApproval());
-        if (tool.getSensitivity() != null) row.setSensitivity(tool.getSensitivity().name());
-        row.setSyncedAt(LocalDateTime.now());
-        row.setEmbedding(embed(row.getToolName(), row.getDescription()));
-        toolCatalogMapper.updateById(row);
-        if (!blank(tool.getBeanName()) && !blank(tool.getMethodName())) {
-            upsertImpl(row.getToolName(), tool.getBeanName(), tool.getMethodName());
-        }
-        tool.setName(row.getToolName());
-        tool.setEmbedding(row.getEmbedding());
-        return tool;
-    }
-
-    @Override
-    public void deleteTool(Long id) {
-        if (id == null) return;
-        McpToolCatalog row = toolCatalogMapper.selectById(id);
-        if (row == null) return;
-        toolCatalogMapper.deleteById(id);
-        toolImplMappingMapper.delete(new LambdaQueryWrapper<McpToolImplMapping>()
-                .eq(McpToolImplMapping::getServerCode, row.getServerCode())
-                .eq(McpToolImplMapping::getToolName, row.getToolName()));
-    }
-
-    @Override
-    public McpSkill registerSkill(McpSkill skill) {
-        if (skill == null || blank(skill.getName())) throw new IllegalArgumentException("skill name required");
-        if (workflowSkill(skill)) upsertWorkflow(skill); else upsertPrompt(skill);
-        return skill;
-    }
-
-    @Override
-    public McpSkill updateSkill(McpSkill skill) {
-        if (skill == null || skill.getId() == null) throw new IllegalArgumentException("skill id required");
-        if (workflowSkill(skill)) upsertWorkflow(skill); else upsertPrompt(skill);
-        return skill;
-    }
-
-    @Override
-    public void deleteSkill(Long id) {
-        if (id == null) return;
-        workflowTemplateMapper.deleteById(id);
-        promptCatalogMapper.deleteById(id);
     }
 
     @Override
@@ -353,7 +294,7 @@ public class McpServiceImpl implements McpService {
                 .requiresApproval(bool(m.get("requiresApproval"), false))
                 .sensitivity(parseSensitivity(text(m.get("sensitivity"))))
                 .build();
-        registerTool(tool);
+        registerToolCompat(tool);
     }
 
     private McpSkill mapToSkill(Map<String, Object> m) {
