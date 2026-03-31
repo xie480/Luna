@@ -1,292 +1,913 @@
-# Luna RAG 架构与 LLM 使用点说明（基于当前代码）
+# 通用 RAG 模块设计文档
 
-> 代码基线：`src/main/java/org/yilena/luna/rag/**` 及其上游调用方。  
-> 本文目标：扫描当前 RAG 系统，并重点标注“哪些地方用到了 LLM/模型，哪些地方没有”。
+## 1. 文档目标
 
----
+本文档仅描述 **RAG 模块本身** 的设计，不涉及业务层、人设层、Prompt 层或最终生成层。
 
-## 1. 结论先看（LLM 触点总览）
+目标：
 
-### 1.1 标签说明
-
-- `LLM-GEN`：调用 `llmClientUtil.generate(...)`（生成式大模型）
-- `EMBEDDING`：调用 `llmClientUtil.getEmbedding(...)`（向量模型）
-- `RERANK`：调用 `llmClientUtil.rerank(...)`（重排模型）
-- `NO-LLM`：纯规则、纯数据库或纯字符串处理
-
-### 1.2 在线检索链路（Query Time）
-
-| 阶段 | 组件 | 类型 | 说明 |
-|---|---|---|---|
-| Query 规划 | `ModelDrivenRagPlanner.planQuery` | `LLM-GEN` | 生成 `query_type/rewritten_query/route_hint/complexity` |
-| Query 向量化 | `LlmEmbeddingProvider.embedding` | `EMBEDDING` | 对重写 query 生成向量 |
-| 路由选择 | `RouteSelector.selectPlan` | `NO-LLM` | 优先 `route_hint`，否则关键词启发式 |
-| 多源召回 | `*Retriever -> PgRetrievalAdapter -> *Mapper.searchByVector` | `NO-LLM` | pgvector 检索 |
-| 每源后处理策略规划 | `ModelDrivenRagPlanner.planSourceProcessing` | `LLM-GEN` | 决定 dedup/rerank/compress/topK |
-| 每源重排执行 | `EvidenceReranker.rerank` | `RERANK` | 对候选证据重排 |
-| 每源去重/压缩 | `EvidenceDeduplicator/EvidenceCompressor` | `NO-LLM` | 内容去重 + 截断 |
-| 跨源全局重排 | `ModelDrivenRagPlanner.rerankGlobally` | `LLM-GEN` | 融合后跨源排序 |
-| Prompt 组装 | `PromptAssembler.assembleFinalPrompt` | `NO-LLM` | 拼装 system/memory/knowledge/preference/tool/user 输入 |
-| 最终回复生成 | `ChatServiceImpl.getSendToLuna` | `LLM-GEN` | 聊天主模型输出回复（严格来说在 RAG 之后） |
-
-### 1.3 离线入库链路（Index Time）
-
-| 链路 | 组件 | 类型 | 说明 |
-|---|---|---|---|
-| 知识库入库 | `KnowledgeBaseConsumer` | `EMBEDDING` | 文本分片后逐片向量化入库 |
-| 记忆入库 | `MemoryTools.manageMemory(INSERT)` | `EMBEDDING` | `sessionId + memoryType + content` 向量化 |
-| 偏好入库 | `PreferenceTools.manageUserPreference(INSERT)` | `EMBEDDING` | `prefKey + prefValue + description` 向量化 |
-
-结论：当前 RAG 不是“全链路都在跑生成式 LLM”。`LLM-GEN` 主要在规划与全局排序，检索本体是 pgvector，入库/检索都强依赖 embedding。
+- 保留 `search / native / modular / agentic` 四类链路
+- 基于现有 PostgreSQL + pgvector 三张表实现
+- 不修改现有表结构
+- 将 RAG 抽象为一个 **业务无关、可复用的通用模块**
+- 为开发提供可直接落地的模块边界、接口、流程和伪代码
 
 ---
 
-## 2. 总体架构
+## 2. 设计原则
 
-当前系统有两条主链路：
+### 2.1 模块职责边界
+RAG 模块只负责：
 
-1. 在线检索链路（Query Time）
-- 入口：`ChatServiceImpl -> RetrievalServiceImpl`
-- 目标：召回 `knowledge/memory/preference` 证据并注入 prompt
+1. 查询理解（面向检索）
+2. 检索路由
+3. 多源召回
+4. rerank / fusion / 去重 / 压缩
+5. 返回标准化 evidence
 
-2. 离线入库链路（Index Time）
-- 入口：`KnowledgeBaseConsumer`、`MemoryTools`、`PreferenceTools`
-- 目标：把文本转向量并落库到 PostgreSQL(pgvector)
+RAG 模块不负责：
 
----
+- 人设
+- 活人感
+- Prompt 设计
+- 最终答案生成
+- 长期记忆写回
+- 业务流程编排
 
-## 3. 在线链路分阶段说明（重点标注 LLM）
+### 2.2 数据源无关
+模块对外暴露的是抽象 source：
 
-### 阶段 A：请求进入 RAG（`RetrievalServiceImpl`）
+- `knowledge`
+- `memory`
+- `preference`
 
-- 输入：`RetrievalRequest(query, sessionId, allowedRoutes, sourceScope, options.maxLatencyMs)`
-- 类型：`NO-LLM`
-- 作用：统一编排，不直接调用模型
+不直接暴露具体表名。
 
-### 阶段 B：Query 预处理（`QueryProcessor`）
+### 2.3 链路分层
+保留四条标准链路：
 
-1. `planQuery(...)`：`LLM-GEN`
-- 组件：`ModelDrivenRagPlanner.planQuery`
-- 输出：`query_type / rewritten_query / route_hint / complexity`
+- `Search`
+- `Native`
+- `Modular`
+- `Agentic`
 
-2. `embedding(rewrittenQuery)`：`EMBEDDING`
-- 组件：`EmbeddingProvider -> LlmEmbeddingProvider`
-- 输出：`queryObject.embedding`
-
-### 阶段 C：路由决策（`RouteSelector`）
-
-- 类型：`NO-LLM`
-- 行为：优先使用 `route_hint`，否则按关键词/`sourceScope` 启发式选 `SEARCH/NATIVE/MODULAR/AGENTIC`
-
-### 阶段 D：并行召回（`AbstractRetrievalPipeline.retrieveBySources`）
-
-- 类型：`NO-LLM`
-- 行为：并行调用 `KnowledgeRetriever/MemoryRetriever/PreferenceRetriever`
-- 落点：`PgRetrievalAdapter -> Mapper.searchByVector(...)`
-
-### 阶段 E：每源后处理（`processSourceEvidence`）
-
-1. 每源策略规划：`LLM-GEN`
-- 组件：`ModelDrivenRagPlanner.planSourceProcessing`
-- 产出：`deduplicate/rerank/compress/top_k/compression_chars`
-
-2. 每源重排执行：`RERANK`
-- 组件：`EvidenceReranker.rerank`
-
-3. 去重/压缩执行：`NO-LLM`
-- 组件：`EvidenceDeduplicator`、`EvidenceCompressor`
-
-### 阶段 F：跨源融合（`EvidenceFusionService`）
-
-1. 全局去重 + 分桶回填：`NO-LLM`
-2. 全局重排：`LLM-GEN`
-- 组件：`ModelDrivenRagPlanner.rerankGlobally`
-
-### 阶段 G：响应封装（`RetrievalServiceImpl`）
-
-- 类型：`NO-LLM`
-- 输出：`RetrievalResponse(route, rewrittenQuery, evidences, meta)`
-
-### 阶段 H：Prompt 注入 + 最终回答
-
-1. `PromptAssembler.assembleFinalPrompt(...)`：`NO-LLM`
-2. `ChatServiceImpl.getSendToLuna(...)`：`LLM-GEN`
-- 调用：`llmClientUtil.generate(...)`
-- 说明：这一步是“最终回答生成”，属于 RAG 下游，但通常被一起视为问答主链路
+### 2.4 标准化输出
+所有数据源返回结果统一转为 `Evidence`，供上层使用。
 
 ---
 
-## 4. Agentic 与其他 Pipeline 的差异（LLM 视角）
+## 3. 现有数据源映射
 
-### `SEARCH/NATIVE/MODULAR`
+### 3.1 knowledge source
+映射表：`knowledge_base`
 
-- 都会经过：
-- `planQuery` (`LLM-GEN`)
-- query embedding (`EMBEDDING`)
-- 每源 `planSourceProcessing` (`LLM-GEN`)
-- 可选每源 `rerank` (`RERANK`)
-- `rerankGlobally` (`LLM-GEN`)
+用途：
 
-### `AGENTIC` 额外增加
+- 文件解析内容
+- 联网搜索结果
+- 手动输入知识
+- RAG 知识检索主表
 
-1. `planAgentStages`：`LLM-GEN`
-- 拆成多阶段目标与 source 组合
+### 3.2 memory source
+映射表：`luna_memory`
 
-2. 每阶段可重写 query 并重算 embedding：`EMBEDDING`
-- `AgenticPipeline.buildStageQuery`
+用途：
 
-3. 每阶段都会触发一轮 `retrieveBySources`
-- 也意味着每阶段可能再次触发：
-- `planSourceProcessing` (`LLM-GEN`)
-- 每源 `rerank` (`RERANK`)
-- 阶段级 `rerankGlobally` (`LLM-GEN`)
+- 长期记忆
+- 历史事实
+- 偏好型记忆
+- 阶段摘要
+- 反思类记忆
 
-4. 结束后还有一次最终 fusion
-- 再触发一次全局 `rerankGlobally` (`LLM-GEN`)
+### 3.3 preference source
+映射表：`user_preference`
 
-因此，`AGENTIC` 是当前最“模型密集”的路由。
+用途：
+
+- 用户画像
+- 偏好配置
+- 风格偏好
+- 表达偏好
 
 ---
 
-## 5. 端到端调用图（含 LLM 标记）
+## 4. 模块总览
+
+### 4.1 模块目标
+构建一个统一入口的 Retrieval Orchestration Engine。
+
+### 4.2 总体流程
 
 ```text
-ChatServiceImpl.chat()
-  -> RetrievalServiceImpl.retrieve()                                  [NO-LLM]
-     -> QueryProcessor.process()
-        -> ModelDrivenRagPlanner.planQuery()                          [LLM-GEN]
-        -> EmbeddingProvider.embedding()                              [EMBEDDING]
-     -> RouteSelector.selectPlan()                                    [NO-LLM]
-     -> pipeline.execute()
-        -> AbstractRetrievalPipeline.retrieveBySources()
-           -> BaseRetriever.retrieve() x N                            [NO-LLM]
-              -> PgRetrievalAdapter -> *Mapper.searchByVector(...)    [NO-LLM]
-           -> ModelDrivenRagPlanner.planSourceProcessing()            [LLM-GEN]
-           -> EvidenceReranker.rerank()                               [RERANK]
-           -> EvidenceDeduplicator / EvidenceCompressor               [NO-LLM]
-           -> EvidenceFusionService.fuse()
-              -> global dedup / redistribute                          [NO-LLM]
-              -> ModelDrivenRagPlanner.rerankGlobally()               [LLM-GEN]
-  -> PromptAssembler.assembleFinalPrompt(...)                         [NO-LLM]
-  -> ChatServiceImpl.getSendToLuna()                                  [LLM-GEN]
+RetrievalRequest
+    ↓
+Query Processor
+    ↓
+Router
+    ↓
+Pipeline (Search / Native / Modular / Agentic)
+    ↓
+Retrievers (Knowledge / Memory / Preference)
+    ↓
+Ranker / Fusion / Compression
+    ↓
+RetrievalResponse
 ```
 
 ---
 
-## 6. 离线入库链路（Index Time）
+## 5. 模块目录建议
 
-### 6.1 知识库入库（`KnowledgeBaseConsumer`）
-
-1. `TextSplitter.splitText(content, 500, 50)`（`NO-LLM`）
-2. 每个 chunk 调 `llmClientUtil.getEmbedding(chunk)`（`EMBEDDING`）
-3. 保存 `knowledge_base`（含 `embedding`）
-
-### 6.2 记忆入库（`MemoryTools`）
-
-- `manageMemory(action=INSERT)`：
-- 组装 embeddingText
-- `llmClientUtil.getEmbedding(embeddingText)`（`EMBEDDING`）
-- 写 `luna_memory`
-
-### 6.3 偏好入库（`PreferenceTools`）
-
-- `manageUserPreference(action=INSERT)`：
-- 组装 embeddingText
-- `llmClientUtil.getEmbedding(embeddingText)`（`EMBEDDING`）
-- 写 `user_preference`
-
----
-
-## 7. 降级与回退行为（和 LLM 相关）
-
-### 7.1 `LLM-GEN` 回退
-
-- `ModelDrivenRagPlanner.callJson` 失败时：
-- `planQuery` 回退到规则结果
-- `planSourceProcessing` 回退到默认策略
-- `planAgentStages` 回退到单阶段默认计划
-- `rerankGlobally` 回退到本地分数排序
-
-### 7.2 `EMBEDDING` 回退
-
-- `LlmEmbeddingProvider` 出错返回 `null`，主链路不中断
-- 检索器遇到空向量会返回空结果（不会抛错）
-
-### 7.3 `RERANK` 回退
-
-- `EvidenceReranker` 异常时使用原顺序截断 `topK`
-
-### 7.4 最终回答回退
-
-- `ChatServiceImpl.getSendToLuna`：
-- 首次生成不合法 -> 二次 repair prompt
-- repair 仍失败 -> 本地兜底 JSON
+```text
+rag_module/
+├── api/
+│   ├── service.py
+│   └── schemas.py
+├── processor/
+│   ├── query_processor.py
+│   └── rewrite.py
+├── router/
+│   ├── route_selector.py
+│   └── rules.py
+├── retrievers/
+│   ├── base.py
+│   ├── knowledge_retriever.py
+│   ├── memory_retriever.py
+│   └── preference_retriever.py
+├── pipelines/
+│   ├── base.py
+│   ├── search_pipeline.py
+│   ├── native_pipeline.py
+│   ├── modular_pipeline.py
+│   └── agentic_pipeline.py
+├── rankers/
+│   ├── reranker.py
+│   ├── fusion.py
+│   ├── dedup.py
+│   └── compression.py
+├── adapters/
+│   ├── pg_adapter.py
+│   └── embedding_provider.py
+├── models/
+│   ├── query.py
+│   ├── route_plan.py
+│   ├── evidence.py
+│   └── response.py
+└── config/
+    ├── route_rules.yaml
+    └── retrieval.yaml
+```
 
 ---
 
-## 8. 可观测字段（`RetrievalResponse.meta`）
+## 6. 对外接口设计
 
-常见字段：
+### 6.1 统一入口
 
-- `latency_ms`
-- `query_type`
-- `session_id`
-- `sources_used`
-- `hit_sources`
-- `timed_out_sources`
-- `timeout_ms`
-- `global_candidates`
-- `global_after_dedup`
-- `global_dedup_removed`
-- `agentic_stage_count`
-- `agentic_stages`
-- `agentic_timeout_reached`
+```python
+retrieve(request: RetrievalRequest) -> RetrievalResponse
+```
 
-建议重点监控：
+### 6.2 RetrievalRequest
 
-- `timed_out_sources`（召回稳定性）
-- `global_dedup_removed`（候选重复度）
-- `agentic_stage_count` + `latency_ms`（复杂查询成本）
+```json
+{
+  "query": "结合我之前的情况，帮我分析最近为什么总拖着不做决定",
+  "session_id": "user_001",
+  "conversation_context": [
+    {"role": "user", "content": "..."}, 
+    {"role": "assistant", "content": "..."}
+  ],
+  "allowed_routes": ["search", "native", "modular", "agentic"],
+  "source_scope": ["knowledge", "memory", "preference"],
+  "options": {
+    "debug": true,
+    "max_latency_ms": 1200
+  }
+}
+```
 
----
+### 6.3 RetrievalResponse
 
-## 9. 关键代码定位（按 LLM 相关性排序）
-
-### 高优先（直接触发模型调用）
-
-- `src/main/java/org/yilena/luna/rag/planner/ModelDrivenRagPlanner.java`
-- `src/main/java/org/yilena/luna/rag/adapters/LlmEmbeddingProvider.java`
-- `src/main/java/org/yilena/luna/rag/rankers/EvidenceReranker.java`
-- `src/main/java/org/yilena/luna/service/impl/ChatServiceImpl.java`
-- `src/main/java/org/yilena/luna/utils/LlmClientUtil.java`
-
-### 中优先（RAG 主流程编排）
-
-- `src/main/java/org/yilena/luna/rag/api/RetrievalServiceImpl.java`
-- `src/main/java/org/yilena/luna/rag/processor/QueryProcessor.java`
-- `src/main/java/org/yilena/luna/rag/router/RouteSelector.java`
-- `src/main/java/org/yilena/luna/rag/pipelines/AbstractRetrievalPipeline.java`
-- `src/main/java/org/yilena/luna/rag/pipelines/SearchPipeline.java`
-- `src/main/java/org/yilena/luna/rag/pipelines/NativePipeline.java`
-- `src/main/java/org/yilena/luna/rag/pipelines/ModularPipeline.java`
-- `src/main/java/org/yilena/luna/rag/pipelines/AgenticPipeline.java`
-- `src/main/java/org/yilena/luna/rag/fusion/EvidenceFusionService.java`
-
-### 离线入库
-
-- `src/main/java/org/yilena/luna/mq/consumer/KnowledgeBaseConsumer.java`
-- `src/main/java/org/yilena/luna/tools/MemoryTools.java`
-- `src/main/java/org/yilena/luna/tools/PreferenceTools.java`
-
-### 检索数据访问（非 LLM）
-
-- `src/main/java/org/yilena/luna/rag/retrievers/KnowledgeRetriever.java`
-- `src/main/java/org/yilena/luna/rag/retrievers/MemoryRetriever.java`
-- `src/main/java/org/yilena/luna/rag/retrievers/PreferenceRetriever.java`
-- `src/main/java/org/yilena/luna/rag/adapters/PgRetrievalAdapter.java`
+```json
+{
+  "route": "modular",
+  "rewritten_query": "结合用户过往记忆和知识，分析近期决策拖延原因",
+  "evidences": {
+    "knowledge": [],
+    "memory": [],
+    "preference": []
+  },
+  "meta": {
+    "sources_used": ["knowledge", "memory", "preference"],
+    "latency_ms": 96,
+    "query_type": "multi_source_reasoning"
+  }
+}
+```
 
 ---
 
-## 10. 一句话总结
+## 7. 核心数据结构
 
-当前 RAG 的“LLM 使用重点”在 `ModelDrivenRagPlanner`（规划与全局重排）；“检索本体”主要是向量数据库；离线入库与在线查询都依赖 embedding；最终回复生成由 `ChatServiceImpl` 在 RAG 之后调用主模型完成。
+### 7.1 QueryObject
+
+```python
+class QueryObject:
+    query: str
+    rewritten_query: str | None
+    session_id: str | None
+    conversation_context: list
+    embedding: list[float] | None
+    query_type: str | None
+```
+
+### 7.2 RoutePlan
+
+```python
+class RoutePlan:
+    route: str
+    sources: list[str]
+    needs_rewrite: bool
+    needs_rerank: bool
+    query_type: str
+    top_k_config: dict
+```
+
+### 7.3 Evidence
+
+```python
+class Evidence:
+    id: str
+    source: str            # knowledge / memory / preference
+    type: str              # knowledge / memory / preference
+    title: str | None
+    content: str
+    score: float
+    metadata: dict
+```
+
+### 7.4 RetrievalResponse
+
+```python
+class RetrievalResponse:
+    route: str
+    rewritten_query: str | None
+    evidences: dict[str, list[Evidence]]
+    meta: dict
+```
+
+---
+
+## 8. 四类链路设计
+
+---
+
+## 8.1 Search Pipeline
+
+### 8.1.1 目标
+用于精准查找、明确定位、低成本高精度检索。
+
+### 8.1.2 适用场景
+典型关键词：
+
+- “有没有”
+- “哪条”
+- “那个”
+- “上次”
+- “某个设置”
+- “某段记忆”
+- “某条知识”
+
+例子：
+
+- 我之前记录过关于拖延的记忆吗
+- 偏好里有没有关于回答长度的设置
+- 知识库中关于复盘的那条内容是什么
+
+### 8.1.3 策略
+- 精确过滤优先
+- FTS / trigram / keyword 优先
+- embedding 补召回
+- top-k 小
+- precision-first
+
+### 8.1.4 默认 top-k
+- knowledge: 3
+- memory: 3
+- preference: 2
+
+---
+
+## 8.2 Native Pipeline
+
+### 8.2.1 目标
+用于单主源、单跳问题。
+
+### 8.2.2 适用场景
+- 单独查知识
+- 单独查记忆
+- 单独查偏好
+
+例子：
+
+- 什么是阶段复盘
+- 我是不是更喜欢简洁表达
+- 我过去一段时间最常提到的问题是什么
+
+### 8.2.3 策略
+- 选择一个主 retriever
+- embedding 检索为主
+- 可加轻量 hybrid
+- 轻量 rerank
+
+### 8.2.4 默认 top-k
+- knowledge: 5
+- memory: 5
+- preference: 3
+
+---
+
+## 8.3 Modular Pipeline
+
+### 8.3.1 目标
+用于多源联合检索和可编排检索。
+
+### 8.3.2 适用场景
+- 需要 knowledge + memory
+- 需要 memory + preference
+- 需要 knowledge + memory + preference
+
+例子：
+
+- 结合我以前的情况，给我一个更适合的建议
+- 根据我的长期记忆和知识库，分析我最近为什么总犹豫
+- 按我的偏好，给我一个更适合阅读的总结
+
+### 8.3.3 策略
+1. query rewrite
+2. source routing
+3. 多 retriever 并行召回
+4. 每源 rerank
+5. 跨源 fusion
+6. dedup
+7. compression
+8. evidence role grouping
+
+### 8.3.4 默认 top-k
+- knowledge: 5~8
+- memory: 4~6
+- preference: 2~3
+
+---
+
+## 8.4 Agentic Pipeline
+
+### 8.4.1 目标
+用于复杂分析、多步补查、动态检索。
+
+### 8.4.2 适用场景
+- 分析
+- 比较
+- 梳理
+- 归纳模式
+- 找原因
+- 总结变化
+
+例子：
+
+- 帮我分析一下，我为什么这段时间总在同一个问题上反复卡住
+- 比较我以前的目标和现在的想法，看看哪里变了
+- 帮我总结出我最核心的几个稳定偏好和反复出现的问题模式
+
+### 8.4.3 策略
+1. 拆解子任务
+2. 子任务级检索
+3. 证据充分性判断
+4. 动态补查
+5. 汇总 evidence
+
+### 8.4.4 限制
+- 最大步数限制
+- 最大调用次数限制
+- 最大总 top-k 限制
+- 超限 fallback 到 modular
+
+---
+
+## 9. Router 设计
+
+### 9.1 Router 职责
+Router 只做检索复杂度和检索模式判断，不做业务理解。
+
+### 9.2 路由优先级
+
+#### 优先级 1：是否精准查找
+满足则 `search`
+
+特征：
+- 明确查某条
+- 明确查某项
+- 明确查某个历史对象
+- 存在显著定位词
+
+#### 优先级 2：是否单源可答
+满足则 `native`
+
+特征：
+- 单主源即可回答
+- 不需要跨表整合
+- 不需要复杂补查
+
+#### 优先级 3：是否多源联合
+满足则 `modular`
+
+特征：
+- “结合我之前的情况”
+- “按我的偏好”
+- “根据过去记录和知识”
+- 同时依赖两类及以上 source
+
+#### 优先级 4：是否复杂分析
+满足则 `agentic`
+
+特征：
+- 分析
+- 比较
+- 总结变化
+- 找规律
+- 找原因
+- 梳理阶段性模式
+
+### 9.3 示例规则
+
+```python
+def select_route(query: str, query_type: str, source_count: int) -> str:
+    if is_precise_lookup(query):
+        return "search"
+    if is_analysis_query(query):
+        return "agentic"
+    if source_count == 1:
+        return "native"
+    return "modular"
+```
+
+---
+
+## 10. Query Processor 设计
+
+### 10.1 目标
+在进入检索前，把 query 变成更适合召回的形式。
+
+### 10.2 职责
+- 清洗 query
+- rewrite
+- 指代补全
+- 提取过滤信号
+- 生成 embedding
+
+### 10.3 输出字段
+- original_query
+- rewritten_query
+- normalized_query
+- embedding
+- query_tags
+- possible_filters
+
+---
+
+## 11. Retriever 设计
+
+---
+
+## 11.1 BaseRetriever
+
+```python
+class BaseRetriever:
+    def retrieve(self, query_obj, top_k: int, filters: dict | None = None) -> list[Evidence]:
+        raise NotImplementedError
+```
+
+---
+
+## 11.2 KnowledgeRetriever
+
+### 数据源
+`knowledge_base`
+
+### 召回方式
+- pgvector
+- FTS
+- title/content keyword
+- source_type filter
+
+### Search 策略
+- FTS 优先
+- title 命中优先
+- embedding 辅助
+
+### Native / Modular 策略
+- embedding 主召回
+- FTS 补充
+- source_type 参与排序
+
+### 推荐融合分数
+
+```text
+knowledge_score =
+  0.60 * vector_score
++ 0.25 * fts_score
++ 0.10 * recency_score
++ 0.05 * source_prior
+```
+
+### source_prior 建议
+- MANUAL_INPUT(2): 1.0
+- FILE(0): 0.8
+- WEB_SEARCH(1): 0.6
+
+---
+
+## 11.3 MemoryRetriever
+
+### 数据源
+`luna_memory`
+
+### 基础过滤
+- `session_id = 当前请求 session_id`
+
+### 可选过滤
+- `memory_type`
+- 时间窗口
+
+### 召回方式
+- embedding 主召回
+- 必要时关键词补充
+- 应用层按 weight / recency / type 加权
+
+### 推荐融合分数
+
+```text
+memory_score =
+  0.55 * vector_score
++ 0.20 * weight_score
++ 0.15 * recency_score
++ 0.10 * type_score
+```
+
+### type_score 建议
+由 pipeline 决定，例如：
+
+- advice 场景：FACT / PREFERENCE 更高
+- reflective 场景：SUMMARY / REFLECTION 更高
+
+---
+
+## 11.4 PreferenceRetriever
+
+### 数据源
+`user_preference`
+
+### 基础过滤
+- `deleted = 0`
+
+### 召回方式
+- embedding
+- pref_key 精确匹配
+- pref_value / description trigram
+
+### 推荐策略
+- 结果少量且精确
+- 只保留 1~3 条核心偏好
+
+### 推荐融合分数
+
+```text
+preference_score =
+  0.50 * vector_score
++ 0.20 * key_match_score
++ 0.20 * recency_score
++ 0.10 * text_match_score
+```
+
+---
+
+## 12. Evidence 标准化
+
+### 12.1 目标
+屏蔽底层表结构差异，统一返回上层可消费对象。
+
+### 12.2 示例
+
+#### knowledge
+```json
+{
+  "id": "knowledge:101",
+  "source": "knowledge",
+  "type": "knowledge",
+  "title": "决策拖延的常见原因",
+  "content": "......",
+  "score": 0.88,
+  "metadata": {
+    "raw_id": 101,
+    "source_type": 2,
+    "source_path": "manual"
+  }
+}
+```
+
+#### memory
+```json
+{
+  "id": "memory:12",
+  "source": "memory",
+  "type": "memory",
+  "content": "用户多次提到害怕做错决定后承担后果",
+  "score": 0.91,
+  "metadata": {
+    "raw_id": 12,
+    "memory_type": 3,
+    "weight": 5,
+    "session_id": "user_001"
+  }
+}
+```
+
+#### preference
+```json
+{
+  "id": "preference:3",
+  "source": "preference",
+  "type": "preference",
+  "content": "response_style = 简洁、自然",
+  "score": 0.95,
+  "metadata": {
+    "raw_id": 3,
+    "pref_key": "response_style",
+    "pref_value": "简洁、自然"
+  }
+}
+```
+
+---
+
+## 13. Ranker / Fusion 设计
+
+### 13.1 source 内 rerank
+每个 source 先独立重排：
+
+- knowledge 内排序
+- memory 内排序
+- preference 内排序
+
+### 13.2 跨源 fusion
+不建议把三类 source 完全混成一个总 top-k，而是：
+
+- 分 source 输出
+- 同时保留 source 内排序
+- modular / agentic 可做轻量跨源重要性排序
+
+### 13.3 dedup
+需要处理：
+- 相似知识片段重复
+- 相似 memory 重复
+- preference 冲突项重复
+
+### 13.4 compression
+只对 modular / agentic 启用。
+
+方式：
+- 片段截断
+- 摘要压缩
+- 合并相近证据
+
+---
+
+## 14. Pipeline 详细流程
+
+---
+
+## 14.1 SearchPipeline
+
+### 输入
+- query_obj
+- route_plan
+
+### 执行
+1. 从 route_plan 选目标 source
+2. 应用强过滤条件
+3. 执行 keyword / FTS / exact 检索
+4. embedding 补召回
+5. source 内 rerank
+6. 返回 evidence
+
+### 输出要求
+- top-k 小
+- 高 precision
+- 低延迟
+
+---
+
+## 14.2 NativePipeline
+
+### 输入
+- query_obj
+- route_plan
+
+### 执行
+1. 选单主源 retriever
+2. embedding 检索
+3. 轻量 hybrid
+4. source 内 rerank
+5. 返回 evidence
+
+### 输出要求
+- 单源结果清晰
+- 低成本
+- 高吞吐
+
+---
+
+## 14.3 ModularPipeline
+
+### 输入
+- query_obj
+- route_plan
+
+### 执行
+1. 可选 rewrite
+2. source routing
+3. 多 retriever 并行召回
+4. 每源 rerank
+5. fusion
+6. dedup
+7. compression
+8. 分 source 输出 evidence
+
+### 输出要求
+- 支持多源联合
+- 稳定可控
+- 结构化 evidence
+
+---
+
+## 14.4 AgenticPipeline
+
+### 输入
+- query_obj
+- route_plan
+
+### 执行
+1. 拆解子问题
+2. 子问题映射 source
+3. 分步检索
+4. 判断是否证据不足
+5. 动态补查
+6. 合并 evidence
+7. 返回结构化结果
+
+### 输出要求
+- 支持复杂分析
+- 支持补检索
+- 控制步数和成本
+
+---
+
+## 15. SQL 模板建议
+
+以下为示意模板，实际实现可根据 ORM 或 SQL builder 调整。
+
+---
+
+## 15.1 knowledge vector retrieval
+
+```sql
+SELECT
+    id,
+    title,
+    content,
+    source_type,
+    source_path,
+    created_at,
+    updated_at,
+    1 - (embedding <=> :query_embedding) AS vector_score
+FROM knowledge_base
+WHERE embedding IS NOT NULL
+ORDER BY embedding <=> :query_embedding
+LIMIT :top_k;
+```
+
+---
+
+## 15.2 knowledge hybrid retrieval
+
+```sql
+SELECT
+    id,
+    title,
+    content,
+    source_type,
+    source_path,
+    created_at,
+    updated_at,
+    ts_rank(
+        to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(content, '')),
+        plainto_tsquery('simple', :fts_query)
+    ) AS fts_score,
+    1 - (embedding <=> :query_embedding) AS vector_score
+FROM knowledge_base
+WHERE
+    to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(content, ''))
+    @@ plainto_tsquery('simple', :fts_query)
+ORDER BY fts_score DESC
+LIMIT :top_k;
+```
+
+---
+
+## 15.3 memory retrieval
+
+```sql
+SELECT
+    id,
+    session_id,
+    memory_type,
+    content,
+    weight,
+    created_at,
+    updated_at,
+    1 - (embedding <=> :query_embedding) AS vector_score
+FROM luna_memory
+WHERE
+    session_id = :session_id
+    AND embedding IS NOT NULL
+ORDER BY embedding <=> :query_embedding
+LIMIT :top_k;
+```
+
+---
+
+## 15.4 memory retrieval with type filter
+
+```sql
+SELECT
+    id,
+    session_id,
+    memory_type,
+    content,
+    weight,
+    created_at,
+    updated_at,
+    1 - (embedding <=> :query_embedding) AS vector_score
+FROM luna_memory
+WHERE
+    session_id = :session_id
+    AND memory_type = ANY(:memory_types)
+    AND embedding IS NOT NULL
+ORDER BY embedding <=> :query_embedding
+LIMIT :top_k;
+```
+
+---
+
+## 15.5 preference retrieval
+
+```sql
+SELECT
+    id,
+    pref_key,
+    pref_value,
+    description,
+    created_at,
+    updated_at,
+    1 - (embedding <=> :query_embedding) AS vector_score
+FROM user_preference
+WHERE
+    deleted = 0
+    AND embedding IS NOT NULL
+ORDER BY embedding <=> :query_embedding
+LIMIT :top_k;
+```
+
+---
+
+## 15.6 preference exact / trigram retrieval
+
+```sql
+SELECT
+    id,
+    pref_key,
+    pref_value,
+    description,
+    created_at,
+    updated_at
+FROM user_preference
+WHERE
+    deleted = 0
+    AND (
+        pref_key = :pref_key
+        OR pref_value % :keyword
+        OR description % :keyword
+    )
+LIMIT :top_k;
+```
