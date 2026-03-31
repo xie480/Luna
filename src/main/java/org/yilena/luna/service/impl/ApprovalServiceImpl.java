@@ -25,6 +25,7 @@ import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.service.ApprovalService;
 import org.yilena.luna.service.McpService;
 import org.yilena.luna.service.SessionService;
+import org.yilena.luna.memory.EventIngressService;
 import org.yilena.luna.sse.LunaStatusPublisher;
 import org.yilena.luna.sse.SseSessionManager;
 import org.yilena.luna.utils.LlmClientUtil;
@@ -53,6 +54,7 @@ public class ApprovalServiceImpl implements ApprovalService {
     private final LlmClientUtil llmClientUtil;
     private final GeminiProperty geminiProperty;
     private final SessionService sessionService;
+    private final EventIngressService eventIngressService;
 
     private static final String REDIS_PREFIX = "luna:approval:";
     private static final long EXPIRE_MINUTES = 10;
@@ -111,6 +113,9 @@ public class ApprovalServiceImpl implements ApprovalService {
         redisTemplate.delete(key);
 
         String resultJson;
+        if (task.getSessionId() != null && !task.getSessionId().isBlank()) {
+            eventIngressService.ingestApproval(task.getSessionId(), Map.of("taskId", taskId, "approved", approved));
+        }
         if (approved) {
             log.info("用戶同意了任務: {}, 開始執行工具...", taskId);
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "THINKING", "Luna 正在处理审批后的操作...");

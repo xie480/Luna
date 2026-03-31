@@ -44,6 +44,25 @@ public class DefaultThreeStageResponseService implements ThreeStageResponseServi
         }
     }
 
+    @Override
+    public String generateFinalResponse(String userInput, String toolContext, StructuredContextPackage contextPackage) {
+        if (contextPackage == null) {
+            return "";
+        }
+        try {
+            String taskTemplate = findTemplate(contextPackage, "task_template", "execution_prompt");
+            String relationTemplate = findTemplate(contextPackage, "relational_template", "companion_prompt");
+            String hybridTemplate = findTemplate(contextPackage, "hybrid_template", "task_with_empathy_prompt");
+
+            String taskDraft = callModel(buildTaskDraftPrompt(userInput, toolContext, contextPackage, taskTemplate), resolveTaskModelName(contextPackage));
+            String relationalDraft = callModel(buildRelationalDraftPrompt(userInput, contextPackage, relationTemplate), resolveSocialModelName(contextPackage));
+            String synthesis = callModel(buildSynthesisPrompt(taskDraft, relationalDraft, hybridTemplate), resolveSynthesisModelName());
+            return callModel(buildFinalJsonPrompt(userInput, toolContext, synthesis), resolveSynthesisModelName());
+        } catch (Exception ignore) {
+            return "";
+        }
+    }
+
     private String findTemplate(StructuredContextPackage contextPackage, String key, String fallback) {
         if (contextPackage.getPromptPolicy() == null) {
             return fallback;
@@ -135,6 +154,28 @@ public class DefaultThreeStageResponseService implements ThreeStageResponseServi
                 Relational Draft:
                 %s
                 """.formatted(templateName, nonEmpty(taskDraft), nonEmpty(relationalDraft));
+    }
+
+    private String buildFinalJsonPrompt(String userInput, String toolContext, String synthesis) {
+        return """
+                You are Final Response Composer.
+                Return JSON only with keys:
+                - emotion: short tone label
+                - reply: final Chinese reply for user
+                Constraints:
+                - Keep task information complete.
+                - Keep warm, concise, and concrete.
+                - No markdown code block.
+
+                User input:
+                %s
+
+                Tool context:
+                %s
+
+                Synthesis guidance:
+                %s
+                """.formatted(nonEmpty(userInput), nonEmpty(toolContext), nonEmpty(synthesis));
     }
 
     private String callModel(String prompt, String modelName) {

@@ -27,13 +27,22 @@ public class DefaultEventIngressService implements EventIngressService {
 
     @Override
     public OrchestrationDecision ingestUserInput(String sessionId, String userInput) {
-        String normalizedSessionId = sessionId == null || sessionId.isBlank() ? "default-session" : sessionId;
-        String traceId = UUID.randomUUID().toString();
-        Long eventId = insertPendingEvent(normalizedSessionId, "USER_INPUT", userInput, traceId);
-        if (eventId == null) {
-            throw new IllegalStateException("event_inbox write failed");
-        }
-        return processSingleEvent(eventId, normalizedSessionId, "USER_INPUT", payloadOfText(userInput), traceId);
+        return ingestEvent(sessionId, "USER_INPUT", Map.of("text", userInput == null ? "" : userInput));
+    }
+
+    @Override
+    public OrchestrationDecision ingestToolResult(String sessionId, Map<String, Object> payload) {
+        return ingestEvent(sessionId, "TOOL_RESULT", payload == null ? Map.of() : payload);
+    }
+
+    @Override
+    public OrchestrationDecision ingestApproval(String sessionId, Map<String, Object> payload) {
+        return ingestEvent(sessionId, "APPROVAL", payload == null ? Map.of() : payload);
+    }
+
+    @Override
+    public OrchestrationDecision ingestSystemEvent(String sessionId, String eventType, Map<String, Object> payload) {
+        return ingestEvent(sessionId, normalizeEventType(eventType), payload == null ? Map.of() : payload);
     }
 
     @Override
@@ -55,9 +64,10 @@ public class DefaultEventIngressService implements EventIngressService {
                                                      String payloadJson,
                                                      String traceId) {
         String normalizedSessionId = sessionId == null || sessionId.isBlank() ? "default-session" : sessionId;
+        String normalizedEventType = normalizeEventType(eventType);
         try {
             JsonNode payload = parsePayload(payloadJson);
-            OrchestrationDecision decision = switch (eventType) {
+            OrchestrationDecision decision = switch (normalizedEventType) {
                 case "USER_INPUT" -> {
                     String text = payload.path("text").asText("");
                     OrchestrationDecision orchestrated = sessionOrchestratorService.onUserInput(normalizedSessionId, text);
@@ -70,31 +80,34 @@ public class DefaultEventIngressService implements EventIngressService {
                     yield orchestrated;
                 }
                 case "TOOL_RESULT" -> {
+                    OrchestrationDecision orchestrated = sessionOrchestratorService.onToolResult(normalizedSessionId, payload.toString());
                     runtimeAuditService.persistDecisionRecord(
                             normalizedSessionId,
                             "EVENT_TOOL_RESULT",
-                            "tool callback received",
+                            "tool result processed",
                             payload.toString()
                     );
-                    yield null;
+                    yield orchestrated;
                 }
                 case "APPROVAL" -> {
+                    OrchestrationDecision orchestrated = sessionOrchestratorService.onApproval(normalizedSessionId, payload.toString());
                     runtimeAuditService.persistDecisionRecord(
                             normalizedSessionId,
                             "EVENT_APPROVAL",
-                            "approval event received",
+                            "approval event processed",
                             payload.toString()
                     );
-                    yield null;
+                    yield orchestrated;
                 }
                 case "SYSTEM", "TIMER" -> {
+                    OrchestrationDecision orchestrated = sessionOrchestratorService.onSystemEvent(normalizedSessionId, normalizedEventType, payload.toString());
                     runtimeAuditService.persistDecisionRecord(
                             normalizedSessionId,
-                            "EVENT_" + eventType,
+                            "EVENT_" + normalizedEventType,
                             "system event handled",
                             payload.toString()
                     );
-                    yield null;
+                    yield orchestrated;
                 }
                 default -> {
                     runtimeAuditService.persistDecisionRecord(
@@ -121,9 +134,20 @@ public class DefaultEventIngressService implements EventIngressService {
         }
     }
 
-    private Long insertPendingEvent(String sessionId, String eventType, String text, String traceId) {
+    private OrchestrationDecision ingestEvent(String sessionId, String eventType, Map<String, Object> payload) {
+        String normalizedSessionId = sessionId == null || sessionId.isBlank() ? "default-session" : sessionId;
+        String traceId = UUID.randomUUID().toString();
+        String payloadJson = toJsonSafe(payload);
+        Long eventId = insertPendingEvent(normalizedSessionId, eventType, payloadJson, traceId);
+        if (eventId == null) {
+            throw new IllegalStateException("event_inbox write failed");
+        }
+        return processSingleEvent(eventId, normalizedSessionId, eventType, payloadJson, traceId);
+    }
+
+    private Long insertPendingEvent(String sessionId, String eventType, String payloadJson, String traceId) {
         try {
-            return eventInboxMapper.insertPendingEvent(sessionId, eventType, text, traceId);
+            return eventInboxMapper.insertPendingEvent(sessionId, eventType, payloadJson, traceId);
         } catch (Exception ignore) {
             return null;
         }
@@ -144,12 +168,20 @@ public class DefaultEventIngressService implements EventIngressService {
         return objectMapper.readTree(payloadJson);
     }
 
-    private String payloadOfText(String text) {
+    private String toJsonSafe(Map<String, Object> payload) {
         try {
-            return objectMapper.writeValueAsString(Map.of("text", text == null ? "" : text));
+            return objectMapper.writeValueAsString(payload);
         } catch (Exception ignore) {
-            return "{\"text\":\"\"}";
+            return "{}";
         }
+    }
+
+    private String normalizeEventType(String eventType) {
+        String text = eventType == null ? "" : eventType.trim().toUpperCase();
+        return switch (text) {
+            case "USER_INPUT", "TOOL_RESULT", "APPROVAL", "SYSTEM", "TIMER" -> text;
+            default -> "SYSTEM";
+        };
     }
 
     private void markProcessed(Long eventId) {

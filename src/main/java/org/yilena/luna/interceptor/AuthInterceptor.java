@@ -9,9 +9,6 @@ import org.yilena.luna.service.AuthService;
 import org.yilena.luna.utils.AuthContextHolder;
 
 @Component
-/**
- * AuthInterceptor ??
- */
 public class AuthInterceptor implements HandlerInterceptor {
 
     @Autowired
@@ -23,21 +20,24 @@ public class AuthInterceptor implements HandlerInterceptor {
         if (!authService.validateToken(token)) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json;charset=UTF-8");
-            response.getWriter().write("{\"status\":\"unauthorized\",\"message\":\"未授权，请先登录\"}");
+            response.getWriter().write("{\"status\":\"unauthorized\",\"message\":\"unauthorized\"}");
             return false;
         }
 
         String jti = authService.extractJti(token);
-        if (jti == null || jti.isBlank()) {
+        String subject = authService.extractSubject(token);
+        if (jti == null || jti.isBlank() || subject == null || subject.isBlank()) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json;charset=UTF-8");
-            response.getWriter().write("{\"status\":\"unauthorized\",\"message\":\"token无效或已过期\"}");
+            response.getWriter().write("{\"status\":\"unauthorized\",\"message\":\"invalid token\"}");
             return false;
         }
 
-        // Use JWT jti as stable sessionId for this request.
+        String principalKey = subject.trim().toLowerCase();
         AuthContextHolder.setSessionId(jti);
+        AuthContextHolder.setPrincipalKey(principalKey);
         request.setAttribute("SESSION_ID", jti);
+        request.setAttribute("PRINCIPAL_KEY", principalKey);
         return true;
     }
 

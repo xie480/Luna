@@ -13,7 +13,8 @@ public interface RagMemoryMapper {
     @Select("""
             select cast(fact_id as varchar) as id, 'task_fact' as memory_type, fact_value_text as content, confidence_score as score, source_ref as ref
             from task_semantic_fact
-            where deleted = false and principal_id = cast(abs(hashtext(#{sessionId})) as bigint)
+            where deleted = false
+              and principal_id = (select principal_id from agent_session where session_id = #{sessionId} limit 1)
             order by updated_at desc
             limit #{topK}
             """)
@@ -40,7 +41,8 @@ public interface RagMemoryMapper {
     @Select("""
             select cast(fact_id as varchar) as id, fact_key as pref_key, fact_value_text as pref_value, description
             from relational_semantic_fact
-            where deleted = false and principal_id = cast(abs(hashtext(#{sessionId})) as bigint)
+            where deleted = false
+              and principal_id = (select principal_id from agent_session where session_id = #{sessionId} limit 1)
             order by updated_at desc
             limit #{topK}
             """)

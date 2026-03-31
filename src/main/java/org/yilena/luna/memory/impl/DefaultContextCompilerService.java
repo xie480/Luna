@@ -78,6 +78,10 @@ public class DefaultContextCompilerService implements ContextCompilerService {
 
     private List<Map<String, Object>> queryCapabilities() {
         try {
+            capabilityMapper.syncToolsIntoRegistry();
+            capabilityMapper.syncPromptsIntoRegistry();
+            capabilityMapper.syncResourcesIntoRegistry();
+            capabilityMapper.syncWorkflowsIntoRegistry();
             return capabilityMapper.selectTopCapabilities();
         } catch (Exception ignore) {
             return Collections.emptyList();

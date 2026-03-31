@@ -53,7 +53,12 @@ public interface RuntimeReadMapper {
             select fact_id, fact_type, fact_key, fact_value_text, confidence_score, stability_score, updated_at
             from task_semantic_fact
             where deleted = false
-              and (scope_type in ('GLOBAL','SESSION') or principal_id = cast(abs(hashtext(#{sessionId})) as bigint))
+              and (
+                    scope_type in ('GLOBAL','SESSION')
+                 or principal_id = (
+                    select principal_id from agent_session where session_id = #{sessionId} limit 1
+                 )
+              )
             order by updated_at desc
             limit 20
             """)

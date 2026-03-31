@@ -13,12 +13,12 @@ public interface EventInboxMapper {
 
     @Select("""
             insert into event_inbox(session_id, event_type, payload_json, status, trace_id, created_at, updated_at)
-            values (#{sessionId}, #{eventType}, jsonb_build_object('text', #{text}), 'PENDING', #{traceId}, current_timestamp, current_timestamp)
+            values (#{sessionId}, #{eventType}, cast(#{payloadJson} as jsonb), 'PENDING', #{traceId}, current_timestamp, current_timestamp)
             returning event_id
             """)
     Long insertPendingEvent(@Param("sessionId") String sessionId,
                             @Param("eventType") String eventType,
-                            @Param("text") String text,
+                            @Param("payloadJson") String payloadJson,
                             @Param("traceId") String traceId);
 
     @Select("""

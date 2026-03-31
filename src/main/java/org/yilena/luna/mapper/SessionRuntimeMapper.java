@@ -20,24 +20,46 @@ public interface SessionRuntimeMapper {
     @Select("select relational_state from agent_session where session_id = #{sessionId} limit 1")
     String selectRelationalState(@Param("sessionId") String sessionId);
 
-    @Select("select cast(abs(hashtext(#{sessionId})) as bigint)")
-    Long selectPrincipalId(@Param("sessionId") String sessionId);
+    @Select("select principal_id from agent_session where session_id = #{sessionId} limit 1")
+    Long selectPrincipalIdBySession(@Param("sessionId") String sessionId);
 
-    @Update("""
-            insert into principal(principal_id, principal_type, display_name, profile_json, created_at, updated_at)
-            values (#{principalId}, 'USER', #{displayName}, jsonb_build_object('source','session_orchestrator'), current_timestamp, current_timestamp)
-            on conflict (principal_id)
-            do update set display_name = excluded.display_name, updated_at = current_timestamp
+    @Select("""
+            with existing as (
+                select principal_id
+                from principal
+                where tenant_id = #{principalKey}
+                order by updated_at desc
+                limit 1
+            ),
+            inserted as (
+                insert into principal(principal_type, tenant_id, display_name, profile_json, created_at, updated_at)
+                select 'USER', #{principalKey}, #{displayName}, jsonb_build_object('source','auth_subject'), current_timestamp, current_timestamp
+                where not exists (select 1 from existing)
+                returning principal_id
+            )
+            select principal_id from inserted
+            union all
+            select principal_id from existing
+            limit 1
             """)
-    int upsertPrincipal(@Param("principalId") Long principalId, @Param("displayName") String displayName);
+    Long resolvePrincipalIdByKey(@Param("principalKey") String principalKey, @Param("displayName") String displayName);
 
     @Update("""
-            insert into agent_session(session_id, principal_id, session_type, task_state, relational_state, current_goal,
+            update principal
+            set display_name = #{displayName},
+                updated_at = current_timestamp
+            where principal_id = #{principalId}
+            """)
+    int touchPrincipal(@Param("principalId") Long principalId, @Param("displayName") String displayName);
+
+    @Update("""
+            insert into agent_session(session_id, principal_id, agent_id, session_type, task_state, relational_state, current_goal,
                                       last_user_message_at, metadata_json, created_at, updated_at)
-            values (#{sessionId}, #{principalId}, 'HYBRID', #{taskState}, #{relationalState}, #{goal},
+            values (#{sessionId}, #{principalId}, #{agentId}, 'HYBRID', #{taskState}, #{relationalState}, #{goal},
                     current_timestamp, jsonb_build_object('source','session_orchestrator'), current_timestamp, current_timestamp)
             on conflict (session_id)
             do update set principal_id = excluded.principal_id,
+                          agent_id = excluded.agent_id,
                           task_state = excluded.task_state,
                           relational_state = excluded.relational_state,
                           current_goal = excluded.current_goal,
@@ -46,20 +68,33 @@ public interface SessionRuntimeMapper {
             """)
     int upsertSession(@Param("sessionId") String sessionId,
                       @Param("principalId") Long principalId,
+                      @Param("agentId") Long agentId,
                       @Param("taskState") String taskState,
                       @Param("relationalState") String relationalState,
                       @Param("goal") String goal);
 
     @Insert("""
             insert into state_transition_log(session_id, state_domain, from_state, to_state, trigger_type, trigger_ref, reason, payload_json, created_at)
-            values (#{sessionId}, #{domain}, #{fromState}, #{toState}, 'USER_INPUT', #{triggerRef}, 'state_update', jsonb_build_object('text', #{text}), current_timestamp)
+            values (#{sessionId}, #{domain}, #{fromState}, #{toState}, #{triggerType}, #{triggerRef}, 'state_update', cast(#{payloadJson} as jsonb), current_timestamp)
             """)
     int insertTransition(@Param("sessionId") String sessionId,
                          @Param("domain") String domain,
                          @Param("fromState") String fromState,
                          @Param("toState") String toState,
+                         @Param("triggerType") String triggerType,
                          @Param("triggerRef") String triggerRef,
-                         @Param("text") String text);
+                         @Param("payloadJson") String payloadJson);
+
+    @Select("select agent_id from agent_identity order by agent_id asc limit 1")
+    Long selectDefaultAgentId();
+
+    @Update("""
+            insert into agent_identity(agent_name, persona_name, persona_desc, default_tone, config_json, created_at, updated_at)
+            select 'Luna', 'Luna', 'default runtime persona', 'clear_and_friendly',
+                   jsonb_build_object('source','session_orchestrator'), current_timestamp, current_timestamp
+            where not exists (select 1 from agent_identity)
+            """)
+    int ensureDefaultAgentIdentity();
 
     @Insert("""
             insert into conversation_message(session_id, role, message_type, content_text, created_at)

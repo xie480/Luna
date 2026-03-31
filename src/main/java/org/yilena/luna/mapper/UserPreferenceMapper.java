@@ -19,6 +19,20 @@ public interface UserPreferenceMapper extends BaseMapper<UserPreference> {
      * @param vector 向量字符串
      * @param topK 返回條數
      */
-    @Select("SELECT * FROM user_preference WHERE deleted = 0 AND embedding IS NOT NULL ORDER BY embedding::vector <-> #{vector}::vector LIMIT #{topK}")
+    @Select("""
+            select fact_id as id,
+                   fact_key as pref_key,
+                   fact_value_text as pref_value,
+                   description,
+                   embedding,
+                   created_at,
+                   updated_at,
+                   0 as deleted
+            from relational_semantic_fact
+            where deleted = false
+              and embedding is not null
+            order by embedding::vector <-> #{vector}::vector
+            limit #{topK}
+            """)
     List<UserPreference> searchByVector(@Param("vector") String vector, @Param("topK") int topK);
 }

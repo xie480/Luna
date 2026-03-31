@@ -6,4 +6,8 @@ public interface ThreeStageResponseService {
     String generateSynthesisBrief(String userInput,
                                   String toolContext,
                                   StructuredContextPackage contextPackage);
+
+    String generateFinalResponse(String userInput,
+                                 String toolContext,
+                                 StructuredContextPackage contextPackage);
 }

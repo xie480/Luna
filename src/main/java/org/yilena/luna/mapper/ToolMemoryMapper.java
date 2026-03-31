@@ -32,7 +32,9 @@ public interface ToolMemoryMapper {
 
     @Insert("""
             insert into task_semantic_fact(principal_id, scope_type, fact_type, fact_key, fact_value_text, confidence_score, stability_score, source_type, source_ref, embedding, deleted, created_at, updated_at)
-            values (cast(abs(hashtext(#{sessionId})) as bigint), 'SESSION', #{factType}, #{factKey}, #{content}, 0.8, 0.7, 'TOOL_MANAGE_MEMORY', #{sessionId}, #{embedding}::vector, false, current_timestamp, current_timestamp)
+            select s.principal_id, 'SESSION', #{factType}, #{factKey}, #{content}, 0.8, 0.7, 'TOOL_MANAGE_MEMORY', #{sessionId}, #{embedding}::vector, false, current_timestamp, current_timestamp
+            from agent_session s
+            where s.session_id = #{sessionId}
             """)
     int insertTaskSemanticFact(@Param("sessionId") String sessionId, @Param("factType") String factType,
                                @Param("factKey") String factKey, @Param("content") String content,
@@ -40,7 +42,9 @@ public interface ToolMemoryMapper {
 
     @Insert("""
             insert into relational_semantic_fact(principal_id, fact_type, fact_key, fact_value_text, confidence_score, stability_score, source_type, source_ref, embedding, deleted, created_at, updated_at)
-            values (cast(abs(hashtext(#{sessionId})) as bigint), #{factType}, #{factKey}, #{content}, 0.8, 0.7, 'TOOL_MANAGE_MEMORY', #{sessionId}, #{embedding}::vector, false, current_timestamp, current_timestamp)
+            select s.principal_id, #{factType}, #{factKey}, #{content}, 0.8, 0.7, 'TOOL_MANAGE_MEMORY', #{sessionId}, #{embedding}::vector, false, current_timestamp, current_timestamp
+            from agent_session s
+            where s.session_id = #{sessionId}
             """)
     int insertRelationalSemanticFact(@Param("sessionId") String sessionId, @Param("factType") String factType,
                                      @Param("factKey") String factKey, @Param("content") String content,
@@ -48,13 +52,17 @@ public interface ToolMemoryMapper {
 
     @Insert("""
             insert into task_episode(principal_id, session_id, episode_type, title, trajectory_summary, importance_score, reusability_score, embedding, created_at)
-            values (cast(abs(hashtext(#{sessionId})) as bigint), #{sessionId}, 'PARTIAL', left(#{content}, 120), #{content}, 0.6, 0.6, #{embedding}::vector, current_timestamp)
+            select s.principal_id, #{sessionId}, 'PARTIAL', left(#{content}, 120), #{content}, 0.6, 0.6, #{embedding}::vector, current_timestamp
+            from agent_session s
+            where s.session_id = #{sessionId}
             """)
     int insertTaskEpisode(@Param("sessionId") String sessionId, @Param("content") String content, @Param("embedding") String embedding);
 
     @Insert("""
             insert into relational_episode(principal_id, session_id, episode_type, title, summary, interaction_quality, response_effectiveness, embedding, created_at)
-            values (cast(abs(hashtext(#{sessionId})) as bigint), #{sessionId}, 'BONDING', left(#{content}, 120), #{content}, 0.7, 0.7, #{embedding}::vector, current_timestamp)
+            select s.principal_id, #{sessionId}, 'BONDING', left(#{content}, 120), #{content}, 0.7, 0.7, #{embedding}::vector, current_timestamp
+            from agent_session s
+            where s.session_id = #{sessionId}
             """)
     int insertRelationalEpisode(@Param("sessionId") String sessionId, @Param("content") String content, @Param("embedding") String embedding);
 
@@ -67,7 +75,7 @@ public interface ToolMemoryMapper {
     @Select("""
             select fact_id, fact_type, fact_key, fact_value_text, confidence_score, stability_score, created_at, updated_at
             from task_semantic_fact
-            where (principal_id = cast(abs(hashtext(#{sessionId})) as bigint) or principal_id is null) and deleted = false
+            where (principal_id = (select principal_id from agent_session where session_id = #{sessionId} limit 1) or principal_id is null) and deleted = false
             order by updated_at desc
             limit 50
             """)
@@ -76,7 +84,7 @@ public interface ToolMemoryMapper {
     @Select("""
             select fact_id, fact_type, fact_key, fact_value_text, confidence_score, stability_score, created_at, updated_at
             from relational_semantic_fact
-            where (principal_id = cast(abs(hashtext(#{sessionId})) as bigint) or principal_id is null) and deleted = false
+            where (principal_id = (select principal_id from agent_session where session_id = #{sessionId} limit 1) or principal_id is null) and deleted = false
             order by updated_at desc
             limit 50
             """)

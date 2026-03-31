@@ -4,38 +4,104 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.entity.Resource;
+import org.yilena.luna.enums.ResourceType;
+import org.yilena.luna.enums.RunMode;
+import org.yilena.luna.enums.Sensitivity;
+import org.yilena.luna.mapper.CapabilityMapper;
 import org.yilena.luna.service.McpService;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
-/**
- * 工具路由
- * 負責根據用戶輸入檢索候選工具
- */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class ToolRouter {
 
     private final McpService mcpService;
+    private final CapabilityMapper capabilityMapper;
 
-    /**
-     * 查找候選工具
-     * @param query 用戶查詢語句
-     * @return 候選資源列表
-     */
     public List<Resource> findCandidates(String query) {
-        // 簡化版實現：直接返回所有工具，或者根據關鍵詞模糊匹配
-        // 生產環境應對接向量數據庫進行語義檢索
-        log.info("正在為 Query [{}] 檢索工具...", query);
-        
-        // 使用 McpService 統一檢索 Tool 和 Skill
-        List<Resource> candidates = mcpService.searchResources(query);
-        
-        // 如果工具很多，這裡必須加過濾邏輯 (例如只取 Top 10)
-        if (candidates.size() > 10) {
-            return candidates.subList(0, 10);
+        log.info("search candidates by query [{}]", query);
+        List<Resource> capabilityCandidates = fromCapabilityRegistry(query);
+        if (!capabilityCandidates.isEmpty()) {
+            return capabilityCandidates.size() > 10 ? capabilityCandidates.subList(0, 10) : capabilityCandidates;
         }
-        return candidates;
+        List<Resource> fallback = mcpService.searchResources(query);
+        return fallback.size() > 10 ? fallback.subList(0, 10) : fallback;
+    }
+
+    private List<Resource> fromCapabilityRegistry(String query) {
+        if (query == null || query.isBlank()) {
+            return Collections.emptyList();
+        }
+        try {
+            capabilityMapper.syncToolsIntoRegistry();
+            capabilityMapper.syncPromptsIntoRegistry();
+            capabilityMapper.syncResourcesIntoRegistry();
+            capabilityMapper.syncWorkflowsIntoRegistry();
+            List<Map<String, Object>> rows = capabilityMapper.searchCapabilityCandidates(query, 20);
+            return rows.stream().map(this::toResource).toList();
+        } catch (Exception ignore) {
+            return Collections.emptyList();
+        }
+    }
+
+    private Resource toResource(Map<String, Object> row) {
+        return Resource.builder()
+                .id(stringVal(row.get("capability_id")))
+                .name(stringVal(row.get("capability_name")))
+                .serverCode(stringVal(row.get("server_code")))
+                .description(stringVal(row.get("description")))
+                .inputSchema(toJsonText(row.get("input_schema")))
+                .outputSchema(toJsonText(row.get("output_schema")))
+                .requiresApproval(boolVal(row.get("requires_approval")))
+                .sensitivity(parseSensitivity(stringVal(row.get("sensitivity"))))
+                .version(stringVal(row.get("version")))
+                .type(parseType(stringVal(row.get("capability_type"))))
+                .runMode(RunMode.SYNC)
+                .build();
+    }
+
+    private ResourceType parseType(String value) {
+        String normalized = value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case "WORKFLOW" -> ResourceType.WORKFLOW;
+            case "PROMPT" -> ResourceType.PROMPT;
+            case "RESOURCE" -> ResourceType.RESOURCE;
+            default -> ResourceType.TOOL;
+        };
+    }
+
+    private Sensitivity parseSensitivity(String value) {
+        if (value == null || value.isBlank()) {
+            return Sensitivity.LOW;
+        }
+        try {
+            return Sensitivity.valueOf(value.trim().toUpperCase(Locale.ROOT));
+        } catch (Exception ignore) {
+            return Sensitivity.LOW;
+        }
+    }
+
+    private String stringVal(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
+    private Boolean boolVal(Object value) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        if (value == null) {
+            return false;
+        }
+        String text = String.valueOf(value).trim().toLowerCase(Locale.ROOT);
+        return "true".equals(text) || "1".equals(text) || "yes".equals(text);
+    }
+
+    private String toJsonText(Object value) {
+        return value == null ? null : String.valueOf(value);
     }
 }

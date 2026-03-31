@@ -116,6 +116,26 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    public String extractSubject(String token) {
+        try {
+            JsonNode payload = parseAndVerify(token);
+            if (payload == null) {
+                return null;
+            }
+            long now = Instant.now().getEpochSecond();
+            long exp = payload.path("exp").asLong(0L);
+            if (exp <= 0 || now >= exp) {
+                return null;
+            }
+            String sub = payload.path("sub").asText(null);
+            return sub == null || sub.isBlank() ? null : sub;
+        } catch (Exception e) {
+            log.warn("extract subject failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    @Override
     public void logout(String token) {
         // 将 jti 加入黑名单，实现令牌失效。
         String jti = extractJti(token);

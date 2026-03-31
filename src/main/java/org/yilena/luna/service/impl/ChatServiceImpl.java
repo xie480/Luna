@@ -113,6 +113,7 @@ public class ChatServiceImpl implements ChatService {
         List<String> knowledgeSnippets = extractTaskKnowledgeSnippets(contextPackage);
         List<String> preferenceSnippets = extractRelationalPreferenceSnippets(contextPackage);
         List<String> longTermMemorySnippets = extractTaskLongTermSnippets(contextPackage);
+        List<String> workingMemorySnippets = extractWorkingMemorySnippets(contextPackage);
 
         try {
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_RETRIEVING, LunaStateConstant.VALUE_RETRIEVING);
@@ -127,7 +128,9 @@ public class ChatServiceImpl implements ChatService {
             log.warn("rag retrieve failed: {}", e.getMessage());
         }
 
-        List<String> memorySnippets = new ArrayList<>(extractRuntimeMessageSnippets(contextPackage));
+        List<String> memorySnippets = new ArrayList<>();
+        memorySnippets.addAll(workingMemorySnippets);
+        memorySnippets.addAll(extractRuntimeMessageSnippets(contextPackage));
         ContextPruner.ContextPayload payload = ContextPruner.ContextPayload.builder()
                 .systemPrompt(PromptTemplates.SYSTEM_PROMPT)
                 .userInput(input)
@@ -171,6 +174,11 @@ public class ChatServiceImpl implements ChatService {
                     toolError,
                     System.currentTimeMillis() - toolStartAt
             );
+            eventIngressService.ingestToolResult(runtimeSessionId, Map.of(
+                    "status", toolStatus.toLowerCase(),
+                    "toolContext", toolContext == null ? "" : toolContext,
+                    "error", toolError == null ? "" : toolError
+            ));
         }
 
         String synthesisBrief = threeStageResponseService.generateSynthesisBrief(input, toolContext, contextPackage);
@@ -190,15 +198,23 @@ public class ChatServiceImpl implements ChatService {
         }
 
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_THINKING, LunaStateConstant.VALUE_THINKING_ORGANIZE);
-        String prompt = promptAssembler.assembleFinalPrompt(
-                memorySnippets,
-                knowledgeSnippets,
-                preferenceSnippets,
-                longTermMemorySnippets,
-                mergedToolContext,
-                input
-        );
-        SendToLuna result = getSendToLuna(prompt, input, contextPackage);
+        SendToLuna result;
+        String threeStageFinal = threeStageResponseService.generateFinalResponse(input, mergedToolContext, contextPackage);
+        JsonNode threeStageNode = tryParseJsonNode(threeStageFinal);
+        if (isValidReplyNode(threeStageNode)) {
+            String raw = threeStageNode.toString();
+            result = new SendToLuna(raw, removeThoughtFromJson(raw), threeStageNode.get(ModelHintConstant.REPLY).asText());
+        } else {
+            String prompt = promptAssembler.assembleFinalPrompt(
+                    memorySnippets,
+                    knowledgeSnippets,
+                    preferenceSnippets,
+                    longTermMemorySnippets,
+                    mergedToolContext,
+                    input
+            );
+            result = getSendToLuna(prompt, input, contextPackage);
+        }
         LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(result.raw());
         memoryWritePipelineService.writeAfterTurn(runtimeSessionId, input, result.replyText(), contextPackage);
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
@@ -439,6 +455,22 @@ public class ChatServiceImpl implements ChatService {
                     .toList());
         }
         return snippets;
+    }
+
+    private List<String> extractWorkingMemorySnippets(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getTaskContext() == null) {
+            return Collections.emptyList();
+        }
+        Object raw = contextPackage.getTaskContext().get("working_memory");
+        if (!(raw instanceof Map<?, ?> map) || map.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<String> out = new ArrayList<>();
+        out.add("working.goal_raw: " + nullSafe(stringValue(map.get("goal_raw"))));
+        out.add("working.goal_refined: " + nullSafe(stringValue(map.get("goal_refined"))));
+        out.add("working.unresolved_questions: " + nullSafe(stringValue(map.get("unresolved_questions_json"))));
+        out.add("working.risks: " + nullSafe(stringValue(map.get("risks_json"))));
+        return out;
     }
 
     private List<String> extractRelationalPreferenceSnippets(StructuredContextPackage contextPackage) {
