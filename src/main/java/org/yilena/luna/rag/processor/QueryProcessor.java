@@ -75,6 +75,13 @@ public class QueryProcessor {
         if (!sourceTypes.isEmpty()) {
             filters.put("knowledge_source_types", sourceTypes);
         }
+        List<String> memoryTypes = detectMemoryTypes(contextResolved);
+        if (!memoryTypes.isEmpty()) {
+            filters.put("memory_types", memoryTypes);
+            if (memoryTypes.size() == 1) {
+                filters.put("memory_type", memoryTypes.get(0));
+            }
+        }
 
         return QueryObject.builder()
                 .originalQuery(original)
@@ -298,5 +305,44 @@ public class QueryProcessor {
             }
         }
         return sourceTypes.stream().filter(Objects::nonNull).collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    private List<String> detectMemoryTypes(String query) {
+        if (query == null || query.isBlank()) {
+            return List.of();
+        }
+        Map<String, List<String>> map = ragProperties.getMemoryTypeKeywords();
+        if (map == null || map.isEmpty()) {
+            return List.of();
+        }
+        Set<String> memoryTypes = new LinkedHashSet<>();
+        for (Map.Entry<String, List<String>> entry : map.entrySet()) {
+            if (!containsAny(query, entry.getValue())) {
+                continue;
+            }
+            for (String variant : expandMemoryTypeVariants(entry.getKey())) {
+                String normalized = normalizeText(variant);
+                if (!normalized.isBlank()) {
+                    memoryTypes.add(normalized);
+                }
+            }
+        }
+        return new ArrayList<>(memoryTypes);
+    }
+
+    private List<String> expandMemoryTypeVariants(String memoryType) {
+        String normalized = normalizeText(memoryType).toUpperCase();
+        return switch (normalized) {
+            case "0", "FACT", "DOMAIN_FACT" -> List.of("0", "FACT", "DOMAIN_FACT");
+            case "1", "PREFERENCE" -> List.of("1", "PREFERENCE");
+            case "2", "SUMMARY" -> List.of("2", "SUMMARY");
+            case "3", "REFLECTION" -> List.of("3", "REFLECTION");
+            case "DECISION" -> List.of("DECISION");
+            case "SUCCESS" -> List.of("SUCCESS");
+            case "FAILURE" -> List.of("FAILURE");
+            case "PARTIAL" -> List.of("PARTIAL");
+            case "RULE" -> List.of("RULE");
+            default -> List.of(normalized);
+        };
     }
 }

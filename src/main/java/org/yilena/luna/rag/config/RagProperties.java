@@ -58,9 +58,9 @@ public class RagProperties {
 
     private List<RetrievalRouteRule> routePriority = List.of(
             RetrievalRouteRule.SEARCH,
-            RetrievalRouteRule.AGENTIC,
             RetrievalRouteRule.NATIVE,
-            RetrievalRouteRule.MODULAR
+            RetrievalRouteRule.MODULAR,
+            RetrievalRouteRule.AGENTIC
     );
 
     private List<RetrievalSource> nativePrimarySourcePriority = List.of(
@@ -89,6 +89,18 @@ public class RagProperties {
             1, List.of("网页", "联网", "搜索结果", "web")
     );
 
+    private Map<String, List<String>> memoryTypeKeywords = Map.of(
+            "0", List.of("事实", "客观事实", "事实记忆"),
+            "1", List.of("偏好记忆", "偏好", "习惯"),
+            "2", List.of("摘要", "总结", "阶段总结"),
+            "3", List.of("反思", "复盘", "感悟"),
+            "DECISION", List.of("决策", "决定", "选择"),
+            "SUCCESS", List.of("成功", "做到了"),
+            "FAILURE", List.of("失败", "没做到"),
+            "PARTIAL", List.of("部分完成", "半完成"),
+            "RULE", List.of("规则记忆", "规则")
+    );
+
     private int agenticMaxSteps = 4;
     private int agenticMaxCalls = 6;
     private int agenticMaxTotalTopK = 24;
@@ -115,6 +127,7 @@ public class RagProperties {
         sourceKeywords = sanitizeMapList(sourceKeywords);
         preferenceKeyAliases = sanitizeStringMap(preferenceKeyAliases);
         knowledgeSourceTypeKeywords = sanitizeIntegerMapList(knowledgeSourceTypeKeywords);
+        memoryTypeKeywords = sanitizeMapList(memoryTypeKeywords);
 
         analysisRewriteTemplate = sanitizeRewriteTemplate(analysisRewriteTemplate, "请围绕问题进行结构化检索与分析：%s");
         multiSourceRewriteTemplate = sanitizeRewriteTemplate(multiSourceRewriteTemplate, "请执行多源联合检索并对齐证据：%s");

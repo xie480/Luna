@@ -27,6 +27,7 @@ public interface RagMemoryMapper {
               end as vector_score
             from luna_memory lm
             where lm.session_id = #{sessionId}
+              and lm.embedding is not null
               <if test="memoryTypes != null and memoryTypes.size() > 0">
                 and cast(lm.memory_type as varchar) in
                 <foreach collection="memoryTypes" item="mt" open="(" separator="," close=")">
@@ -40,8 +41,8 @@ public interface RagMemoryMapper {
                 and lm.created_at &lt;= #{endTime}
               </if>
             order by
-              case when #{queryVector} is null or #{queryVector} = '' or lm.embedding is null then 1 else 0 end,
-              case when #{queryVector} is null or #{queryVector} = '' or lm.embedding is null then 0 else (1 - (lm.embedding &lt;=&gt; #{queryVector}::vector)) end desc,
+              case when #{queryVector} is null or #{queryVector} = '' then 1 else 0 end,
+              case when #{queryVector} is null or #{queryVector} = '' then 0 else (1 - (lm.embedding &lt;=&gt; #{queryVector}::vector)) end desc,
               lm.updated_at desc
             limit #{topK}
             </script>
@@ -113,9 +114,10 @@ public interface RagMemoryMapper {
               end as vector_score
             from user_preference up
             where coalesce(up.deleted, 0) = 0
+              and up.embedding is not null
             order by
-              case when #{queryVector} is null or #{queryVector} = '' or up.embedding is null then 1 else 0 end,
-              case when #{queryVector} is null or #{queryVector} = '' or up.embedding is null then 0 else (1 - (up.embedding &lt;=&gt; #{queryVector}::vector)) end desc,
+              case when #{queryVector} is null or #{queryVector} = '' then 1 else 0 end,
+              case when #{queryVector} is null or #{queryVector} = '' then 0 else (1 - (up.embedding &lt;=&gt; #{queryVector}::vector)) end desc,
               up.updated_at desc
             limit #{topK}
             </script>

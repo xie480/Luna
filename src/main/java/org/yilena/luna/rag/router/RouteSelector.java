@@ -52,9 +52,9 @@ public class RouteSelector {
                 configuredPriority == null || configuredPriority.isEmpty()
                         ? List.of(
                         RagProperties.RetrievalRouteRule.SEARCH,
-                        RagProperties.RetrievalRouteRule.AGENTIC,
                         RagProperties.RetrievalRouteRule.NATIVE,
-                        RagProperties.RetrievalRouteRule.MODULAR
+                        RagProperties.RetrievalRouteRule.MODULAR,
+                        RagProperties.RetrievalRouteRule.AGENTIC
                 )
                         : configuredPriority;
 
