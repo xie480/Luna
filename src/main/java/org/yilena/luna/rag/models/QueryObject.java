@@ -30,9 +30,9 @@ public class QueryObject {
     @Builder.Default
     List<String> queryTags = Collections.emptyList();
 
-    // 对话上下文（预留）
+    // 对话上下文（role/content 结构）
     @Builder.Default
-    List<String> conversationContext = Collections.emptyList();
+    List<ConversationMessage> conversationContext = Collections.emptyList();
 
     // 检索过滤信号（预留扩展）
     @Builder.Default

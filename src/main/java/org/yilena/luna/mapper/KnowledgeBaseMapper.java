@@ -7,138 +7,239 @@ import org.apache.ibatis.annotations.Select;
 import org.yilena.luna.entity.KnowledgeChunkRecord;
 
 import java.time.LocalDateTime;
-
 import java.util.List;
 
 @Mapper
 public interface KnowledgeBaseMapper {
 
-    /**
-     * 向量檢索 (依賴 PGVector 插件)
-     * 需要在 XML 中實現具體的 SQL 邏輯，例如:
-     * SELECT * FROM knowledge_base ORDER BY embedding <-> #{vector} LIMIT #{topK}
-     *
-     * @param vector 向量字符串 (格式: "[0.1, 0.2, ...]")
-     * @param topK 返回數量
-     * @return 匹配的記錄
-     */
     @Select("""
             select
-                id,
-                id as doc_id,
-                id as chunk_id,
-                0 as chunk_order,
-                title,
-                content,
-                source_type,
-                source_path,
-                embedding,
-                created_at,
-                updated_at
-            from knowledge_base
-            where embedding is not null
-            order by embedding::vector <-> #{vector}::vector
+                kc.chunk_id as id,
+                kd.doc_id as doc_id,
+                kc.chunk_id as chunk_id,
+                kc.chunk_order as chunk_order,
+                kd.title as title,
+                kc.chunk_text as content,
+                case
+                    when upper(coalesce(kd.source_type, '')) = 'FILE' then 0
+                    when upper(coalesce(kd.source_type, '')) = 'WEB_SEARCH' then 1
+                    when upper(coalesce(kd.source_type, '')) = 'MANUAL_INPUT' then 2
+                    when kd.source_type ~ '^[0-9]+$' then cast(kd.source_type as integer)
+                    else null
+                end as source_type,
+                kd.source_uri as source_path,
+                kc.embedding as embedding,
+                kc.created_at as created_at,
+                kc.created_at as updated_at
+            from knowledge_chunk kc
+            join knowledge_document kd on kd.doc_id = kc.doc_id
+            where kc.embedding is not null
+            order by kc.embedding::vector <-> #{vector}::vector
             limit #{topK}
             """)
     List<KnowledgeChunkRecord> searchByVector(@Param("vector") String vector, @Param("topK") int topK);
 
     @Select("""
+            <script>
             select
-                id,
-                id as doc_id,
-                id as chunk_id,
-                0 as chunk_order,
-                title,
-                content,
-                source_type,
-                source_path,
-                embedding,
-                created_at,
-                updated_at,
-                1 - (embedding <=> #{vector}::vector) as vector_score
-            from knowledge_base
-            where embedding is not null
-            order by embedding <=> #{vector}::vector
+                kc.chunk_id as id,
+                kd.doc_id as doc_id,
+                kc.chunk_id as chunk_id,
+                kc.chunk_order as chunk_order,
+                kd.title as title,
+                kc.chunk_text as content,
+                case
+                    when upper(coalesce(kd.source_type, '')) = 'FILE' then 0
+                    when upper(coalesce(kd.source_type, '')) = 'WEB_SEARCH' then 1
+                    when upper(coalesce(kd.source_type, '')) = 'MANUAL_INPUT' then 2
+                    when kd.source_type ~ '^[0-9]+$' then cast(kd.source_type as integer)
+                    else null
+                end as source_type,
+                kd.source_uri as source_path,
+                kc.embedding as embedding,
+                kc.created_at as created_at,
+                kc.created_at as updated_at,
+                1 - (kc.embedding &lt;=&gt; #{vector}::vector) as vector_score
+            from knowledge_chunk kc
+            join knowledge_document kd on kd.doc_id = kc.doc_id
+            where kc.embedding is not null
+            <if test="sourceTypes != null and sourceTypes.size() > 0">
+              and (
+                case
+                    when upper(coalesce(kd.source_type, '')) = 'FILE' then 0
+                    when upper(coalesce(kd.source_type, '')) = 'WEB_SEARCH' then 1
+                    when upper(coalesce(kd.source_type, '')) = 'MANUAL_INPUT' then 2
+                    when kd.source_type ~ '^[0-9]+$' then cast(kd.source_type as integer)
+                    else null
+                end
+              ) in
+              <foreach collection="sourceTypes" item="sourceType" open="(" separator="," close=")">
+                #{sourceType}
+              </foreach>
+            </if>
+            order by kc.embedding &lt;=&gt; #{vector}::vector
             limit #{topK}
+            </script>
             """)
-    List<KnowledgeChunkRecord> searchRagKnowledgeByVector(@Param("vector") String vector, @Param("topK") int topK);
+    List<KnowledgeChunkRecord> searchRagKnowledgeByVector(@Param("vector") String vector,
+                                                          @Param("topK") int topK,
+                                                          @Param("sourceTypes") List<Integer> sourceTypes);
 
     @Select("""
+            <script>
             select
-                id,
-                id as doc_id,
-                id as chunk_id,
-                0 as chunk_order,
-                title,
-                content,
-                source_type,
-                source_path,
-                embedding,
-                created_at,
-                updated_at,
+                kc.chunk_id as id,
+                kd.doc_id as doc_id,
+                kc.chunk_id as chunk_id,
+                kc.chunk_order as chunk_order,
+                kd.title as title,
+                kc.chunk_text as content,
                 case
-                    when lower(coalesce(title, '')) = lower(#{query})
-                      or lower(coalesce(content, '')) = lower(#{query}) then 1.0
+                    when upper(coalesce(kd.source_type, '')) = 'FILE' then 0
+                    when upper(coalesce(kd.source_type, '')) = 'WEB_SEARCH' then 1
+                    when upper(coalesce(kd.source_type, '')) = 'MANUAL_INPUT' then 2
+                    when kd.source_type ~ '^[0-9]+$' then cast(kd.source_type as integer)
+                    else null
+                end as source_type,
+                kd.source_uri as source_path,
+                kc.embedding as embedding,
+                kc.created_at as created_at,
+                kc.created_at as updated_at,
+                case
+                    when lower(coalesce(kd.title, '')) = lower(#{query})
+                      or lower(coalesce(kc.chunk_text, '')) = lower(#{query}) then 1.0
                     else 0.0
                 end as fts_score
-            from knowledge_base
-            where lower(coalesce(title, '')) = lower(#{query})
-               or lower(coalesce(content, '')) = lower(#{query})
-            order by updated_at desc
+            from knowledge_chunk kc
+            join knowledge_document kd on kd.doc_id = kc.doc_id
+            where (
+                lower(coalesce(kd.title, '')) = lower(#{query})
+                or lower(coalesce(kc.chunk_text, '')) = lower(#{query})
+            )
+            <if test="sourceTypes != null and sourceTypes.size() > 0">
+              and (
+                case
+                    when upper(coalesce(kd.source_type, '')) = 'FILE' then 0
+                    when upper(coalesce(kd.source_type, '')) = 'WEB_SEARCH' then 1
+                    when upper(coalesce(kd.source_type, '')) = 'MANUAL_INPUT' then 2
+                    when kd.source_type ~ '^[0-9]+$' then cast(kd.source_type as integer)
+                    else null
+                end
+              ) in
+              <foreach collection="sourceTypes" item="sourceType" open="(" separator="," close=")">
+                #{sourceType}
+              </foreach>
+            </if>
+            order by kc.created_at desc
             limit #{topK}
+            </script>
             """)
-    List<KnowledgeChunkRecord> searchRagKnowledgeByExact(@Param("query") String query, @Param("topK") int topK);
+    List<KnowledgeChunkRecord> searchRagKnowledgeByExact(@Param("query") String query,
+                                                         @Param("topK") int topK,
+                                                         @Param("sourceTypes") List<Integer> sourceTypes);
 
     @Select("""
+            <script>
             select
-                id,
-                id as doc_id,
-                id as chunk_id,
-                0 as chunk_order,
-                title,
-                content,
-                source_type,
-                source_path,
-                embedding,
-                created_at,
-                updated_at,
+                kc.chunk_id as id,
+                kd.doc_id as doc_id,
+                kc.chunk_id as chunk_id,
+                kc.chunk_order as chunk_order,
+                kd.title as title,
+                kc.chunk_text as content,
+                case
+                    when upper(coalesce(kd.source_type, '')) = 'FILE' then 0
+                    when upper(coalesce(kd.source_type, '')) = 'WEB_SEARCH' then 1
+                    when upper(coalesce(kd.source_type, '')) = 'MANUAL_INPUT' then 2
+                    when kd.source_type ~ '^[0-9]+$' then cast(kd.source_type as integer)
+                    else null
+                end as source_type,
+                kd.source_uri as source_path,
+                kc.embedding as embedding,
+                kc.created_at as created_at,
+                kc.created_at as updated_at,
                 ts_rank(
-                  to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(content, '')),
+                  to_tsvector('simple', coalesce(kd.title, '') || ' ' || coalesce(kc.chunk_text, '')),
                   plainto_tsquery('simple', #{query})
                 ) as fts_score
-            from knowledge_base
-            where to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(content, ''))
+            from knowledge_chunk kc
+            join knowledge_document kd on kd.doc_id = kc.doc_id
+            where to_tsvector('simple', coalesce(kd.title, '') || ' ' || coalesce(kc.chunk_text, ''))
                   @@ plainto_tsquery('simple', #{query})
-            order by fts_score desc, updated_at desc
+            <if test="sourceTypes != null and sourceTypes.size() > 0">
+              and (
+                case
+                    when upper(coalesce(kd.source_type, '')) = 'FILE' then 0
+                    when upper(coalesce(kd.source_type, '')) = 'WEB_SEARCH' then 1
+                    when upper(coalesce(kd.source_type, '')) = 'MANUAL_INPUT' then 2
+                    when kd.source_type ~ '^[0-9]+$' then cast(kd.source_type as integer)
+                    else null
+                end
+              ) in
+              <foreach collection="sourceTypes" item="sourceType" open="(" separator="," close=")">
+                #{sourceType}
+              </foreach>
+            </if>
+            order by fts_score desc, kc.created_at desc
             limit #{topK}
+            </script>
             """)
-    List<KnowledgeChunkRecord> searchRagKnowledgeByFts(@Param("query") String query, @Param("topK") int topK);
+    List<KnowledgeChunkRecord> searchRagKnowledgeByFts(@Param("query") String query,
+                                                       @Param("topK") int topK,
+                                                       @Param("sourceTypes") List<Integer> sourceTypes);
 
     @Select("""
+            <script>
             select
-                id,
-                id as doc_id,
-                id as chunk_id,
-                0 as chunk_order,
-                title,
-                content,
-                source_type,
-                source_path,
-                embedding,
-                created_at,
-                updated_at,
+                kc.chunk_id as id,
+                kd.doc_id as doc_id,
+                kc.chunk_id as chunk_id,
+                kc.chunk_order as chunk_order,
+                kd.title as title,
+                kc.chunk_text as content,
                 case
-                    when coalesce(title, '') ilike concat('%', #{query}, '%') then 1.0
-                    when coalesce(content, '') ilike concat('%', #{query}, '%') then 0.8
+                    when upper(coalesce(kd.source_type, '')) = 'FILE' then 0
+                    when upper(coalesce(kd.source_type, '')) = 'WEB_SEARCH' then 1
+                    when upper(coalesce(kd.source_type, '')) = 'MANUAL_INPUT' then 2
+                    when kd.source_type ~ '^[0-9]+$' then cast(kd.source_type as integer)
+                    else null
+                end as source_type,
+                kd.source_uri as source_path,
+                kc.embedding as embedding,
+                kc.created_at as created_at,
+                kc.created_at as updated_at,
+                case
+                    when coalesce(kd.title, '') ilike concat('%', #{query}, '%') then 1.0
+                    when coalesce(kc.chunk_text, '') ilike concat('%', #{query}, '%') then 0.8
                     else 0.0
                 end as fts_score
-            from knowledge_base
-            where coalesce(title, '') ilike concat('%', #{query}, '%')
-               or coalesce(content, '') ilike concat('%', #{query}, '%')
-            order by fts_score desc, updated_at desc
+            from knowledge_chunk kc
+            join knowledge_document kd on kd.doc_id = kc.doc_id
+            where (
+                coalesce(kd.title, '') ilike concat('%', #{query}, '%')
+                or coalesce(kc.chunk_text, '') ilike concat('%', #{query}, '%')
+            )
+            <if test="sourceTypes != null and sourceTypes.size() > 0">
+              and (
+                case
+                    when upper(coalesce(kd.source_type, '')) = 'FILE' then 0
+                    when upper(coalesce(kd.source_type, '')) = 'WEB_SEARCH' then 1
+                    when upper(coalesce(kd.source_type, '')) = 'MANUAL_INPUT' then 2
+                    when kd.source_type ~ '^[0-9]+$' then cast(kd.source_type as integer)
+                    else null
+                end
+              ) in
+              <foreach collection="sourceTypes" item="sourceType" open="(" separator="," close=")">
+                #{sourceType}
+              </foreach>
+            </if>
+            order by fts_score desc, kc.created_at desc
             limit #{topK}
+            </script>
             """)
-    List<KnowledgeChunkRecord> searchRagKnowledgeByKeyword(@Param("query") String query, @Param("topK") int topK);
+    List<KnowledgeChunkRecord> searchRagKnowledgeByKeyword(@Param("query") String query,
+                                                           @Param("topK") int topK,
+                                                           @Param("sourceTypes") List<Integer> sourceTypes);
 
     @Select("""
             select count(1)

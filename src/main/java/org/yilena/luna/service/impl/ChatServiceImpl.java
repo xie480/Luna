@@ -39,7 +39,10 @@ import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.rag.api.RetrievalService;
 import org.yilena.luna.rag.models.Evidence;
+import org.yilena.luna.rag.models.ConversationMessage;
+import org.yilena.luna.rag.models.RetrievalOptions;
 import org.yilena.luna.rag.models.RetrievalRequest;
+import org.yilena.luna.rag.models.RetrievalRoute;
 import org.yilena.luna.rag.models.RetrievalResponse;
 import org.yilena.luna.rag.models.RetrievalSource;
 import org.yilena.luna.service.AgentService;
@@ -121,10 +124,16 @@ public class ChatServiceImpl implements ChatService {
 
         try {
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_RETRIEVING, LunaStateConstant.VALUE_RETRIEVING);
+            List<ConversationMessage> conversationContext = buildRetrievalConversationContext(contextPackage);
+            List<RetrievalRoute> allowedRoutes = resolveAllowedRoutes(decision);
+            RetrievalOptions retrievalOptions = resolveRetrievalOptions(input, decision);
             RetrievalRequest retrievalRequest = RetrievalRequest.builder()
                     .query(input)
                     .sessionId(runtimeSessionId)
+                    .conversationContext(conversationContext)
+                    .allowedRoutes(allowedRoutes)
                     .sourceScope(List.of(RetrievalSource.KNOWLEDGE, RetrievalSource.MEMORY, RetrievalSource.PREFERENCE))
+                    .options(retrievalOptions)
                     .build();
             RetrievalResponse retrievalResponse = retrievalService.retrieve(retrievalRequest);
             knowledgeSnippets = toKnowledgeSnippets(retrievalResponse);
@@ -700,6 +709,61 @@ public class ChatServiceImpl implements ChatService {
         payload.put("taskState", decision == null || decision.getTaskState() == null ? "" : decision.getTaskState().name());
         payload.put("relationalState", decision == null || decision.getRelationalState() == null ? "" : decision.getRelationalState().name());
         return payload;
+    }
+
+    private List<ConversationMessage> buildRetrievalConversationContext(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getRuntime() == null) {
+            return List.of();
+        }
+        Object raw = contextPackage.getRuntime().get("recent_messages");
+        if (!(raw instanceof List<?> list) || list.isEmpty()) {
+            return List.of();
+        }
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) list;
+        List<ConversationMessage> messages = rows.stream()
+                .map(row -> ConversationMessage.builder()
+                        .role(stringValue(row.get("role")))
+                        .content(stringValue(row.get("content_text")))
+                        .build())
+                .filter(item -> item.getRole() != null && !item.getRole().isBlank()
+                        && item.getContent() != null && !item.getContent().isBlank())
+                .toList();
+        if (messages.size() <= 12) {
+            return messages;
+        }
+        return messages.subList(messages.size() - 12, messages.size());
+    }
+
+    private List<RetrievalRoute> resolveAllowedRoutes(OrchestrationDecision decision) {
+        TaskRuntimeState taskState = decision == null ? null : decision.getTaskState();
+        RelationalRuntimeState relationalState = decision == null ? null : decision.getRelationalState();
+        if ((taskState == TaskRuntimeState.PLANNING
+                || taskState == TaskRuntimeState.REPLANNING
+                || taskState == TaskRuntimeState.EXECUTING
+                || taskState == TaskRuntimeState.REFLECTING)
+                || relationalState == RelationalRuntimeState.DEEP_TALK
+                || relationalState == RelationalRuntimeState.EMOTIONAL_SUPPORT
+                || relationalState == RelationalRuntimeState.FRAGILE_MOMENT) {
+            return RetrievalRoute.all();
+        }
+        return List.of(RetrievalRoute.SEARCH, RetrievalRoute.NATIVE, RetrievalRoute.MODULAR);
+    }
+
+    private RetrievalOptions resolveRetrievalOptions(String input, OrchestrationDecision decision) {
+        boolean debug = input != null && (input.contains("#rag_debug") || input.contains("/rag_debug"));
+        TaskRuntimeState taskState = decision == null ? null : decision.getTaskState();
+        long maxLatencyMs = 1200L;
+        if (taskState == TaskRuntimeState.PLANNING
+                || taskState == TaskRuntimeState.REPLANNING
+                || taskState == TaskRuntimeState.EXECUTING
+                || taskState == TaskRuntimeState.REFLECTING) {
+            maxLatencyMs = 1800L;
+        }
+        return RetrievalOptions.builder()
+                .debug(debug)
+                .maxLatencyMs(maxLatencyMs)
+                .build();
     }
 
     private List<String> toKnowledgeSnippets(RetrievalResponse response) {

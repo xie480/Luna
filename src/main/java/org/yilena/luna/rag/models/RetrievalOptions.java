@@ -6,14 +6,19 @@ import lombok.Value;
 @Value
 @Builder
 /**
- * 检索可选参数。
+ * RAG retrieval options.
  */
 public class RetrievalOptions {
-    // 是否打开调试模式（预留）
+
+    /**
+     * Enable debug metadata in retrieval response.
+     */
     @Builder.Default
     boolean debug = false;
 
-    // 最大允许时延（毫秒）
+    /**
+     * Max latency budget in milliseconds.
+     */
     @Builder.Default
     long maxLatencyMs = 2500;
 }

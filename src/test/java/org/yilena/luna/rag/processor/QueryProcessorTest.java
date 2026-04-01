@@ -3,6 +3,7 @@ package org.yilena.luna.rag.processor;
 import org.junit.jupiter.api.Test;
 import org.yilena.luna.rag.adapters.EmbeddingProvider;
 import org.yilena.luna.rag.config.RagProperties;
+import org.yilena.luna.rag.models.ConversationMessage;
 import org.yilena.luna.rag.models.QueryObject;
 import org.yilena.luna.rag.models.RetrievalRequest;
 import org.yilena.luna.rag.planner.ModelDrivenRagPlanner;
@@ -36,7 +37,7 @@ class QueryProcessorTest {
         QueryObject queryObject = processor.process(RetrievalRequest.builder()
                 .query("偏好里有没有回答长度设置")
                 .sessionId("s1")
-                .conversationContext(List.of("u: hi"))
+                .conversationContext(List.of(ConversationMessage.builder().role("user").content("我喜欢简短回答").build()))
                 .build());
 
         assertEquals(3, queryObject.getEmbedding().size());

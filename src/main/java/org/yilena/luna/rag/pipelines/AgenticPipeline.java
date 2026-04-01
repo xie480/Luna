@@ -18,12 +18,11 @@ import org.yilena.luna.rag.rankers.EvidenceReranker;
 import org.yilena.luna.rag.retrievers.BaseRetriever;
 
 import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 
 @Component
@@ -70,7 +69,10 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
         List<Map<String, Object>> stageMeta = new ArrayList<>();
         boolean timeoutReached = false;
         boolean evidenceSufficient = false;
+        boolean totalTopKExceeded = false;
         int callCount = 0;
+        int cumulativeRequestedTopK = 0;
+        Map<RetrievalSource, Integer> baseTopK = normalizeTopKConfig(plan.getTopKConfig(), sources);
 
         for (int i = 0; i < stages.size() && i < maxSteps && callCount < maxCalls; i++) {
             long remaining = remainingMs(deadline);
@@ -86,9 +88,18 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                     ? sources
                     : stage.getSources();
 
+            int stageBudget = maxTotalTopK - cumulativeRequestedTopK;
+            Map<RetrievalSource, Integer> stageTopKConfig = allocateTopKByBudget(baseTopK, stageSources, stageBudget);
+            if (stageTopKConfig.isEmpty()) {
+                totalTopKExceeded = true;
+                break;
+            }
+            int stageRequestedTopK = sumTopK(stageTopKConfig, stageSources);
+            cumulativeRequestedTopK += stageRequestedTopK;
+
             SourceRetrieveOutcome stageOutcome = retrieveBySources(
                     stageQuery,
-                    plan.getTopKConfig(),
+                    stageTopKConfig,
                     stageSources,
                     true,
                     true,
@@ -105,6 +116,8 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
             singleStageMeta.put("query", stage.getRewrittenQuery());
             singleStageMeta.put("sources", stageSources.stream().map(RetrievalSource::value).toList());
             singleStageMeta.put("evidence_count", totalEvidenceCount(stageOutcome.grouped()));
+            singleStageMeta.put("requested_top_k", stageRequestedTopK);
+            singleStageMeta.put("cumulative_requested_top_k", cumulativeRequestedTopK);
             singleStageMeta.put("timed_out_sources", stageOutcome.timedOutSources().stream().map(RetrievalSource::value).toList());
             stageMeta.add(singleStageMeta);
 
@@ -116,13 +129,22 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
             if (callCount < maxCalls) {
                 List<RetrievalSource> missingSources = missingSources(cumulative, sources);
                 if (!missingSources.isEmpty()) {
+                    int supplementBudget = maxTotalTopK - cumulativeRequestedTopK;
+                    Map<RetrievalSource, Integer> supplementTopKConfig = allocateTopKByBudget(baseTopK, missingSources, supplementBudget);
+                    if (supplementTopKConfig.isEmpty()) {
+                        totalTopKExceeded = true;
+                        break;
+                    }
+                    int supplementRequestedTopK = sumTopK(supplementTopKConfig, missingSources);
+                    cumulativeRequestedTopK += supplementRequestedTopK;
                     QueryObject supplementQuery = buildStageQuery(
                             queryObject,
-                            stage.getRewrittenQuery() + "；补充检索缺失证据，重点覆盖：" + String.join(",", missingSources.stream().map(RetrievalSource::value).toList())
+                            stage.getRewrittenQuery() + " ; supplement missing evidence for: "
+                                    + String.join(",", missingSources.stream().map(RetrievalSource::value).toList())
                     );
                     SourceRetrieveOutcome supplement = retrieveBySources(
                             supplementQuery,
-                            plan.getTopKConfig(),
+                            supplementTopKConfig,
                             missingSources,
                             true,
                             true,
@@ -137,6 +159,8 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                     supplementMeta.put("query", supplementQuery.getRewrittenQuery());
                     supplementMeta.put("sources", missingSources.stream().map(RetrievalSource::value).toList());
                     supplementMeta.put("evidence_count", totalEvidenceCount(supplement.grouped()));
+                    supplementMeta.put("requested_top_k", supplementRequestedTopK);
+                    supplementMeta.put("cumulative_requested_top_k", cumulativeRequestedTopK);
                     supplementMeta.put("timed_out_sources", supplement.timedOutSources().stream().map(RetrievalSource::value).toList());
                     stageMeta.add(supplementMeta);
                     evidenceSufficient = isEvidenceSufficient(cumulative, sources);
@@ -149,30 +173,72 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
 
         boolean overLimit = callCount >= maxCalls
                 || stageMeta.size() >= maxSteps
-                || estimateTotalTopK(plan, sources) > maxTotalTopK;
+                || totalTopKExceeded
+                || cumulativeRequestedTopK >= maxTotalTopK;
 
         if (timeoutReached || overLimit || !evidenceSufficient) {
-            SourceRetrieveOutcome fallback = retrieveBySources(
-                    queryObject,
-                    plan.getTopKConfig(),
-                    sources,
-                    true,
-                    true,
-                    withTimeout(request, remainingMs(deadline)),
-                    remainingMs(deadline)
-            );
-            Map<String, Object> fallbackMeta = new HashMap<>(fallback.meta());
+            int fallbackBudget = maxTotalTopK - cumulativeRequestedTopK;
+            Map<RetrievalSource, List<Evidence>> fallbackGrouped;
+            Map<String, Object> fallbackMeta;
+            if (fallbackBudget > 0 && !timeoutReached) {
+                Map<RetrievalSource, Integer> fallbackTopK = allocateTopKByBudget(baseTopK, sources, fallbackBudget);
+                if (!fallbackTopK.isEmpty()) {
+                    SourceRetrieveOutcome fallback = retrieveBySources(
+                            queryObject,
+                            fallbackTopK,
+                            sources,
+                            true,
+                            true,
+                            withTimeout(request, remainingMs(deadline)),
+                            remainingMs(deadline)
+                    );
+                    cumulativeRequestedTopK += sumTopK(fallbackTopK, sources);
+                    fallbackGrouped = fallback.grouped();
+                    fallbackMeta = new HashMap<>(fallback.meta());
+                } else {
+                    EvidenceFusionService.FusionResult fallbackFusion = getEvidenceFusionService().fuse(
+                            queryObject.getRewrittenQuery(),
+                            cumulative,
+                            baseTopK,
+                            sources,
+                            true
+                    );
+                    fallbackGrouped = fallbackFusion.grouped();
+                    fallbackMeta = new HashMap<>(fallbackFusion.meta());
+                }
+            } else {
+                EvidenceFusionService.FusionResult fallbackFusion = getEvidenceFusionService().fuse(
+                        queryObject.getRewrittenQuery(),
+                        cumulative,
+                        baseTopK,
+                        sources,
+                        true
+                );
+                fallbackGrouped = fallbackFusion.grouped();
+                fallbackMeta = new HashMap<>(fallbackFusion.meta());
+            }
             fallbackMeta.put("agentic_stage_count", stageMeta.size());
             fallbackMeta.put("agentic_stages", stageMeta);
             fallbackMeta.put("agentic_timeout_reached", timeoutReached);
             fallbackMeta.put("agentic_call_count", callCount);
             fallbackMeta.put("agentic_evidence_sufficient", evidenceSufficient);
+            fallbackMeta.put("agentic_max_total_top_k", maxTotalTopK);
+            fallbackMeta.put("agentic_total_requested_top_k", cumulativeRequestedTopK);
             fallbackMeta.put("fallback_modular", true);
             fallbackMeta.put("fallback_reason", fallbackReason(timeoutReached, overLimit, evidenceSufficient));
+            if (isDebugEnabled(request)) {
+                fallbackMeta.put("agentic_debug", Map.of(
+                        "max_steps", maxSteps,
+                        "max_calls", maxCalls,
+                        "max_total_top_k", maxTotalTopK,
+                        "total_requested_top_k", cumulativeRequestedTopK,
+                        "top_k_exceeded", totalTopKExceeded
+                ));
+            }
             return RetrievalResponse.builder()
-                    .route(route())
+                    .route(RetrievalRoute.MODULAR)
                     .rewrittenQuery(queryObject.getRewrittenQuery())
-                    .evidences(fallback.grouped())
+                    .evidences(ensureAllEvidenceBuckets(fallbackGrouped))
                     .meta(fallbackMeta)
                     .build();
         }
@@ -180,7 +246,7 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
         EvidenceFusionService.FusionResult finalFusion = getEvidenceFusionService().fuse(
                 queryObject.getRewrittenQuery(),
                 cumulative,
-                plan.getTopKConfig(),
+                baseTopK,
                 sources,
                 true
         );
@@ -191,12 +257,23 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
         meta.put("agentic_timeout_reached", timeoutReached);
         meta.put("agentic_call_count", callCount);
         meta.put("agentic_evidence_sufficient", evidenceSufficient);
+        meta.put("agentic_max_total_top_k", maxTotalTopK);
+        meta.put("agentic_total_requested_top_k", cumulativeRequestedTopK);
         meta.put("fallback_modular", false);
+        if (isDebugEnabled(request)) {
+            meta.put("agentic_debug", Map.of(
+                    "max_steps", maxSteps,
+                    "max_calls", maxCalls,
+                    "max_total_top_k", maxTotalTopK,
+                    "total_requested_top_k", cumulativeRequestedTopK,
+                    "top_k_exceeded", totalTopKExceeded
+            ));
+        }
 
         return RetrievalResponse.builder()
                 .route(route())
                 .rewrittenQuery(queryObject.getRewrittenQuery())
-                .evidences(finalFusion.grouped())
+                .evidences(ensureAllEvidenceBuckets(finalFusion.grouped()))
                 .meta(meta)
                 .build();
     }
@@ -258,15 +335,28 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                 .toList();
     }
 
-    private int estimateTotalTopK(RoutePlan plan, List<RetrievalSource> sources) {
-        if (plan == null || plan.getTopKConfig() == null) {
-            return sources.size() * 3;
+    private Map<RetrievalSource, Integer> allocateTopKByBudget(
+            Map<RetrievalSource, Integer> baseTopK,
+            List<RetrievalSource> targetSources,
+            int remainingBudget
+    ) {
+        if (remainingBudget <= 0 || targetSources == null || targetSources.isEmpty()) {
+            return Map.of();
         }
-        return sources.stream()
-                .map(source -> plan.getTopKConfig().getOrDefault(source, 3))
-                .filter(Objects::nonNull)
-                .mapToInt(Integer::intValue)
-                .sum();
+        Map<RetrievalSource, Integer> allocated = new EnumMap<>(RetrievalSource.class);
+        int remain = remainingBudget;
+        for (RetrievalSource source : targetSources) {
+            if (remain <= 0) {
+                break;
+            }
+            int desired = Math.max(1, baseTopK.getOrDefault(source, 3));
+            int granted = Math.min(desired, remain);
+            if (granted > 0) {
+                allocated.put(source, granted);
+                remain -= granted;
+            }
+        }
+        return allocated;
     }
 
     private String fallbackReason(boolean timeoutReached, boolean overLimit, boolean evidenceSufficient) {

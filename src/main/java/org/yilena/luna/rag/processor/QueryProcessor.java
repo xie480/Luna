@@ -4,8 +4,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.rag.adapters.EmbeddingProvider;
 import org.yilena.luna.rag.config.RagProperties;
+import org.yilena.luna.rag.models.ConversationMessage;
 import org.yilena.luna.rag.models.QueryObject;
 import org.yilena.luna.rag.models.RetrievalRequest;
+import org.yilena.luna.rag.models.RetrievalSource;
 import org.yilena.luna.rag.planner.ModelDrivenRagPlanner;
 
 import java.util.ArrayList;
@@ -15,9 +17,10 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
-/** Query pre-processor with model-first planning and heuristic fallback. */
 @Component
 @RequiredArgsConstructor
 public class QueryProcessor {
@@ -29,13 +32,18 @@ public class QueryProcessor {
     public QueryObject process(RetrievalRequest request) {
         String original = request.getQuery() == null ? "" : request.getQuery();
         String normalized = normalize(original);
-        ModelDrivenRagPlanner.QueryPlanDecision planDecision = modelDrivenRagPlanner.planQuery(original, normalized, request);
-        String queryType = planDecision.getQueryType() == null ? detectQueryType(normalized) : planDecision.getQueryType();
+        String contextResolved = resolveReferences(normalized, request.getConversationContext());
+        ModelDrivenRagPlanner.QueryPlanDecision planDecision = modelDrivenRagPlanner.planQuery(original, contextResolved, request);
+
+        String queryType = planDecision.getQueryType() == null
+                ? detectQueryType(contextResolved)
+                : planDecision.getQueryType();
         String rewritten = planDecision.getRewrittenQuery() == null
-                ? rewrite(normalized, queryType)
+                ? rewrite(contextResolved, queryType)
                 : planDecision.getRewrittenQuery();
+
         List<Double> embedding = parseEmbedding(embeddingProvider.embedding(rewritten));
-        List<String> queryTags = detectQueryTags(normalized, queryType);
+        List<String> queryTags = detectQueryTags(contextResolved, queryType);
 
         Map<String, Object> filters = new HashMap<>();
         filters.put("query_type", queryType);
@@ -44,17 +52,32 @@ public class QueryProcessor {
         }
         filters.put("query_complexity", planDecision.getComplexity());
         filters.put("query_tags", queryTags);
-        if (containsAny(normalized, List.of("最近", "这段时间", "近期", "上周", "本月"))) {
+
+        if (containsAny(contextResolved, ragProperties.getRecencyKeywords())) {
             filters.put("time_window_days", 30);
         }
-        String prefKey = detectPreferenceKey(normalized);
+
+        String prefKey = detectPreferenceKey(contextResolved);
         if (prefKey != null) {
             filters.put("pref_key", prefKey);
         }
 
+        if (!contextResolved.equals(normalized)) {
+            filters.put("coref_resolved", true);
+        }
+
+        List<RetrievalSource> inferredSources = inferSources(contextResolved, request.getSourceScope());
+        filters.put("inferred_sources", inferredSources.stream().map(RetrievalSource::value).collect(Collectors.toList()));
+        filters.put("source_count", inferredSources.size());
+
+        List<Integer> sourceTypes = detectKnowledgeSourceTypes(contextResolved);
+        if (!sourceTypes.isEmpty()) {
+            filters.put("knowledge_source_types", sourceTypes);
+        }
+
         return QueryObject.builder()
                 .originalQuery(original)
-                .normalizedQuery(normalized)
+                .normalizedQuery(contextResolved)
                 .rewrittenQuery(rewritten)
                 .sessionId(request.getSessionId())
                 .conversationContext(request.getConversationContext())
@@ -76,7 +99,7 @@ public class QueryProcessor {
         if (containsAny(query, ragProperties.getAnalysisKeywords())) {
             return "analysis_reasoning";
         }
-        if (query.contains("结合") || query.contains("根据") || query.contains("偏好")) {
+        if (containsAny(query, ragProperties.getMultiSourceKeywords())) {
             return "multi_source_reasoning";
         }
         return "general_retrieval";
@@ -89,7 +112,7 @@ public class QueryProcessor {
         return normalized;
     }
 
-    private boolean containsAny(String query, java.util.List<String> keywords) {
+    private boolean containsAny(String query, List<String> keywords) {
         if (query == null || query.isBlank() || keywords == null || keywords.isEmpty()) {
             return false;
         }
@@ -124,22 +147,28 @@ public class QueryProcessor {
     private List<String> detectQueryTags(String query, String queryType) {
         Set<String> tags = new LinkedHashSet<>();
         tags.add(queryType);
+
         if (containsAny(query, ragProperties.getPreciseKeywords())) {
             tags.add("precise_lookup");
             tags.add("exact_match_first");
         }
-        if (containsAny(query, List.of("上次", "之前", "过去", "最近", "这段时间"))) {
+
+        if (containsAny(query, ragProperties.getRecencyKeywords())) {
             tags.add("needs_recency");
         }
-        if (containsAny(query, List.of("偏好", "风格", "语气", "长度"))) {
+
+        if (containsAny(query, ragProperties.keywordsOf(RetrievalSource.PREFERENCE))) {
             tags.add("preference_lookup");
         }
-        if (containsAny(query, List.of("记忆", "记录", "历史", "经历"))) {
+
+        if (containsAny(query, ragProperties.keywordsOf(RetrievalSource.MEMORY))) {
             tags.add("memory_lookup");
         }
+
         if (containsAny(query, List.of("设置", "配置", "key", "pref_key"))) {
             tags.add("key_match_priority");
         }
+
         return new ArrayList<>(tags);
     }
 
@@ -147,18 +176,113 @@ public class QueryProcessor {
         if (query == null || query.isBlank()) {
             return null;
         }
-        Map<String, String> keyMap = Map.of(
-                "回答长度", "response_length",
-                "回复长度", "response_length",
-                "语气", "tone",
-                "风格", "response_style",
-                "称呼", "nickname"
-        );
+        Map<String, String> keyMap = ragProperties.getPreferenceKeyAliases();
+        if (keyMap == null || keyMap.isEmpty()) {
+            return null;
+        }
         for (Map.Entry<String, String> entry : keyMap.entrySet()) {
             if (query.contains(entry.getKey())) {
                 return entry.getValue();
             }
         }
         return null;
+    }
+
+    private String resolveReferences(String normalized, List<ConversationMessage> context) {
+        if (normalized == null || normalized.isBlank()) {
+            return "";
+        }
+        if (context == null || context.isEmpty()) {
+            return normalized;
+        }
+        if (!containsAny(normalized, ragProperties.getReferenceKeywords())) {
+            return normalized;
+        }
+
+        String anchor = latestUserTopic(context, normalized);
+        if (anchor == null || anchor.isBlank()) {
+            return normalized;
+        }
+        return normalized + "（指代补全：" + trim(anchor, 80) + "）";
+    }
+
+    private String latestUserTopic(List<ConversationMessage> context, String currentQuery) {
+        for (int i = context.size() - 1; i >= 0; i--) {
+            ConversationMessage turn = context.get(i);
+            if (turn == null || turn.getContent() == null || turn.getContent().isBlank()) {
+                continue;
+            }
+            String role = turn.getRole() == null ? "" : turn.getRole().trim().toLowerCase();
+            if (!"user".equals(role)) {
+                continue;
+            }
+            String content = normalize(turn.getContent());
+            if (content.isBlank() || content.equals(currentQuery)) {
+                continue;
+            }
+            return content;
+        }
+
+        for (int i = context.size() - 1; i >= 0; i--) {
+            ConversationMessage turn = context.get(i);
+            if (turn == null || turn.getContent() == null || turn.getContent().isBlank()) {
+                continue;
+            }
+            return normalize(turn.getContent());
+        }
+
+        return null;
+    }
+
+    private String trim(String value, int maxChars) {
+        if (value == null) {
+            return "";
+        }
+        if (value.length() <= maxChars) {
+            return value;
+        }
+        return value.substring(0, maxChars);
+    }
+
+    private List<RetrievalSource> inferSources(String query, List<RetrievalSource> scoped) {
+        List<RetrievalSource> scope = (scoped == null || scoped.isEmpty()) ? RetrievalSource.all() : scoped;
+        Set<RetrievalSource> inferred = new LinkedHashSet<>();
+
+        for (Map.Entry<RetrievalSource, List<String>> entry : ragProperties.sourceKeywordMap().entrySet()) {
+            if (containsAny(query, entry.getValue())) {
+                inferred.add(entry.getKey());
+            }
+        }
+
+        if (containsAny(query, ragProperties.getMultiSourceKeywords())) {
+            inferred.addAll(scope);
+        }
+
+        List<RetrievalSource> routed = inferred.stream().filter(scope::contains).toList();
+        if (!routed.isEmpty()) {
+            return routed;
+        }
+
+        if (scope.contains(RetrievalSource.KNOWLEDGE)) {
+            return List.of(RetrievalSource.KNOWLEDGE);
+        }
+        return List.of(scope.get(0));
+    }
+
+    private List<Integer> detectKnowledgeSourceTypes(String query) {
+        if (query == null || query.isBlank()) {
+            return List.of();
+        }
+        Map<Integer, List<String>> map = ragProperties.getKnowledgeSourceTypeKeywords();
+        if (map == null || map.isEmpty()) {
+            return List.of();
+        }
+        Set<Integer> sourceTypes = new LinkedHashSet<>();
+        for (Map.Entry<Integer, List<String>> entry : map.entrySet()) {
+            if (containsAny(query, entry.getValue())) {
+                sourceTypes.add(entry.getKey());
+            }
+        }
+        return sourceTypes.stream().filter(Objects::nonNull).collect(Collectors.toCollection(ArrayList::new));
     }
 }

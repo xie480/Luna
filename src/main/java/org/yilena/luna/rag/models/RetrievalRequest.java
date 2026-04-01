@@ -17,9 +17,9 @@ public class RetrievalRequest {
     // 当前会话标识（通常使用 JWT jti）
     String sessionId;
 
-    // 会话上下文（当前版本预留）
+    // 会话上下文（role/content 结构）
     @Builder.Default
-    List<String> conversationContext = Collections.emptyList();
+    List<ConversationMessage> conversationContext = Collections.emptyList();
 
     // 允许的路由范围
     @Builder.Default

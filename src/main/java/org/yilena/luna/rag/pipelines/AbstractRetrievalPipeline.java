@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -46,12 +47,13 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
             long timeoutMs
     ) {
         List<RetrievalSource> targetSources = sources == null || sources.isEmpty() ? RetrievalSource.all() : sources;
+        Map<RetrievalSource, Integer> effectiveTopK = normalizeTopKConfig(topKConfig, targetSources);
         long budgetMs = timeoutMs > 0 ? timeoutMs : resolveTimeoutMs(request);
         long deadline = System.currentTimeMillis() + budgetMs;
 
         Map<RetrievalSource, CompletableFuture<List<Evidence>>> retrievalFutures = new EnumMap<>(RetrievalSource.class);
         for (RetrievalSource source : targetSources) {
-            int topK = Math.max(1, topKConfig.getOrDefault(source, 3));
+            int topK = effectiveTopK.getOrDefault(source, 3);
             retrievalFutures.put(source, CompletableFuture.supplyAsync(() -> retrieveSingleSource(source, queryObject, topK)));
         }
 
@@ -66,6 +68,7 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
         }
 
         Map<RetrievalSource, List<Evidence>> processedBySource = new EnumMap<>(RetrievalSource.class);
+        Map<RetrievalSource, Integer> rawCountBySource = new EnumMap<>(RetrievalSource.class);
         List<RetrievalSource> timedOutSources = new ArrayList<>();
         for (RetrievalSource source : targetSources) {
             CompletableFuture<List<Evidence>> future = retrievalFutures.get(source);
@@ -79,7 +82,8 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
                 }
                 sourceEvidences = List.of();
             }
-            int topK = Math.max(1, topKConfig.getOrDefault(source, 3));
+            rawCountBySource.put(source, sourceEvidences.size());
+            int topK = effectiveTopK.getOrDefault(source, 3);
             sourceEvidences = processSourceEvidence(queryObject, source, sourceEvidences, topK, rerank, compress);
             processedBySource.put(source, sourceEvidences);
         }
@@ -88,7 +92,7 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
         EvidenceFusionService.FusionResult fusionResult = evidenceFusionService.fuse(
                 queryObject.getRewrittenQuery(),
                 processedBySource,
-                topKConfig,
+                effectiveTopK,
                 targetSources,
                 preferMidModel
         );
@@ -96,6 +100,28 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
         Map<String, Object> meta = new HashMap<>(fusionResult.meta());
         meta.put("timed_out_sources", timedOutSources.stream().map(RetrievalSource::value).toList());
         meta.put("timeout_ms", budgetMs);
+        if (isDebugEnabled(request)) {
+            Map<String, Integer> rawCounts = new LinkedHashMap<>();
+            Map<String, Integer> processedCounts = new LinkedHashMap<>();
+            Map<String, Integer> topKPerSource = new LinkedHashMap<>();
+            for (RetrievalSource source : targetSources) {
+                String key = source.value();
+                rawCounts.put(key, rawCountBySource.getOrDefault(source, 0));
+                processedCounts.put(key, processedBySource.getOrDefault(source, List.of()).size());
+                topKPerSource.put(key, effectiveTopK.getOrDefault(source, 3));
+            }
+            meta.put("debug", Map.of(
+                    "pipeline", getClass().getSimpleName(),
+                    "query", queryObject.getRewrittenQuery(),
+                    "target_sources", targetSources.stream().map(RetrievalSource::value).toList(),
+                    "top_k_per_source", topKPerSource,
+                    "requested_top_k_total", sumTopK(effectiveTopK, targetSources),
+                    "raw_counts_by_source", rawCounts,
+                    "processed_counts_by_source", processedCounts,
+                    "rerank_enabled", rerank,
+                    "compress_enabled", compress
+            ));
+        }
         return new SourceRetrieveOutcome(fusionResult.grouped(), timedOutSources, fusionResult.hitSources(), meta);
     }
 
@@ -172,6 +198,12 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
     }
 
     protected RetrievalRequest withTimeout(RetrievalRequest request, long timeoutMs) {
+        if (request == null) {
+            return RetrievalRequest.builder()
+                    .query("")
+                    .options(RetrievalOptions.builder().maxLatencyMs(Math.max(100, timeoutMs)).build())
+                    .build();
+        }
         long bounded = Math.max(100, timeoutMs);
         return RetrievalRequest.builder()
                 .query(request.getQuery())
@@ -184,6 +216,39 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
                         .maxLatencyMs(bounded)
                         .build())
                 .build();
+    }
+
+    protected boolean isDebugEnabled(RetrievalRequest request) {
+        return request != null && request.getOptions() != null && request.getOptions().isDebug();
+    }
+
+    protected Map<RetrievalSource, Integer> normalizeTopKConfig(
+            Map<RetrievalSource, Integer> topKConfig,
+            List<RetrievalSource> targetSources
+    ) {
+        Map<RetrievalSource, Integer> normalized = new EnumMap<>(RetrievalSource.class);
+        for (RetrievalSource source : targetSources) {
+            int topK = 3;
+            if (topKConfig != null) {
+                Integer configured = topKConfig.get(source);
+                if (configured != null && configured > 0) {
+                    topK = configured;
+                }
+            }
+            normalized.put(source, topK);
+        }
+        return normalized;
+    }
+
+    protected int sumTopK(Map<RetrievalSource, Integer> topKConfig, List<RetrievalSource> sources) {
+        if (sources == null || sources.isEmpty()) {
+            return 0;
+        }
+        int sum = 0;
+        for (RetrievalSource source : sources) {
+            sum += Math.max(1, topKConfig.getOrDefault(source, 3));
+        }
+        return sum;
     }
 
     protected EvidenceFusionService getEvidenceFusionService() {
@@ -219,6 +284,17 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
             grouped.put(source, new ArrayList<>());
         }
         return grouped;
+    }
+
+    protected Map<RetrievalSource, List<Evidence>> ensureAllEvidenceBuckets(
+            Map<RetrievalSource, List<Evidence>> grouped
+    ) {
+        Map<RetrievalSource, List<Evidence>> complete = new EnumMap<>(RetrievalSource.class);
+        Map<RetrievalSource, List<Evidence>> safeGrouped = grouped == null ? Map.of() : grouped;
+        for (RetrievalSource source : RetrievalSource.values()) {
+            complete.put(source, safeGrouped.getOrDefault(source, List.of()));
+        }
+        return complete;
     }
 
     protected long totalEvidenceCount(Map<RetrievalSource, List<Evidence>> grouped) {

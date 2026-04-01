@@ -10,10 +10,12 @@ import org.yilena.luna.rag.models.RetrievalSource;
 import org.yilena.luna.rag.models.RoutePlan;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
-/** Route selector with model hint first and heuristic fallback. */
 @Component
 @RequiredArgsConstructor
 public class RouteSelector {
@@ -24,45 +26,73 @@ public class RouteSelector {
         List<RetrievalRoute> allowedRoutes = request.getAllowedRoutes() == null || request.getAllowedRoutes().isEmpty()
                 ? RetrievalRoute.all()
                 : request.getAllowedRoutes();
-
-        RetrievalRoute route = selectRoute(queryObject, request, allowedRoutes);
-        List<RetrievalSource> sources = request.getSourceScope() == null || request.getSourceScope().isEmpty()
+        List<RetrievalSource> scopedSources = request.getSourceScope() == null || request.getSourceScope().isEmpty()
                 ? RetrievalSource.all()
                 : new ArrayList<>(request.getSourceScope());
+
+        List<RetrievalSource> inferredSources = inferSources(queryObject, scopedSources);
+        RetrievalRoute route = selectRoute(queryObject, allowedRoutes, inferredSources.size());
+
         return RoutePlan.builder()
                 .route(route)
-                .sources(sources)
+                .sources(inferredSources)
                 .queryType(queryObject.getQueryType())
-                .needsRewrite(route == RetrievalRoute.MODULAR || route == RetrievalRoute.AGENTIC)
+                .needsRewrite(shouldRewrite(queryObject, route))
                 .needsRerank(true)
                 .topKConfig(topKByRoute(route))
                 .build();
     }
 
-    private RetrievalRoute selectRoute(QueryObject queryObject, RetrievalRequest request, List<RetrievalRoute> allowedRoutes) {
-        String query = queryObject.getNormalizedQuery();
+    private RetrievalRoute selectRoute(QueryObject queryObject, List<RetrievalRoute> allowedRoutes, int inferredSourceCount) {
         RetrievalRoute hintedRoute = resolveHintedRoute(queryObject, allowedRoutes);
         if (hintedRoute != null) {
             return hintedRoute;
         }
 
-        int sourceCount = request.getSourceScope() == null || request.getSourceScope().isEmpty()
-                ? 3
-                : request.getSourceScope().size();
+        String query = queryObject.getNormalizedQuery();
+        List<RagProperties.RetrievalRouteRule> configuredPriority = ragProperties.getRoutePriority();
+        List<RagProperties.RetrievalRouteRule> effectivePriority =
+                configuredPriority == null || configuredPriority.isEmpty()
+                        ? List.of(
+                        RagProperties.RetrievalRouteRule.SEARCH,
+                        RagProperties.RetrievalRouteRule.NATIVE,
+                        RagProperties.RetrievalRouteRule.MODULAR,
+                        RagProperties.RetrievalRouteRule.AGENTIC
+                )
+                        : configuredPriority;
 
-        if (containsAny(query, ragProperties.getPreciseKeywords()) && allowedRoutes.contains(RetrievalRoute.SEARCH)) {
-            return RetrievalRoute.SEARCH;
+        for (RagProperties.RetrievalRouteRule rule : effectivePriority) {
+            RetrievalRoute route = toRoute(rule);
+            if (!allowedRoutes.contains(route)) {
+                continue;
+            }
+            if (matchRouteRule(rule, query, inferredSourceCount)) {
+                return route;
+            }
         }
-        if (containsAny(query, ragProperties.getAnalysisKeywords()) && allowedRoutes.contains(RetrievalRoute.AGENTIC)) {
-            return RetrievalRoute.AGENTIC;
-        }
-        if (sourceCount == 1 && allowedRoutes.contains(RetrievalRoute.NATIVE)) {
-            return RetrievalRoute.NATIVE;
-        }
+
         if (allowedRoutes.contains(RetrievalRoute.MODULAR)) {
             return RetrievalRoute.MODULAR;
         }
         return allowedRoutes.get(0);
+    }
+
+    private boolean matchRouteRule(RagProperties.RetrievalRouteRule rule, String query, int inferredSourceCount) {
+        return switch (rule) {
+            case SEARCH -> containsAny(query, ragProperties.getPreciseKeywords());
+            case AGENTIC -> containsAny(query, ragProperties.getAnalysisKeywords());
+            case NATIVE -> inferredSourceCount <= 1;
+            case MODULAR -> true;
+        };
+    }
+
+    private RetrievalRoute toRoute(RagProperties.RetrievalRouteRule rule) {
+        return switch (rule) {
+            case SEARCH -> RetrievalRoute.SEARCH;
+            case NATIVE -> RetrievalRoute.NATIVE;
+            case MODULAR -> RetrievalRoute.MODULAR;
+            case AGENTIC -> RetrievalRoute.AGENTIC;
+        };
     }
 
     private RetrievalRoute resolveHintedRoute(QueryObject queryObject, List<RetrievalRoute> allowedRoutes) {
@@ -78,7 +108,62 @@ public class RouteSelector {
                 .orElse(null);
     }
 
-    private Map<org.yilena.luna.rag.models.RetrievalSource, Integer> topKByRoute(RetrievalRoute route) {
+    private boolean shouldRewrite(QueryObject queryObject, RetrievalRoute route) {
+        if (route != RetrievalRoute.MODULAR && route != RetrievalRoute.AGENTIC) {
+            return false;
+        }
+        String queryType = queryObject.getQueryType() == null ? "" : queryObject.getQueryType();
+        if ("analysis_reasoning".equals(queryType) || "multi_source_reasoning".equals(queryType)) {
+            return true;
+        }
+        if (queryObject.getPossibleFilters() != null
+                && Boolean.TRUE.equals(queryObject.getPossibleFilters().get("coref_resolved"))) {
+            return true;
+        }
+        return containsAny(queryObject.getNormalizedQuery(), ragProperties.getRewriteKeywords());
+    }
+
+    private List<RetrievalSource> inferSources(QueryObject queryObject, List<RetrievalSource> scopedSources) {
+        if (queryObject.getPossibleFilters() != null) {
+            Object raw = queryObject.getPossibleFilters().get("inferred_sources");
+            if (raw instanceof List<?> items) {
+                List<RetrievalSource> parsed = items.stream()
+                        .map(String::valueOf)
+                        .map(RetrievalSource::fromValue)
+                        .filter(java.util.Optional::isPresent)
+                        .map(java.util.Optional::get)
+                        .filter(scopedSources::contains)
+                        .distinct()
+                        .toList();
+                if (!parsed.isEmpty()) {
+                    return parsed;
+                }
+            }
+        }
+
+        String query = queryObject.getNormalizedQuery() == null ? "" : queryObject.getNormalizedQuery();
+        Set<RetrievalSource> inferred = new LinkedHashSet<>();
+        for (Map.Entry<RetrievalSource, List<String>> entry : ragProperties.sourceKeywordMap().entrySet()) {
+            if (containsAny(query, entry.getValue())) {
+                inferred.add(entry.getKey());
+            }
+        }
+
+        if (containsAny(query, ragProperties.getMultiSourceKeywords())) {
+            inferred.addAll(scopedSources);
+        }
+
+        List<RetrievalSource> routed = inferred.stream().filter(scopedSources::contains).collect(Collectors.toList());
+        if (!routed.isEmpty()) {
+            return routed;
+        }
+        if (scopedSources.contains(RetrievalSource.KNOWLEDGE)) {
+            return List.of(RetrievalSource.KNOWLEDGE);
+        }
+        return List.of(scopedSources.get(0));
+    }
+
+    private Map<RetrievalSource, Integer> topKByRoute(RetrievalRoute route) {
         return switch (route) {
             case SEARCH -> ragProperties.getSearchTopK();
             case NATIVE -> ragProperties.getNativeTopK();

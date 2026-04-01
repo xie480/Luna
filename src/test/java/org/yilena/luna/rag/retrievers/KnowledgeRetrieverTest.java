@@ -15,6 +15,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
@@ -57,10 +58,10 @@ class KnowledgeRetrieverTest {
                 .ftsScore(0.5)
                 .build();
 
-        when(adapter.searchKnowledgeByExact(anyString(), anyInt())).thenReturn(List.of(exact));
-        when(adapter.searchKnowledgeByFts(anyString(), anyInt())).thenReturn(List.of(exact, second));
-        when(adapter.searchKnowledgeByKeyword(anyString(), anyInt())).thenReturn(List.of());
-        when(adapter.searchKnowledgeByVector(anyString(), anyInt())).thenReturn(List.of(vector, second));
+        when(adapter.searchKnowledgeByExact(anyString(), anyInt(), anyList())).thenReturn(List.of(exact));
+        when(adapter.searchKnowledgeByFts(anyString(), anyInt(), anyList())).thenReturn(List.of(exact, second));
+        when(adapter.searchKnowledgeByKeyword(anyString(), anyInt(), anyList())).thenReturn(List.of());
+        when(adapter.searchKnowledgeByVector(anyString(), anyInt(), anyList())).thenReturn(List.of(vector, second));
 
         QueryObject queryObject = QueryObject.builder()
                 .originalQuery("上次那条知识")
@@ -74,8 +75,8 @@ class KnowledgeRetrieverTest {
 
         assertEquals(2, result.size());
         Set<String> ids = result.stream().map(Evidence::getId).collect(java.util.stream.Collectors.toSet());
-        assertTrue(ids.contains("knowledge_chunk:1"));
-        verify(adapter, atLeastOnce()).searchKnowledgeByExact(anyString(), anyInt());
-        verify(adapter, atLeastOnce()).searchKnowledgeByFts(anyString(), anyInt());
+        assertTrue(ids.contains("knowledge:1"));
+        verify(adapter, atLeastOnce()).searchKnowledgeByExact(anyString(), anyInt(), anyList());
+        verify(adapter, atLeastOnce()).searchKnowledgeByFts(anyString(), anyInt(), anyList());
     }
 }

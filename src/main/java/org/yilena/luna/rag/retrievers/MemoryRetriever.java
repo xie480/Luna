@@ -213,6 +213,12 @@ public class MemoryRetriever implements BaseRetriever {
 
     private double typeScore(String memoryType, List<String> queryTags) {
         String normalized = memoryType == null ? "" : memoryType.toUpperCase();
+        if (normalized.contains("DECISION")) {
+            return 1.0D;
+        }
+        if (normalized.contains("SUCCESS") || normalized.contains("FAILURE") || normalized.contains("PARTIAL")) {
+            return 0.8D;
+        }
         boolean reflective = queryTags != null && queryTags.stream().anyMatch(tag ->
                 "analysis_reasoning".equals(tag) || "needs_recency".equals(tag));
         if (reflective) {

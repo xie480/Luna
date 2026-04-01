@@ -65,7 +65,7 @@ public class SearchPipeline extends AbstractRetrievalPipeline {
         return RetrievalResponse.builder()
                 .route(route())
                 .rewrittenQuery(queryObject.getRewrittenQuery())
-                .evidences(outcome.grouped())
+                .evidences(ensureAllEvidenceBuckets(outcome.grouped()))
                 .meta(meta)
                 .build();
     }

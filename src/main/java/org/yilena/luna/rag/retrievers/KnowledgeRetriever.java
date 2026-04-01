@@ -17,6 +17,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /** 知识库检索器，负责知识库向量召回并转换为标准 Evidence。 */
 @Component
@@ -35,20 +36,21 @@ public class KnowledgeRetriever implements BaseRetriever {
         String query = effectiveQuery(queryObject);
         String vector = toVector(queryObject.getEmbedding());
         boolean exactFirst = isExactFirst(queryObject, filters);
+        List<Integer> sourceTypes = parseSourceTypes(filters);
         List<KnowledgeChunkRecord> candidates = new ArrayList<>();
 
         if (exactFirst) {
-            candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchKnowledgeByExact(query, topK)));
-            candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchKnowledgeByFts(query, topK)));
-            candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchKnowledgeByKeyword(query, topK)));
+            candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchKnowledgeByExact(query, topK, sourceTypes)));
+            candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchKnowledgeByFts(query, topK, sourceTypes)));
+            candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchKnowledgeByKeyword(query, topK, sourceTypes)));
             if (candidates.size() < topK && vector != null) {
-                candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchKnowledgeByVector(vector, Math.max(topK, topK * 2))));
+                candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchKnowledgeByVector(vector, Math.max(topK, topK * 2), sourceTypes)));
             }
         } else {
             if (vector != null) {
-                candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchKnowledgeByVector(vector, Math.max(topK, topK * 2))));
+                candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchKnowledgeByVector(vector, Math.max(topK, topK * 2), sourceTypes)));
             }
-            candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchKnowledgeByFts(query, topK)));
+            candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchKnowledgeByFts(query, topK, sourceTypes)));
         }
 
         if (candidates.isEmpty()) {
@@ -88,7 +90,7 @@ public class KnowledgeRetriever implements BaseRetriever {
         metadata.put("recency_score", recencyScore);
         metadata.put("source_prior", sourcePrior);
         return Evidence.builder()
-                .id("knowledge_chunk:" + (kb.getChunkId() != null ? kb.getChunkId() : kb.getId()))
+                .id("knowledge:" + (kb.getChunkId() != null ? kb.getChunkId() : kb.getId()))
                 .source(RetrievalSource.KNOWLEDGE)
                 .type("knowledge")
                 .title(kb.getTitle())
@@ -121,6 +123,42 @@ public class KnowledgeRetriever implements BaseRetriever {
             return null;
         }
         return "[" + embedding.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElse("") + "]";
+    }
+
+    private List<Integer> parseSourceTypes(Map<String, Object> filters) {
+        if (filters == null) {
+            return List.of();
+        }
+        Object raw = filters.get("knowledge_source_types");
+        if (raw == null) {
+            return List.of();
+        }
+        if (raw instanceof List<?> values) {
+            return values.stream()
+                    .map(String::valueOf)
+                    .map(this::toInteger)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .toList();
+        }
+        if (raw instanceof String text) {
+            return Set.of(text.split(",")).stream()
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .map(this::toInteger)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .toList();
+        }
+        return List.of();
+    }
+
+    private Integer toInteger(String value) {
+        try {
+            return Integer.parseInt(value);
+        } catch (Exception ignore) {
+            return null;
+        }
     }
 
     private double recencyScore(LocalDateTime updatedAt) {

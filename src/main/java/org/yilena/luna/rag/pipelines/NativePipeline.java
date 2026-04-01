@@ -19,7 +19,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Native 检索流水线，基于查询特征选择主数据源执行单源召回。 */
 @Component
 public class NativePipeline extends AbstractRetrievalPipeline {
 
@@ -58,23 +57,59 @@ public class NativePipeline extends AbstractRetrievalPipeline {
         return RetrievalResponse.builder()
                 .route(route())
                 .rewrittenQuery(queryObject.getRewrittenQuery())
-                .evidences(outcome.grouped())
+                .evidences(ensureAllEvidenceBuckets(outcome.grouped()))
                 .meta(meta)
                 .build();
     }
 
     private RetrievalSource detectPrimarySource(QueryObject queryObject, RetrievalRequest request) {
         List<RetrievalSource> scoped = resolveSources(request);
-        String query = queryObject.getNormalizedQuery();
-        if (query.contains("偏好") && scoped.contains(RetrievalSource.PREFERENCE)) {
-            return RetrievalSource.PREFERENCE;
+
+        List<RetrievalSource> inferred = inferredSources(queryObject, scoped);
+        List<RetrievalSource> priority = getRagProperties().getNativePrimarySourcePriority();
+        if (priority != null && !priority.isEmpty()) {
+            for (RetrievalSource source : priority) {
+                if (scoped.contains(source) && inferred.contains(source)) {
+                    return source;
+                }
+            }
         }
-        if ((query.contains("记忆") || query.contains("之前") || query.contains("过去")) && scoped.contains(RetrievalSource.MEMORY)) {
-            return RetrievalSource.MEMORY;
+
+        String query = queryObject.getNormalizedQuery() == null ? "" : queryObject.getNormalizedQuery();
+        for (RetrievalSource source : scoped) {
+            if (containsAny(query, getRagProperties().keywordsOf(source))) {
+                return source;
+            }
         }
+
         if (scoped.contains(RetrievalSource.KNOWLEDGE)) {
             return RetrievalSource.KNOWLEDGE;
         }
         return scoped.get(0);
+    }
+
+    private List<RetrievalSource> inferredSources(QueryObject queryObject, List<RetrievalSource> scoped) {
+        if (queryObject.getPossibleFilters() == null) {
+            return List.of();
+        }
+        Object raw = queryObject.getPossibleFilters().get("inferred_sources");
+        if (!(raw instanceof List<?> items)) {
+            return List.of();
+        }
+        return items.stream()
+                .map(String::valueOf)
+                .map(RetrievalSource::fromValue)
+                .filter(java.util.Optional::isPresent)
+                .map(java.util.Optional::get)
+                .filter(scoped::contains)
+                .distinct()
+                .toList();
+    }
+
+    private boolean containsAny(String query, List<String> keywords) {
+        if (query == null || query.isBlank() || keywords == null || keywords.isEmpty()) {
+            return false;
+        }
+        return keywords.stream().anyMatch(query::contains);
     }
 }
