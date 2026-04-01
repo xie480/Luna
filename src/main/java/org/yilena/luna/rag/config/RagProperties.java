@@ -1,13 +1,18 @@
 package org.yilena.luna.rag.config;
 
 import lombok.Data;
+import jakarta.annotation.PostConstruct;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.rag.models.RetrievalSource;
 
+import java.text.Normalizer;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Data
 @Component
@@ -92,6 +97,20 @@ public class RagProperties {
     private int compressionSummarySentences = 2;
     private int compressionMergeSimilarityChars = 80;
 
+    @PostConstruct
+    public void sanitizeConfiguredKeywords() {
+        preciseKeywords = sanitizeList(preciseKeywords);
+        analysisKeywords = sanitizeList(analysisKeywords);
+        rewriteKeywords = sanitizeList(rewriteKeywords);
+        recencyKeywords = sanitizeList(recencyKeywords);
+        referenceKeywords = sanitizeList(referenceKeywords);
+        multiSourceKeywords = sanitizeList(multiSourceKeywords);
+
+        sourceKeywords = sanitizeMapList(sourceKeywords);
+        preferenceKeyAliases = sanitizeStringMap(preferenceKeyAliases);
+        knowledgeSourceTypeKeywords = sanitizeIntegerMapList(knowledgeSourceTypeKeywords);
+    }
+
     public enum RetrievalRouteRule {
         SEARCH,
         NATIVE,
@@ -112,5 +131,76 @@ public class RagProperties {
             mapped.put(source, keywordsOf(source));
         }
         return mapped;
+    }
+
+    private List<String> sanitizeList(List<String> input) {
+        if (input == null || input.isEmpty()) {
+            return List.of();
+        }
+        return input.stream()
+                .map(this::sanitizeKeyword)
+                .filter(s -> !s.isBlank())
+                .distinct()
+                .toList();
+    }
+
+    private Map<String, List<String>> sanitizeMapList(Map<String, List<String>> input) {
+        if (input == null || input.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, List<String>> sanitized = new LinkedHashMap<>();
+        for (Map.Entry<String, List<String>> entry : input.entrySet()) {
+            String key = sanitizeKeyword(entry.getKey());
+            if (key.isBlank()) {
+                continue;
+            }
+            List<String> values = sanitizeList(entry.getValue());
+            if (!values.isEmpty()) {
+                sanitized.put(key, values);
+            }
+        }
+        return sanitized;
+    }
+
+    private Map<String, String> sanitizeStringMap(Map<String, String> input) {
+        if (input == null || input.isEmpty()) {
+            return Map.of();
+        }
+        return input.entrySet().stream()
+                .map(entry -> Map.entry(sanitizeKeyword(entry.getKey()), sanitizeKeyword(entry.getValue())))
+                .filter(entry -> !entry.getKey().isBlank() && !entry.getValue().isBlank())
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (a, b) -> a, LinkedHashMap::new));
+    }
+
+    private Map<Integer, List<String>> sanitizeIntegerMapList(Map<Integer, List<String>> input) {
+        if (input == null || input.isEmpty()) {
+            return Map.of();
+        }
+        Map<Integer, List<String>> sanitized = new LinkedHashMap<>();
+        for (Map.Entry<Integer, List<String>> entry : input.entrySet()) {
+            if (entry.getKey() == null) {
+                continue;
+            }
+            List<String> values = sanitizeList(entry.getValue());
+            if (!values.isEmpty()) {
+                sanitized.put(entry.getKey(), values);
+            }
+        }
+        return sanitized;
+    }
+
+    private String sanitizeKeyword(String input) {
+        if (input == null) {
+            return "";
+        }
+        String normalized = Normalizer.normalize(input, Normalizer.Form.NFKC)
+                .replace("\uFEFF", "")
+                .replace("\uFFFD", "")
+                .replaceAll("\\p{Cntrl}", "")
+                .trim();
+        if (normalized.isEmpty()) {
+            return "";
+        }
+        return Objects.equals(normalized, "�") ? "" : normalized;
     }
 }

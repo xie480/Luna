@@ -60,6 +60,7 @@ class KnowledgeRetrieverTest {
 
         when(adapter.searchKnowledgeByExact(anyString(), anyInt(), anyList())).thenReturn(List.of(exact));
         when(adapter.searchKnowledgeByFts(anyString(), anyInt(), anyList())).thenReturn(List.of(exact, second));
+        when(adapter.searchKnowledgeByTrigram(anyString(), anyInt(), anyList())).thenReturn(List.of(second));
         when(adapter.searchKnowledgeByKeyword(anyString(), anyInt(), anyList())).thenReturn(List.of());
         when(adapter.searchKnowledgeByVector(anyString(), anyInt(), anyList())).thenReturn(List.of(vector, second));
 
@@ -78,5 +79,6 @@ class KnowledgeRetrieverTest {
         assertTrue(ids.contains("knowledge:1"));
         verify(adapter, atLeastOnce()).searchKnowledgeByExact(anyString(), anyInt(), anyList());
         verify(adapter, atLeastOnce()).searchKnowledgeByFts(anyString(), anyInt(), anyList());
+        verify(adapter, atLeastOnce()).searchKnowledgeByTrigram(anyString(), anyInt(), anyList());
     }
 }

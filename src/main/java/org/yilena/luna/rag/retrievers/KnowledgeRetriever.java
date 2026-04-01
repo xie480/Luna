@@ -43,6 +43,7 @@ public class KnowledgeRetriever implements BaseRetriever {
         if (exactFirst) {
             candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchKnowledgeByExact(query, topK, sourceTypes)));
             candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchKnowledgeByFts(query, topK, sourceTypes)));
+            candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchKnowledgeByTrigram(query, topK, sourceTypes)));
             candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchKnowledgeByKeyword(query, topK, sourceTypes)));
             if (candidates.size() < topK && vector != null) {
                 candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchKnowledgeByVector(vector, Math.max(topK, topK * 2), sourceTypes)));
@@ -52,6 +53,10 @@ public class KnowledgeRetriever implements BaseRetriever {
                 candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchKnowledgeByVector(vector, Math.max(topK, topK * 2), sourceTypes)));
             }
             candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchKnowledgeByFts(query, topK, sourceTypes)));
+            if (candidates.size() < topK) {
+                candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchKnowledgeByTrigram(query, topK, sourceTypes)));
+                candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchKnowledgeByKeyword(query, topK, sourceTypes)));
+            }
         }
 
         if (candidates.isEmpty()) {

@@ -242,6 +242,59 @@ public interface KnowledgeBaseMapper {
                                                            @Param("sourceTypes") List<Integer> sourceTypes);
 
     @Select("""
+            <script>
+            select
+                kb.id as id,
+                kb.id as chunk_id,
+                1 as chunk_order,
+                kb.title as title,
+                kb.content as content,
+                case
+                    when upper(coalesce(cast(kb.source_type as varchar), '')) = 'FILE' then 'FILE'
+                    when upper(coalesce(cast(kb.source_type as varchar), '')) = 'WEB_SEARCH' then 'WEB_SEARCH'
+                    when upper(coalesce(cast(kb.source_type as varchar), '')) = 'MANUAL_INPUT' then 'MANUAL_INPUT'
+                    when coalesce(cast(kb.source_type as varchar), '') = '0' then 'FILE'
+                    when coalesce(cast(kb.source_type as varchar), '') = '1' then 'WEB_SEARCH'
+                    when coalesce(cast(kb.source_type as varchar), '') = '2' then 'MANUAL_INPUT'
+                    else null
+                end as source_type,
+                kb.source_path as source_path,
+                kb.embedding as embedding,
+                kb.created_at as created_at,
+                kb.updated_at as updated_at,
+                greatest(
+                    similarity(coalesce(kb.title, ''), coalesce(#{query}, '')),
+                    similarity(coalesce(kb.content, ''), coalesce(#{query}, ''))
+                ) as fts_score
+            from knowledge_base kb
+            where #{query} is not null and #{query} != ''
+              and (
+                coalesce(kb.title, '') % #{query}
+                or coalesce(kb.content, '') % #{query}
+              )
+            <if test="sourceTypes != null and sourceTypes.size() > 0">
+              and (
+                case
+                    when upper(coalesce(cast(kb.source_type as varchar), '')) = 'FILE' then 0
+                    when upper(coalesce(cast(kb.source_type as varchar), '')) = 'WEB_SEARCH' then 1
+                    when upper(coalesce(cast(kb.source_type as varchar), '')) = 'MANUAL_INPUT' then 2
+                    when coalesce(cast(kb.source_type as varchar), '') ~ '^[0-9]+$' then cast(cast(kb.source_type as varchar) as integer)
+                    else null
+                end
+              ) in
+              <foreach collection="sourceTypes" item="sourceType" open="(" separator="," close=")">
+                #{sourceType}
+              </foreach>
+            </if>
+            order by fts_score desc, kb.updated_at desc
+            limit #{topK}
+            </script>
+            """)
+    List<KnowledgeChunkRecord> searchRagKnowledgeByTrigram(@Param("query") String query,
+                                                           @Param("topK") int topK,
+                                                           @Param("sourceTypes") List<Integer> sourceTypes);
+
+    @Select("""
             select count(1)
             from knowledge_base kb
             where (#{title} is null or #{title} = '' or kb.title ilike concat('%', #{title}, '%'))

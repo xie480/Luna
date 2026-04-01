@@ -10,6 +10,7 @@ import org.yilena.luna.rag.models.RetrievalRequest;
 import org.yilena.luna.rag.models.RetrievalSource;
 import org.yilena.luna.rag.planner.ModelDrivenRagPlanner;
 
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -119,7 +120,11 @@ public class QueryProcessor {
         if (query == null || query.isBlank() || keywords == null || keywords.isEmpty()) {
             return false;
         }
-        return keywords.stream().anyMatch(query::contains);
+        String normalizedQuery = normalizeText(query);
+        return keywords.stream()
+                .map(this::normalizeText)
+                .filter(keyword -> !keyword.isBlank())
+                .anyMatch(normalizedQuery::contains);
     }
 
     private List<Double> parseEmbedding(String rawEmbedding) {
@@ -245,6 +250,16 @@ public class QueryProcessor {
             return value;
         }
         return value.substring(0, maxChars);
+    }
+
+    private String normalizeText(String text) {
+        if (text == null) {
+            return "";
+        }
+        return Normalizer.normalize(text, Normalizer.Form.NFKC)
+                .replace("\uFEFF", "")
+                .replace("\uFFFD", "")
+                .trim();
     }
 
     private List<RetrievalSource> inferSources(String query, List<RetrievalSource> scoped) {

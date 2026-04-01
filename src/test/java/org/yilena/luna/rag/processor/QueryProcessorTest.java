@@ -9,6 +9,7 @@ import org.yilena.luna.rag.models.RetrievalRequest;
 import org.yilena.luna.rag.planner.ModelDrivenRagPlanner;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -67,5 +68,29 @@ class QueryProcessorTest {
                 .build());
 
         assertTrue(queryObject.getRewrittenQuery().startsWith("请执行多源联合检索并对齐证据："));
+    }
+
+    @Test
+    void shouldKeepKeywordMatchStableAfterKeywordSanitization() {
+        EmbeddingProvider embeddingProvider = mock(EmbeddingProvider.class);
+        ModelDrivenRagPlanner planner = mock(ModelDrivenRagPlanner.class);
+        RagProperties properties = new RagProperties();
+        properties.setPreciseKeywords(List.of("有�没有", "有没有"));
+        properties.setSourceKeywords(Map.of("knowledge", List.of("知�识", "知识")));
+        properties.sanitizeConfiguredKeywords();
+        when(embeddingProvider.embedding(anyString())).thenReturn("[0.1]");
+        when(planner.planQuery(anyString(), anyString(), any())).thenReturn(
+                ModelDrivenRagPlanner.QueryPlanDecision.builder()
+                        .queryType(null)
+                        .rewrittenQuery(null)
+                        .complexity("simple")
+                        .build()
+        );
+
+        QueryProcessor processor = new QueryProcessor(embeddingProvider, properties, planner);
+        QueryObject queryObject = processor.process(RetrievalRequest.builder().query("有没有知识").sessionId("s1").build());
+
+        assertEquals("precise_lookup", queryObject.getQueryType());
+        assertTrue(((List<?>) queryObject.getPossibleFilters().get("inferred_sources")).contains("knowledge"));
     }
 }

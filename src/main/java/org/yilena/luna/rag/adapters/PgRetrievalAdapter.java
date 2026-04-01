@@ -34,6 +34,10 @@ public class PgRetrievalAdapter {
         return knowledgeBaseMapper.searchRagKnowledgeByKeyword(query, topK, sourceTypes);
     }
 
+    public List<KnowledgeChunkRecord> searchKnowledgeByTrigram(String query, int topK, List<Integer> sourceTypes) {
+        return knowledgeBaseMapper.searchRagKnowledgeByTrigram(query, topK, sourceTypes);
+    }
+
     public List<Map<String, Object>> searchMemoryByVector(
             String sessionId,
             String queryVector,
