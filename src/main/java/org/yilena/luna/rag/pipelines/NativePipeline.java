@@ -50,6 +50,7 @@ public class NativePipeline extends AbstractRetrievalPipeline {
                 List.of(primary),
                 true,
                 false,
+                false,
                 request,
                 resolveTimeoutMs(request)
         );

@@ -101,7 +101,7 @@ class AgenticPipelineTest {
                         .build()
         );
 
-        assertEquals(org.yilena.luna.rag.models.RetrievalRoute.AGENTIC, response.getRoute());
+        assertEquals(org.yilena.luna.rag.models.RetrievalRoute.MODULAR, response.getRoute());
         assertTrue(Boolean.TRUE.equals(response.getMeta().get("fallback_modular")));
     }
 }

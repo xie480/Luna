@@ -58,6 +58,7 @@ public class SearchPipeline extends AbstractRetrievalPipeline {
                 plan.getSources() == null || plan.getSources().isEmpty() ? resolveSources(request) : new ArrayList<>(plan.getSources()),
                 true,
                 false,
+                false,
                 request,
                 resolveTimeoutMs(request)
         );

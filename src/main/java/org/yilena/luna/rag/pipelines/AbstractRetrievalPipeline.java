@@ -43,6 +43,7 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
             List<RetrievalSource> sources,
             boolean rerank,
             boolean compress,
+            boolean enableCrossSourceFusion,
             RetrievalRequest request,
             long timeoutMs
     ) {
@@ -88,16 +89,32 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
             processedBySource.put(source, sourceEvidences);
         }
 
-        boolean preferMidModel = shouldPreferMidModel(queryObject, processedBySource);
-        EvidenceFusionService.FusionResult fusionResult = evidenceFusionService.fuse(
-                queryObject.getRewrittenQuery(),
-                processedBySource,
-                effectiveTopK,
-                targetSources,
-                preferMidModel
-        );
+        Map<RetrievalSource, List<Evidence>> grouped;
+        List<RetrievalSource> hitSources;
+        Map<String, Object> meta;
+        if (enableCrossSourceFusion) {
+            boolean preferMidModel = shouldPreferMidModel(queryObject, processedBySource);
+            EvidenceFusionService.FusionResult fusionResult = evidenceFusionService.fuse(
+                    queryObject.getRewrittenQuery(),
+                    processedBySource,
+                    effectiveTopK,
+                    targetSources,
+                    preferMidModel
+            );
+            grouped = fusionResult.grouped();
+            hitSources = fusionResult.hitSources();
+            meta = new HashMap<>(fusionResult.meta());
+        } else {
+            grouped = new EnumMap<>(RetrievalSource.class);
+            grouped.putAll(processedBySource);
+            hitSources = targetSources.stream()
+                    .filter(source -> !processedBySource.getOrDefault(source, List.of()).isEmpty())
+                    .toList();
+            meta = new HashMap<>();
+            meta.put("hit_sources", hitSources.stream().map(RetrievalSource::value).toList());
+        }
 
-        Map<String, Object> meta = new HashMap<>(fusionResult.meta());
+        meta.put("cross_source_fusion", enableCrossSourceFusion);
         meta.put("timed_out_sources", timedOutSources.stream().map(RetrievalSource::value).toList());
         meta.put("timeout_ms", budgetMs);
         if (isDebugEnabled(request)) {
@@ -119,10 +136,11 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
                     "raw_counts_by_source", rawCounts,
                     "processed_counts_by_source", processedCounts,
                     "rerank_enabled", rerank,
-                    "compress_enabled", compress
+                    "compress_enabled", compress,
+                    "cross_source_fusion", enableCrossSourceFusion
             ));
         }
-        return new SourceRetrieveOutcome(fusionResult.grouped(), timedOutSources, fusionResult.hitSources(), meta);
+        return new SourceRetrieveOutcome(grouped, timedOutSources, hitSources, meta);
     }
 
     private List<Evidence> retrieveSingleSource(RetrievalSource source, QueryObject queryObject, int topK) {

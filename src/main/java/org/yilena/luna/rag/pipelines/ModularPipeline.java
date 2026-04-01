@@ -54,6 +54,7 @@ public class ModularPipeline extends AbstractRetrievalPipeline {
                 routedSources,
                 true,
                 true,
+                true,
                 request,
                 resolveTimeoutMs(request)
         );

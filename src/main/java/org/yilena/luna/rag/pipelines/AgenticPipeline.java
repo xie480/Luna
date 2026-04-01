@@ -103,6 +103,7 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                     stageSources,
                     true,
                     true,
+                    true,
                     stageRequest,
                     remaining
             );
@@ -148,6 +149,7 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                             missingSources,
                             true,
                             true,
+                            true,
                             withTimeout(request, remainingMs(deadline)),
                             remainingMs(deadline)
                     );
@@ -187,6 +189,7 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                             queryObject,
                             fallbackTopK,
                             sources,
+                            true,
                             true,
                             true,
                             withTimeout(request, remainingMs(deadline)),

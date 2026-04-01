@@ -50,14 +50,15 @@ public class RouteSelector {
         }
 
         String query = queryObject.getNormalizedQuery();
+        String queryType = queryObject.getQueryType();
         List<RagProperties.RetrievalRouteRule> configuredPriority = ragProperties.getRoutePriority();
         List<RagProperties.RetrievalRouteRule> effectivePriority =
                 configuredPriority == null || configuredPriority.isEmpty()
                         ? List.of(
                         RagProperties.RetrievalRouteRule.SEARCH,
+                        RagProperties.RetrievalRouteRule.AGENTIC,
                         RagProperties.RetrievalRouteRule.NATIVE,
-                        RagProperties.RetrievalRouteRule.MODULAR,
-                        RagProperties.RetrievalRouteRule.AGENTIC
+                        RagProperties.RetrievalRouteRule.MODULAR
                 )
                         : configuredPriority;
 
@@ -66,24 +67,39 @@ public class RouteSelector {
             if (!allowedRoutes.contains(route)) {
                 continue;
             }
-            if (matchRouteRule(rule, query, inferredSourceCount)) {
+            if (matchRouteRule(rule, query, queryType, inferredSourceCount)) {
                 return route;
             }
         }
 
+        if (inferredSourceCount <= 1 && allowedRoutes.contains(RetrievalRoute.NATIVE)) {
+            return RetrievalRoute.NATIVE;
+        }
         if (allowedRoutes.contains(RetrievalRoute.MODULAR)) {
             return RetrievalRoute.MODULAR;
         }
         return allowedRoutes.get(0);
     }
 
-    private boolean matchRouteRule(RagProperties.RetrievalRouteRule rule, String query, int inferredSourceCount) {
+    private boolean matchRouteRule(
+            RagProperties.RetrievalRouteRule rule,
+            String query,
+            String queryType,
+            int inferredSourceCount
+    ) {
         return switch (rule) {
             case SEARCH -> containsAny(query, ragProperties.getPreciseKeywords());
-            case AGENTIC -> containsAny(query, ragProperties.getAnalysisKeywords());
+            case AGENTIC -> isAgenticQuery(query, queryType);
             case NATIVE -> inferredSourceCount <= 1;
-            case MODULAR -> true;
+            case MODULAR -> inferredSourceCount > 1;
         };
+    }
+
+    private boolean isAgenticQuery(String query, String queryType) {
+        if ("analysis_reasoning".equalsIgnoreCase(queryType)) {
+            return true;
+        }
+        return containsAny(query, ragProperties.getAnalysisKeywords());
     }
 
     private RetrievalRoute toRoute(RagProperties.RetrievalRouteRule rule) {
