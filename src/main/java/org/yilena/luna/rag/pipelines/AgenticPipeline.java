@@ -16,6 +16,7 @@ import org.yilena.luna.rag.rankers.EvidenceCompressor;
 import org.yilena.luna.rag.rankers.EvidenceDeduplicator;
 import org.yilena.luna.rag.rankers.EvidenceReranker;
 import org.yilena.luna.rag.retrievers.BaseRetriever;
+import org.yilena.luna.rag.support.SemanticTextService;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -29,6 +30,7 @@ import java.util.Set;
 public class AgenticPipeline extends AbstractRetrievalPipeline {
 
     private final EmbeddingProvider embeddingProvider;
+    private final SemanticTextService semanticTextService;
 
     public AgenticPipeline(
             List<BaseRetriever> retrievers,
@@ -38,12 +40,14 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
             RagProperties ragProperties,
             ModelDrivenRagPlanner modelDrivenRagPlanner,
             EvidenceFusionService evidenceFusionService,
-            EmbeddingProvider embeddingProvider
+            EmbeddingProvider embeddingProvider,
+            SemanticTextService semanticTextService
     ) {
         super(retrievers.stream().collect(java.util.stream.Collectors.toMap(BaseRetriever::source, it -> it)),
                 evidenceReranker, evidenceDeduplicator, evidenceCompressor,
                 ragProperties, modelDrivenRagPlanner, evidenceFusionService);
         this.embeddingProvider = embeddingProvider;
+        this.semanticTextService = semanticTextService;
     }
 
     @Override
@@ -73,6 +77,7 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
         int callCount = 0;
         int cumulativeRequestedTopK = 0;
         Map<RetrievalSource, Integer> baseTopK = normalizeTopKConfig(plan.getTopKConfig(), sources);
+        SufficiencyCheck latestSufficiency = SufficiencyCheck.empty();
 
         for (int i = 0; i < stages.size() && i < maxSteps && callCount < maxCalls; i++) {
             long remaining = remainingMs(deadline);
@@ -122,7 +127,13 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
             singleStageMeta.put("timed_out_sources", stageOutcome.timedOutSources().stream().map(RetrievalSource::value).toList());
             stageMeta.add(singleStageMeta);
 
-            evidenceSufficient = isEvidenceSufficient(cumulative, sources);
+            latestSufficiency = evaluateEvidenceSufficiency(
+                    cumulative,
+                    sources,
+                    stageMeta,
+                    queryObject.getRewrittenQuery()
+            );
+            evidenceSufficient = latestSufficiency.sufficient();
             if (evidenceSufficient) {
                 break;
             }
@@ -165,7 +176,13 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                     supplementMeta.put("cumulative_requested_top_k", cumulativeRequestedTopK);
                     supplementMeta.put("timed_out_sources", supplement.timedOutSources().stream().map(RetrievalSource::value).toList());
                     stageMeta.add(supplementMeta);
-                    evidenceSufficient = isEvidenceSufficient(cumulative, sources);
+                    latestSufficiency = evaluateEvidenceSufficiency(
+                            cumulative,
+                            sources,
+                            stageMeta,
+                            queryObject.getRewrittenQuery()
+                    );
+                    evidenceSufficient = latestSufficiency.sufficient();
                     if (evidenceSufficient) {
                         break;
                     }
@@ -227,6 +244,9 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
             fallbackMeta.put("agentic_timeout_reached", timeoutReached);
             fallbackMeta.put("agentic_call_count", callCount);
             fallbackMeta.put("agentic_evidence_sufficient", evidenceSufficient);
+            fallbackMeta.put("agentic_semantic_stage_coverage", latestSufficiency.stageCoverage());
+            fallbackMeta.put("agentic_semantic_query_relevance", latestSufficiency.queryRelevance());
+            fallbackMeta.put("agentic_semantic_sufficient", latestSufficiency.semanticSatisfied());
             fallbackMeta.put("agentic_max_total_top_k", maxTotalTopK);
             fallbackMeta.put("agentic_total_requested_top_k", cumulativeRequestedTopK);
             fallbackMeta.put("fallback_modular", true);
@@ -264,6 +284,9 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
         meta.put("agentic_timeout_reached", timeoutReached);
         meta.put("agentic_call_count", callCount);
         meta.put("agentic_evidence_sufficient", evidenceSufficient);
+        meta.put("agentic_semantic_stage_coverage", latestSufficiency.stageCoverage());
+        meta.put("agentic_semantic_query_relevance", latestSufficiency.queryRelevance());
+        meta.put("agentic_semantic_sufficient", latestSufficiency.semanticSatisfied());
         meta.put("agentic_max_total_top_k", maxTotalTopK);
         meta.put("agentic_total_requested_top_k", cumulativeRequestedTopK);
         meta.put("fallback_modular", false);
@@ -323,18 +346,57 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
         }
     }
 
-    private boolean isEvidenceSufficient(Map<RetrievalSource, List<Evidence>> grouped, List<RetrievalSource> sources) {
+    private SufficiencyCheck evaluateEvidenceSufficiency(
+            Map<RetrievalSource, List<Evidence>> grouped,
+            List<RetrievalSource> sources,
+            List<Map<String, Object>> stageMeta,
+            String rewrittenQuery
+    ) {
         int minimumEvidence = Math.max(1, getRagProperties().getAgenticMinEvidence());
         long total = totalEvidenceCount(grouped);
         if (total < minimumEvidence) {
-            return false;
+            return SufficiencyCheck.insufficient();
         }
         for (RetrievalSource source : sources) {
             if (grouped.getOrDefault(source, List.of()).isEmpty()) {
-                return false;
+                return SufficiencyCheck.insufficient();
             }
         }
-        return true;
+
+        List<Evidence> allEvidence = flatten(grouped);
+        List<String> objectives = stageMeta.stream()
+                .map(meta -> String.valueOf(meta.getOrDefault("objective", "")))
+                .filter(v -> v != null && !v.isBlank() && !"dynamic_supplement".equalsIgnoreCase(v))
+                .distinct()
+                .toList();
+
+        Map<String, List<Double>> embeddingCache = new HashMap<>();
+        int covered = 0;
+        for (String objective : objectives) {
+            double maxSimilarity = maxSimilarity(objective, allEvidence, embeddingCache);
+            if (maxSimilarity >= getRagProperties().getAgenticSemanticSufficiencyThreshold()) {
+                covered++;
+            }
+        }
+        double stageCoverage = objectives.isEmpty() ? 1.0 : (double) covered / (double) objectives.size();
+        double queryRelevance = maxSimilarity(rewrittenQuery, allEvidence, embeddingCache);
+        boolean semanticSatisfied = stageCoverage >= getRagProperties().getAgenticSemanticStageCoverageRatio()
+                && queryRelevance >= getRagProperties().getAgenticSemanticSufficiencyThreshold();
+        return new SufficiencyCheck(semanticSatisfied, stageCoverage, queryRelevance, semanticSatisfied);
+    }
+
+    private double maxSimilarity(String target, List<Evidence> evidences, Map<String, List<Double>> embeddingCache) {
+        if (target == null || target.isBlank() || evidences == null || evidences.isEmpty()) {
+            return 0.0;
+        }
+        double max = 0.0;
+        for (Evidence evidence : evidences) {
+            if (evidence == null || evidence.getContent() == null || evidence.getContent().isBlank()) {
+                continue;
+            }
+            max = Math.max(max, semanticTextService.similarity(target, evidence.getContent(), embeddingCache));
+        }
+        return max;
     }
 
     private List<RetrievalSource> missingSources(Map<RetrievalSource, List<Evidence>> grouped, List<RetrievalSource> sources) {
@@ -379,5 +441,20 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
             reasons.add("insufficient_evidence");
         }
         return String.join(",", reasons);
+    }
+
+    private record SufficiencyCheck(
+            boolean sufficient,
+            double stageCoverage,
+            double queryRelevance,
+            boolean semanticSatisfied
+    ) {
+        private static SufficiencyCheck empty() {
+            return new SufficiencyCheck(false, 0.0, 0.0, false);
+        }
+
+        private static SufficiencyCheck insufficient() {
+            return new SufficiencyCheck(false, 0.0, 0.0, false);
+        }
     }
 }

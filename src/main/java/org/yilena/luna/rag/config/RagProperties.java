@@ -42,6 +42,24 @@ public class RagProperties {
             RetrievalSource.PREFERENCE, 3
     );
 
+    /**
+     * Modular 路由最小召回配额（默认对齐 docs/rag.md 8.3.4）。
+     */
+    private Map<RetrievalSource, Integer> modularMinTopK = Map.of(
+            RetrievalSource.KNOWLEDGE, 5,
+            RetrievalSource.MEMORY, 4,
+            RetrievalSource.PREFERENCE, 2
+    );
+
+    /**
+     * Modular 路由最大召回配额（默认对齐 docs/rag.md 8.3.4）。
+     */
+    private Map<RetrievalSource, Integer> modularMaxTopK = Map.of(
+            RetrievalSource.KNOWLEDGE, 8,
+            RetrievalSource.MEMORY, 6,
+            RetrievalSource.PREFERENCE, 3
+    );
+
     private Map<RetrievalSource, Integer> agenticTopK = Map.of(
             RetrievalSource.KNOWLEDGE, 8,
             RetrievalSource.MEMORY, 6,
@@ -59,9 +77,9 @@ public class RagProperties {
 
     private List<RetrievalRouteRule> routePriority = List.of(
             RetrievalRouteRule.SEARCH,
-            RetrievalRouteRule.AGENTIC,
             RetrievalRouteRule.NATIVE,
-            RetrievalRouteRule.MODULAR
+            RetrievalRouteRule.MODULAR,
+            RetrievalRouteRule.AGENTIC
     );
 
     private List<RetrievalSource> nativePrimarySourcePriority = List.of(
@@ -109,6 +127,11 @@ public class RagProperties {
 
     private int compressionSummarySentences = 2;
     private int compressionMergeSimilarityChars = 80;
+    private double dedupSemanticSimilarityThreshold = 0.88;
+    private double dedupSemanticCrossSourceThreshold = 0.92;
+    private double compressionSemanticMergeThreshold = 0.86;
+    private double agenticSemanticSufficiencyThreshold = 0.70;
+    private double agenticSemanticStageCoverageRatio = 0.70;
 
     private String analysisRewriteTemplate = DEFAULT_ANALYSIS_REWRITE_TEMPLATE;
     private String multiSourceRewriteTemplate = DEFAULT_MULTI_SOURCE_REWRITE_TEMPLATE;

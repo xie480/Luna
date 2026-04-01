@@ -4,18 +4,21 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.rag.config.RagProperties;
 import org.yilena.luna.rag.models.Evidence;
+import org.yilena.luna.rag.support.SemanticTextService;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Evidence compressor with configurable max chars. */
+/** Evidence compressor with semantic merge and extractive summarization. */
 @Component
 @RequiredArgsConstructor
 public class EvidenceCompressor {
 
     private final RagProperties ragProperties;
+    private final SemanticTextService semanticTextService;
 
     public List<Evidence> compress(List<Evidence> evidences) {
         return compress(evidences, ragProperties.getCompressionMaxChars());
@@ -32,33 +35,58 @@ public class EvidenceCompressor {
         if (evidences == null || evidences.isEmpty()) {
             return List.of();
         }
-        Map<String, Evidence> merged = new HashMap<>();
-        int threshold = Math.max(32, ragProperties.getCompressionMergeSimilarityChars());
+        List<Evidence> merged = new ArrayList<>();
+        Map<String, List<Double>> embeddingCache = new HashMap<>();
         for (Evidence evidence : evidences) {
-            String key = normalizeKey(evidence.getContent(), threshold);
-            Evidence existing = merged.get(key);
-            if (existing == null) {
-                merged.put(key, evidence);
+            int matched = -1;
+            double bestSimilarity = 0.0;
+            for (int i = 0; i < merged.size(); i++) {
+                Evidence existing = merged.get(i);
+                double similarity = semanticTextService.similarity(
+                        existing.getContent(),
+                        evidence.getContent(),
+                        embeddingCache
+                );
+                if (similarity >= ragProperties.getCompressionSemanticMergeThreshold()) {
+                    matched = i;
+                    bestSimilarity = similarity;
+                    break;
+                }
+            }
+            if (matched < 0) {
+                merged.add(evidence);
                 continue;
             }
+            Evidence existing = merged.get(matched);
             String mergedContent = mergeContent(existing.getContent(), evidence.getContent());
-            Map<String, Object> metadata = new HashMap<>(existing.getMetadata());
+            Map<String, Object> metadata = existing.getMetadata() == null
+                    ? new HashMap<>()
+                    : new HashMap<>(existing.getMetadata());
             metadata.put("merged", true);
+            metadata.put("semantic_merge_similarity", bestSimilarity);
             metadata.put("merged_count", ((Number) metadata.getOrDefault("merged_count", 1)).intValue() + 1);
-            merged.put(key, existing.toBuilder().content(mergedContent).metadata(metadata).build());
+            List<String> mergedIds = toStringList(metadata.get("merged_evidence_ids"));
+            mergedIds.add(evidence.getId());
+            metadata.put("merged_evidence_ids", mergedIds);
+            merged.set(matched, existing.toBuilder()
+                    .content(mergedContent)
+                    .metadata(Collections.unmodifiableMap(metadata))
+                    .build());
         }
-        return new ArrayList<>(merged.values());
+        return merged;
     }
 
-    private String normalizeKey(String content, int threshold) {
-        if (content == null) {
-            return "";
+    private List<String> toStringList(Object raw) {
+        if (raw instanceof List<?> list) {
+            List<String> values = new ArrayList<>();
+            for (Object item : list) {
+                if (item != null) {
+                    values.add(String.valueOf(item));
+                }
+            }
+            return values;
         }
-        String normalized = content.replaceAll("\\s+", " ").trim().toLowerCase();
-        if (normalized.length() <= threshold) {
-            return normalized;
-        }
-        return normalized.substring(0, threshold);
+        return new ArrayList<>();
     }
 
     private String mergeContent(String left, String right) {
@@ -81,33 +109,25 @@ public class EvidenceCompressor {
         if (content == null || content.length() <= maxChars) {
             return content;
         }
-        String summarized = summarize(content, ragProperties.getCompressionSummarySentences());
+        String summarized = summarize(content, ragProperties.getCompressionSummarySentences(), maxChars);
         if (summarized.length() <= maxChars) {
             return summarized;
         }
         return truncate(summarized, maxChars);
     }
 
-    private String summarize(String content, int sentenceCount) {
+    private String summarize(String content, int sentenceCount, int maxChars) {
         int keep = Math.max(1, sentenceCount);
-        String[] parts = content.split("(?<=[。！？!?\\.])");
-        StringBuilder builder = new StringBuilder();
-        int added = 0;
-        for (String part : parts) {
-            String trimmed = part == null ? "" : part.trim();
-            if (trimmed.isEmpty()) {
-                continue;
-            }
-            if (builder.length() > 0) {
-                builder.append(' ');
-            }
-            builder.append(trimmed);
-            added++;
-            if (added >= keep) {
-                break;
-            }
+        Map<String, List<Double>> embeddingCache = new HashMap<>();
+        String semanticSummary = semanticTextService.summarizeBySemantic(content, keep, maxChars, embeddingCache);
+        if (semanticSummary != null && !semanticSummary.isBlank()) {
+            return semanticSummary;
         }
-        return builder.isEmpty() ? content : builder.toString();
+        List<String> fallback = semanticTextService.splitSentences(content).stream().limit(keep).toList();
+        if (fallback.isEmpty()) {
+            return content;
+        }
+        return String.join(" ", fallback);
     }
 
     private String truncate(String content, int maxChars) {

@@ -11,6 +11,7 @@ import org.yilena.luna.rag.models.RoutePlan;
 
 import java.text.Normalizer;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +21,9 @@ import java.util.stream.Collectors;
 @Component
 @RequiredArgsConstructor
 public class RouteSelector {
+
+    private static final long LOW_LATENCY_BUDGET_MS = 1600;
+    private static final long HIGH_LATENCY_BUDGET_MS = 3200;
 
     private final RagProperties ragProperties;
 
@@ -40,7 +44,7 @@ public class RouteSelector {
                 .queryType(queryObject.getQueryType())
                 .needsRewrite(shouldRewrite(queryObject, route))
                 .needsRerank(shouldRerank(queryObject))
-                .topKConfig(topKByRoute(route))
+                .topKConfig(topKByRoute(route, queryObject, request, inferredSources))
                 .build();
     }
 
@@ -52,9 +56,9 @@ public class RouteSelector {
                 configuredPriority == null || configuredPriority.isEmpty()
                         ? List.of(
                         RagProperties.RetrievalRouteRule.SEARCH,
-                        RagProperties.RetrievalRouteRule.AGENTIC,
                         RagProperties.RetrievalRouteRule.NATIVE,
-                        RagProperties.RetrievalRouteRule.MODULAR
+                        RagProperties.RetrievalRouteRule.MODULAR,
+                        RagProperties.RetrievalRouteRule.AGENTIC
                 )
                         : configuredPriority;
 
@@ -197,13 +201,191 @@ public class RouteSelector {
         return List.of(scopedSources.get(0));
     }
 
-    private Map<RetrievalSource, Integer> topKByRoute(RetrievalRoute route) {
+    private Map<RetrievalSource, Integer> topKByRoute(
+            RetrievalRoute route,
+            QueryObject queryObject,
+            RetrievalRequest request,
+            List<RetrievalSource> inferredSources
+    ) {
         return switch (route) {
             case SEARCH -> ragProperties.getSearchTopK();
             case NATIVE -> ragProperties.getNativeTopK();
-            case MODULAR -> ragProperties.getModularTopK();
+            case MODULAR -> resolveDynamicModularTopK(queryObject, request, inferredSources);
             case AGENTIC -> ragProperties.getAgenticTopK();
         };
+    }
+
+    /**
+     * docs/rag.md 8.3.4: modular top-k 在区间内动态分配。
+     */
+    private Map<RetrievalSource, Integer> resolveDynamicModularTopK(
+            QueryObject queryObject,
+            RetrievalRequest request,
+            List<RetrievalSource> inferredSources
+    ) {
+        Map<RetrievalSource, Integer> min = normalizeTopKMap(
+                ragProperties.getModularMinTopK(),
+                Map.of(
+                        RetrievalSource.KNOWLEDGE, 5,
+                        RetrievalSource.MEMORY, 4,
+                        RetrievalSource.PREFERENCE, 2
+                )
+        );
+        Map<RetrievalSource, Integer> max = normalizeTopKMap(ragProperties.getModularMaxTopK(), ragProperties.getModularTopK());
+        for (RetrievalSource source : RetrievalSource.values()) {
+            if (max.get(source) < min.get(source)) {
+                max.put(source, min.get(source));
+            }
+        }
+
+        Map<RetrievalSource, Integer> dynamic = new EnumMap<>(RetrievalSource.class);
+        for (RetrievalSource source : RetrievalSource.values()) {
+            dynamic.put(source, min.get(source));
+        }
+
+        int minTotal = sumTopK(min);
+        int maxTotal = sumTopK(max);
+        int extraBudget = Math.max(0, maxTotal - minTotal);
+        if (extraBudget == 0) {
+            return dynamic;
+        }
+
+        double budgetFactor = latencyBudgetFactor(request);
+        double complexityBoost = complexityBoost(queryObject);
+        double demandFactor = clamp(budgetFactor + complexityBoost, 0.0, 1.0);
+        int targetTotal = minTotal + (int) Math.round(extraBudget * demandFactor);
+        int toAllocate = Math.max(0, targetTotal - minTotal);
+        if (toAllocate == 0) {
+            return dynamic;
+        }
+
+        Map<RetrievalSource, Double> weights = dynamicWeights(queryObject, inferredSources);
+        while (toAllocate > 0) {
+            RetrievalSource candidate = pickCandidateSource(weights, dynamic, max);
+            if (candidate == null) {
+                break;
+            }
+            dynamic.put(candidate, dynamic.get(candidate) + 1);
+            toAllocate--;
+        }
+
+        return dynamic;
+    }
+
+    private Map<RetrievalSource, Integer> normalizeTopKMap(
+            Map<RetrievalSource, Integer> configured,
+            Map<RetrievalSource, Integer> fallback
+    ) {
+        Map<RetrievalSource, Integer> normalized = new EnumMap<>(RetrievalSource.class);
+        for (RetrievalSource source : RetrievalSource.values()) {
+            Integer configuredValue = configured == null ? null : configured.get(source);
+            Integer fallbackValue = fallback == null ? null : fallback.get(source);
+            int value = configuredValue != null ? configuredValue : (fallbackValue != null ? fallbackValue : 3);
+            normalized.put(source, Math.max(1, value));
+        }
+        return normalized;
+    }
+
+    private int sumTopK(Map<RetrievalSource, Integer> topK) {
+        int sum = 0;
+        for (RetrievalSource source : RetrievalSource.values()) {
+            sum += Math.max(1, topK.getOrDefault(source, 1));
+        }
+        return sum;
+    }
+
+    private double latencyBudgetFactor(RetrievalRequest request) {
+        long maxLatencyMs = ragProperties.getDefaultTimeoutMs();
+        if (request != null && request.getOptions() != null) {
+            maxLatencyMs = request.getOptions().getMaxLatencyMs();
+        }
+        if (maxLatencyMs <= LOW_LATENCY_BUDGET_MS) {
+            return 0.0;
+        }
+        if (maxLatencyMs >= HIGH_LATENCY_BUDGET_MS) {
+            return 1.0;
+        }
+        return (double) (maxLatencyMs - LOW_LATENCY_BUDGET_MS) / (HIGH_LATENCY_BUDGET_MS - LOW_LATENCY_BUDGET_MS);
+    }
+
+    private double complexityBoost(QueryObject queryObject) {
+        String queryType = queryObject.getQueryType() == null ? "" : queryObject.getQueryType();
+        if ("analysis_reasoning".equalsIgnoreCase(queryType)) {
+            return 0.30;
+        }
+        if ("multi_source_reasoning".equalsIgnoreCase(queryType)) {
+            return 0.20;
+        }
+
+        if (containsAny(queryObject.getNormalizedQuery(), ragProperties.getAnalysisKeywords())) {
+            return 0.20;
+        }
+        if (containsAny(queryObject.getNormalizedQuery(), ragProperties.getRecencyKeywords())) {
+            return 0.10;
+        }
+        return 0.0;
+    }
+
+    private Map<RetrievalSource, Double> dynamicWeights(QueryObject queryObject, List<RetrievalSource> inferredSources) {
+        Map<RetrievalSource, Double> weights = new EnumMap<>(RetrievalSource.class);
+        weights.put(RetrievalSource.KNOWLEDGE, 0.50);
+        weights.put(RetrievalSource.MEMORY, 0.35);
+        weights.put(RetrievalSource.PREFERENCE, 0.15);
+
+        if (inferredSources != null && !inferredSources.isEmpty()) {
+            double bonus = 0.18;
+            for (RetrievalSource source : inferredSources) {
+                weights.put(source, weights.getOrDefault(source, 0.0) + bonus);
+            }
+        }
+
+        List<String> tags = queryObject.getQueryTags() == null ? List.of() : queryObject.getQueryTags();
+        if (tags.contains("memory_lookup")) {
+            weights.put(RetrievalSource.MEMORY, weights.get(RetrievalSource.MEMORY) + 0.25);
+        }
+        if (tags.contains("preference_lookup")) {
+            weights.put(RetrievalSource.PREFERENCE, weights.get(RetrievalSource.PREFERENCE) + 0.25);
+        }
+        if (tags.contains("needs_recency") || containsAny(queryObject.getNormalizedQuery(), ragProperties.getRecencyKeywords())) {
+            weights.put(RetrievalSource.MEMORY, weights.get(RetrievalSource.MEMORY) + 0.20);
+        }
+
+        String queryType = queryObject.getQueryType() == null ? "" : queryObject.getQueryType();
+        if ("analysis_reasoning".equalsIgnoreCase(queryType)) {
+            weights.put(RetrievalSource.KNOWLEDGE, weights.get(RetrievalSource.KNOWLEDGE) + 0.20);
+            weights.put(RetrievalSource.MEMORY, weights.get(RetrievalSource.MEMORY) + 0.20);
+        }
+
+        return weights;
+    }
+
+    private RetrievalSource pickCandidateSource(
+            Map<RetrievalSource, Double> weights,
+            Map<RetrievalSource, Integer> current,
+            Map<RetrievalSource, Integer> max
+    ) {
+        RetrievalSource best = null;
+        double bestScore = Double.NEGATIVE_INFINITY;
+        for (RetrievalSource source : RetrievalSource.values()) {
+            int cur = current.getOrDefault(source, 0);
+            int cap = max.getOrDefault(source, cur);
+            if (cur >= cap) {
+                continue;
+            }
+            double normalizedWeight = weights.getOrDefault(source, 0.0) / (cur + 1.0);
+            if (normalizedWeight > bestScore) {
+                bestScore = normalizedWeight;
+                best = source;
+            }
+        }
+        return best;
+    }
+
+    private double clamp(double value, double min, double max) {
+        if (value < min) {
+            return min;
+        }
+        return Math.min(value, max);
     }
 
     private boolean containsAny(String query, List<String> keywords) {

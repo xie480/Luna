@@ -1,36 +1,116 @@
 package org.yilena.luna.rag.rankers;
 
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import org.yilena.luna.rag.config.RagProperties;
 import org.yilena.luna.rag.models.Evidence;
 import org.yilena.luna.rag.models.RetrievalSource;
+import org.yilena.luna.rag.support.SemanticTextService;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/** 证据去重器，按来源与归一化内容消除重复证据。 */
+/** Evidence deduplicator supporting exact and semantic deduplication. */
 @Component
+@RequiredArgsConstructor
 public class EvidenceDeduplicator {
+
+    private final RagProperties ragProperties;
+    private final SemanticTextService semanticTextService;
 
     public List<Evidence> deduplicate(List<Evidence> evidences) {
         if (evidences == null || evidences.isEmpty()) {
             return List.of();
         }
         Set<String> seen = new HashSet<>();
-        List<Evidence> sourceDeduped = new ArrayList<>();
+        List<Evidence> exactDeduped = new ArrayList<>();
         for (Evidence evidence : evidences) {
             String key = evidence.getSource().value() + "::" + normalize(evidence.getContent());
             if (seen.add(key)) {
-                sourceDeduped.add(evidence);
+                exactDeduped.add(evidence);
             }
         }
-        return deduplicatePreferenceConflicts(sourceDeduped);
+        List<Evidence> semanticDeduped = deduplicateBySemanticSimilarity(exactDeduped);
+        return deduplicatePreferenceConflicts(semanticDeduped);
+    }
+
+    private List<Evidence> deduplicateBySemanticSimilarity(List<Evidence> evidences) {
+        if (evidences.size() <= 1) {
+            return evidences;
+        }
+
+        List<Evidence> ranked = evidences.stream()
+                .sorted(Comparator.comparingDouble(Evidence::getScore).reversed())
+                .toList();
+
+        List<Evidence> kept = new ArrayList<>();
+        Map<String, List<Double>> embeddingCache = new HashMap<>();
+
+        for (Evidence candidate : ranked) {
+            int duplicateOf = -1;
+            double bestSimilarity = 0.0;
+            for (int i = 0; i < kept.size(); i++) {
+                Evidence winner = kept.get(i);
+                double similarity = semanticTextService.similarity(
+                        winner.getContent(),
+                        candidate.getContent(),
+                        embeddingCache
+                );
+                double threshold = winner.getSource() == candidate.getSource()
+                        ? ragProperties.getDedupSemanticSimilarityThreshold()
+                        : ragProperties.getDedupSemanticCrossSourceThreshold();
+                if (similarity >= threshold) {
+                    duplicateOf = i;
+                    bestSimilarity = similarity;
+                    break;
+                }
+            }
+
+            if (duplicateOf < 0) {
+                kept.add(candidate);
+                continue;
+            }
+
+            Evidence winner = kept.get(duplicateOf);
+            Map<String, Object> metadata = winner.getMetadata() == null
+                    ? new HashMap<>()
+                    : new HashMap<>(winner.getMetadata());
+            metadata.put("semantic_deduplicated", true);
+            metadata.put("semantic_dedup_similarity", bestSimilarity);
+            metadata.put("semantic_dedup_count", ((Number) metadata.getOrDefault("semantic_dedup_count", 1)).intValue() + 1);
+            List<String> mergedIds = toStringList(metadata.get("semantic_dedup_merged_ids"));
+            mergedIds.add(candidate.getId());
+            metadata.put("semantic_dedup_merged_ids", mergedIds);
+
+            Set<String> mergedSources = new LinkedHashSet<>(toStringList(metadata.get("semantic_dedup_merged_sources")));
+            mergedSources.add(winner.getSource().value());
+            mergedSources.add(candidate.getSource().value());
+            metadata.put("semantic_dedup_merged_sources", new ArrayList<>(mergedSources));
+
+            kept.set(duplicateOf, winner.toBuilder().metadata(Collections.unmodifiableMap(metadata)).build());
+        }
+        return kept;
+    }
+
+    private List<String> toStringList(Object raw) {
+        if (raw instanceof List<?> list) {
+            List<String> values = new ArrayList<>();
+            for (Object item : list) {
+                if (item != null) {
+                    values.add(String.valueOf(item));
+                }
+            }
+            return values;
+        }
+        return new ArrayList<>();
     }
 
     private List<Evidence> deduplicatePreferenceConflicts(List<Evidence> evidences) {

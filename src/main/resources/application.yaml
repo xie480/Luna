@@ -168,8 +168,13 @@ luna:
     compression-max-chars: 500
     compression-summary-sentences: 2
     compression-merge-similarity-chars: 80
+    dedup-semantic-similarity-threshold: 0.88
+    dedup-semantic-cross-source-threshold: 0.92
+    compression-semantic-merge-threshold: 0.86
     agentic-max-steps: 4
     agentic-max-calls: 6
     agentic-max-total-top-k: 24
     agentic-min-evidence: 4
+    agentic-semantic-sufficiency-threshold: 0.7
+    agentic-semantic-stage-coverage-ratio: 0.7
 
