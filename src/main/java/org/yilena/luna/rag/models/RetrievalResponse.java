@@ -22,6 +22,10 @@ public class RetrievalResponse {
     @Builder.Default
     Map<RetrievalSource, List<Evidence>> evidences = Collections.emptyMap();
 
+    // 按 role 分组的证据（Modular/Agentic 场景更常用）
+    @Builder.Default
+    Map<EvidenceRole, List<Evidence>> evidenceRoleGroups = Collections.emptyMap();
+
     // 元信息（耗时、queryType、sourcesUsed 等）
     @Builder.Default
     Map<String, Object> meta = Collections.emptyMap();

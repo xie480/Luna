@@ -2,8 +2,9 @@ package org.yilena.luna.rag.retrievers;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import org.yilena.luna.mapper.RagMemoryMapper;
+import org.yilena.luna.rag.adapters.PgRetrievalAdapter;
 import org.yilena.luna.rag.models.Evidence;
+import org.yilena.luna.rag.models.EvidenceRole;
 import org.yilena.luna.rag.models.QueryObject;
 import org.yilena.luna.rag.models.RetrievalSource;
 
@@ -20,7 +21,7 @@ import java.time.LocalDateTime;
 @RequiredArgsConstructor
 public class MemoryRetriever implements BaseRetriever {
 
-    private final RagMemoryMapper ragMemoryMapper;
+    private final PgRetrievalAdapter pgRetrievalAdapter;
 
     @Override
     public RetrievalSource source() {
@@ -39,28 +40,29 @@ public class MemoryRetriever implements BaseRetriever {
         LocalDateTime startTime = resolveStartTime(filters, endTime);
         String vector = toVector(queryObject.getEmbedding());
         String keyword = effectiveQuery(queryObject);
+        TypeScoreProfile profile = resolveTypeScoreProfile(filters, queryObject.getQueryTags());
 
         List<Map<String, Object>> candidates = new ArrayList<>();
         boolean exactFirst = queryObject.getQueryTags() != null && queryObject.getQueryTags().contains("exact_match_first");
         if (exactFirst) {
-            candidates.addAll(safeCall(() -> ragMemoryMapper.selectMemoryByKeyword(
+            candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchMemoryByKeyword(
                     sessionId, keyword, memoryTypes, startTime, endTime, topK
             )));
             if (vector != null) {
-                candidates.addAll(safeCall(() -> ragMemoryMapper.selectMemoryByVector(
+                candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchMemoryByVector(
                         sessionId, vector, memoryTypes, startTime, endTime, Math.max(topK, topK * 2)
                 )));
             }
         } else {
             if (vector != null) {
-                candidates.addAll(safeCall(() -> ragMemoryMapper.selectMemoryByVector(
+                candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchMemoryByVector(
                         sessionId, vector, memoryTypes, startTime, endTime, Math.max(topK, topK * 2)
                 )));
             }
             if (candidates.size() < topK) {
-                candidates.addAll(safeCall(() -> ragMemoryMapper.selectMemoryByKeyword(
-                        sessionId, keyword, memoryTypes, startTime, endTime, topK
-                )));
+                candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchMemoryByKeyword(
+                    sessionId, keyword, memoryTypes, startTime, endTime, topK
+            )));
             }
         }
 
@@ -76,9 +78,9 @@ public class MemoryRetriever implements BaseRetriever {
             }
             ScoredMemory current = merged.get(id);
             if (current == null) {
-                merged.put(id, new ScoredMemory(row, queryObject.getQueryTags()));
+                merged.put(id, new ScoredMemory(row, profile));
             } else {
-                current.merge(row, queryObject.getQueryTags());
+                current.merge(row);
             }
         }
         return merged.values().stream()
@@ -171,6 +173,7 @@ public class MemoryRetriever implements BaseRetriever {
                 .id("memory:" + str(row.get("id")))
                 .source(RetrievalSource.MEMORY)
                 .type("memory")
+                .role(resolveEvidenceRole(str(row.get("memory_type"))))
                 .title(null)
                 .content(str(row.get("content")))
                 .score(finalScore)
@@ -211,29 +214,85 @@ public class MemoryRetriever implements BaseRetriever {
         return 1.0D / (1.0D + (days / 30.0D));
     }
 
-    private double typeScore(String memoryType, List<String> queryTags) {
+    private double typeScore(String memoryType, TypeScoreProfile profile) {
         String normalized = memoryType == null ? "" : memoryType.toUpperCase();
+        return switch (profile) {
+            case REFLECTIVE -> reflectiveTypeScore(normalized);
+            case ADVICE -> adviceTypeScore(normalized);
+            case GENERAL -> generalTypeScore(normalized);
+        };
+    }
+
+    private double reflectiveTypeScore(String normalized) {
+        if (normalized.contains("SUMMARY") || normalized.contains("REFLECTION") || "2".equals(normalized) || "3".equals(normalized)) {
+            return 1.0D;
+        }
+        if (normalized.contains("FACT") || "0".equals(normalized)) {
+            return 0.78D;
+        }
+        if (normalized.contains("DECISION")) {
+            return 0.72D;
+        }
+        return 0.58D;
+    }
+
+    private double adviceTypeScore(String normalized) {
         if (normalized.contains("DECISION")) {
             return 1.0D;
         }
-        if (normalized.contains("SUCCESS") || normalized.contains("FAILURE") || normalized.contains("PARTIAL")) {
-            return 0.8D;
-        }
-        boolean reflective = queryTags != null && queryTags.stream().anyMatch(tag ->
-                "analysis_reasoning".equals(tag) || "needs_recency".equals(tag));
-        if (reflective) {
-            if (normalized.contains("SUMMARY") || normalized.contains("REFLECTION") || "2".equals(normalized) || "3".equals(normalized)) {
-                return 1.0D;
-            }
-            if (normalized.contains("FACT") || "0".equals(normalized)) {
-                return 0.75D;
-            }
-            return 0.55D;
-        }
         if (normalized.contains("FACT") || normalized.contains("PREFERENCE") || "0".equals(normalized) || "1".equals(normalized)) {
-            return 1.0D;
+            return 0.92D;
         }
-        return 0.65D;
+        if (normalized.contains("SUCCESS") || normalized.contains("FAILURE") || normalized.contains("PARTIAL")) {
+            return 0.82D;
+        }
+        return 0.62D;
+    }
+
+    private double generalTypeScore(String normalized) {
+        if (normalized.contains("FACT") || normalized.contains("DECISION") || "0".equals(normalized)) {
+            return 0.88D;
+        }
+        if (normalized.contains("SUMMARY") || normalized.contains("REFLECTION") || "2".equals(normalized) || "3".equals(normalized)) {
+            return 0.82D;
+        }
+        return 0.68D;
+    }
+
+    private TypeScoreProfile resolveTypeScoreProfile(Map<String, Object> filters, List<String> queryTags) {
+        String queryType = filters == null ? "" : str(filters.get("query_type"));
+        if ("analysis_reasoning".equalsIgnoreCase(queryType)) {
+            return TypeScoreProfile.REFLECTIVE;
+        }
+        if ("multi_source_reasoning".equalsIgnoreCase(queryType)) {
+            return TypeScoreProfile.ADVICE;
+        }
+        boolean reflectiveHint = queryTags != null && queryTags.stream().anyMatch(tag ->
+                "analysis_reasoning".equals(tag) || "needs_recency".equals(tag));
+        if (reflectiveHint) {
+            return TypeScoreProfile.REFLECTIVE;
+        }
+        boolean adviceHint = queryTags != null && queryTags.stream().anyMatch(tag ->
+                "preference_lookup".equals(tag) || "memory_lookup".equals(tag));
+        if (adviceHint) {
+            return TypeScoreProfile.ADVICE;
+        }
+        return TypeScoreProfile.GENERAL;
+    }
+
+    private EvidenceRole resolveEvidenceRole(String memoryType) {
+        String normalized = memoryType == null ? "" : memoryType.toUpperCase();
+        if (normalized.contains("DECISION") || normalized.contains("SUCCESS")
+                || normalized.contains("FAILURE") || normalized.contains("PARTIAL")) {
+            return EvidenceRole.STRATEGY;
+        }
+        if (normalized.contains("PREFERENCE") || "1".equals(normalized)) {
+            return EvidenceRole.PREFERENCE;
+        }
+        if (normalized.contains("FACT") || "0".equals(normalized)) {
+            return EvidenceRole.FACT;
+        }
+        return EvidenceRole.EXPERIENCE;
     }
 
     @FunctionalInterface
@@ -243,29 +302,34 @@ public class MemoryRetriever implements BaseRetriever {
 
     private class ScoredMemory {
         private final Map<String, Object> row;
+        private final TypeScoreProfile profile;
         private double vectorScore;
         private double weightScore;
         private double recencyScore;
         private double typeScore;
 
-        private ScoredMemory(Map<String, Object> row, List<String> queryTags) {
+        private ScoredMemory(Map<String, Object> row, TypeScoreProfile profile) {
             this.row = new HashMap<>(row);
+            this.profile = profile;
             this.vectorScore = Math.max(normalize(row.get("vector_score")), normalize(row.get("text_match_score")));
             this.weightScore = Math.max(0.0D, Math.min(1.0D, intVal(row.get("weight"), 1) / 10.0D));
             this.recencyScore = recencyScore(row.get("updated_at"));
-            this.typeScore = typeScore(str(row.get("memory_type")), queryTags);
+            this.typeScore = typeScore(str(row.get("memory_type")), profile);
         }
 
-        private void merge(Map<String, Object> other, List<String> queryTags) {
+        private void merge(Map<String, Object> other) {
             this.vectorScore = Math.max(this.vectorScore, Math.max(normalize(other.get("vector_score")), normalize(other.get("text_match_score"))));
             this.weightScore = Math.max(this.weightScore, Math.max(0.0D, Math.min(1.0D, intVal(other.get("weight"), 1) / 10.0D)));
             this.recencyScore = Math.max(this.recencyScore, recencyScore(other.get("updated_at")));
-            this.typeScore = Math.max(this.typeScore, typeScore(str(other.get("memory_type")), queryTags));
+            this.typeScore = Math.max(this.typeScore, typeScore(str(other.get("memory_type")), profile));
         }
 
         private Evidence toEvidence() {
             double finalScore = 0.55D * vectorScore + 0.20D * weightScore + 0.15D * recencyScore + 0.10D * typeScore;
-            return MemoryRetriever.this.toEvidence(row, finalScore, vectorScore, weightScore, recencyScore, typeScore);
+            Evidence evidence = MemoryRetriever.this.toEvidence(row, finalScore, vectorScore, weightScore, recencyScore, typeScore);
+            Map<String, Object> metadata = new HashMap<>(evidence.getMetadata());
+            metadata.put("type_score_profile", profile.value);
+            return evidence.toBuilder().metadata(metadata).build();
         }
 
         private double normalize(Object rawScore) {
@@ -277,6 +341,18 @@ public class MemoryRetriever implements BaseRetriever {
             } catch (Exception ignore) {
                 return 0.0D;
             }
+        }
+    }
+
+    private enum TypeScoreProfile {
+        ADVICE("advice"),
+        REFLECTIVE("reflective"),
+        GENERAL("general");
+
+        private final String value;
+
+        TypeScoreProfile(String value) {
+            this.value = value;
         }
     }
 }

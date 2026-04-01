@@ -78,6 +78,7 @@ public class RetrievalServiceImpl implements RetrievalService {
                 .route(rawResponse.getRoute())
                 .rewrittenQuery(rawResponse.getRewrittenQuery())
                 .evidences(rawResponse.getEvidences())
+                .evidenceRoleGroups(rawResponse.getEvidenceRoleGroups())
                 .meta(meta)
                 .build();
 
@@ -118,6 +119,7 @@ public class RetrievalServiceImpl implements RetrievalService {
                 .route(route)
                 .rewrittenQuery(rewrittenQuery)
                 .evidences(emptyEvidences)
+                .evidenceRoleGroups(Map.of())
                 .meta(Map.of("latency_ms", latencyMs, "query_type", "none"))
                 .build();
     }

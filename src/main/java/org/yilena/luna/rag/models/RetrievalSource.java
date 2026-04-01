@@ -1,5 +1,8 @@
 package org.yilena.luna.rag.models;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonValue;
+
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
@@ -19,8 +22,21 @@ public enum RetrievalSource {
         this.value = value;
     }
 
+    @JsonValue
     public String value() {
         return value;
+    }
+
+    @JsonCreator(mode = JsonCreator.Mode.DELEGATING)
+    public static RetrievalSource fromJson(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        return Arrays.stream(values())
+                .filter(source -> source.value.equals(normalized) || source.name().equalsIgnoreCase(normalized))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Unknown retrieval source: " + raw));
     }
 
     public static Optional<RetrievalSource> fromValue(String raw) {

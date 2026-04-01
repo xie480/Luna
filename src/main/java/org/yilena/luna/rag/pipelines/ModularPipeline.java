@@ -3,6 +3,8 @@ package org.yilena.luna.rag.pipelines;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.rag.config.RagProperties;
 import org.yilena.luna.rag.fusion.EvidenceFusionService;
+import org.yilena.luna.rag.models.Evidence;
+import org.yilena.luna.rag.models.EvidenceRole;
 import org.yilena.luna.rag.models.QueryObject;
 import org.yilena.luna.rag.models.RetrievalRequest;
 import org.yilena.luna.rag.models.RetrievalResponse;
@@ -59,24 +61,47 @@ public class ModularPipeline extends AbstractRetrievalPipeline {
                 resolveTimeoutMs(request)
         );
         Map<String, Object> meta = new HashMap<>(outcome.meta());
+        Map<RetrievalSource, List<Evidence>> grouped =
+                ensureAllEvidenceBuckets(outcome.grouped());
+        Map<EvidenceRole, List<Evidence>> roleGroups =
+                buildEvidenceRoleGroups(grouped);
         meta.put("source_routing", routedSources.stream().map(RetrievalSource::value).toList());
         meta.put("rewrite_applied", plan.isNeedsRewrite());
+        meta.put("evidence_role_grouping", true);
         return RetrievalResponse.builder()
                 .route(route())
                 .rewrittenQuery(effectiveQuery.getRewrittenQuery())
-                .evidences(ensureAllEvidenceBuckets(outcome.grouped()))
+                .evidences(grouped)
+                .evidenceRoleGroups(roleGroups)
                 .meta(meta)
                 .build();
     }
 
     private QueryObject applyConditionalRewrite(QueryObject queryObject, RoutePlan plan) {
-        if (plan != null && plan.isNeedsRewrite()) {
-            return queryObject;
-        }
-        String fallbackQuery = queryObject.getNormalizedQuery() == null || queryObject.getNormalizedQuery().isBlank()
+        String normalized = queryObject.getNormalizedQuery() == null || queryObject.getNormalizedQuery().isBlank()
                 ? queryObject.getOriginalQuery()
                 : queryObject.getNormalizedQuery();
-        return queryObject.toBuilder().rewrittenQuery(fallbackQuery).build();
+        if (plan != null && plan.isNeedsRewrite()) {
+            String rewritten = queryObject.getRewrittenQuery();
+            if (rewritten != null && !rewritten.isBlank() && !rewritten.equals(normalized)) {
+                return queryObject;
+            }
+            return queryObject.toBuilder()
+                    .rewrittenQuery(synthesizeRewrite(normalized, plan.getQueryType(), queryObject.getQueryType()))
+                    .build();
+        }
+        return queryObject.toBuilder().rewrittenQuery(normalized).build();
+    }
+
+    private String synthesizeRewrite(String normalized, String planQueryType, String queryType) {
+        String effectiveType = planQueryType == null || planQueryType.isBlank() ? queryType : planQueryType;
+        if ("analysis_reasoning".equals(effectiveType)) {
+            return "请围绕问题进行结构化检索与分析：" + normalized;
+        }
+        if ("multi_source_reasoning".equals(effectiveType)) {
+            return "请执行多源联合检索并对齐证据：" + normalized;
+        }
+        return normalized;
     }
 
     private List<RetrievalSource> routeSources(QueryObject queryObject, RoutePlan plan, RetrievalRequest request) {

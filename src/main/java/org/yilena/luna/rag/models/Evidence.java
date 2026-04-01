@@ -19,6 +19,9 @@ public class Evidence {
     RetrievalSource source;
     // 证据类型字符串（knowledge/memory/preference）
     String type;
+    // 证据语义角色（fact/experience/preference/strategy）
+    @Builder.Default
+    EvidenceRole role = EvidenceRole.FACT;
     // 标题（可空）
     String title;
     // 证据文本内容

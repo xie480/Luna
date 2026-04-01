@@ -242,6 +242,7 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                     .route(RetrievalRoute.MODULAR)
                     .rewrittenQuery(queryObject.getRewrittenQuery())
                     .evidences(ensureAllEvidenceBuckets(fallbackGrouped))
+                    .evidenceRoleGroups(buildEvidenceRoleGroups(ensureAllEvidenceBuckets(fallbackGrouped)))
                     .meta(fallbackMeta)
                     .build();
         }
@@ -277,6 +278,7 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                 .route(route())
                 .rewrittenQuery(queryObject.getRewrittenQuery())
                 .evidences(ensureAllEvidenceBuckets(finalFusion.grouped()))
+                .evidenceRoleGroups(buildEvidenceRoleGroups(ensureAllEvidenceBuckets(finalFusion.grouped())))
                 .meta(meta)
                 .build();
     }

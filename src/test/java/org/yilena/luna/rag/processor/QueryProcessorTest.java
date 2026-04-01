@@ -45,4 +45,27 @@ class QueryProcessorTest {
         assertTrue(queryObject.getQueryTags().contains("key_match_priority"));
         assertEquals("response_length", queryObject.getPossibleFilters().get("pref_key"));
     }
+
+    @Test
+    void shouldRewriteForMultiSourceReasoningWhenPlannerRewriteMissing() {
+        EmbeddingProvider embeddingProvider = mock(EmbeddingProvider.class);
+        ModelDrivenRagPlanner planner = mock(ModelDrivenRagPlanner.class);
+        RagProperties properties = new RagProperties();
+        when(embeddingProvider.embedding(anyString())).thenReturn("[0.1, 0.2]");
+        when(planner.planQuery(anyString(), anyString(), any())).thenReturn(
+                ModelDrivenRagPlanner.QueryPlanDecision.builder()
+                        .queryType("multi_source_reasoning")
+                        .rewrittenQuery(null)
+                        .complexity("medium")
+                        .build()
+        );
+
+        QueryProcessor processor = new QueryProcessor(embeddingProvider, properties, planner);
+        QueryObject queryObject = processor.process(RetrievalRequest.builder()
+                .query("结合我的记忆和偏好给建议")
+                .sessionId("s1")
+                .build());
+
+        assertTrue(queryObject.getRewrittenQuery().startsWith("请执行多源联合检索并对齐证据："));
+    }
 }

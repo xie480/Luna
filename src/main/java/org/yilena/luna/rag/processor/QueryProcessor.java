@@ -109,6 +109,9 @@ public class QueryProcessor {
         if ("analysis_reasoning".equals(queryType)) {
             return "请围绕问题进行结构化检索与分析：" + normalized;
         }
+        if ("multi_source_reasoning".equals(queryType)) {
+            return "请执行多源联合检索并对齐证据：" + normalized;
+        }
         return normalized;
     }
 

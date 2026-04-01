@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.yilena.luna.rag.config.RagProperties;
 import org.yilena.luna.rag.fusion.EvidenceFusionService;
 import org.yilena.luna.rag.models.Evidence;
+import org.yilena.luna.rag.models.EvidenceRole;
 import org.yilena.luna.rag.models.QueryObject;
 import org.yilena.luna.rag.models.RetrievalOptions;
 import org.yilena.luna.rag.models.RetrievalRequest;
@@ -313,6 +314,44 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
             complete.put(source, safeGrouped.getOrDefault(source, List.of()));
         }
         return complete;
+    }
+
+    protected Map<EvidenceRole, List<Evidence>> buildEvidenceRoleGroups(
+            Map<RetrievalSource, List<Evidence>> grouped
+    ) {
+        Map<EvidenceRole, List<Evidence>> roleGroups = new EnumMap<>(EvidenceRole.class);
+        for (EvidenceRole role : EvidenceRole.values()) {
+            roleGroups.put(role, new ArrayList<>());
+        }
+        if (grouped == null || grouped.isEmpty()) {
+            return roleGroups;
+        }
+        for (Map.Entry<RetrievalSource, List<Evidence>> entry : grouped.entrySet()) {
+            RetrievalSource source = entry.getKey();
+            List<Evidence> evidences = entry.getValue();
+            if (evidences == null || evidences.isEmpty()) {
+                continue;
+            }
+            for (Evidence evidence : evidences) {
+                if (evidence == null) {
+                    continue;
+                }
+                EvidenceRole role = evidence.getRole() == null ? inferRoleFromSource(source) : evidence.getRole();
+                roleGroups.get(role).add(evidence.toBuilder().role(role).build());
+            }
+        }
+        return roleGroups;
+    }
+
+    private EvidenceRole inferRoleFromSource(RetrievalSource source) {
+        if (source == null) {
+            return EvidenceRole.FACT;
+        }
+        return switch (source) {
+            case KNOWLEDGE -> EvidenceRole.FACT;
+            case MEMORY -> EvidenceRole.EXPERIENCE;
+            case PREFERENCE -> EvidenceRole.PREFERENCE;
+        };
     }
 
     protected long totalEvidenceCount(Map<RetrievalSource, List<Evidence>> grouped) {

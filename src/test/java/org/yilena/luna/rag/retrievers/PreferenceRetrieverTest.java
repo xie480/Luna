@@ -1,7 +1,7 @@
 package org.yilena.luna.rag.retrievers;
 
 import org.junit.jupiter.api.Test;
-import org.yilena.luna.mapper.RagMemoryMapper;
+import org.yilena.luna.rag.adapters.PgRetrievalAdapter;
 import org.yilena.luna.rag.models.Evidence;
 import org.yilena.luna.rag.models.QueryObject;
 
@@ -20,8 +20,8 @@ class PreferenceRetrieverTest {
 
     @Test
     void shouldKeepTopThreeCorePreferences() {
-        RagMemoryMapper mapper = mock(RagMemoryMapper.class);
-        PreferenceRetriever retriever = new PreferenceRetriever(mapper);
+        PgRetrievalAdapter adapter = mock(PgRetrievalAdapter.class);
+        PreferenceRetriever retriever = new PreferenceRetriever(adapter);
 
         List<Map<String, Object>> rows = List.of(
                 row("1", "response_length", "short", 1.0, LocalDateTime.now()),
@@ -29,8 +29,8 @@ class PreferenceRetrieverTest {
                 row("3", "tone", "neutral", 0.6, LocalDateTime.now().minusDays(3)),
                 row("4", "emoji", "none", 0.5, LocalDateTime.now().minusDays(10))
         );
-        when(mapper.selectPreferenceByExactOrTrigram(eq("response_length"), anyString(), anyInt())).thenReturn(rows);
-        when(mapper.selectPreferenceByVector(anyString(), anyInt())).thenReturn(List.of());
+        when(adapter.searchPreferenceByExactOrTrigram(eq("response_length"), anyString(), anyInt())).thenReturn(rows);
+        when(adapter.searchPreferenceByVector(anyString(), anyInt())).thenReturn(List.of());
 
         QueryObject queryObject = QueryObject.builder()
                 .originalQuery("偏好里有没有回答长度设置")

@@ -3,6 +3,7 @@ package org.yilena.luna.rag.pipelines;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.rag.config.RagProperties;
 import org.yilena.luna.rag.fusion.EvidenceFusionService;
+import org.yilena.luna.rag.models.Evidence;
 import org.yilena.luna.rag.models.QueryObject;
 import org.yilena.luna.rag.models.RetrievalRequest;
 import org.yilena.luna.rag.models.RetrievalResponse;
@@ -55,10 +56,13 @@ public class NativePipeline extends AbstractRetrievalPipeline {
                 resolveTimeoutMs(request)
         );
         Map<String, Object> meta = new HashMap<>(outcome.meta());
+        Map<RetrievalSource, List<Evidence>> grouped =
+                ensureAllEvidenceBuckets(outcome.grouped());
         return RetrievalResponse.builder()
                 .route(route())
                 .rewrittenQuery(queryObject.getRewrittenQuery())
-                .evidences(ensureAllEvidenceBuckets(outcome.grouped()))
+                .evidences(grouped)
+                .evidenceRoleGroups(buildEvidenceRoleGroups(grouped))
                 .meta(meta)
                 .build();
     }

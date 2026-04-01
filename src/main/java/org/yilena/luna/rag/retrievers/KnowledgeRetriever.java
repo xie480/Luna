@@ -6,6 +6,7 @@ import org.yilena.luna.entity.KnowledgeChunkRecord;
 import org.yilena.luna.enums.SourceType;
 import org.yilena.luna.rag.adapters.PgRetrievalAdapter;
 import org.yilena.luna.rag.models.Evidence;
+import org.yilena.luna.rag.models.EvidenceRole;
 import org.yilena.luna.rag.models.QueryObject;
 import org.yilena.luna.rag.models.RetrievalSource;
 
@@ -93,6 +94,7 @@ public class KnowledgeRetriever implements BaseRetriever {
                 .id("knowledge:" + (kb.getChunkId() != null ? kb.getChunkId() : kb.getId()))
                 .source(RetrievalSource.KNOWLEDGE)
                 .type("knowledge")
+                .role(EvidenceRole.FACT)
                 .title(kb.getTitle())
                 .content(kb.getContent())
                 .score(finalScore)

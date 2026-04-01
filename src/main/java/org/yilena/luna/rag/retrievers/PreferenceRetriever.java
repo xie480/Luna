@@ -2,8 +2,9 @@ package org.yilena.luna.rag.retrievers;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import org.yilena.luna.mapper.RagMemoryMapper;
+import org.yilena.luna.rag.adapters.PgRetrievalAdapter;
 import org.yilena.luna.rag.models.Evidence;
+import org.yilena.luna.rag.models.EvidenceRole;
 import org.yilena.luna.rag.models.QueryObject;
 import org.yilena.luna.rag.models.RetrievalSource;
 
@@ -20,7 +21,7 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class PreferenceRetriever implements BaseRetriever {
 
-    private final RagMemoryMapper ragMemoryMapper;
+    private final PgRetrievalAdapter pgRetrievalAdapter;
 
     @Override
     public RetrievalSource source() {
@@ -35,9 +36,9 @@ public class PreferenceRetriever implements BaseRetriever {
         int keepTopK = Math.max(1, Math.min(3, topK));
 
         List<Map<String, Object>> candidates = new ArrayList<>();
-        candidates.addAll(safeCall(() -> ragMemoryMapper.selectPreferenceByExactOrTrigram(prefKey, query, keepTopK)));
+        candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchPreferenceByExactOrTrigram(prefKey, query, keepTopK)));
         if (candidates.size() < keepTopK && vector != null) {
-            candidates.addAll(safeCall(() -> ragMemoryMapper.selectPreferenceByVector(vector, Math.max(keepTopK, keepTopK * 2))));
+            candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchPreferenceByVector(vector, Math.max(keepTopK, keepTopK * 2))));
         }
         if (candidates.isEmpty()) {
             return List.of();
@@ -125,6 +126,7 @@ public class PreferenceRetriever implements BaseRetriever {
                 .id("preference:" + str(row.get("id")))
                 .source(RetrievalSource.PREFERENCE)
                 .type("preference")
+                .role(EvidenceRole.PREFERENCE)
                 .title(str(row.get("pref_key")))
                 .content(buildContent(row))
                 .score(finalScore)
