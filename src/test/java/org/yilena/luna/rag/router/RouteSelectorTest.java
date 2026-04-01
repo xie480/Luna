@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RouteSelectorTest {
@@ -33,6 +34,24 @@ class RouteSelectorTest {
         assertEquals(RetrievalRoute.MODULAR, plan.getRoute());
         assertTrue(plan.isNeedsRewrite());
         assertEquals(2, plan.getSources().size());
+    }
+
+    @Test
+    void shouldPreferAgenticWhenAnalysisAndSingleSource() {
+        RouteSelector selector = new RouteSelector(new RagProperties());
+        QueryObject queryObject = QueryObject.builder()
+                .normalizedQuery("帮我分析最近拖延的原因")
+                .queryType("analysis_reasoning")
+                .possibleFilters(Map.of("inferred_sources", List.of("memory")))
+                .build();
+
+        var plan = selector.selectPlan(queryObject, RetrievalRequest.builder()
+                .query("帮我分析最近拖延的原因")
+                .allowedRoutes(RetrievalRoute.all())
+                .sourceScope(RetrievalSource.all())
+                .build());
+
+        assertEquals(RetrievalRoute.AGENTIC, plan.getRoute());
     }
 
     @Test
@@ -74,6 +93,6 @@ class RouteSelectorTest {
                 .sourceScope(RetrievalSource.all())
                 .build());
 
-        assertTrue(!plan.isNeedsRerank());
+        assertFalse(plan.isNeedsRerank());
     }
 }

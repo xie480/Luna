@@ -1,7 +1,7 @@
 package org.yilena.luna.rag.config;
 
-import lombok.Data;
 import jakarta.annotation.PostConstruct;
+import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.rag.models.RetrievalSource;
@@ -11,13 +11,15 @@ import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Data
 @Component
 @ConfigurationProperties(prefix = "luna.rag")
 public class RagProperties {
+
+    private static final String DEFAULT_ANALYSIS_REWRITE_TEMPLATE = "请围绕问题进行结构化检索与分析：%s";
+    private static final String DEFAULT_MULTI_SOURCE_REWRITE_TEMPLATE = "请执行多源联合检索并对齐证据：%s";
 
     private long defaultTimeoutMs = 2500;
     private int compressionMaxChars = 500;
@@ -46,9 +48,8 @@ public class RagProperties {
             RetrievalSource.PREFERENCE, 3
     );
 
-    private List<String> preciseKeywords = List.of("有没有", "哪条", "那个", "上次", "设置", "记录过", "那条");
+    private List<String> preciseKeywords = List.of("有没有", "哪条", "那个", "上次", "设置", "记录过", "某条", "某段记忆");
     private List<String> analysisKeywords = List.of("分析", "比较", "总结", "变化", "原因", "规律", "为什么", "梳理");
-
     private List<String> rewriteKeywords = List.of("结合", "根据", "按我的", "分析", "比较", "总结");
     private List<String> recencyKeywords = List.of("最近", "这段时间", "近期", "上周", "本月");
     private List<String> referenceKeywords = List.of(
@@ -58,9 +59,9 @@ public class RagProperties {
 
     private List<RetrievalRouteRule> routePriority = List.of(
             RetrievalRouteRule.SEARCH,
+            RetrievalRouteRule.AGENTIC,
             RetrievalRouteRule.NATIVE,
-            RetrievalRouteRule.MODULAR,
-            RetrievalRouteRule.AGENTIC
+            RetrievalRouteRule.MODULAR
     );
 
     private List<RetrievalSource> nativePrimarySourcePriority = List.of(
@@ -109,11 +110,8 @@ public class RagProperties {
     private int compressionSummarySentences = 2;
     private int compressionMergeSimilarityChars = 80;
 
-    /**
-     * 检索改写模板。必须包含一个 %s 占位符用于拼接原始 query。
-     */
-    private String analysisRewriteTemplate = "请围绕问题进行结构化检索与分析：%s";
-    private String multiSourceRewriteTemplate = "请执行多源联合检索并对齐证据：%s";
+    private String analysisRewriteTemplate = DEFAULT_ANALYSIS_REWRITE_TEMPLATE;
+    private String multiSourceRewriteTemplate = DEFAULT_MULTI_SOURCE_REWRITE_TEMPLATE;
 
     @PostConstruct
     public void sanitizeConfiguredKeywords() {
@@ -129,8 +127,8 @@ public class RagProperties {
         knowledgeSourceTypeKeywords = sanitizeIntegerMapList(knowledgeSourceTypeKeywords);
         memoryTypeKeywords = sanitizeMapList(memoryTypeKeywords);
 
-        analysisRewriteTemplate = sanitizeRewriteTemplate(analysisRewriteTemplate, "请围绕问题进行结构化检索与分析：%s");
-        multiSourceRewriteTemplate = sanitizeRewriteTemplate(multiSourceRewriteTemplate, "请执行多源联合检索并对齐证据：%s");
+        analysisRewriteTemplate = sanitizeRewriteTemplate(analysisRewriteTemplate, DEFAULT_ANALYSIS_REWRITE_TEMPLATE);
+        multiSourceRewriteTemplate = sanitizeRewriteTemplate(multiSourceRewriteTemplate, DEFAULT_MULTI_SOURCE_REWRITE_TEMPLATE);
     }
 
     public enum RetrievalRouteRule {
@@ -215,15 +213,11 @@ public class RagProperties {
         if (input == null) {
             return "";
         }
-        String normalized = Normalizer.normalize(input, Normalizer.Form.NFKC)
+        return Normalizer.normalize(input, Normalizer.Form.NFKC)
                 .replace("\uFEFF", "")
                 .replace("\uFFFD", "")
                 .replaceAll("\\p{Cntrl}", "")
                 .trim();
-        if (normalized.isEmpty()) {
-            return "";
-        }
-        return Objects.equals(normalized, "�") ? "" : normalized;
     }
 
     private String sanitizeRewriteTemplate(String template, String fallback) {
