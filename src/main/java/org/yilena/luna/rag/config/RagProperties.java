@@ -97,6 +97,12 @@ public class RagProperties {
     private int compressionSummarySentences = 2;
     private int compressionMergeSimilarityChars = 80;
 
+    /**
+     * 检索改写模板。必须包含一个 %s 占位符用于拼接原始 query。
+     */
+    private String analysisRewriteTemplate = "请围绕问题进行结构化检索与分析：%s";
+    private String multiSourceRewriteTemplate = "请执行多源联合检索并对齐证据：%s";
+
     @PostConstruct
     public void sanitizeConfiguredKeywords() {
         preciseKeywords = sanitizeList(preciseKeywords);
@@ -109,6 +115,9 @@ public class RagProperties {
         sourceKeywords = sanitizeMapList(sourceKeywords);
         preferenceKeyAliases = sanitizeStringMap(preferenceKeyAliases);
         knowledgeSourceTypeKeywords = sanitizeIntegerMapList(knowledgeSourceTypeKeywords);
+
+        analysisRewriteTemplate = sanitizeRewriteTemplate(analysisRewriteTemplate, "请围绕问题进行结构化检索与分析：%s");
+        multiSourceRewriteTemplate = sanitizeRewriteTemplate(multiSourceRewriteTemplate, "请执行多源联合检索并对齐证据：%s");
     }
 
     public enum RetrievalRouteRule {
@@ -202,5 +211,24 @@ public class RagProperties {
             return "";
         }
         return Objects.equals(normalized, "�") ? "" : normalized;
+    }
+
+    private String sanitizeRewriteTemplate(String template, String fallback) {
+        String normalized = sanitizeKeyword(template);
+        if (normalized.isBlank() || !normalized.contains("%s")) {
+            return fallback;
+        }
+        return normalized;
+    }
+
+    public String rewriteWithTemplate(String queryType, String normalizedQuery) {
+        String safeQuery = normalizedQuery == null ? "" : normalizedQuery;
+        if ("analysis_reasoning".equalsIgnoreCase(queryType)) {
+            return analysisRewriteTemplate.formatted(safeQuery);
+        }
+        if ("multi_source_reasoning".equalsIgnoreCase(queryType)) {
+            return multiSourceRewriteTemplate.formatted(safeQuery);
+        }
+        return safeQuery;
     }
 }

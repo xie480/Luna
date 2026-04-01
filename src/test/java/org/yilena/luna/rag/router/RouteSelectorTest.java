@@ -34,4 +34,25 @@ class RouteSelectorTest {
         assertTrue(plan.isNeedsRewrite());
         assertEquals(2, plan.getSources().size());
     }
+
+    @Test
+    void shouldNotLetRouteHintOverrideRulePriority() {
+        RouteSelector selector = new RouteSelector(new RagProperties());
+        QueryObject queryObject = QueryObject.builder()
+                .normalizedQuery("有没有那条记录")
+                .queryType("precise_lookup")
+                .possibleFilters(Map.of(
+                        "inferred_sources", List.of("knowledge"),
+                        "route_hint", "agentic"
+                ))
+                .build();
+
+        var plan = selector.selectPlan(queryObject, RetrievalRequest.builder()
+                .query("有没有那条记录")
+                .allowedRoutes(RetrievalRoute.all())
+                .sourceScope(RetrievalSource.all())
+                .build());
+
+        assertEquals(RetrievalRoute.SEARCH, plan.getRoute());
+    }
 }

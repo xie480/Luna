@@ -8,6 +8,7 @@ import org.yilena.luna.rag.models.EvidenceRole;
 import org.yilena.luna.rag.models.QueryObject;
 import org.yilena.luna.rag.models.RetrievalSource;
 
+import java.text.Normalizer;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -86,21 +87,24 @@ public class PreferenceRetriever implements BaseRetriever {
 
     private String resolvePrefKey(QueryObject queryObject, Map<String, Object> filters) {
         if (filters != null && filters.get("pref_key") != null) {
-            String fromFilter = String.valueOf(filters.get("pref_key")).trim();
+            String fromFilter = normalizeText(String.valueOf(filters.get("pref_key")));
             if (!fromFilter.isEmpty()) {
                 return fromFilter;
             }
         }
         if (queryObject.getQueryTags() != null && queryObject.getQueryTags().contains("key_match_priority")) {
-            String text = effectiveQuery(queryObject).toLowerCase();
+            String text = normalizeText(effectiveQuery(queryObject)).toLowerCase();
             if (text.contains("长度")) {
                 return "response_length";
             }
             if (text.contains("风格")) {
                 return "response_style";
             }
-            if (text.contains("语气")) {
+            if (text.contains("语气") || text.contains("口吻")) {
                 return "tone";
+            }
+            if (text.contains("称呼") || text.contains("叫我")) {
+                return "nickname";
             }
         }
         return null;
@@ -142,6 +146,16 @@ public class PreferenceRetriever implements BaseRetriever {
 
     private String str(Object value) {
         return value == null ? "" : String.valueOf(value);
+    }
+
+    private String normalizeText(String text) {
+        if (text == null) {
+            return "";
+        }
+        return Normalizer.normalize(text, Normalizer.Form.NFKC)
+                .replace("\uFEFF", "")
+                .replace("\uFFFD", "")
+                .trim();
     }
 
     private double recencyScore(Object timeObj) {

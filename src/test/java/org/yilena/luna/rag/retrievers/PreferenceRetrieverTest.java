@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -57,5 +58,28 @@ class PreferenceRetrieverTest {
                 "text_match_score", score,
                 "updated_at", time
         );
+    }
+
+    @Test
+    void shouldResolveToneByNormalizedKeyword() {
+        PgRetrievalAdapter adapter = mock(PgRetrievalAdapter.class);
+        PreferenceRetriever retriever = new PreferenceRetriever(adapter);
+
+        when(adapter.searchPreferenceByExactOrTrigram(eq("tone"), anyString(), anyInt())).thenReturn(List.of(
+                row("1", "tone", "neutral", 1.0, LocalDateTime.now())
+        ));
+        when(adapter.searchPreferenceByVector(anyString(), anyInt())).thenReturn(List.of());
+
+        QueryObject queryObject = QueryObject.builder()
+                .originalQuery("按我的口吻回答")
+                .normalizedQuery("按我的口吻回答")
+                .rewrittenQuery("按我的口吻回答")
+                .embedding(List.of(0.2, 0.3))
+                .queryTags(List.of("key_match_priority"))
+                .build();
+
+        List<Evidence> result = retriever.retrieve(queryObject, 3, Map.of());
+        assertEquals(1, result.size());
+        assertTrue("tone".equals(result.get(0).getMetadata().get("pref_key")));
     }
 }

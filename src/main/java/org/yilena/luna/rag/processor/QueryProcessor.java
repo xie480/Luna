@@ -107,13 +107,7 @@ public class QueryProcessor {
     }
 
     private String rewrite(String normalized, String queryType) {
-        if ("analysis_reasoning".equals(queryType)) {
-            return "请围绕问题进行结构化检索与分析：" + normalized;
-        }
-        if ("multi_source_reasoning".equals(queryType)) {
-            return "请执行多源联合检索并对齐证据：" + normalized;
-        }
-        return normalized;
+        return ragProperties.rewriteWithTemplate(queryType, normalizeText(normalized));
     }
 
     private boolean containsAny(String query, List<String> keywords) {
@@ -184,12 +178,14 @@ public class QueryProcessor {
         if (query == null || query.isBlank()) {
             return null;
         }
+        String normalizedQuery = normalizeText(query);
         Map<String, String> keyMap = ragProperties.getPreferenceKeyAliases();
         if (keyMap == null || keyMap.isEmpty()) {
             return null;
         }
         for (Map.Entry<String, String> entry : keyMap.entrySet()) {
-            if (query.contains(entry.getKey())) {
+            String keyAlias = normalizeText(entry.getKey());
+            if (!keyAlias.isBlank() && normalizedQuery.contains(keyAlias)) {
                 return entry.getValue();
             }
         }

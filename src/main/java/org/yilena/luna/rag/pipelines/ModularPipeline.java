@@ -17,6 +17,7 @@ import org.yilena.luna.rag.rankers.EvidenceDeduplicator;
 import org.yilena.luna.rag.rankers.EvidenceReranker;
 import org.yilena.luna.rag.retrievers.BaseRetriever;
 
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -95,13 +96,7 @@ public class ModularPipeline extends AbstractRetrievalPipeline {
 
     private String synthesizeRewrite(String normalized, String planQueryType, String queryType) {
         String effectiveType = planQueryType == null || planQueryType.isBlank() ? queryType : planQueryType;
-        if ("analysis_reasoning".equals(effectiveType)) {
-            return "请围绕问题进行结构化检索与分析：" + normalized;
-        }
-        if ("multi_source_reasoning".equals(effectiveType)) {
-            return "请执行多源联合检索并对齐证据：" + normalized;
-        }
-        return normalized;
+        return getRagProperties().rewriteWithTemplate(effectiveType, normalizeText(normalized));
     }
 
     private List<RetrievalSource> routeSources(QueryObject queryObject, RoutePlan plan, RetrievalRequest request) {
@@ -150,11 +145,23 @@ public class ModularPipeline extends AbstractRetrievalPipeline {
         if (keywords == null || keywords.isEmpty()) {
             return false;
         }
+        String normalizedQuery = normalizeText(query);
         for (String keyword : keywords) {
-            if (query.contains(keyword)) {
+            String normalizedKeyword = normalizeText(keyword);
+            if (!normalizedKeyword.isBlank() && normalizedQuery.contains(normalizedKeyword)) {
                 return true;
             }
         }
         return false;
+    }
+
+    private String normalizeText(String text) {
+        if (text == null) {
+            return "";
+        }
+        return Normalizer.normalize(text, Normalizer.Form.NFKC)
+                .replace("\uFEFF", "")
+                .replace("\uFFFD", "")
+                .trim();
     }
 }

@@ -9,6 +9,7 @@ import org.yilena.luna.rag.models.RetrievalRoute;
 import org.yilena.luna.rag.models.RetrievalSource;
 import org.yilena.luna.rag.models.RoutePlan;
 
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -44,11 +45,6 @@ public class RouteSelector {
     }
 
     private RetrievalRoute selectRoute(QueryObject queryObject, List<RetrievalRoute> allowedRoutes, int inferredSourceCount) {
-        RetrievalRoute hintedRoute = resolveHintedRoute(queryObject, allowedRoutes);
-        if (hintedRoute != null) {
-            return hintedRoute;
-        }
-
         String query = queryObject.getNormalizedQuery();
         String queryType = queryObject.getQueryType();
         List<RagProperties.RetrievalRouteRule> configuredPriority = ragProperties.getRoutePriority();
@@ -70,6 +66,11 @@ public class RouteSelector {
             if (matchRouteRule(rule, query, queryType, inferredSourceCount)) {
                 return route;
             }
+        }
+
+        RetrievalRoute hintedRoute = resolveHintedRoute(queryObject, allowedRoutes);
+        if (hintedRoute != null) {
+            return hintedRoute;
         }
 
         if (inferredSourceCount <= 1 && allowedRoutes.contains(RetrievalRoute.NATIVE)) {
@@ -192,6 +193,20 @@ public class RouteSelector {
         if (query == null || query.isBlank() || keywords == null || keywords.isEmpty()) {
             return false;
         }
-        return keywords.stream().anyMatch(query::contains);
+        String normalizedQuery = normalizeText(query);
+        return keywords.stream()
+                .map(this::normalizeText)
+                .filter(keyword -> !keyword.isBlank())
+                .anyMatch(normalizedQuery::contains);
+    }
+
+    private String normalizeText(String text) {
+        if (text == null) {
+            return "";
+        }
+        return Normalizer.normalize(text, Normalizer.Form.NFKC)
+                .replace("\uFEFF", "")
+                .replace("\uFFFD", "")
+                .trim();
     }
 }

@@ -93,4 +93,26 @@ class QueryProcessorTest {
         assertEquals("precise_lookup", queryObject.getQueryType());
         assertTrue(((List<?>) queryObject.getPossibleFilters().get("inferred_sources")).contains("knowledge"));
     }
+
+    @Test
+    void shouldFallbackToDefaultRewriteTemplateWhenConfiguredTemplateInvalid() {
+        EmbeddingProvider embeddingProvider = mock(EmbeddingProvider.class);
+        ModelDrivenRagPlanner planner = mock(ModelDrivenRagPlanner.class);
+        RagProperties properties = new RagProperties();
+        properties.setAnalysisRewriteTemplate("�");
+        properties.sanitizeConfiguredKeywords();
+        when(embeddingProvider.embedding(anyString())).thenReturn("[0.1]");
+        when(planner.planQuery(anyString(), anyString(), any())).thenReturn(
+                ModelDrivenRagPlanner.QueryPlanDecision.builder()
+                        .queryType("analysis_reasoning")
+                        .rewrittenQuery(null)
+                        .complexity("simple")
+                        .build()
+        );
+
+        QueryProcessor processor = new QueryProcessor(embeddingProvider, properties, planner);
+        QueryObject queryObject = processor.process(RetrievalRequest.builder().query("帮我分析").sessionId("s1").build());
+
+        assertTrue(queryObject.getRewrittenQuery().startsWith("请围绕问题进行结构化检索与分析："));
+    }
 }
