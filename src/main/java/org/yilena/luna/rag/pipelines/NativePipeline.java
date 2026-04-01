@@ -49,7 +49,7 @@ public class NativePipeline extends AbstractRetrievalPipeline {
                 queryObject,
                 plan.getTopKConfig(),
                 List.of(primary),
-                true,
+                plan.isNeedsRerank(),
                 false,
                 false,
                 request,

@@ -39,7 +39,7 @@ public class RouteSelector {
                 .sources(inferredSources)
                 .queryType(queryObject.getQueryType())
                 .needsRewrite(shouldRewrite(queryObject, route))
-                .needsRerank(true)
+                .needsRerank(shouldRerank(queryObject))
                 .topKConfig(topKByRoute(route))
                 .build();
     }
@@ -138,6 +138,23 @@ public class RouteSelector {
             return true;
         }
         return containsAny(queryObject.getNormalizedQuery(), ragProperties.getRewriteKeywords());
+    }
+
+    private boolean shouldRerank(QueryObject queryObject) {
+        if (queryObject.getPossibleFilters() == null) {
+            return true;
+        }
+        Object explicit = queryObject.getPossibleFilters().get("needs_rerank");
+        if (explicit instanceof Boolean bool) {
+            return bool;
+        }
+        if (explicit instanceof String text) {
+            String normalized = text.trim().toLowerCase();
+            if ("true".equals(normalized) || "false".equals(normalized)) {
+                return Boolean.parseBoolean(normalized);
+            }
+        }
+        return true;
     }
 
     private List<RetrievalSource> inferSources(QueryObject queryObject, List<RetrievalSource> scopedSources) {

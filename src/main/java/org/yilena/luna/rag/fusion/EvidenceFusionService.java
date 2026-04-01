@@ -27,6 +27,7 @@ public class EvidenceFusionService {
             Map<RetrievalSource, List<Evidence>> grouped,
             Map<RetrievalSource, Integer> topKConfig,
             List<RetrievalSource> targetSources,
+            boolean allowGlobalRerank,
             boolean preferMidModel
     ) {
         List<RetrievalSource> sources = targetSources == null || targetSources.isEmpty()
@@ -45,10 +46,10 @@ public class EvidenceFusionService {
             return new FusionResult(empty, List.of(), Map.of("global_candidates", 0));
         }
 
-        int before = all.size();
-        List<Evidence> deduplicated = globalDeduplicate(all);
         int globalLimit = resolveGlobalLimit(topKConfig, sources);
-        List<Evidence> ranked = modelDrivenRagPlanner.rerankGlobally(query, deduplicated, globalLimit, preferMidModel);
+        List<Evidence> ranked = allowGlobalRerank
+                ? modelDrivenRagPlanner.rerankGlobally(query, all, globalLimit, preferMidModel)
+                : all.stream().limit(globalLimit).toList();
 
         Map<RetrievalSource, List<Evidence>> redistributed = redistributeBySource(ranked, topKConfig, sources);
         List<RetrievalSource> hitSources = redistributed.entrySet().stream()
@@ -57,14 +58,14 @@ public class EvidenceFusionService {
                 .toList();
 
         Map<String, Object> meta = new HashMap<>();
-        meta.put("global_candidates", before);
-        meta.put("global_after_dedup", deduplicated.size());
-        meta.put("global_dedup_removed", Math.max(0, before - deduplicated.size()));
+        meta.put("global_candidates", all.size());
+        meta.put("global_after_fusion", ranked.size());
+        meta.put("global_rerank_enabled", allowGlobalRerank);
         meta.put("hit_sources", hitSources.stream().map(RetrievalSource::value).toList());
         return new FusionResult(redistributed, hitSources, meta);
     }
 
-    private List<Evidence> globalDeduplicate(List<Evidence> evidences) {
+    public List<Evidence> deduplicateAcrossSources(List<Evidence> evidences) {
         Map<String, Evidence> byKey = new HashMap<>();
         Map<String, Set<String>> fusedSources = new HashMap<>();
         for (Evidence evidence : evidences) {
@@ -87,7 +88,7 @@ public class EvidenceFusionService {
         return result;
     }
 
-    private Map<RetrievalSource, List<Evidence>> redistributeBySource(
+    public Map<RetrievalSource, List<Evidence>> redistributeBySource(
             List<Evidence> ranked,
             Map<RetrievalSource, Integer> topKConfig,
             List<RetrievalSource> sources

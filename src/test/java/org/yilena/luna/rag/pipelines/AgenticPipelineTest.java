@@ -56,7 +56,7 @@ class AgenticPipelineTest {
         ));
 
         EvidenceFusionService fusionService = mock(EvidenceFusionService.class);
-        when(fusionService.fuse(anyString(), anyMap(), anyMap(), anyList(), anyBoolean())).thenReturn(
+        when(fusionService.fuse(anyString(), anyMap(), anyMap(), anyList(), anyBoolean(), anyBoolean())).thenReturn(
                 new EvidenceFusionService.FusionResult(
                         Map.of(RetrievalSource.KNOWLEDGE, List.<Evidence>of()),
                         List.of(),

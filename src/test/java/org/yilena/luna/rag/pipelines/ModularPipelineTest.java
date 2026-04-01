@@ -78,7 +78,7 @@ class ModularPipelineTest {
                         .build());
 
         EvidenceFusionService fusionService = mock(EvidenceFusionService.class);
-        when(fusionService.fuse(anyString(), anyMap(), anyMap(), anyList(), anyBoolean())).thenReturn(
+        when(fusionService.fuse(anyString(), anyMap(), anyMap(), anyList(), anyBoolean(), anyBoolean())).thenReturn(
                 new EvidenceFusionService.FusionResult(
                         Map.of(
                                 RetrievalSource.KNOWLEDGE, List.of(
@@ -104,6 +104,31 @@ class ModularPipelineTest {
                         ),
                         List.of(RetrievalSource.KNOWLEDGE, RetrievalSource.MEMORY),
                         Map.of("hit_sources", List.of("knowledge", "memory"))
+                )
+        );
+        when(fusionService.deduplicateAcrossSources(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(fusionService.redistributeBySource(anyList(), anyMap(), anyList())).thenReturn(
+                Map.of(
+                        RetrievalSource.KNOWLEDGE, List.of(
+                                Evidence.builder()
+                                        .id("knowledge:1")
+                                        .source(RetrievalSource.KNOWLEDGE)
+                                        .type("knowledge")
+                                        .role(EvidenceRole.FACT)
+                                        .content("k")
+                                        .score(0.9)
+                                        .build()
+                        ),
+                        RetrievalSource.MEMORY, List.of(
+                                Evidence.builder()
+                                        .id("memory:1")
+                                        .source(RetrievalSource.MEMORY)
+                                        .type("memory")
+                                        .role(EvidenceRole.STRATEGY)
+                                        .content("m")
+                                        .score(0.8)
+                                        .build()
+                        )
                 )
         );
 

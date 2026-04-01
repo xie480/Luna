@@ -49,6 +49,7 @@ public class RetrievalServiceImpl implements RetrievalService {
         meta.put("latency_ms", elapsed(start));
         meta.put("query_type", queryObject.getQueryType());
         meta.put("session_id", request.getSessionId());
+        meta.put("needs_rerank", plan.isNeedsRerank());
         if (rawResponse.getMeta() != null && !rawResponse.getMeta().isEmpty()) {
             meta.putAll(rawResponse.getMeta());
         }

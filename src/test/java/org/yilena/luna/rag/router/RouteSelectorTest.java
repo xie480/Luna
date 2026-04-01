@@ -55,4 +55,25 @@ class RouteSelectorTest {
 
         assertEquals(RetrievalRoute.SEARCH, plan.getRoute());
     }
+
+    @Test
+    void shouldHonorExplicitNeedsRerankFlag() {
+        RouteSelector selector = new RouteSelector(new RagProperties());
+        QueryObject queryObject = QueryObject.builder()
+                .normalizedQuery("给我知识")
+                .queryType("general_retrieval")
+                .possibleFilters(Map.of(
+                        "inferred_sources", List.of("knowledge"),
+                        "needs_rerank", false
+                ))
+                .build();
+
+        var plan = selector.selectPlan(queryObject, RetrievalRequest.builder()
+                .query("给我知识")
+                .allowedRoutes(RetrievalRoute.all())
+                .sourceScope(RetrievalSource.all())
+                .build());
+
+        assertTrue(!plan.isNeedsRerank());
+    }
 }

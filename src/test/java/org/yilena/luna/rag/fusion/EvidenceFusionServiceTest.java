@@ -21,7 +21,7 @@ import static org.mockito.Mockito.when;
 class EvidenceFusionServiceTest {
 
     @Test
-    void shouldGlobalDeduplicateAndRedistributeBySource() {
+    void shouldRerankAndRedistributeBySource() {
         ModelDrivenRagPlanner planner = mock(ModelDrivenRagPlanner.class);
         when(planner.rerankGlobally(anyString(), any(), anyInt(), anyBoolean()))
                 .thenAnswer(invocation -> invocation.getArgument(1));
@@ -49,11 +49,12 @@ class EvidenceFusionServiceTest {
                 Map.of(RetrievalSource.KNOWLEDGE, List.of(k), RetrievalSource.MEMORY, List.of(m)),
                 Map.of(RetrievalSource.KNOWLEDGE, 1, RetrievalSource.MEMORY, 1),
                 List.of(RetrievalSource.KNOWLEDGE, RetrievalSource.MEMORY),
+                true,
                 false
         );
 
-        assertEquals(1, result.meta().get("global_dedup_removed"));
+        assertEquals(2, result.meta().get("global_candidates"));
+        assertTrue(Boolean.TRUE.equals(result.meta().get("global_rerank_enabled")));
         assertTrue(result.grouped().get(RetrievalSource.MEMORY).size() == 1);
-        assertTrue(result.grouped().get(RetrievalSource.MEMORY).get(0).getMetadata().containsKey("fused_sources"));
     }
 }

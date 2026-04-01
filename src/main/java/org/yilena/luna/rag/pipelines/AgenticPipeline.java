@@ -101,7 +101,7 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                     stageQuery,
                     stageTopKConfig,
                     stageSources,
-                    true,
+                    plan.isNeedsRerank(),
                     true,
                     true,
                     stageRequest,
@@ -147,7 +147,7 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                             supplementQuery,
                             supplementTopKConfig,
                             missingSources,
-                            true,
+                            plan.isNeedsRerank(),
                             true,
                             true,
                             withTimeout(request, remainingMs(deadline)),
@@ -189,7 +189,7 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                             queryObject,
                             fallbackTopK,
                             sources,
-                            true,
+                            plan.isNeedsRerank(),
                             true,
                             true,
                             withTimeout(request, remainingMs(deadline)),
@@ -204,6 +204,7 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                             cumulative,
                             baseTopK,
                             sources,
+                            plan.isNeedsRerank(),
                             true
                     );
                     fallbackGrouped = fallbackFusion.grouped();
@@ -215,6 +216,7 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                         cumulative,
                         baseTopK,
                         sources,
+                        plan.isNeedsRerank(),
                         true
                 );
                 fallbackGrouped = fallbackFusion.grouped();
@@ -252,6 +254,7 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                 cumulative,
                 baseTopK,
                 sources,
+                plan.isNeedsRerank(),
                 true
         );
 

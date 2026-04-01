@@ -55,7 +55,7 @@ public class ModularPipeline extends AbstractRetrievalPipeline {
                 effectiveQuery,
                 plan.getTopKConfig(),
                 routedSources,
-                true,
+                plan.isNeedsRerank(),
                 true,
                 true,
                 request,

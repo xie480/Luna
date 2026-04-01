@@ -86,7 +86,17 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
             }
             rawCountBySource.put(source, sourceEvidences.size());
             int topK = effectiveTopK.getOrDefault(source, 3);
-            sourceEvidences = processSourceEvidence(queryObject, source, sourceEvidences, topK, rerank, compress);
+            boolean sourceLevelDedup = !enableCrossSourceFusion;
+            boolean sourceLevelCompress = !enableCrossSourceFusion && compress;
+            sourceEvidences = processSourceEvidence(
+                    queryObject,
+                    source,
+                    sourceEvidences,
+                    topK,
+                    sourceLevelDedup,
+                    rerank,
+                    sourceLevelCompress
+            );
             processedBySource.put(source, sourceEvidences);
         }
 
@@ -100,11 +110,16 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
                     processedBySource,
                     effectiveTopK,
                     targetSources,
+                    rerank,
                     preferMidModel
             );
             grouped = fusionResult.grouped();
             hitSources = fusionResult.hitSources();
             meta = new HashMap<>(fusionResult.meta());
+            PostFusionOutcome postFusionOutcome = postFusionProcess(grouped, effectiveTopK, targetSources, compress);
+            grouped = postFusionOutcome.grouped();
+            hitSources = postFusionOutcome.hitSources();
+            meta.putAll(postFusionOutcome.meta());
         } else {
             grouped = new EnumMap<>(RetrievalSource.class);
             grouped.putAll(processedBySource);
@@ -128,18 +143,19 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
                 processedCounts.put(key, processedBySource.getOrDefault(source, List.of()).size());
                 topKPerSource.put(key, effectiveTopK.getOrDefault(source, 3));
             }
-            meta.put("debug", Map.of(
-                    "pipeline", getClass().getSimpleName(),
-                    "query", queryObject.getRewrittenQuery(),
-                    "target_sources", targetSources.stream().map(RetrievalSource::value).toList(),
-                    "top_k_per_source", topKPerSource,
-                    "requested_top_k_total", sumTopK(effectiveTopK, targetSources),
-                    "raw_counts_by_source", rawCounts,
-                    "processed_counts_by_source", processedCounts,
-                    "rerank_enabled", rerank,
-                    "compress_enabled", compress,
-                    "cross_source_fusion", enableCrossSourceFusion
-            ));
+            Map<String, Object> debug = new LinkedHashMap<>();
+            debug.put("pipeline", getClass().getSimpleName());
+            debug.put("query", queryObject.getRewrittenQuery());
+            debug.put("target_sources", targetSources.stream().map(RetrievalSource::value).toList());
+            debug.put("top_k_per_source", topKPerSource);
+            debug.put("requested_top_k_total", sumTopK(effectiveTopK, targetSources));
+            debug.put("raw_counts_by_source", rawCounts);
+            debug.put("processed_counts_by_source", processedCounts);
+            debug.put("rerank_enabled", rerank);
+            debug.put("compress_enabled", compress);
+            debug.put("cross_source_fusion", enableCrossSourceFusion);
+            debug.put("post_fusion_processing", enableCrossSourceFusion);
+            meta.put("debug", debug);
         }
         return new SourceRetrieveOutcome(grouped, timedOutSources, hitSources, meta);
     }
@@ -163,6 +179,7 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
             RetrievalSource source,
             List<Evidence> evidences,
             int defaultTopK,
+            boolean allowDeduplicate,
             boolean allowRerank,
             boolean allowCompress
     ) {
@@ -180,7 +197,7 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
         );
 
         List<Evidence> result = evidences;
-        if (plan.isDeduplicate()) {
+        if (allowDeduplicate && plan.isDeduplicate()) {
             result = evidenceDeduplicator.deduplicate(result);
         }
         if (allowRerank && plan.isRerank()) {
@@ -192,6 +209,71 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
             result = evidenceCompressor.compress(result, plan.getCompressionChars());
         }
         return result;
+    }
+
+    private PostFusionOutcome postFusionProcess(
+            Map<RetrievalSource, List<Evidence>> grouped,
+            Map<RetrievalSource, Integer> topKConfig,
+            List<RetrievalSource> targetSources,
+            boolean allowCompress
+    ) {
+        List<Evidence> flattened = new ArrayList<>();
+        for (RetrievalSource source : targetSources) {
+            flattened.addAll(grouped.getOrDefault(source, List.of()));
+        }
+        int before = flattened.size();
+        List<Evidence> sourceDeduplicated = evidenceFusionService.deduplicateAcrossSources(flattened);
+        if (sourceDeduplicated == null) {
+            sourceDeduplicated = flattened;
+        }
+        int afterCrossSourceDedup = sourceDeduplicated.size();
+        List<Evidence> deduplicated = evidenceDeduplicator.deduplicate(sourceDeduplicated);
+        int afterDedup = deduplicated.size();
+        List<Evidence> compressed = allowCompress
+                ? evidenceCompressor.compress(deduplicated, ragProperties.getCompressionMaxChars())
+                : deduplicated;
+        Map<RetrievalSource, List<Evidence>> redistributed =
+                evidenceFusionService.redistributeBySource(compressed, topKConfig, targetSources);
+        if (redistributed == null || redistributed.isEmpty()) {
+            redistributed = redistributeBySourceLocal(compressed, topKConfig, targetSources);
+        }
+        Map<RetrievalSource, List<Evidence>> stableRedistributed = redistributed;
+        List<RetrievalSource> hitSources = targetSources.stream()
+                .filter(source -> !stableRedistributed.getOrDefault(source, List.of()).isEmpty())
+                .toList();
+
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("global_after_dedup", afterDedup);
+        meta.put("global_dedup_removed", Math.max(0, before - afterDedup));
+        meta.put("global_cross_source_dedup_removed", Math.max(0, before - afterCrossSourceDedup));
+        meta.put("global_after_compression", compressed.size());
+        meta.put("global_compression_removed", Math.max(0, afterDedup - compressed.size()));
+        meta.put("hit_sources", hitSources.stream().map(RetrievalSource::value).toList());
+
+        return new PostFusionOutcome(stableRedistributed, hitSources, meta);
+    }
+
+    private Map<RetrievalSource, List<Evidence>> redistributeBySourceLocal(
+            List<Evidence> evidences,
+            Map<RetrievalSource, Integer> topKConfig,
+            List<RetrievalSource> targetSources
+    ) {
+        Map<RetrievalSource, List<Evidence>> grouped = new EnumMap<>(RetrievalSource.class);
+        for (RetrievalSource source : targetSources) {
+            grouped.put(source, new ArrayList<>());
+        }
+        for (Evidence evidence : evidences) {
+            if (evidence == null || evidence.getSource() == null || !grouped.containsKey(evidence.getSource())) {
+                continue;
+            }
+            RetrievalSource source = evidence.getSource();
+            int limit = Math.max(1, topKConfig.getOrDefault(source, 3));
+            List<Evidence> bucket = grouped.get(source);
+            if (bucket.size() < limit) {
+                bucket.add(evidence);
+            }
+        }
+        return grouped;
     }
 
     private boolean shouldPreferMidModel(QueryObject queryObject, Map<RetrievalSource, List<Evidence>> grouped) {
@@ -373,6 +455,13 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
     protected record SourceRetrieveOutcome(
             Map<RetrievalSource, List<Evidence>> grouped,
             List<RetrievalSource> timedOutSources,
+            List<RetrievalSource> hitSources,
+            Map<String, Object> meta
+    ) {
+    }
+
+    private record PostFusionOutcome(
+            Map<RetrievalSource, List<Evidence>> grouped,
             List<RetrievalSource> hitSources,
             Map<String, Object> meta
     ) {

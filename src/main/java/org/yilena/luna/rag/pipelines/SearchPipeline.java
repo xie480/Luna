@@ -58,7 +58,7 @@ public class SearchPipeline extends AbstractRetrievalPipeline {
                 searchQuery,
                 plan.getTopKConfig(),
                 plan.getSources() == null || plan.getSources().isEmpty() ? resolveSources(request) : new ArrayList<>(plan.getSources()),
-                true,
+                plan.isNeedsRerank(),
                 false,
                 false,
                 request,
