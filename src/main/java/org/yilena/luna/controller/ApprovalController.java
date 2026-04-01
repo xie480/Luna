@@ -12,7 +12,7 @@ import org.yilena.luna.service.ApprovalService;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/mcp/skills")
+@RequestMapping("/mcp/tools")
 @RequiredArgsConstructor
 @Tag(name = "MCP 审批管理", description = "处理敏感操作的人工审批回调")
 /**

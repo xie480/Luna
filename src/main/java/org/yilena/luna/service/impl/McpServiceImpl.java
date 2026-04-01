@@ -16,19 +16,14 @@ import org.yilena.luna.mapper.*;
 import org.yilena.luna.service.McpService;
 import org.yilena.luna.utils.LlmClientUtil;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.stream.Stream;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 /**
- * MCP 资源目录服务实现：
- * 统一维护工具、提示词、资源、工作流目录，并提供本地 JSON 同步能力。
- */
+ * MCP 鐠у嫭绨惄顔肩秿閺堝秴濮熺€圭偟骞囬敍? * 缂佺喍绔寸紒瀛樺Б瀹搞儱鍙块妴浣瑰絹缁€楦跨槤閵嗕浇绁┃鎰┾偓浣镐紣娴ｆ粍绁﹂惄顔肩秿閿涘苯鑻熼幓鎰返閺堫剙婀?JSON 閸氬本顒為懗钘夊閵? */
 public class McpServiceImpl implements McpService {
 
     private final McpToolCatalogMapper toolCatalogMapper;
@@ -41,46 +36,14 @@ public class McpServiceImpl implements McpService {
     private final LlmClientUtil llmClientUtil;
     private final ObjectMapper objectMapper;
 
-    private McpTool registerToolCompat(McpTool tool) {
-        if (tool == null || blank(tool.getName()) || blank(tool.getBeanName()) || blank(tool.getMethodName())) {
-            throw new IllegalArgumentException("tool name/beanName/methodName required");
-        }
-        // 按 serverCode + toolName 幂等写入目录。
-        McpToolCatalog row = toolCatalogMapper.selectOne(new LambdaQueryWrapper<McpToolCatalog>()
-                .eq(McpToolCatalog::getServerCode, McpConstant.LOCAL_SERVER_CODE)
-                .eq(McpToolCatalog::getToolName, tool.getName())
-                .last("LIMIT 1"));
-        if (row == null) {
-            row = new McpToolCatalog();
-            row.setServerCode(McpConstant.LOCAL_SERVER_CODE);
-            row.setToolName(tool.getName());
-            row.setEnabled(true);
-        }
-        row.setTitle(tool.getName());
-        row.setDescription(tool.getDescription());
-        row.setVersion(def(tool.getVersion(), "1.0.0"));
-        row.setInputSchema(jsonMap(tool.getInputSchema()));
-        row.setOutputSchema(jsonMap(tool.getOutputSchema()));
-        row.setRequiresApproval(Boolean.TRUE.equals(tool.getRequiresApproval()));
-        row.setSensitivity(tool.getSensitivity() == null ? "LOW" : tool.getSensitivity().name());
-        row.setSyncedAt(LocalDateTime.now());
-        // 嵌入向量用于后续资源检索召回。
-        row.setEmbedding(embed(tool.getName(), tool.getDescription()));
-        if (row.getId() == null) toolCatalogMapper.insert(row); else toolCatalogMapper.updateById(row);
-        upsertImpl(tool.getName(), tool.getBeanName(), tool.getMethodName());
-        tool.setId(row.getId());
-        tool.setEmbedding(row.getEmbedding());
-        return tool;
-    }
-
     @Override
     public List<Resource> listAll() {
-        // 聚合四类资源，统一投影为 Resource 返回给上层路由器。
         List<Resource> out = new ArrayList<>();
         toolCatalogMapper.selectList(null).forEach(t -> out.add(toTool(t)));
         promptCatalogMapper.selectList(null).forEach(p -> out.add(toPrompt(p)));
         resourceCatalogMapper.selectList(null).forEach(r -> out.add(toResource(r)));
         workflowTemplateMapper.selectList(null).forEach(w -> out.add(toWorkflow(w)));
+        out.addAll(buildDomainResourceTemplates());
         return out;
     }
 
@@ -136,61 +99,6 @@ public class McpServiceImpl implements McpService {
     @Override
     public McpResourceResult readResource(String serverCode, String resourceUri) {
         return mcpClientAdapter.readResource(serverCode, resourceUri);
-    }
-
-    @Override
-    public Map<String, Object> syncCatalogFromJson() {
-        int toolCount = 0;
-        int workflowCount = 0;
-        int promptCount = 0;
-        List<String> warnings = new ArrayList<>();
-        try {
-            // 约定目录：json/tool 存工具定义，json/skill 存技能/工作流定义。
-            Path toolDir = Path.of("json", "tool");
-            Path skillDir = Path.of("json", "skill");
-            if (Files.isDirectory(toolDir)) {
-                try (Stream<Path> s = Files.list(toolDir)) {
-                    for (Path p : (Iterable<Path>) s.filter(f -> f.getFileName().toString().endsWith(".json"))::iterator) {
-                        Map<String, Object> m = readJsonFile(p);
-                        if (m.isEmpty()) {
-                            warnings.add("tool parse failed: " + p.getFileName());
-                            continue;
-                        }
-                        syncToolFile(m);
-                        toolCount++;
-                    }
-                }
-            } else {
-                warnings.add("missing: " + toolDir);
-            }
-
-            if (Files.isDirectory(skillDir)) {
-                try (Stream<Path> s = Files.list(skillDir)) {
-                    for (Path p : (Iterable<Path>) s.filter(f -> f.getFileName().toString().endsWith(".json"))::iterator) {
-                        Map<String, Object> m = readJsonFile(p);
-                        if (m.isEmpty()) {
-                            warnings.add("skill parse failed: " + p.getFileName());
-                            continue;
-                        }
-                        McpSkill skill = mapToSkill(m);
-                        // ASYNC 或带能力编排信息的技能归类为工作流，其余落到 prompt 目录。
-                        if (workflowSkill(skill)) {
-                            upsertWorkflow(skill);
-                            workflowCount++;
-                        } else {
-                            upsertPrompt(skill);
-                            promptCount++;
-                        }
-                    }
-                }
-            } else {
-                warnings.add("missing: " + skillDir);
-            }
-        } catch (Exception e) {
-            log.error("syncCatalogFromJson failed", e);
-            return Map.of("status", "error", "message", e.getMessage());
-        }
-        return Map.of("status", "success", "toolCount", toolCount, "workflowCount", workflowCount, "promptCount", promptCount, "warnings", warnings);
     }
 
     @Override
@@ -281,105 +189,6 @@ public class McpServiceImpl implements McpService {
         return workflowTemplate;
     }
 
-    private void syncToolFile(Map<String, Object> m) {
-        McpTool tool = McpTool.builder()
-                .name(text(m.get("name")))
-                .description(text(m.get("description")))
-                .version(def(text(m.get("version")), "1.0.0"))
-                .owner(text(m.get("owner")))
-                .beanName(text(m.get("beanName")))
-                .methodName(text(m.get("methodName")))
-                .inputSchema(json(m.get("inputSchema")))
-                .outputSchema(json(m.get("outputSchema")))
-                .requiresApproval(bool(m.get("requiresApproval"), false))
-                .sensitivity(parseSensitivity(text(m.get("sensitivity"))))
-                .build();
-        registerToolCompat(tool);
-    }
-
-    private McpSkill mapToSkill(Map<String, Object> m) {
-        McpSkill s = new McpSkill();
-        s.setName(text(m.get("name")));
-        s.setDescription(text(m.get("description")));
-        s.setVersion(def(text(m.get("version")), "1.0.0"));
-        s.setOwner(text(m.get("owner")));
-        s.setBeanName(text(m.get("beanName")));
-        s.setMethodName(text(m.get("methodName")));
-        s.setInputSchema(json(m.get("inputSchema")));
-        s.setOutputSchema(json(m.get("outputSchema")));
-        s.setRunMode(parseRunMode(text(m.get("runMode"))));
-        s.setRequiredCapabilities(stringList(m.get("requiredCapabilities")));
-        s.setThoughtChain(stringList(m.get("thoughtChain")));
-        s.setToolSlots(toSkillSlots(m.get("toolSlots")));
-        return s;
-    }
-
-    private void upsertWorkflow(McpSkill skill) {
-        // 工作流模板保留能力声明、思维链、工具槽位等编排信息。
-        WorkflowTemplate w = workflowTemplateMapper.selectOne(new LambdaQueryWrapper<WorkflowTemplate>()
-                .eq(WorkflowTemplate::getWorkflowName, skill.getName()).last("LIMIT 1"));
-        if (w == null) {
-            w = new WorkflowTemplate();
-            w.setWorkflowName(skill.getName());
-            w.setEnabled(true);
-        }
-        w.setDescription(skill.getDescription());
-        w.setInputSchema(jsonMap(skill.getInputSchema()));
-        w.setOutputSchema(jsonMap(skill.getOutputSchema()));
-        w.setRequiredCapabilities(skill.getRequiredCapabilities());
-        w.setThoughtChain(skill.getThoughtChain());
-        w.setToolSlots(toSlotMaps(skill.getToolSlots()));
-        w.setVersion(def(skill.getVersion(), "1.0.0"));
-        w.setEmbedding(embed(skill.getName(), skill.getDescription()));
-        if (w.getId() == null) workflowTemplateMapper.insert(w); else workflowTemplateMapper.updateById(w);
-        skill.setId(w.getId());
-        skill.setEmbedding(w.getEmbedding());
-    }
-
-    private void upsertPrompt(McpSkill skill) {
-        // 轻量技能以 Prompt 目录形态注册，兼容旧有提示词调用链路。
-        McpPromptCatalog p = promptCatalogMapper.selectOne(new LambdaQueryWrapper<McpPromptCatalog>()
-                .eq(McpPromptCatalog::getServerCode, McpConstant.LOCAL_SERVER_CODE)
-                .eq(McpPromptCatalog::getPromptName, skill.getName())
-                .last("LIMIT 1"));
-        if (p == null) {
-            p = new McpPromptCatalog();
-            p.setServerCode(McpConstant.LOCAL_SERVER_CODE);
-            p.setPromptName(skill.getName());
-            p.setEnabled(true);
-        }
-        p.setTitle(skill.getName());
-        p.setDescription(skill.getDescription());
-        p.setArgumentsSchema(jsonMap(skill.getInputSchema()));
-        p.setRawPayload(Map.of(
-                "skillName", def(skill.getName(), ""),
-                "legacyBeanName", def(skill.getBeanName(), ""),
-                "legacyMethodName", def(skill.getMethodName(), ""),
-                "runMode", (skill.getRunMode() == null ? RunMode.SYNC : skill.getRunMode()).name()
-        ));
-        p.setVersion(def(skill.getVersion(), "1.0.0"));
-        p.setEmbedding(embed(skill.getName(), skill.getDescription()));
-        p.setSyncedAt(LocalDateTime.now());
-        if (p.getId() == null) promptCatalogMapper.insert(p); else promptCatalogMapper.updateById(p);
-        skill.setId(p.getId());
-        skill.setEmbedding(p.getEmbedding());
-    }
-
-    private void upsertImpl(String toolName, String beanName, String methodName) {
-        McpToolImplMapping m = toolImplMappingMapper.findEnabledMapping(McpConstant.LOCAL_SERVER_CODE, toolName);
-        if (m == null) {
-            m = new McpToolImplMapping();
-            m.setServerCode(McpConstant.LOCAL_SERVER_CODE);
-            m.setToolName(toolName);
-            m.setEnabled(true);
-        }
-        m.setImplType("SPRING_BEAN");
-        m.setBeanName(beanName);
-        m.setMethodName(methodName);
-        m.setTimeoutMs(10000);
-        if (m.getId() == null) toolImplMappingMapper.insert(m); else toolImplMappingMapper.updateById(m);
-    }
-
     private Resource toTool(McpToolCatalog t) {
         return Resource.builder().id(String.valueOf(t.getId())).type(ResourceType.TOOL).serverCode(t.getServerCode()).name(t.getToolName())
                 .description(t.getDescription()).version(t.getVersion()).inputSchema(json(t.getInputSchema())).outputSchema(json(t.getOutputSchema()))
@@ -405,6 +214,59 @@ public class McpServiceImpl implements McpService {
                 .requiresApproval(false).sensitivity(Sensitivity.LOW).runMode(RunMode.SYNC).build();
     }
 
+    private List<Resource> buildDomainResourceTemplates() {
+        return List.of(
+                Resource.builder()
+                        .id("domain-resource:knowledge")
+                        .type(ResourceType.RESOURCE)
+                        .serverCode(McpConstant.LOCAL_SERVER_CODE)
+                        .name("resource://knowledge/query")
+                        .resourceUri("resource://knowledge/query")
+                        .description("Knowledge domain MCP resource template")
+                        .mimeType("application/json")
+                        .requiresApproval(false)
+                        .sensitivity(Sensitivity.LOW)
+                        .runMode(RunMode.SYNC)
+                        .build(),
+                Resource.builder()
+                        .id("domain-resource:user")
+                        .type(ResourceType.RESOURCE)
+                        .serverCode(McpConstant.LOCAL_SERVER_CODE)
+                        .name("resource://user/preferences/current")
+                        .resourceUri("resource://user/preferences/current")
+                        .description("User preference MCP resource template")
+                        .mimeType("application/json")
+                        .requiresApproval(false)
+                        .sensitivity(Sensitivity.LOW)
+                        .runMode(RunMode.SYNC)
+                        .build(),
+                Resource.builder()
+                        .id("domain-resource:memory")
+                        .type(ResourceType.RESOURCE)
+                        .serverCode(McpConstant.LOCAL_SERVER_CODE)
+                        .name("resource://memory/session/current")
+                        .resourceUri("resource://memory/session/current")
+                        .description("Memory MCP resource template")
+                        .mimeType("application/json")
+                        .requiresApproval(false)
+                        .sensitivity(Sensitivity.LOW)
+                        .runMode(RunMode.SYNC)
+                        .build(),
+                Resource.builder()
+                        .id("domain-resource:schedule")
+                        .type(ResourceType.RESOURCE)
+                        .serverCode(McpConstant.LOCAL_SERVER_CODE)
+                        .name("resource://schedule/today")
+                        .resourceUri("resource://schedule/today")
+                        .description("Schedule MCP resource template")
+                        .mimeType("application/json")
+                        .requiresApproval(false)
+                        .sensitivity(Sensitivity.LOW)
+                        .runMode(RunMode.SYNC)
+                        .build()
+        );
+    }
+
     private List<Resource.ToolSlotDto> toResourceSlots(List<Map<String, Object>> maps) {
         if (maps == null || maps.isEmpty()) return null;
         List<Resource.ToolSlotDto> out = new ArrayList<>();
@@ -414,40 +276,8 @@ public class McpServiceImpl implements McpService {
         return out;
     }
 
-    private List<Map<String, Object>> toSlotMaps(List<McpSkill.ToolSlot> slots) {
-        List<Map<String, Object>> out = new ArrayList<>();
-        if (slots == null) return out;
-        for (McpSkill.ToolSlot s : slots) {
-            out.add(Map.of("slot", def(s.getSlot(), ""), "capability", def(s.getCapability(), ""), "required", s.getRequired() == null || s.getRequired()));
-        }
-        return out;
-    }
-
-    private List<McpSkill.ToolSlot> toSkillSlots(Object o) {
-        List<McpSkill.ToolSlot> out = new ArrayList<>();
-        if (o == null) return out;
-        try {
-            List<Map<String, Object>> list = objectMapper.convertValue(o, new TypeReference<>() {});
-            for (Map<String, Object> m : list) {
-                out.add(McpSkill.ToolSlot.builder().slot(text(m.get("slot"))).capability(text(m.get("capability"))).required(bool(m.get("required"), true)).build());
-            }
-        } catch (Exception ignored) {
-        }
-        return out;
-    }
-
-    private Map<String, Object> readJsonFile(Path p) {
-        try {
-            String s = Files.readString(p);
-            return objectMapper.readValue(s, new TypeReference<>() {});
-        } catch (Exception e) {
-            return Collections.emptyMap();
-        }
-    }
-
     private String embed(String name, String desc) {
         try {
-            // 失败时返回 null，不阻断目录同步主流程。
             String v = llmClientUtil.getEmbedding((def(name, "") + " " + def(desc, "")).trim());
             return blank(v) || "[]".equals(v) ? null : v;
         } catch (Exception e) {
@@ -485,12 +315,6 @@ public class McpServiceImpl implements McpService {
         }
     }
 
-    private boolean workflowSkill(McpSkill s) {
-        return s != null && (s.getRunMode() == RunMode.ASYNC || notEmpty(s.getRequiredCapabilities()) || notEmpty(s.getToolSlots()) || notEmpty(s.getThoughtChain()));
-    }
-
-    private boolean notEmpty(Collection<?> c) { return c != null && !c.isEmpty(); }
-
     private boolean blank(String s) { return s == null || s.isBlank(); }
 
     private String text(Object o) { return o == null ? "" : String.valueOf(o).trim(); }
@@ -508,15 +332,6 @@ public class McpServiceImpl implements McpService {
         return d;
     }
 
-    private RunMode parseRunMode(String v) {
-        if (blank(v)) return RunMode.SYNC;
-        try {
-            return RunMode.valueOf(v.toUpperCase(Locale.ROOT));
-        } catch (Exception e) {
-            return RunMode.SYNC;
-        }
-    }
-
     private Sensitivity parseSensitivity(String v) {
         if (blank(v)) return Sensitivity.LOW;
         try {
@@ -526,3 +341,5 @@ public class McpServiceImpl implements McpService {
         }
     }
 }
+
+

@@ -1050,8 +1050,15 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
     private PlanNodeType parseNodeType(String text) {
         if (text == null || text.isBlank()) return PlanNodeType.TOOL;
+        String normalized = text.trim().toUpperCase(Locale.ROOT);
+        if ("SKILL".equals(normalized)) {
+            return PlanNodeType.WORKFLOW;
+        }
+        if ("SUMMARIZE".equals(normalized)) {
+            return PlanNodeType.PROMPT;
+        }
         try {
-            return PlanNodeType.valueOf(text.trim().toUpperCase(Locale.ROOT));
+            return PlanNodeType.valueOf(normalized);
         } catch (Exception e) {
             return PlanNodeType.TOOL;
         }

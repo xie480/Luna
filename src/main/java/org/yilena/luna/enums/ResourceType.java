@@ -10,7 +10,6 @@ import lombok.Getter;
 @Getter
 public enum ResourceType {
     TOOL("TOOL", "Atomic tool"),
-    SKILL("SKILL", "Legacy composite skill"),
     PROMPT("PROMPT", "Prompt template"),
     RESOURCE("RESOURCE", "Readable resource"),
     WORKFLOW("WORKFLOW", "Workflow template"),

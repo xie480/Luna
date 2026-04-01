@@ -39,9 +39,6 @@ public interface McpService {
 
     McpResourceResult readResource(String serverCode, String resourceUri);
 
-    // Sync json/tool and json/skill into catalog tables.
-    Map<String, Object> syncCatalogFromJson();
-
     // Migration upsert APIs (full-field)
     McpServerRegistry upsertServerRegistry(McpServerRegistry registry);
 

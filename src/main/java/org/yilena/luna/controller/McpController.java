@@ -134,12 +134,6 @@ public class McpController {
         ));
     }
 
-    @PostMapping("/catalog/sync")
-    @Operation(summary = "Sync json/tool and json/skill into catalog tables")
-    public ResponseEntity<?> syncCatalogFromJson() {
-        return ResponseEntity.ok(mcpService.syncCatalogFromJson());
-    }
-
     // ===== Migration upsert endpoints (full-field) =====
 
     @PostMapping("/migrate/server-registry")

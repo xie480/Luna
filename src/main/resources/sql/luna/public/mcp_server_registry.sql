@@ -18,7 +18,7 @@ create table mcp_server_registry
 );
 
 comment on table mcp_server_registry is 'MCP server registry';
-comment on column mcp_server_registry.transport_type is 'HTTP/SSE/WS/STDIO';
+comment on column mcp_server_registry.transport_type is 'LOCAL/HTTP/SSE/WS/STDIO';
 
 alter table mcp_server_registry
     owner to yilena;

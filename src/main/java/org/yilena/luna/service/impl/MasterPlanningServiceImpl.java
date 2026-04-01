@@ -108,7 +108,7 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
         }});
         phases.add(new LinkedHashMap<>() {{
             put("phaseId", planId + ":phase-2");
-            put("name", "SUMMARIZE");
+            put("name", "PROMPT_SUMMARY");
             put("objective", "整理结果");
             put("phaseOrder", 2);
         }});
@@ -133,7 +133,7 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
             put("nodeId", "node-" + UUID.randomUUID());
             put("phaseId", planId + ":phase-2");
             put("name", "summarize-node");
-            put("nodeType", "SUMMARIZE");
+            put("nodeType", "PROMPT");
             put("riskLevel", "LOW");
             put("resourceHint", Map.of("intent", "summarize"));
         }});

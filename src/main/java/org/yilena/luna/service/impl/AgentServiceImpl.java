@@ -30,6 +30,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -72,20 +73,23 @@ public class AgentServiceImpl implements AgentService {
 
         List<String> history = loadRecentHistory(sessionId);
         String decisionJson = llmAdapter.generate(buildDecisionPrompt(input, history, candidates));
-        String targetName = parseToolName(decisionJson);
-        if (targetName == null || "none".equalsIgnoreCase(targetName) || "null".equalsIgnoreCase(targetName)) {
+        DecisionAction decision = parseDecisionAction(decisionJson);
+        if (decision == null || "none".equalsIgnoreCase(decision.targetName()) || "null".equalsIgnoreCase(decision.targetName())) {
             return null;
         }
+        if ("direct_answer".equals(decision.actionType())) {
+            return decision.directAnswer();
+        }
 
-        Resource target = candidates.stream()
-                .filter(r -> targetName.equals(r.getName()))
-                .findFirst()
-                .orElse(null);
+        Resource target = resolveTarget(candidates, decision);
         if (target == null) {
             return null;
         }
 
-        String generatedArgsJson = llmAdapter.generate(buildArgsPrompt(input, history, target));
+        String generatedArgsJson = decision.argumentsJson();
+        if (generatedArgsJson == null || generatedArgsJson.isBlank()) {
+            generatedArgsJson = llmAdapter.generate(buildArgsPrompt(input, history, target));
+        }
         if (!JsonSchemaValidator.validate(target.getInputSchema(), generatedArgsJson)) {
             generatedArgsJson = llmAdapter.generate(String.format(PromptTemplates.TOOL_ARGS_REPAIR_PROMPT, target.getInputSchema(), generatedArgsJson));
         }
@@ -93,7 +97,7 @@ public class AgentServiceImpl implements AgentService {
 
         executionGate.check(target);
 
-        if (ResourceType.WORKFLOW.equals(target.getType()) || ResourceType.SKILL.equals(target.getType())) {
+        if (ResourceType.WORKFLOW.equals(target.getType())) {
             return runAndTrace(target, argsJson, () -> skillExecutor.execute(target, argsJson));
         }
         if (ResourceType.PROMPT.equals(target.getType())) {
@@ -165,15 +169,25 @@ public class AgentServiceImpl implements AgentService {
 
     private String buildDecisionPrompt(String input, List<String> history, List<Resource> tools) {
         String toolDesc = tools.stream()
-                .map(t -> "- " + t.getName() + ": " + t.getDescription())
+                .map(t -> "- name=" + t.getName() + ", type=" + (t.getType() == null ? "TOOL" : t.getType().name()) + ", desc=" + t.getDescription())
                 .collect(Collectors.joining("\n"));
         String historyText = (history == null || history.isEmpty()) ? "(empty)" : String.join("\n", history);
-        return String.format(PromptTemplates.TOOL_DECISION_PROMPT, input, historyText, toolDesc);
+        String base = String.format(PromptTemplates.TOOL_DECISION_PROMPT, input, historyText, toolDesc);
+        return base + """
+
+                动作协议输出要求（严格）：
+                1) 返回单个 JSON，不要 markdown；
+                2) 优先输出：
+                   {"action_type":"tool_call|prompt_get|resource_read|workflow_start|direct_answer","target_name":"...","arguments":{...}}
+                3) direct_answer 时输出：
+                   {"action_type":"direct_answer","answer":"..."}
+                4) 兼容旧格式可返回 {"tool_name":"..."}，系统会自动视为 tool_call。
+                """;
     }
 
     private String buildArgsPrompt(String input, List<String> history, Resource resource) {
         String historyText = (history == null || history.isEmpty()) ? "(empty)" : String.join("\n", history);
-        if (ResourceType.WORKFLOW.equals(resource.getType()) || ResourceType.SKILL.equals(resource.getType())) {
+        if (ResourceType.WORKFLOW.equals(resource.getType())) {
             return String.format(
                     PromptTemplates.SKILL_ARGS_PROMPT,
                     input,
@@ -222,20 +236,119 @@ public class AgentServiceImpl implements AgentService {
         }
     }
 
-    private String parseToolName(String json) {
+    private DecisionAction parseDecisionAction(String json) {
         if (json == null) {
             return null;
         }
         try {
             String clean = json.trim().replace("```json", "").replace("```", "");
             JsonNode node = objectMapper.readTree(clean);
-            if (node.has("tool_name")) {
-                return node.get("tool_name").asText();
+            String actionType = text(node, "action_type");
+            if (actionType.isBlank()) {
+                actionType = text(node, "action");
             }
+            if (actionType.isBlank() && node.has("tool_name")) {
+                actionType = "tool_call";
+            }
+            actionType = normalizeActionType(actionType);
+            if (actionType == null) {
+                return null;
+            }
+
+            if ("direct_answer".equals(actionType)) {
+                String answer = text(node, "answer");
+                if (answer.isBlank()) {
+                    answer = text(node, "direct_answer");
+                }
+                if (answer.isBlank()) {
+                    answer = text(node, "message");
+                }
+                return new DecisionAction(actionType, null, null, answer);
+            }
+
+            String targetName = text(node, "target_name");
+            if (targetName.isBlank()) {
+                targetName = text(node, "tool_name");
+            }
+            if (targetName.isBlank()) {
+                targetName = text(node, "prompt_name");
+            }
+            if (targetName.isBlank()) {
+                targetName = text(node, "resource_uri");
+            }
+            if (targetName.isBlank()) {
+                targetName = text(node, "workflow_name");
+            }
+            String argumentsJson = null;
+            JsonNode argsNode = node.get("arguments");
+            if (argsNode != null && !argsNode.isNull()) {
+                argumentsJson = argsNode.isTextual() ? argsNode.asText() : argsNode.toString();
+            } else {
+                String argsText = text(node, "arguments_json");
+                if (!argsText.isBlank()) {
+                    argumentsJson = argsText;
+                }
+            }
+            return new DecisionAction(actionType, targetName, argumentsJson, null);
         } catch (Exception e) {
             log.warn("parse tool decision failed: {}", json);
         }
         return null;
+    }
+
+    private Resource resolveTarget(List<Resource> candidates, DecisionAction decision) {
+        if (decision == null || candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+        String targetName = decision.targetName();
+        if (targetName == null || targetName.isBlank()) {
+            return null;
+        }
+        ResourceType expectedType = expectedResourceType(decision.actionType());
+        return candidates.stream()
+                .filter(r -> targetName.equals(r.getName()) || targetName.equals(r.getResourceUri()))
+                .filter(r -> expectedType == null || expectedType.equals(r.getType()))
+                .findFirst()
+                .orElseGet(() -> candidates.stream()
+                        .filter(r -> targetName.equals(r.getName()) || targetName.equals(r.getResourceUri()))
+                        .findFirst()
+                        .orElse(null));
+    }
+
+    private ResourceType expectedResourceType(String actionType) {
+        if (actionType == null) {
+            return null;
+        }
+        return switch (actionType) {
+            case "tool_call" -> ResourceType.TOOL;
+            case "prompt_get" -> ResourceType.PROMPT;
+            case "resource_read" -> ResourceType.RESOURCE;
+            case "workflow_start" -> ResourceType.WORKFLOW;
+            default -> null;
+        };
+    }
+
+    private String normalizeActionType(String actionType) {
+        if (actionType == null || actionType.isBlank()) {
+            return null;
+        }
+        String normalized = actionType.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "tool_call", "prompt_get", "resource_read", "workflow_start", "direct_answer" -> normalized;
+            case "tool", "call_tool" -> "tool_call";
+            case "prompt", "get_prompt" -> "prompt_get";
+            case "resource", "read_resource" -> "resource_read";
+            case "workflow", "start_workflow" -> "workflow_start";
+            case "answer" -> "direct_answer";
+            default -> null;
+        };
+    }
+
+    private String text(JsonNode node, String field) {
+        if (node == null || field == null || field.isBlank() || !node.has(field) || node.get(field).isNull()) {
+            return "";
+        }
+        return node.get(field).asText("");
     }
 
     private void recordToolExecutionTrace(Resource target,
@@ -300,5 +413,8 @@ public class AgentServiceImpl implements AgentService {
     @FunctionalInterface
     private interface TraceSupplier {
         String get() throws Exception;
+    }
+
+    private record DecisionAction(String actionType, String targetName, String argumentsJson, String directAnswer) {
     }
 }

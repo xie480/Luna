@@ -42,7 +42,7 @@ create table plan_node
 
 comment on table plan_node is '计划任务节点�?;
 
-comment on column plan_node.node_type is '0-ANALYZE,1-TOOL,2-SKILL(legacy),3-VALIDATE,4-SUMMARIZE(legacy),5-REPORT,6-CODE,7-PROMPT,8-RESOURCE,9-WORKFLOW';
+comment on column plan_node.node_type is '0-ANALYZE,1-TOOL,3-VALIDATE,5-REPORT,6-CODE,7-PROMPT,8-RESOURCE,9-WORKFLOW';
 
 comment on column plan_node.dependencies is '依赖节点ID列表(JSON)';
 
@@ -112,4 +112,3 @@ create index idx_plan_node_resolved_input_json_gin
 
 create index idx_plan_node_output_for_next_gin
     on plan_node using gin (output_for_next);
-

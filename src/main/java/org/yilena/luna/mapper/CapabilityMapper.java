@@ -19,7 +19,13 @@ public interface CapabilityMapper {
             )
             select
                 'TOOL', t.server_code, concat(t.server_code, ':', t.tool_name), t.title, t.description,
-                t.input_schema, t.output_schema, t.raw_payload, coalesce(t.requires_approval, false), t.sensitivity,
+                t.input_schema, t.output_schema,
+                coalesce(t.raw_payload, '{}'::jsonb) || jsonb_build_object(
+                    'invocation_name', t.tool_name,
+                    'tool_name', t.tool_name,
+                    'capability_key', concat(t.server_code, ':', t.tool_name)
+                ),
+                coalesce(t.requires_approval, false), t.sensitivity,
                 coalesce(t.enabled, true), coalesce(t.version, '1'), current_timestamp
             from mcp_tool_catalog t
             on conflict (capability_name)
@@ -45,7 +51,13 @@ public interface CapabilityMapper {
             )
             select
                 'PROMPT', p.server_code, concat(p.server_code, ':', p.prompt_name), p.title, p.description,
-                p.arguments_schema, null, p.raw_payload, false, 'LOW',
+                p.arguments_schema, null,
+                coalesce(p.raw_payload, '{}'::jsonb) || jsonb_build_object(
+                    'invocation_name', p.prompt_name,
+                    'prompt_name', p.prompt_name,
+                    'capability_key', concat(p.server_code, ':', p.prompt_name)
+                ),
+                false, 'LOW',
                 coalesce(p.enabled, true), coalesce(p.version, '1'), current_timestamp
             from mcp_prompt_catalog p
             on conflict (capability_name)
@@ -68,9 +80,39 @@ public interface CapabilityMapper {
             )
             select
                 'RESOURCE', r.server_code, concat(r.server_code, ':', r.resource_uri), r.name, r.description,
-                null, null, r.raw_payload, false, 'LOW',
+                null, null,
+                coalesce(r.raw_payload, '{}'::jsonb) || jsonb_build_object(
+                    'invocation_name', r.resource_uri,
+                    'resource_uri', r.resource_uri,
+                    'capability_key', concat(r.server_code, ':', r.resource_uri)
+                ),
+                false, 'LOW',
                 coalesce(r.enabled, true), '1', current_timestamp
             from mcp_resource_catalog r
+            union all
+            select
+                'RESOURCE', 'local-agent-server', 'local-agent-server:resource://knowledge/query', 'knowledge.query', 'Knowledge query template',
+                null, null,
+                jsonb_build_object('resource_uri', 'resource://knowledge/query', 'invocation_name', 'resource://knowledge/query', 'domain', 'knowledge'),
+                false, 'LOW', true, '1', current_timestamp
+            union all
+            select
+                'RESOURCE', 'local-agent-server', 'local-agent-server:resource://user/preferences/current', 'user.preferences.current', 'Current user preference snapshot template',
+                null, null,
+                jsonb_build_object('resource_uri', 'resource://user/preferences/current', 'invocation_name', 'resource://user/preferences/current', 'domain', 'user'),
+                false, 'LOW', true, '1', current_timestamp
+            union all
+            select
+                'RESOURCE', 'local-agent-server', 'local-agent-server:resource://memory/session/current', 'memory.session.current', 'Current memory snapshot template',
+                null, null,
+                jsonb_build_object('resource_uri', 'resource://memory/session/current', 'invocation_name', 'resource://memory/session/current', 'domain', 'memory'),
+                false, 'LOW', true, '1', current_timestamp
+            union all
+            select
+                'RESOURCE', 'local-agent-server', 'local-agent-server:resource://schedule/today', 'schedule.today', 'Today schedule template',
+                null, null,
+                jsonb_build_object('resource_uri', 'resource://schedule/today', 'invocation_name', 'resource://schedule/today', 'domain', 'schedule'),
+                false, 'LOW', true, '1', current_timestamp
             on conflict (capability_name)
             do update set
                 title = excluded.title,
@@ -88,8 +130,14 @@ public interface CapabilityMapper {
                 enabled, version, updated_at
             )
             select
-                'WORKFLOW', 'workflow', concat('workflow:', w.workflow_name), w.workflow_name, w.description,
-                w.input_schema, w.output_schema, w.blueprint_json, false, 'LOW',
+                'WORKFLOW', 'local-agent-server', concat('workflow:', w.workflow_name), w.workflow_name, w.description,
+                w.input_schema, w.output_schema,
+                coalesce(w.blueprint_json, '{}'::jsonb) || jsonb_build_object(
+                    'invocation_name', w.workflow_name,
+                    'workflow_name', w.workflow_name,
+                    'capability_key', concat('workflow:', w.workflow_name)
+                ),
+                false, 'LOW',
                 coalesce(w.enabled, true), coalesce(w.version, '1'), current_timestamp
             from workflow_template w
             on conflict (capability_name)
@@ -164,7 +212,8 @@ public interface CapabilityMapper {
     int syncRelationalStrategiesIntoRegistry();
 
     @Select("""
-            select capability_id, capability_type, capability_name, title, description, requires_approval, sensitivity
+            select capability_id, capability_type, capability_name, server_code, title, description,
+                   input_schema, output_schema, metadata_json, requires_approval, sensitivity, version
             from capability_registry
             where enabled = true
             order by capability_type asc, capability_name asc
@@ -174,7 +223,7 @@ public interface CapabilityMapper {
 
     @Select("""
             select capability_id, capability_type, capability_name, server_code, title, description,
-                   input_schema, output_schema, requires_approval, sensitivity, version
+                   input_schema, output_schema, metadata_json, requires_approval, sensitivity, version
             from capability_registry
             where enabled = true
               and (
