@@ -77,9 +77,9 @@ public class RagProperties {
 
     private List<RetrievalRouteRule> routePriority = List.of(
             RetrievalRouteRule.SEARCH,
+            RetrievalRouteRule.AGENTIC,
             RetrievalRouteRule.NATIVE,
-            RetrievalRouteRule.MODULAR,
-            RetrievalRouteRule.AGENTIC
+            RetrievalRouteRule.MODULAR
     );
 
     private List<RetrievalSource> nativePrimarySourcePriority = List.of(

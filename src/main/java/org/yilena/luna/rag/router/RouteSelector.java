@@ -56,13 +56,27 @@ public class RouteSelector {
                 configuredPriority == null || configuredPriority.isEmpty()
                         ? List.of(
                         RagProperties.RetrievalRouteRule.SEARCH,
+                        RagProperties.RetrievalRouteRule.AGENTIC,
                         RagProperties.RetrievalRouteRule.NATIVE,
-                        RagProperties.RetrievalRouteRule.MODULAR,
-                        RagProperties.RetrievalRouteRule.AGENTIC
+                        RagProperties.RetrievalRouteRule.MODULAR
                 )
                         : configuredPriority;
 
+        if (containsAny(query, ragProperties.getPreciseKeywords())
+                && allowedRoutes.contains(RetrievalRoute.SEARCH)) {
+            return RetrievalRoute.SEARCH;
+        }
+
+        if (isAgenticQuery(query, queryType)
+                && allowedRoutes.contains(RetrievalRoute.AGENTIC)) {
+            return RetrievalRoute.AGENTIC;
+        }
+
         for (RagProperties.RetrievalRouteRule rule : effectivePriority) {
+            if (rule == RagProperties.RetrievalRouteRule.SEARCH
+                    || rule == RagProperties.RetrievalRouteRule.AGENTIC) {
+                continue;
+            }
             RetrievalRoute route = toRoute(rule);
             if (!allowedRoutes.contains(route)) {
                 continue;
