@@ -22,7 +22,7 @@ public class JdbcTaskMemoryRetriever implements TaskMemoryRetriever {
     private final MemoryHotLayerService memoryHotLayerService;
 
     @Override
-    public Map<String, Object> retrieve(String sessionId, String userInput, TaskRuntimeState taskState) {
+    public Map<String, Object> retrieve(String sessionId, String semanticQuery, TaskRuntimeState taskState) {
         Map<String, Object> result = new HashMap<>();
         Map<String, Object> workingCached = memoryHotLayerService.getWorkingMemoryCache(sessionId);
         Map<String, Object> workingMemory;
@@ -50,8 +50,8 @@ public class JdbcTaskMemoryRetriever implements TaskMemoryRetriever {
         result.put("task_episode_steps", queryList(() -> runtimeReadMapper.selectTaskEpisodeSteps(sessionId)));
         result.put("plan_context", planContext);
 
-        boolean semanticRetrievalEnabled = shouldUseSemanticRetrieval(taskState, userInput, workingMemory, workingSlots, planContext, taskPerceptualBuffer);
-        String queryVector = semanticRetrievalEnabled ? queryVector(userInput) : null;
+        boolean semanticRetrievalEnabled = shouldUseSemanticRetrieval(taskState, semanticQuery, workingMemory, workingSlots, planContext, taskPerceptualBuffer);
+        String queryVector = semanticRetrievalEnabled ? queryVector(semanticQuery) : null;
         result.put("semantic_retrieval_enabled", semanticRetrievalEnabled);
 
         if (semanticRetrievalEnabled) {
@@ -69,7 +69,7 @@ public class JdbcTaskMemoryRetriever implements TaskMemoryRetriever {
     }
 
     private boolean shouldUseSemanticRetrieval(TaskRuntimeState taskState,
-                                               String userInput,
+                                               String semanticQuery,
                                                Map<String, Object> workingMemory,
                                                List<Map<String, Object>> workingSlots,
                                                Map<String, Object> planContext,
@@ -81,7 +81,7 @@ public class JdbcTaskMemoryRetriever implements TaskMemoryRetriever {
             return true;
         }
 
-        if (containsAny(userInput,
+        if (containsAny(semanticQuery,
                 "remember", "previous", "history", "knowledge", "document", "reference", "best practice",
                 "回忆", "之前", "上次", "历史", "经验", "案例", "知识", "文档", "参考", "规则", "偏好", "流程", "步骤")) {
             return true;
@@ -94,12 +94,12 @@ public class JdbcTaskMemoryRetriever implements TaskMemoryRetriever {
         return !hasWorkingContext;
     }
 
-    private String queryVector(String userInput) {
-        if (userInput == null || userInput.isBlank()) {
+    private String queryVector(String semanticQuery) {
+        if (semanticQuery == null || semanticQuery.isBlank()) {
             return null;
         }
         try {
-            return llmClientUtil.getEmbedding(userInput);
+            return llmClientUtil.getEmbedding(semanticQuery);
         } catch (Exception ignore) {
             return null;
         }

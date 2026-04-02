@@ -5,5 +5,5 @@ import org.yilena.luna.enums.RelationalRuntimeState;
 import java.util.Map;
 
 public interface RelationalMemoryRetriever {
-    Map<String, Object> retrieve(String sessionId, String userInput, RelationalRuntimeState relationalState);
+    Map<String, Object> retrieve(String sessionId, String semanticQuery, RelationalRuntimeState relationalState);
 }

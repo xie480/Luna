@@ -20,7 +20,7 @@ public class JdbcRelationalMemoryRetriever implements RelationalMemoryRetriever 
     private final LlmClientUtil llmClientUtil;
 
     @Override
-    public Map<String, Object> retrieve(String sessionId, String userInput, RelationalRuntimeState relationalState) {
+    public Map<String, Object> retrieve(String sessionId, String semanticQuery, RelationalRuntimeState relationalState) {
         Map<String, Object> result = new HashMap<>();
         Map<String, Object> workingMemory = queryOne(() -> runtimeReadMapper.selectRelationalWorkingMemory(sessionId));
         Map<String, Object> profile = queryOne(() -> runtimeReadMapper.selectRelationalProfile(sessionId));
@@ -36,14 +36,14 @@ public class JdbcRelationalMemoryRetriever implements RelationalMemoryRetriever 
 
         boolean semanticRetrievalEnabled = shouldUseSemanticRetrieval(
                 relationalState,
-                userInput,
+                semanticQuery,
                 workingMemory,
                 profile,
                 emotionalBaseline,
                 boundaryRules,
                 relationalPerceptualBuffer
         );
-        String queryVector = semanticRetrievalEnabled ? queryVector(userInput) : null;
+        String queryVector = semanticRetrievalEnabled ? queryVector(semanticQuery) : null;
         result.put("semantic_retrieval_enabled", semanticRetrievalEnabled);
 
         if (semanticRetrievalEnabled) {
@@ -59,7 +59,7 @@ public class JdbcRelationalMemoryRetriever implements RelationalMemoryRetriever 
     }
 
     private boolean shouldUseSemanticRetrieval(RelationalRuntimeState relationalState,
-                                               String userInput,
+                                               String semanticQuery,
                                                Map<String, Object> workingMemory,
                                                Map<String, Object> profile,
                                                Map<String, Object> emotionalBaseline,
@@ -72,7 +72,7 @@ public class JdbcRelationalMemoryRetriever implements RelationalMemoryRetriever 
             return true;
         }
 
-        if (containsAny(userInput,
+        if (containsAny(semanticQuery,
                 "remember", "previous", "preference", "boundary", "support style", "address me",
                 "记得", "之前", "上次", "偏好", "边界", "称呼", "安慰", "支持方式", "别叫我", "关系")) {
             return true;
@@ -86,12 +86,12 @@ public class JdbcRelationalMemoryRetriever implements RelationalMemoryRetriever 
         return !hasNearContext;
     }
 
-    private String queryVector(String userInput) {
-        if (userInput == null || userInput.isBlank()) {
+    private String queryVector(String semanticQuery) {
+        if (semanticQuery == null || semanticQuery.isBlank()) {
             return null;
         }
         try {
-            return llmClientUtil.getEmbedding(userInput);
+            return llmClientUtil.getEmbedding(semanticQuery);
         } catch (Exception ignore) {
             return null;
         }

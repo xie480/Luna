@@ -2,6 +2,7 @@ package org.yilena.luna.context.impl;
 
 import org.springframework.stereotype.Service;
 import org.yilena.luna.context.ContextAssembler;
+import org.yilena.luna.context.SemanticPreservingPruner;
 import org.yilena.luna.context.model.AssembledContext;
 import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.InputReconstructionResult;
@@ -16,6 +17,12 @@ import java.util.Map;
 
 @Service
 public class DefaultContextAssembler implements ContextAssembler {
+
+    private final SemanticPreservingPruner semanticPreservingPruner;
+
+    public DefaultContextAssembler(SemanticPreservingPruner semanticPreservingPruner) {
+        this.semanticPreservingPruner = semanticPreservingPruner;
+    }
 
     @Override
     public AssembledContext assemble(StructuredContextPackage contextPackage,
@@ -43,10 +50,16 @@ public class DefaultContextAssembler implements ContextAssembler {
                 "Preserve confirmed constraints and latest tool conclusions."
         ));
 
-        String prompt = toPrompt(sections, userInput);
+        SemanticPreservingPruner.PruneResult pruneResult = semanticPreservingPruner.prune(
+                sections,
+                sectionBudget(contextPackage == null ? Map.of() : contextPackage.getTokenBudgetPlan())
+        );
+        String prompt = toPrompt(pruneResult.getSections(), userInput);
         return AssembledContext.builder()
                 .prompt(prompt)
-                .sections(sections)
+                .sections(pruneResult.getSections())
+                .sectionTokenCounts(pruneResult.getSectionTokenCounts())
+                .sectionTokenRatios(pruneResult.getSectionTokenRatios())
                 .build();
     }
 
@@ -54,8 +67,18 @@ public class DefaultContextAssembler implements ContextAssembler {
         if (contextPackage == null) {
             return "taskState=UNKNOWN; relationalState=UNKNOWN";
         }
+        String explicitTask = contextPackage.getTaskStateEntity() == null ? "" : safe(contextPackage.getTaskStateEntity());
+        String retrievalState = contextPackage.getRetrievalState() == null ? "" : safe(contextPackage.getRetrievalState());
+        String toolState = contextPackage.getToolState() == null ? "" : safe(contextPackage.getToolState());
+        String contextState = contextPackage.getContextState() == null ? "" : safe(contextPackage.getContextState());
+        String recoveryState = contextPackage.getRecoveryState() == null ? "" : safe(contextPackage.getRecoveryState());
         return "taskState=" + (contextPackage.getTaskState() == null ? "UNKNOWN" : contextPackage.getTaskState().name())
                 + "; relationalState=" + (contextPackage.getRelationalState() == null ? "UNKNOWN" : contextPackage.getRelationalState().name())
+                + "; explicitTaskState=" + explicitTask
+                + "; retrievalState=" + retrievalState
+                + "; toolState=" + toolState
+                + "; contextState=" + contextState
+                + "; recoveryState=" + recoveryState
                 + "; tokenBudget=" + safe(contextPackage.getTokenBudgetPlan());
     }
 
@@ -118,6 +141,10 @@ public class DefaultContextAssembler implements ContextAssembler {
                                     List<String> longTermMemorySnippets,
                                     ContextRerankResult rerankResult) {
         List<String> out = new ArrayList<>();
+        if (out.isEmpty() && rerankResult == null) {
+            // keep ordering deterministic even when no external retrieval was selected
+            out.add("memory_hints: use latest validated state + summary first");
+        }
         if (rerankResult != null && rerankResult.getSelectedMemoryHints() != null) {
             out.addAll(rerankResult.getSelectedMemoryHints());
         }
@@ -162,5 +189,18 @@ public class DefaultContextAssembler implements ContextAssembler {
     private String safe(Object value) {
         return value == null ? "" : String.valueOf(value);
     }
-}
 
+    private Map<String, Integer> sectionBudget(Map<String, Integer> rawBudget) {
+        Map<String, Integer> mapped = new LinkedHashMap<>();
+        mapped.put("Instructions", 800);
+        mapped.put("Current Task State", rawBudget.getOrDefault("task_working", 1800));
+        mapped.put("Reconstructed User Intent", rawBudget.getOrDefault("task_buffer", 900));
+        mapped.put("Relevant Knowledge Evidence", rawBudget.getOrDefault("knowledge", 2500));
+        mapped.put("MCP Resource / Prompt Hints", rawBudget.getOrDefault("plan_node", 1200));
+        mapped.put("Tool Evidence", rawBudget.getOrDefault("task_procedures", 1400));
+        mapped.put("Recent Interaction Context", rawBudget.getOrDefault("recent_messages", 1200));
+        mapped.put("Memory Hints", rawBudget.getOrDefault("task_facts", 1300));
+        mapped.put("Output Constraints", 220);
+        return mapped;
+    }
+}

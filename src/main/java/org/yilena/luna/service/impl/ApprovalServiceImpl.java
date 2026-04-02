@@ -5,10 +5,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.constants.ModelHintConstant;
+import org.yilena.luna.context.ContextAssembler;
+import org.yilena.luna.context.InputReconstructionAgent;
+import org.yilena.luna.context.RecoveryContextAgent;
+import org.yilena.luna.context.SummaryAgent;
+import org.yilena.luna.context.ToolSemanticAgent;
+import org.yilena.luna.context.model.AssembledContext;
+import org.yilena.luna.context.model.InputReconstructionResult;
+import org.yilena.luna.context.model.SummaryResult;
+import org.yilena.luna.context.model.ToolSemanticResult;
 import org.yilena.luna.entity.ApprovalTask;
 import org.yilena.luna.entity.ChatMessage;
 import org.yilena.luna.entity.McpToolCallResult;
@@ -19,13 +28,15 @@ import org.yilena.luna.exception.impl.NeedApprovalException;
 import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
 import org.yilena.luna.llm.LlmResponse;
-import org.yilena.luna.prompt.PromptAssembler;
+import org.yilena.luna.memory.EventIngressService;
+import org.yilena.luna.memory.RuntimeAuditService;
+import org.yilena.luna.memory.model.OrchestrationDecision;
+import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.service.ApprovalService;
 import org.yilena.luna.service.McpService;
 import org.yilena.luna.service.SessionService;
-import org.yilena.luna.memory.EventIngressService;
 import org.yilena.luna.sse.LunaStatusPublisher;
 import org.yilena.luna.sse.SseSessionManager;
 import org.yilena.luna.utils.LlmClientUtil;
@@ -37,26 +48,10 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-/**
- * 審批服務實現類
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ApprovalServiceImpl implements ApprovalService {
-
-    private final RedisTemplate<String, Object> redisTemplate;
-    private final JdbcTemplate jdbcTemplate;
-    private final McpService mcpService;
-    private final ObjectMapper objectMapper;
-    private final SseSessionManager sseSessionManager;
-    private final LunaStatusPublisher statusPublisher;
-
-    private final PromptAssembler promptAssembler;
-    private final LlmClientUtil llmClientUtil;
-    private final GeminiProperty geminiProperty;
-    private final SessionService sessionService;
-    private final EventIngressService eventIngressService;
 
     private static final String REDIS_PREFIX = "luna:approval:";
     private static final long EXPIRE_MINUTES = 10;
@@ -66,25 +61,41 @@ public class ApprovalServiceImpl implements ApprovalService {
     private static final String STATUS_REJECTED = "REJECTED";
     private static final String STATUS_FAILED = "FAILED";
 
+    private final RedisTemplate<String, Object> redisTemplate;
+    private final JdbcTemplate jdbcTemplate;
+    private final McpService mcpService;
+    private final ObjectMapper objectMapper;
+    private final SseSessionManager sseSessionManager;
+    private final LunaStatusPublisher statusPublisher;
+
+    private final ContextAssembler contextAssembler;
+    private final InputReconstructionAgent inputReconstructionAgent;
+    private final ToolSemanticAgent toolSemanticAgent;
+    private final SummaryAgent summaryAgent;
+    private final RecoveryContextAgent recoveryContextAgent;
+    private final RuntimeAuditService runtimeAuditService;
+    private final LlmClientUtil llmClientUtil;
+    private final GeminiProperty geminiProperty;
+    private final SessionService sessionService;
+    private final EventIngressService eventIngressService;
+
     @Override
     public void createTaskAndInterrupt(String sessionId, Resource resource, String argsJson) {
         String taskId = SnowflakeIdUtil.nextIdStr();
         long now = System.currentTimeMillis();
 
         ToolCallingContext callingContext = ToolCallingContextHolder.get();
-
         ApprovalTask task = ApprovalTask.builder()
                 .taskId(taskId)
                 .sessionId(sessionId)
                 .resourceId(parseLong(resource == null ? null : resource.getId()))
                 .status(STATUS_PENDING_APPROVAL)
-                .skillName(resource.getName())
-                .serverCode(resource.getServerCode())
-                .toolName(resource.getName())
+                .skillName(resource == null ? "" : resource.getName())
+                .serverCode(resource == null ? "" : resource.getServerCode())
+                .toolName(resource == null ? "" : resource.getName())
                 .argsJson(argsJson)
                 .createTime(now)
                 .updateTime(now)
-                // chat续跑上下文（可能为空，需兼容非 chat 场景）
                 .chatSessionKey(callingContext != null ? callingContext.getChatSessionKey() : null)
                 .userInput(callingContext != null ? callingContext.getUserInput() : null)
                 .memorySnippets(callingContext != null ? callingContext.getMemorySnippets() : null)
@@ -93,21 +104,10 @@ public class ApprovalServiceImpl implements ApprovalService {
                 .longTermMemorySnippets(callingContext != null ? callingContext.getLongTermMemorySnippets() : null)
                 .build();
 
-        // 1) 落库 tasks 作为统一执行态事实源
         persistPendingApprovalTask(task);
-
-        // 2) 同时写入 Redis 缓存审批上下文，服务 chat 续跑
-        String key = REDIS_PREFIX + taskId;
-        redisTemplate.opsForValue().set(key, task, EXPIRE_MINUTES, TimeUnit.MINUTES);
-
-        log.info("已創建審批任務: {}, status={}, 等待用戶授權...", taskId, STATUS_PENDING_APPROVAL);
-
-        // 3) 推送 SSE 事件通知前端
-        // 前端監聽 "APPROVAL_REQUEST" 事件
+        redisTemplate.opsForValue().set(REDIS_PREFIX + taskId, task, EXPIRE_MINUTES, TimeUnit.MINUTES);
         sseSessionManager.send(LunaStatusPublisher.DEFAULT_CLIENT_ID, "APPROVAL_REQUEST", task);
-        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "PENDING_APPROVAL", "操作需要你的确认...");
-
-        // 4) 拋出異常中斷當前執行流
+        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "PENDING_APPROVAL", "Approval required.");
         throw new NeedApprovalException(task);
     }
 
@@ -116,26 +116,22 @@ public class ApprovalServiceImpl implements ApprovalService {
         ApprovalTask task = loadApprovalTask(taskId);
         if (task == null) {
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "IDLE", "");
-            return errorJson("審批任務已過期或不存在");
+            return errorJson("approval task not found or expired");
         }
-
-        String resultJson;
         if (task.getSessionId() != null && !task.getSessionId().isBlank()) {
             eventIngressService.ingestApproval(task.getSessionId(), Map.of("taskId", taskId, "approved", approved));
         }
-        if (approved) {
-            log.info("用戶同意了任務: {}, 開始執行工具...", taskId);
-            updateTaskStatus(taskId, STATUS_RUNNING, null, null);
-            statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "THINKING", "Luna 正在处理审批后的操作...");
 
+        String resultJson;
+        if (approved) {
+            updateTaskStatus(taskId, STATUS_RUNNING, null, null);
+            statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "THINKING", "Running approved tool...");
             String toolResult = executeApprovedTool(task);
             boolean toolFailed = isErrorToolResult(toolResult);
             resultJson = continueChatAfterToolDecision(task, toolResult, true);
             updateTaskStatus(taskId, toolFailed ? STATUS_FAILED : STATUS_COMPLETED, resultJson, toolFailed ? "TOOL_EXECUTION_FAILED" : null);
         } else {
-            log.info("用戶拒絕了任務: {}, 將跳過工具執行並繼續後續對話流程", taskId);
-            statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "THINKING", "Luna 收到了你的选择，正在继续思考...");
-
+            statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "THINKING", "Approval rejected, continue without tool.");
             resultJson = continueChatAfterToolDecision(task, null, false);
             updateTaskStatus(taskId, STATUS_REJECTED, resultJson, "USER_REJECTED");
         }
@@ -147,7 +143,6 @@ public class ApprovalServiceImpl implements ApprovalService {
                 "result", safeToJsonNode(resultJson) != null ? safeToJsonNode(resultJson) : resultJson
         ));
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "IDLE", "");
-
         return resultJson;
     }
 
@@ -157,10 +152,9 @@ public class ApprovalServiceImpl implements ApprovalService {
             toolName = task.getSkillName();
         }
         if (toolName == null || toolName.isBlank()) {
-            updateTaskStatus(task == null ? null : task.getTaskId(), STATUS_FAILED, null, "APPROVAL_TOOL_NAME_MISSING");
+            updateTaskStatus(task.getTaskId(), STATUS_FAILED, null, "APPROVAL_TOOL_NAME_MISSING");
             return errorJson("approval task missing tool name");
         }
-
         try {
             McpToolCallResult result = mcpService.callTool(task.getServerCode(), toolName, task.getArgsJson());
             if (result == null) {
@@ -170,11 +164,8 @@ public class ApprovalServiceImpl implements ApprovalService {
             if (result.getRawResult() != null && !result.getRawResult().isBlank()) {
                 return result.getRawResult();
             }
-            return objectMapper.writeValueAsString(
-                    result.getData() == null ? Map.of("status", "success") : result.getData()
-            );
+            return objectMapper.writeValueAsString(result.getData() == null ? Map.of("status", "success") : result.getData());
         } catch (Exception e) {
-            log.error("approval execute tool failed, toolName={}", toolName, e);
             updateTaskStatus(task.getTaskId(), STATUS_FAILED, null, "TOOL_EXECUTION_FAILED");
             return errorJson("approval execute tool failed: " + e.getMessage());
         }
@@ -212,14 +203,12 @@ public class ApprovalServiceImpl implements ApprovalService {
                     payloadJson
             );
         } catch (Exception e) {
-            log.error("persist approval task to tasks failed, taskId={}", task.getTaskId(), e);
             throw new IllegalStateException("persist approval task failed", e);
         }
     }
 
     private ApprovalTask loadApprovalTask(String taskId) {
-        String key = REDIS_PREFIX + taskId;
-        ApprovalTask cached = (ApprovalTask) redisTemplate.opsForValue().get(key);
+        ApprovalTask cached = (ApprovalTask) redisTemplate.opsForValue().get(REDIS_PREFIX + taskId);
         if (cached != null) {
             return cached;
         }
@@ -230,7 +219,7 @@ public class ApprovalServiceImpl implements ApprovalService {
         try {
             return jdbcTemplate.query(
                     """
-                    select task_id, resource_id, status, server_code, tool_name, approval_id, session_id, input_args, result, error_code, approval_payload
+                    select task_id, resource_id, status, server_code, tool_name, session_id, input_args, result, error_code, approval_payload
                     from tasks
                     where task_id = ?
                     limit 1
@@ -239,8 +228,7 @@ public class ApprovalServiceImpl implements ApprovalService {
                         if (!rs.next()) {
                             return null;
                         }
-                        String payload = rs.getString("approval_payload");
-                        ApprovalTask dbTask = parseApprovalPayload(payload);
+                        ApprovalTask dbTask = parseApprovalPayload(rs.getString("approval_payload"));
                         if (dbTask == null) {
                             dbTask = new ApprovalTask();
                         }
@@ -258,7 +246,6 @@ public class ApprovalServiceImpl implements ApprovalService {
                     numericTaskId
             );
         } catch (Exception e) {
-            log.warn("load approval task from tasks failed, taskId={}", taskId, e);
             return null;
         }
     }
@@ -269,8 +256,7 @@ public class ApprovalServiceImpl implements ApprovalService {
         }
         try {
             return objectMapper.readValue(payload, ApprovalTask.class);
-        } catch (Exception e) {
-            log.debug("parse approval payload failed: {}", e.getMessage());
+        } catch (Exception ignore) {
             return null;
         }
     }
@@ -295,8 +281,7 @@ public class ApprovalServiceImpl implements ApprovalService {
                     errorCode,
                     numericTaskId
             );
-        } catch (Exception e) {
-            log.warn("update tasks status failed, taskId={}, status={}", taskId, status, e);
+        } catch (Exception ignore) {
         }
     }
 
@@ -320,42 +305,76 @@ public class ApprovalServiceImpl implements ApprovalService {
         return "error".equalsIgnoreCase(status) || "failed".equalsIgnoreCase(status);
     }
 
-    /**
-     * 审批后统一续跑 chat 的 “tool calling 之后”逻辑：
-     * - approved=true  -> 带 toolContext
-     * - approved=false -> 跳过 toolContext
-     */
     private String continueChatAfterToolDecision(ApprovalTask task, String toolContext, boolean approved) {
-        // 若无 chat 上下文，回退旧逻辑（例如异常自修复链路触发审批）
         if (!canContinueChat(task)) {
             if (!approved) {
                 return errorJson("User denied the operation.");
             }
             return wrapToolResultAsReply(toolContext);
         }
-
         try {
-            String prompt = promptAssembler.assembleFinalPrompt(
+            OrchestrationDecision recoveryDecision = eventIngressService.ingestSystemEvent(
+                    task.getSessionId(),
+                    "SYSTEM",
+                    Map.of("recovery_event", "APPROVAL_RESUME", "approval_result", approved ? "approved" : "rejected")
+            );
+            StructuredContextPackage contextPackage = recoveryDecision == null ? null : recoveryDecision.getContextPackage();
+            contextPackage = recoveryContextAgent.recover(
+                    task.getSessionId(),
+                    contextPackage,
+                    "APPROVAL_RESUME",
+                    approved ? "APPROVED_BY_USER" : "REJECTED_BY_USER"
+            );
+            InputReconstructionResult reconstructionResult = inputReconstructionAgent.reconstruct(
+                    task.getSessionId(),
+                    task.getUserInput(),
+                    contextPackage,
+                    recoveryDecision == null ? null : recoveryDecision.getTaskState(),
+                    recoveryDecision == null ? null : recoveryDecision.getRelationalState()
+            );
+            ToolSemanticResult toolSemanticResult = toolSemanticAgent.translate(
+                    approved ? toolContext : "",
+                    recoveryDecision == null ? null : recoveryDecision.getTaskState(),
+                    reconstructionResult == null ? "" : reconstructionResult.getExplicitTaskGoal()
+            );
+            AssembledContext assembledContext = contextAssembler.assemble(
+                    contextPackage,
+                    reconstructionResult,
+                    null,
+                    toolSemanticResult,
+                    task.getUserInput(),
                     task.getMemorySnippets() != null ? task.getMemorySnippets() : Collections.emptyList(),
                     task.getKnowledgeSnippets() != null ? task.getKnowledgeSnippets() : Collections.emptyList(),
                     task.getPreferenceSnippets() != null ? task.getPreferenceSnippets() : Collections.emptyList(),
                     task.getLongTermMemorySnippets() != null ? task.getLongTermMemorySnippets() : Collections.emptyList(),
-                    approved ? toolContext : null,
-                    task.getUserInput()
+                    approved ? toolContext : null
             );
-
+            runtimeAuditService.persistFinalContextSnapshot(
+                    task.getSessionId(),
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    assembledContext,
+                    assembledContext == null ? "" : assembledContext.getPrompt(),
+                    assembledContext == null ? Map.of() : assembledContext.getSectionTokenCounts(),
+                    assembledContext == null ? Map.of() : assembledContext.getSectionTokenRatios()
+            );
+            String prompt = assembledContext == null || assembledContext.getPrompt() == null || assembledContext.getPrompt().isBlank()
+                    ? PromptTemplates.SYSTEM_PROMPT + "\n\n" + PromptTemplates.RUNTIME_PROMPT.formatted(task.getUserInput())
+                    : assembledContext.getPrompt();
             SendToLuna result = getSendToLuna(prompt, task.getUserInput());
-
-            // 写回会话，保证历史完整
-            sessionService.appendMessage(
-                    task.getChatSessionKey(),
-                    new ChatMessage(ChatMessage.Role.LUNA, result.replyText(), LocalTime.now())
+            SummaryResult summaryResult = summaryAgent.summarize(task.getUserInput(), result.replyText(), contextPackage);
+            runtimeAuditService.persistDecisionRecord(
+                    task.getSessionId(),
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    "RECOVERY_SUMMARY",
+                    "approval recovery summary",
+                    objectMapper.writeValueAsString(summaryResult)
             );
-
-            // 返回对外 JSON（已去 thought）
+            sessionService.appendMessage(task.getChatSessionKey(), new ChatMessage(ChatMessage.Role.LUNA, result.replyText(), LocalTime.now()));
             return result.valid();
         } catch (Exception e) {
-            log.error("审批后续跑 chat 失败: {}", e.getMessage(), e);
+            log.error("approval continue chat failed: {}", e.getMessage(), e);
             return wrapToolResultAsReply(toolContext);
         }
     }
@@ -368,6 +387,42 @@ public class ApprovalServiceImpl implements ApprovalService {
                 && !task.getUserInput().isBlank();
     }
 
+    private Long contextPlanId(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getRuntime() == null) {
+            return null;
+        }
+        Object session = contextPackage.getRuntime().get("session");
+        if (session instanceof Map<?, ?> row) {
+            return parseLongValue(row.get("current_plan_id"));
+        }
+        return null;
+    }
+
+    private Long contextNodeId(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getTaskContext() == null) {
+            return null;
+        }
+        Object working = contextPackage.getTaskContext().get("working_memory");
+        if (working instanceof Map<?, ?> row) {
+            return parseLongValue(row.get("active_node_id"));
+        }
+        return null;
+    }
+
+    private Long parseLongValue(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
     private SendToLuna getSendToLuna(String prompt, String originalUserInput) {
         LlmRequest request = LlmRequest.builder()
                 .modelType(ModelType.OPENAI_COMPATIBLE)
@@ -375,55 +430,45 @@ public class ApprovalServiceImpl implements ApprovalService {
                 .messages(java.util.List.of(LlmMessage.user(prompt)))
                 .enablePromptInjectionCheck(true)
                 .build();
-
         LlmResponse response = llmClientUtil.generate(request);
         String valid = response != null ? response.getContent() : null;
-
         if (valid == null) {
             String fallback = createFallbackJson();
             return new SendToLuna(fallback, removeThoughtFromJson(fallback), extractReplyFromJsonSafe(fallback));
         }
-
         JsonNode node = tryParseJsonNode(valid);
         if (!isValidReplyNode(node)) {
             try {
                 String repairSeed = (originalUserInput != null && !originalUserInput.isBlank()) ? originalUserInput : valid;
                 String repairPrompt = PromptTemplates.REPAIR_PROMPT.formatted(repairSeed);
-
                 LlmRequest repairReq = LlmRequest.builder()
                         .modelType(ModelType.OPENAI_COMPATIBLE)
                         .modelName(geminiProperty.getBig().getModelName())
                         .messages(java.util.List.of(LlmMessage.user(repairPrompt)))
                         .enablePromptInjectionCheck(false)
                         .build();
-
                 LlmResponse repairRes = llmClientUtil.generate(repairReq);
                 String repairedText = repairRes != null ? repairRes.getContent() : null;
-
                 if (repairedText != null) {
                     JsonNode repairedNode = tryParseJsonNode(repairedText);
                     if (isValidReplyNode(repairedNode)) {
                         String raw = repairedNode.toString();
-                        String cleanJson = removeThoughtFromJson(raw);
-                        return new SendToLuna(raw, cleanJson, repairedNode.get(ModelHintConstant.REPLY).asText());
+                        return new SendToLuna(raw, removeThoughtFromJson(raw), repairedNode.get(ModelHintConstant.REPLY).asText());
                     }
                 }
-            } catch (Exception e) {
-                log.warn("审批后修复流程失败: {}", e.getMessage());
+            } catch (Exception ignore) {
             }
-
             String fallback = createFallbackJson();
             return new SendToLuna(fallback, removeThoughtFromJson(fallback), extractReplyFromJsonSafe(fallback));
         }
-
-        String replyText = node.get(ModelHintConstant.REPLY).asText();
         String raw = node.toString();
-        String cleanValid = removeThoughtFromJson(raw);
-        return new SendToLuna(raw, cleanValid, replyText);
+        return new SendToLuna(raw, removeThoughtFromJson(raw), node.get(ModelHintConstant.REPLY).asText());
     }
 
     private JsonNode tryParseJsonNode(String text) {
-        if (text == null) return null;
+        if (text == null) {
+            return null;
+        }
         String cleaned = text.trim();
         if (cleaned.startsWith("```")) {
             cleaned = cleaned.replaceAll("(?s)^```[a-zA-Z]*\\s*", "")
@@ -442,7 +487,7 @@ public class ApprovalServiceImpl implements ApprovalService {
     }
 
     private String createFallbackJson() {
-        return "{\"thought\":\"系统降级，无法进行思考。\",\"emotion\":\"Solemn\",\"reply\":\"生成回复失败，请稍后重试。\"}";
+        return "{\"thought\":\"fallback\",\"emotion\":\"Solemn\",\"reply\":\"Generation failed, please retry.\"}";
     }
 
     private String extractReplyFromJsonSafe(String json) {
@@ -461,38 +506,36 @@ public class ApprovalServiceImpl implements ApprovalService {
                 objectNode.remove("thought");
                 return objectNode.toString();
             }
-        } catch (Exception ignored) {
+        } catch (Exception ignore) {
         }
         return json;
     }
 
     private String wrapToolResultAsReply(String toolResult) {
         try {
-            String replyText = "操作已完成。";
+            String replyText = "Operation finished.";
             JsonNode toolNode = safeToJsonNode(toolResult);
             if (toolNode != null) {
                 if (toolNode.has("message")) {
                     replyText = toolNode.get("message").asText(replyText);
                 } else if (toolNode.has("data")) {
-                    replyText = "操作已完成，结果如下：" + toolNode.get("data").toString();
+                    replyText = "Operation finished: " + toolNode.get("data");
                 } else {
-                    replyText = "操作已完成，结果如下：" + toolNode.toString();
+                    replyText = "Operation finished: " + toolNode;
                 }
             } else if (toolResult != null && !toolResult.isBlank()) {
-                replyText = "操作已完成，结果如下：" + toolResult;
+                replyText = "Operation finished: " + toolResult;
             }
-
-            Map<String, Object> out = new java.util.HashMap<>();
-            out.put("emotion", "Smile");
-            out.put("reply", replyText);
-            return objectMapper.writeValueAsString(out);
+            return objectMapper.writeValueAsString(Map.of("emotion", "Smile", "reply", replyText));
         } catch (Exception e) {
-            return "{\"emotion\":\"Smile\",\"reply\":\"操作已完成。\"}";
+            return "{\"emotion\":\"Smile\",\"reply\":\"Operation finished.\"}";
         }
     }
 
     private JsonNode safeToJsonNode(String text) {
-        if (text == null || text.isBlank()) return null;
+        if (text == null || text.isBlank()) {
+            return null;
+        }
         try {
             return objectMapper.readTree(text);
         } catch (Exception e) {
@@ -502,17 +545,18 @@ public class ApprovalServiceImpl implements ApprovalService {
 
     private String errorJson(String msg) {
         try {
-            Map<String, Object> map = new java.util.HashMap<>();
-            map.put("status", "error");
-            map.put("message", msg);
-            map.put("emotion", "Solemn");
-            map.put("reply", "这次操作未能执行。原因：" + msg);
-            return objectMapper.writeValueAsString(map);
+            return objectMapper.writeValueAsString(Map.of(
+                    "status", "error",
+                    "message", msg,
+                    "emotion", "Solemn",
+                    "reply", "Operation failed: " + msg
+            ));
         } catch (Exception e) {
-            return "{\"status\":\"error\", \"message\":\"" + msg + "\",\"emotion\":\"Solemn\",\"reply\":\"这次操作未能执行。\"}";
+            return "{\"status\":\"error\",\"message\":\"" + msg + "\",\"emotion\":\"Solemn\",\"reply\":\"Operation failed.\"}";
         }
     }
 
     private record SendToLuna(String raw, String valid, String replyText) {
     }
 }
+

@@ -3,10 +3,12 @@ package org.yilena.luna.memory.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.context.model.AssembledContext;
 import org.yilena.luna.mapper.RuntimeAuditMapper;
 import org.yilena.luna.mapper.SessionRuntimeMapper;
 import org.yilena.luna.memory.RuntimeAuditService;
 import org.yilena.luna.memory.model.StructuredContextPackage;
+import org.yilena.luna.state.store.ContextSnapshotStore;
 
 import java.util.Map;
 
@@ -17,6 +19,7 @@ public class JdbcRuntimeAuditService implements RuntimeAuditService {
     private final RuntimeAuditMapper runtimeAuditMapper;
     private final SessionRuntimeMapper sessionRuntimeMapper;
     private final ObjectMapper objectMapper;
+    private final ContextSnapshotStore contextSnapshotStore;
 
     @Override
     public void persistContextSnapshot(String sessionId, StructuredContextPackage contextPackage) {
@@ -30,6 +33,25 @@ public class JdbcRuntimeAuditService implements RuntimeAuditService {
             runtimeAuditMapper.insertContextSnapshot(sessionId, coalescePlanId(sessionId, planId), coalesceNodeId(sessionId, nodeId), payload);
         } catch (Exception ignore) {
         }
+    }
+
+    @Override
+    public void persistFinalContextSnapshot(String sessionId,
+                                            Long planId,
+                                            Long nodeId,
+                                            AssembledContext assembledContext,
+                                            String prompt,
+                                            Map<String, Integer> sectionTokenCounts,
+                                            Map<String, Double> sectionTokenRatios) {
+        contextSnapshotStore.saveFinalSnapshot(
+                sessionId,
+                coalescePlanId(sessionId, planId),
+                coalesceNodeId(sessionId, nodeId),
+                assembledContext,
+                prompt,
+                sectionTokenCounts,
+                sectionTokenRatios
+        );
     }
 
     @Override

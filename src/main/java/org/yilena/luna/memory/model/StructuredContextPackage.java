@@ -4,6 +4,11 @@ import lombok.Builder;
 import lombok.Data;
 import org.yilena.luna.enums.RelationalRuntimeState;
 import org.yilena.luna.enums.TaskRuntimeState;
+import org.yilena.luna.state.model.ContextState;
+import org.yilena.luna.state.model.RecoveryState;
+import org.yilena.luna.state.model.RetrievalState;
+import org.yilena.luna.state.model.TaskState;
+import org.yilena.luna.state.model.ToolState;
 
 import java.util.List;
 import java.util.Map;
@@ -21,4 +26,9 @@ public class StructuredContextPackage {
     private List<Map<String, Object>> capabilityCandidates;
     private Map<String, Object> promptPolicy;
     private Map<String, Integer> tokenBudgetPlan;
+    private TaskState taskStateEntity;
+    private RetrievalState retrievalState;
+    private ToolState toolState;
+    private ContextState contextState;
+    private RecoveryState recoveryState;
 }

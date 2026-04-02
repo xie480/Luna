@@ -17,12 +17,18 @@ import org.yilena.luna.constants.LunaStateConstant;
 import org.yilena.luna.constants.ModelHintConstant;
 import org.yilena.luna.constants.RedisKeyConstant;
 import org.yilena.luna.context.ContextAssembler;
+import org.yilena.luna.context.ContextTraceLogger;
+import org.yilena.luna.context.EvidenceBlockBuilder;
 import org.yilena.luna.context.GlobalContextRerankAgent;
 import org.yilena.luna.context.InputReconstructionAgent;
 import org.yilena.luna.context.McpQueryBuilder;
 import org.yilena.luna.context.RagQueryBuilder;
+import org.yilena.luna.context.RerankTraceLogger;
 import org.yilena.luna.context.SummaryAgent;
+import org.yilena.luna.context.SummaryTraceLogger;
 import org.yilena.luna.context.ToolSemanticAgent;
+import org.yilena.luna.context.ToolSemanticResultValidator;
+import org.yilena.luna.context.ToolSemanticTraceLogger;
 import org.yilena.luna.context.model.AssembledContext;
 import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.InputReconstructionResult;
@@ -60,9 +66,17 @@ import org.yilena.luna.rag.models.RetrievalSource;
 import org.yilena.luna.service.AgentService;
 import org.yilena.luna.service.ChatService;
 import org.yilena.luna.service.SessionService;
+import org.yilena.luna.state.model.ContextState;
+import org.yilena.luna.state.model.RetrievalState;
+import org.yilena.luna.state.model.TaskState;
+import org.yilena.luna.state.model.ToolState;
+import org.yilena.luna.state.store.ContextStateStore;
+import org.yilena.luna.state.store.ContextSnapshotStore;
+import org.yilena.luna.state.store.RetrievalStateStore;
+import org.yilena.luna.state.store.TaskStateStore;
+import org.yilena.luna.state.store.ToolStateStore;
 import org.yilena.luna.sse.LunaStatusPublisher;
 import org.yilena.luna.utils.AuthContextHolder;
-import org.yilena.luna.utils.ContextPruner;
 import org.yilena.luna.utils.LlmClientUtil;
 import org.yilena.luna.utils.ToolCallingContextHolder;
 
@@ -103,8 +117,19 @@ public class ChatServiceImpl implements ChatService {
     private final McpQueryBuilder mcpQueryBuilder;
     private final GlobalContextRerankAgent globalContextRerankAgent;
     private final ToolSemanticAgent toolSemanticAgent;
+    private final ToolSemanticResultValidator toolSemanticResultValidator;
     private final SummaryAgent summaryAgent;
     private final ContextAssembler contextAssembler;
+    private final EvidenceBlockBuilder evidenceBlockBuilder;
+    private final ContextTraceLogger contextTraceLogger;
+    private final RerankTraceLogger rerankTraceLogger;
+    private final SummaryTraceLogger summaryTraceLogger;
+    private final ToolSemanticTraceLogger toolSemanticTraceLogger;
+    private final TaskStateStore taskStateStore;
+    private final RetrievalStateStore retrievalStateStore;
+    private final ToolStateStore toolStateStore;
+    private final ContextStateStore contextStateStore;
+    private final ContextSnapshotStore contextSnapshotStore;
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Override
@@ -191,10 +216,11 @@ public class ChatServiceImpl implements ChatService {
                     "cross-source rerank after retrieval",
                     toJsonSafe(rerankResult)
             );
+            rerankTraceLogger.log(runtimeSessionId, contextPlanId(contextPackage), contextNodeId(contextPackage), rerankResult);
             if (rerankResult != null && rerankResult.getSelectedKnowledgeBlocks() != null && !rerankResult.getSelectedKnowledgeBlocks().isEmpty()) {
                 knowledgeSnippets = rerankResult.getSelectedKnowledgeBlocks();
             } else {
-                knowledgeSnippets = toKnowledgeSnippets(retrievalResponse);
+                knowledgeSnippets = evidenceBlockBuilder.buildKnowledgeBlocks(getEvidences(retrievalResponse, RetrievalSource.KNOWLEDGE));
             }
             ragMemorySnippets.addAll(toMemorySnippets(retrievalResponse));
             if (rerankResult != null && rerankResult.getSelectedMemoryHints() != null) {
@@ -209,18 +235,6 @@ public class ChatServiceImpl implements ChatService {
         memorySnippets.addAll(workingMemorySnippets);
         memorySnippets.addAll(extractRuntimeMessageSnippets(contextPackage));
         memorySnippets.addAll(ragMemorySnippets);
-        ContextPruner.ContextPayload payload = ContextPruner.ContextPayload.builder()
-                .systemPrompt(PromptTemplates.SYSTEM_PROMPT)
-                .userInput(input)
-                .recentChatHistory(memorySnippets)
-                .knowledgeBase(knowledgeSnippets)
-                .userPreferences(preferenceSnippets)
-                .scheduleReminders(Collections.emptyList())
-                .longTermMemory(longTermMemorySnippets)
-                .build();
-        ContextPruner.ContextPayload pruned = ContextPruner.prune(payload);
-        memorySnippets = pruned.getRecentChatHistory();
-        knowledgeSnippets = pruned.getKnowledgeBase();
 
         ToolCallingContextHolder.set(ToolCallingContext.builder()
                 .chatSessionKey(runtimeSessionId)
@@ -278,6 +292,27 @@ public class ChatServiceImpl implements ChatService {
                 decision == null ? null : decision.getTaskState(),
                 reconstruction == null ? "" : reconstruction.getExplicitTaskGoal()
         );
+        ToolSemanticResultValidator.ValidationResult semanticValidation = toolSemanticResultValidator.validate(toolSemanticResult);
+        if (!semanticValidation.valid()) {
+            runtimeAuditService.persistDecisionRecord(
+                    runtimeSessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    "TOOL_SEMANTIC_VALIDATION",
+                    "semantic channel validation failed",
+                    toJsonSafe(Map.of("issues", semanticValidation.issues()))
+            );
+        } else {
+            runtimeAuditService.persistDecisionRecord(
+                    runtimeSessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    "TOOL_SEMANTIC_VALIDATION",
+                    "semantic channel validation passed",
+                    "{}"
+            );
+        }
+        toolSemanticResult = semanticValidation.normalized() == null ? toolSemanticResult : semanticValidation.normalized();
         runtimeAuditService.persistDecisionRecord(
                 runtimeSessionId,
                 contextPlanId(contextPackage),
@@ -286,6 +321,7 @@ public class ChatServiceImpl implements ChatService {
                 "tool result translated to semantic channel",
                 toJsonSafe(toolSemanticResult)
         );
+        toolSemanticTraceLogger.log(runtimeSessionId, contextPlanId(contextPackage), contextNodeId(contextPackage), toolSemanticResult);
 
         String synthesisBrief = threeStageResponseService.generateSynthesisBrief(input, toolContext, contextPackage);
         String semanticToolContext = mergeToolContextWithSemantic(toolContext, toolSemanticResult);
@@ -308,56 +344,37 @@ public class ChatServiceImpl implements ChatService {
         }
 
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_THINKING, LunaStateConstant.VALUE_THINKING_ORGANIZE);
-        SendToLuna result;
-        String threeStageFinal = threeStageResponseService.generateFinalResponse(input, mergedToolContext, contextPackage);
-        JsonNode threeStageNode = tryParseJsonNode(threeStageFinal);
-        if (isValidReplyNode(threeStageNode)) {
-            String raw = threeStageNode.toString();
-            result = new SendToLuna(raw, removeThoughtFromJson(raw), threeStageNode.get(ModelHintConstant.REPLY).asText());
-        } else {
-            AssembledContext assembledContext = contextAssembler.assemble(
-                    contextPackage,
-                    reconstruction,
-                    rerankResult,
-                    toolSemanticResult,
-                    input,
-                    memorySnippets,
-                    knowledgeSnippets,
-                    preferenceSnippets,
-                    longTermMemorySnippets,
-                    mergedToolContext
-            );
-            runtimeAuditService.persistDecisionRecord(
-                    runtimeSessionId,
-                    contextPlanId(contextPackage),
-                    contextNodeId(contextPackage),
-                    "CONTEXT_ASSEMBLED",
-                    "context assembled into fixed sections",
-                    toJsonSafe(assembledContext == null ? Map.of() : assembledContext.getSections())
-            );
-            String prompt = assembledContext == null
-                    ? promptAssembler.assembleFinalPrompt(
-                    memorySnippets,
-                    knowledgeSnippets,
-                    preferenceSnippets,
-                    longTermMemorySnippets,
-                    mergedToolContext,
-                    input
-            )
-                    : assembledContext.getPrompt();
-            result = getSendToLuna(prompt, input, contextPackage);
-        }
-        LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(result.raw());
-        memoryWritePipelineService.writeAfterTurn(runtimeSessionId, input, result.replyText(), contextPackage);
-        SummaryResult summaryResult = summaryAgent.summarize(input, result.replyText(), contextPackage);
-        runtimeAuditService.persistDecisionRecord(
+        AssembledContext assembledContext = contextAssembler.assemble(
+                contextPackage,
+                reconstruction,
+                rerankResult,
+                toolSemanticResult,
+                input,
+                memorySnippets,
+                knowledgeSnippets,
+                preferenceSnippets,
+                longTermMemorySnippets,
+                mergedToolContext
+        );
+        contextTraceLogger.log(runtimeSessionId, contextPlanId(contextPackage), contextNodeId(contextPackage), assembledContext);
+        contextSnapshotStore.saveFinalSnapshot(
                 runtimeSessionId,
                 contextPlanId(contextPackage),
                 contextNodeId(contextPackage),
-                "SUMMARY_AGENT",
-                "dual summary generated",
-                toJsonSafe(summaryResult)
+                assembledContext,
+                assembledContext == null ? "" : assembledContext.getPrompt(),
+                assembledContext == null ? Map.of() : assembledContext.getSectionTokenCounts(),
+                assembledContext == null ? Map.of() : assembledContext.getSectionTokenRatios()
         );
+        String finalPrompt = assembledContext == null || assembledContext.getPrompt() == null || assembledContext.getPrompt().isBlank()
+                ? PromptTemplates.SYSTEM_PROMPT + "\n\n" + PromptTemplates.RUNTIME_PROMPT.formatted(input == null ? "" : input)
+                : assembledContext.getPrompt();
+        SendToLuna result = getSendToLuna(finalPrompt, input, contextPackage);
+        LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(result.raw());
+        memoryWritePipelineService.writeAfterTurn(runtimeSessionId, input, result.replyText(), contextPackage);
+        SummaryResult summaryResult = summaryAgent.summarize(input, result.replyText(), contextPackage);
+        summaryTraceLogger.log(runtimeSessionId, contextPlanId(contextPackage), contextNodeId(contextPackage), summaryResult);
+        writeStateStores(runtimeSessionId, decision, contextPackage, reconstruction, rerankResult, toolSemanticResult, summaryResult);
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
         return ResponseEntity.ok(tryParseJsonNode(result.valid()));
     }
@@ -845,6 +862,185 @@ public class ChatServiceImpl implements ChatService {
         payload.put("taskState", decision == null || decision.getTaskState() == null ? "" : decision.getTaskState().name());
         payload.put("relationalState", decision == null || decision.getRelationalState() == null ? "" : decision.getRelationalState().name());
         return payload;
+    }
+
+    private void writeStateStores(String sessionId,
+                                  OrchestrationDecision decision,
+                                  StructuredContextPackage contextPackage,
+                                  InputReconstructionResult reconstruction,
+                                  ContextRerankResult rerankResult,
+                                  ToolSemanticResult toolSemanticResult,
+                                  SummaryResult summaryResult) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        TaskState previousTaskState = contextPackage == null ? null : contextPackage.getTaskStateEntity();
+        RetrievalState previousRetrievalState = contextPackage == null ? null : contextPackage.getRetrievalState();
+        ToolState previousToolState = contextPackage == null ? null : contextPackage.getToolState();
+        Map<String, Object> runtime = contextPackage == null ? Map.of() : safeMap(contextPackage.getRuntime());
+        Map<String, Object> sessionRow = safeMap(runtime.get("session"));
+        List<Map<String, Object>> toolRows = safeMapList(runtime.get("active_tool_results"));
+        List<String> finishedSteps = mergeDistinctList(
+                previousTaskState == null ? List.of() : previousTaskState.getFinishedSteps(),
+                extractToolStepNames(toolRows, "success", "ok", "completed")
+        );
+        List<String> failedSteps = mergeDistinctList(
+                previousTaskState == null ? List.of() : previousTaskState.getFailedSteps(),
+                extractToolStepNames(toolRows, "failed", "error")
+        );
+        int retryCount = deriveRetryCount(previousTaskState, sessionRow, failedSteps);
+        Map<String, Object> confirmedSlots = mergeMaps(
+                previousTaskState == null ? Map.of() : previousTaskState.getConfirmedSlots(),
+                reconstruction == null || reconstruction.getClarifiedEntities() == null ? Map.of() : new LinkedHashMap<>(reconstruction.getClarifiedEntities())
+        );
+        List<String> pendingQuestions = mergeDistinctList(
+                previousTaskState == null ? List.of() : previousTaskState.getPendingQuestions(),
+                reconstruction == null || reconstruction.getMissingSlots() == null ? List.of() : reconstruction.getMissingSlots()
+        );
+        TaskState taskState = TaskState.builder()
+                .taskId(String.valueOf(contextPlanId(contextPackage)))
+                .sessionId(sessionId)
+                .objective(reconstruction == null ? "" : reconstruction.getExplicitTaskGoal())
+                .currentStage(decision == null || decision.getTaskState() == null ? "UNKNOWN" : decision.getTaskState().name())
+                .currentNode(String.valueOf(contextNodeId(contextPackage)))
+                .confirmedSlots(confirmedSlots)
+                .pendingQuestions(pendingQuestions)
+                .finishedSteps(finishedSteps)
+                .failedSteps(failedSteps)
+                .retryCount(retryCount)
+                .nextActionHint(summaryResult == null || summaryResult.getStateSnapshot() == null ? "continue" : String.valueOf(summaryResult.getStateSnapshot().getOrDefault("nextStep", "continue")))
+                .build();
+        taskStateStore.save(sessionId, taskState);
+
+        RetrievalState retrievalState = RetrievalState.builder()
+                .reconstructedIntent(reconstruction == null ? "" : reconstruction.getNormalizedUserIntent())
+                .activeQueries(mergeDistinctList(
+                        previousRetrievalState == null ? List.of() : previousRetrievalState.getActiveQueries(),
+                        reconstruction == null ? List.of() : mergeDistinct(
+                        reconstruction.getReformulatedQueryForRag() == null ? List.of() : List.of(reconstruction.getReformulatedQueryForRag()),
+                        reconstruction.getReformulatedQueryForMcp() == null ? List.of() : List.of(reconstruction.getReformulatedQueryForMcp())
+                )))
+                .retrievalPlan(Map.of(
+                        "allowedRoutes", resolveAllowedRoutes(decision),
+                        "maxLatencyMs", resolveRetrievalOptions("", decision).getMaxLatencyMs()
+                ))
+                .selectedEvidenceRefs(rerankResult == null || rerankResult.getSelectedKnowledgeBlocks() == null ? List.of() : rerankResult.getSelectedKnowledgeBlocks())
+                .rerankSummary(rerankResult == null ? "" : toJsonSafe(rerankResult.getRationaleByNode()))
+                .build();
+        retrievalStateStore.save(sessionId, retrievalState);
+
+        ToolState toolState = ToolState.builder()
+                .lastToolName(resolveLastToolName(toolRows, toolSemanticResult))
+                .lastToolInput(reconstruction == null ? "" : reconstruction.getReformulatedQueryForMcp())
+                .lastToolStatus(toolSemanticResult == null ? "" : toolSemanticResult.getToolStatus())
+                .lastToolRawResultRef("tool_execution_trace:latest")
+                .lastToolSemanticSummary(toolSemanticResult == null ? "" : toolSemanticResult.getBusinessImpact())
+                .toolCallHistoryRefs(mergeDistinctList(
+                        previousToolState == null ? List.of() : previousToolState.getToolCallHistoryRefs(),
+                        extractToolHistoryRefs(toolRows)
+                ))
+                .build();
+        toolStateStore.save(sessionId, toolState);
+
+        ContextState contextState = ContextState.builder()
+                .latestNarrativeSummary(summaryResult == null ? "" : summaryResult.getNarrativeSummary())
+                .latestStateSnapshot(summaryResult == null || summaryResult.getStateSnapshot() == null ? Map.of() : summaryResult.getStateSnapshot())
+                .activeKnowledgeRefs(rerankResult == null || rerankResult.getSelectedKnowledgeBlocks() == null ? List.of() : rerankResult.getSelectedKnowledgeBlocks())
+                .activeMemoryRefs(rerankResult == null || rerankResult.getSelectedMemoryHints() == null ? List.of() : rerankResult.getSelectedMemoryHints())
+                .activeToolEvidenceRefs(List.of("tool_execution_trace:latest"))
+                .activeMcpPromptRefs(rerankResult == null || rerankResult.getSelectedPromptResources() == null ? List.of() : rerankResult.getSelectedPromptResources().stream().map(this::toJsonSafe).toList())
+                .activeMcpResourceRefs(rerankResult == null || rerankResult.getSelectedToolCandidates() == null ? List.of() : rerankResult.getSelectedToolCandidates().stream().map(this::toJsonSafe).toList())
+                .latestContextSnapshotId(sessionId + ":" + System.currentTimeMillis())
+                .build();
+        contextStateStore.save(sessionId, contextState);
+    }
+
+    private List<String> mergeDistinctList(List<String> left, List<String> right) {
+        return mergeDistinct(left == null ? List.of() : left, right == null ? List.of() : right);
+    }
+
+    private List<String> extractToolStepNames(List<Map<String, Object>> toolRows, String... statuses) {
+        if (toolRows == null || toolRows.isEmpty()) {
+            return List.of();
+        }
+        List<String> expected = new ArrayList<>();
+        for (String status : statuses) {
+            expected.add(status.toLowerCase());
+        }
+        return toolRows.stream()
+                .filter(row -> expected.contains(stringValue(row.get("call_status")).toLowerCase()))
+                .map(row -> stringValue(row.get("tool_name")))
+                .filter(name -> name != null && !name.isBlank())
+                .distinct()
+                .toList();
+    }
+
+    private int deriveRetryCount(TaskState previousTaskState, Map<String, Object> sessionRow, List<String> failedSteps) {
+        int fromPrevious = previousTaskState == null || previousTaskState.getRetryCount() == null ? 0 : previousTaskState.getRetryCount();
+        int fromSession = intValue(sessionRow.get("retry_count"));
+        int fromFailureSignals = failedSteps == null ? 0 : failedSteps.size();
+        return Math.max(fromPrevious, Math.max(fromSession, fromFailureSignals));
+    }
+
+    private Map<String, Object> mergeMaps(Map<String, Object> left, Map<String, Object> right) {
+        Map<String, Object> merged = new LinkedHashMap<>();
+        if (left != null) {
+            merged.putAll(left);
+        }
+        if (right != null) {
+            merged.putAll(right);
+        }
+        return merged;
+    }
+
+    private String resolveLastToolName(List<Map<String, Object>> toolRows, ToolSemanticResult toolSemanticResult) {
+        if (toolRows != null && !toolRows.isEmpty()) {
+            String name = stringValue(toolRows.get(0).get("tool_name"));
+            if (!name.isBlank()) {
+                return name;
+            }
+        }
+        return toolSemanticResult == null ? "" : "agent_tool_chain";
+    }
+
+    private List<String> extractToolHistoryRefs(List<Map<String, Object>> toolRows) {
+        if (toolRows == null || toolRows.isEmpty()) {
+            return List.of("tool_execution_trace:latest");
+        }
+        List<String> out = new ArrayList<>();
+        for (Map<String, Object> row : toolRows) {
+            String name = stringValue(row.get("tool_name"));
+            String status = stringValue(row.get("call_status"));
+            if (!name.isBlank()) {
+                out.add("tool_execution_trace:" + name + ":" + status);
+            }
+        }
+        out.add("tool_execution_trace:latest");
+        return out.stream().distinct().toList();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> safeMap(Object value) {
+        return value instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> safeMapList(Object value) {
+        return value instanceof List<?> list ? (List<Map<String, Object>>) list : List.of();
+    }
+
+    private int intValue(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value == null) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (Exception ignore) {
+            return 0;
+        }
     }
 
     private List<ConversationMessage> buildRetrievalConversationContext(StructuredContextPackage contextPackage) {
