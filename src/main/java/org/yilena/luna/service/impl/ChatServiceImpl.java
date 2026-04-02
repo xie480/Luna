@@ -16,6 +16,18 @@ import org.yilena.luna.constants.LogModuleConstant;
 import org.yilena.luna.constants.LunaStateConstant;
 import org.yilena.luna.constants.ModelHintConstant;
 import org.yilena.luna.constants.RedisKeyConstant;
+import org.yilena.luna.context.ContextAssembler;
+import org.yilena.luna.context.GlobalContextRerankAgent;
+import org.yilena.luna.context.InputReconstructionAgent;
+import org.yilena.luna.context.McpQueryBuilder;
+import org.yilena.luna.context.RagQueryBuilder;
+import org.yilena.luna.context.SummaryAgent;
+import org.yilena.luna.context.ToolSemanticAgent;
+import org.yilena.luna.context.model.AssembledContext;
+import org.yilena.luna.context.model.ContextRerankResult;
+import org.yilena.luna.context.model.InputReconstructionResult;
+import org.yilena.luna.context.model.SummaryResult;
+import org.yilena.luna.context.model.ToolSemanticResult;
 import org.yilena.luna.entity.ChatMessage;
 import org.yilena.luna.entity.ChatRequest;
 import org.yilena.luna.entity.ToolCallingContext;
@@ -86,6 +98,13 @@ public class ChatServiceImpl implements ChatService {
     private final ThreeStageResponseService threeStageResponseService;
     private final RuntimeAuditService runtimeAuditService;
     private final SessionRuntimeMapper sessionRuntimeMapper;
+    private final InputReconstructionAgent inputReconstructionAgent;
+    private final RagQueryBuilder ragQueryBuilder;
+    private final McpQueryBuilder mcpQueryBuilder;
+    private final GlobalContextRerankAgent globalContextRerankAgent;
+    private final ToolSemanticAgent toolSemanticAgent;
+    private final SummaryAgent summaryAgent;
+    private final ContextAssembler contextAssembler;
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Override
@@ -115,20 +134,41 @@ public class ChatServiceImpl implements ChatService {
                 "states selected",
                 toJsonSafe(buildDecisionStatePayload(decision))
         );
+        InputReconstructionResult reconstruction = inputReconstructionAgent.reconstruct(
+                runtimeSessionId,
+                input,
+                contextPackage,
+                decision == null ? null : decision.getTaskState(),
+                decision == null ? null : decision.getRelationalState()
+        );
+        runtimeAuditService.persistDecisionRecord(
+                runtimeSessionId,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage),
+                "INPUT_RECONSTRUCTION",
+                "input reconstructed before RAG/MCP routing",
+                toJsonSafe(reconstruction)
+        );
 
         List<String> knowledgeSnippets = extractTaskKnowledgeSnippets(contextPackage);
         List<String> preferenceSnippets = extractRelationalPreferenceSnippets(contextPackage);
         List<String> longTermMemorySnippets = extractTaskLongTermSnippets(contextPackage);
         List<String> workingMemorySnippets = extractWorkingMemorySnippets(contextPackage);
         List<String> ragMemorySnippets = new ArrayList<>();
+        ContextRerankResult rerankResult = null;
 
         try {
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_RETRIEVING, LunaStateConstant.VALUE_RETRIEVING);
             List<ConversationMessage> conversationContext = buildRetrievalConversationContext(contextPackage);
             List<RetrievalRoute> allowedRoutes = resolveAllowedRoutes(decision);
             RetrievalOptions retrievalOptions = resolveRetrievalOptions(input, decision);
+            String ragQuery = ragQueryBuilder.build(
+                    reconstruction,
+                    decision == null ? null : decision.getTaskState(),
+                    input
+            );
             RetrievalRequest retrievalRequest = RetrievalRequest.builder()
-                    .query(input)
+                    .query(ragQuery)
                     .sessionId(runtimeSessionId)
                     .conversationContext(conversationContext)
                     .allowedRoutes(allowedRoutes)
@@ -136,8 +176,30 @@ public class ChatServiceImpl implements ChatService {
                     .options(retrievalOptions)
                     .build();
             RetrievalResponse retrievalResponse = retrievalService.retrieve(retrievalRequest);
-            knowledgeSnippets = toKnowledgeSnippets(retrievalResponse);
+            rerankResult = globalContextRerankAgent.rerank(
+                    reconstruction,
+                    contextPackage,
+                    retrievalResponse,
+                    contextPackage == null ? List.of() : contextPackage.getCapabilityCandidates(),
+                    decision == null ? null : decision.getTaskState()
+            );
+            runtimeAuditService.persistDecisionRecord(
+                    runtimeSessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    "GLOBAL_CONTEXT_RERANK",
+                    "cross-source rerank after retrieval",
+                    toJsonSafe(rerankResult)
+            );
+            if (rerankResult != null && rerankResult.getSelectedKnowledgeBlocks() != null && !rerankResult.getSelectedKnowledgeBlocks().isEmpty()) {
+                knowledgeSnippets = rerankResult.getSelectedKnowledgeBlocks();
+            } else {
+                knowledgeSnippets = toKnowledgeSnippets(retrievalResponse);
+            }
             ragMemorySnippets.addAll(toMemorySnippets(retrievalResponse));
+            if (rerankResult != null && rerankResult.getSelectedMemoryHints() != null) {
+                ragMemorySnippets.addAll(rerankResult.getSelectedMemoryHints());
+            }
             preferenceSnippets = mergeDistinct(preferenceSnippets, toPreferenceSnippets(retrievalResponse));
         } catch (Exception e) {
             log.warn("rag retrieve failed: {}", e.getMessage());
@@ -171,13 +233,18 @@ public class ChatServiceImpl implements ChatService {
                 .build());
 
         String toolContext = null;
+        String mcpDrivenInput = mcpQueryBuilder.build(
+                reconstruction,
+                decision == null ? null : decision.getTaskState(),
+                input
+        );
         long toolStartAt = System.currentTimeMillis();
         String toolStatus = "SUCCESS";
         String toolError = null;
         try {
             toolContext = agentService.processToolCalling(
                     runtimeSessionId,
-                    input,
+                    mcpDrivenInput,
                     decision == null ? null : decision.getTaskState(),
                     decision == null ? null : decision.getRelationalState()
             );
@@ -206,8 +273,23 @@ public class ChatServiceImpl implements ChatService {
             ));
         }
 
+        ToolSemanticResult toolSemanticResult = toolSemanticAgent.translate(
+                toolContext,
+                decision == null ? null : decision.getTaskState(),
+                reconstruction == null ? "" : reconstruction.getExplicitTaskGoal()
+        );
+        runtimeAuditService.persistDecisionRecord(
+                runtimeSessionId,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage),
+                "TOOL_SEMANTIC_TRANSLATION",
+                "tool result translated to semantic channel",
+                toJsonSafe(toolSemanticResult)
+        );
+
         String synthesisBrief = threeStageResponseService.generateSynthesisBrief(input, toolContext, contextPackage);
-        String mergedToolContext = mergeToolContextWithSynthesis(toolContext, synthesisBrief);
+        String semanticToolContext = mergeToolContextWithSemantic(toolContext, toolSemanticResult);
+        String mergedToolContext = mergeToolContextWithSynthesis(semanticToolContext, synthesisBrief);
         runtimeAuditService.persistDecisionRecord(
                 runtimeSessionId,
                 contextPlanId(contextPackage),
@@ -233,18 +315,49 @@ public class ChatServiceImpl implements ChatService {
             String raw = threeStageNode.toString();
             result = new SendToLuna(raw, removeThoughtFromJson(raw), threeStageNode.get(ModelHintConstant.REPLY).asText());
         } else {
-            String prompt = promptAssembler.assembleFinalPrompt(
+            AssembledContext assembledContext = contextAssembler.assemble(
+                    contextPackage,
+                    reconstruction,
+                    rerankResult,
+                    toolSemanticResult,
+                    input,
+                    memorySnippets,
+                    knowledgeSnippets,
+                    preferenceSnippets,
+                    longTermMemorySnippets,
+                    mergedToolContext
+            );
+            runtimeAuditService.persistDecisionRecord(
+                    runtimeSessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    "CONTEXT_ASSEMBLED",
+                    "context assembled into fixed sections",
+                    toJsonSafe(assembledContext == null ? Map.of() : assembledContext.getSections())
+            );
+            String prompt = assembledContext == null
+                    ? promptAssembler.assembleFinalPrompt(
                     memorySnippets,
                     knowledgeSnippets,
                     preferenceSnippets,
                     longTermMemorySnippets,
                     mergedToolContext,
                     input
-            );
+            )
+                    : assembledContext.getPrompt();
             result = getSendToLuna(prompt, input, contextPackage);
         }
         LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(result.raw());
         memoryWritePipelineService.writeAfterTurn(runtimeSessionId, input, result.replyText(), contextPackage);
+        SummaryResult summaryResult = summaryAgent.summarize(input, result.replyText(), contextPackage);
+        runtimeAuditService.persistDecisionRecord(
+                runtimeSessionId,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage),
+                "SUMMARY_AGENT",
+                "dual summary generated",
+                toJsonSafe(summaryResult)
+        );
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
         return ResponseEntity.ok(tryParseJsonNode(result.valid()));
     }
@@ -613,6 +726,24 @@ public class ChatServiceImpl implements ChatService {
         }
         String base = toolContext == null || toolContext.isBlank() ? "{}" : toolContext;
         return base + "\n\n[THREE_STAGE_SYNTHESIS_BRIEF]\n" + brief;
+    }
+
+    private String mergeToolContextWithSemantic(String toolContext, ToolSemanticResult semanticResult) {
+        if (semanticResult == null) {
+            return toolContext;
+        }
+        try {
+            JsonNode node = tryParseJsonNode(toolContext);
+            ObjectNode objectNode = node != null && node.isObject() ? (ObjectNode) node : mapper.createObjectNode();
+            objectNode.put("tool_semantic_status", semanticResult.getToolStatus());
+            objectNode.put("tool_semantic_next_step", semanticResult.getNextStepHint());
+            objectNode.put("tool_semantic_business_impact", semanticResult.getBusinessImpact());
+            objectNode.put("tool_semantic_confidence", semanticResult.getConfidence());
+            objectNode.set("tool_semantic_payload", mapper.valueToTree(semanticResult.getSemanticPayload()));
+            return objectNode.toString();
+        } catch (Exception ignore) {
+            return toolContext;
+        }
     }
 
     private void persistToolExecutionTraces(String sessionId,
