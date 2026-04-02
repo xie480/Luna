@@ -1,10 +1,13 @@
 package org.yilena.luna.context.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.context.RecoveryContextAgent;
 import org.yilena.luna.memory.model.StructuredContextPackage;
+import org.yilena.luna.state.model.ContextSnapshot;
 import org.yilena.luna.state.model.RecoveryState;
 import org.yilena.luna.state.model.RetrievalState;
+import org.yilena.luna.state.store.ContextSnapshotStore;
 import org.yilena.luna.state.store.RecoveryStateStore;
 
 import java.time.Instant;
@@ -18,9 +21,15 @@ import java.util.Map;
 public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
 
     private final RecoveryStateStore recoveryStateStore;
+    private final ContextSnapshotStore contextSnapshotStore;
+    private final ObjectMapper objectMapper;
 
-    public DefaultRecoveryContextAgent(RecoveryStateStore recoveryStateStore) {
+    public DefaultRecoveryContextAgent(RecoveryStateStore recoveryStateStore,
+                                       ContextSnapshotStore contextSnapshotStore,
+                                       ObjectMapper objectMapper) {
         this.recoveryStateStore = recoveryStateStore;
+        this.contextSnapshotStore = contextSnapshotStore;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -31,26 +40,34 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
         if (sessionId == null || sessionId.isBlank()) {
             return contextPackage;
         }
-        RecoveryDecision decision = evaluateRecoveryDecision(recoveryEvent, interruptReason, contextPackage);
+        String requestedSnapshotId = resolveRecoverySnapshotId(contextPackage);
+        ContextSnapshot snapshot = loadSnapshot(sessionId, requestedSnapshotId);
+        StructuredContextPackage restoredContext = rebuildFromSnapshot(contextPackage, snapshot);
+        RecoveryDecision decision = evaluateRecoveryDecision(recoveryEvent, interruptReason, restoredContext, snapshot);
+        String resolvedSnapshotId = resolveSnapshotId(snapshot, requestedSnapshotId, sessionId);
         RecoveryState state = RecoveryState.builder()
                 .interruptedAt(Instant.now().toString())
                 .interruptReason(interruptReason == null ? "" : interruptReason)
                 .recoveryEvent(recoveryEvent == null ? "UNKNOWN_RECOVERY" : recoveryEvent)
-                .recoverySnapshotId(sessionId + ":" + System.currentTimeMillis())
+                .recoverySnapshotId(resolvedSnapshotId)
                 .build();
         recoveryStateStore.save(sessionId, state);
-        if (contextPackage == null) {
+        if (restoredContext == null) {
             return null;
         }
-        contextPackage.setPromptPolicy(mergePromptPolicy(contextPackage.getPromptPolicy(), decision));
-        if (contextPackage.getRetrievalState() != null) {
-            contextPackage.setRetrievalState(rebuildRetrievalState(contextPackage.getRetrievalState(), decision));
+        restoredContext.setPromptPolicy(mergePromptPolicy(restoredContext.getPromptPolicy(), decision, snapshot, resolvedSnapshotId));
+        if (restoredContext.getRetrievalState() != null) {
+            restoredContext.setRetrievalState(rebuildRetrievalState(restoredContext.getRetrievalState(), decision));
         }
-        contextPackage.setRecoveryState(state);
-        return contextPackage;
+        restoredContext.setRuntime(mergeRuntimeWithSnapshot(restoredContext.getRuntime(), snapshot, resolvedSnapshotId));
+        restoredContext.setRecoveryState(state);
+        return restoredContext;
     }
 
-    private RecoveryDecision evaluateRecoveryDecision(String recoveryEvent, String interruptReason, StructuredContextPackage contextPackage) {
+    private RecoveryDecision evaluateRecoveryDecision(String recoveryEvent,
+                                                     String interruptReason,
+                                                     StructuredContextPackage contextPackage,
+                                                     ContextSnapshot snapshot) {
         String event = normalize(recoveryEvent);
         String reason = normalize(interruptReason);
         boolean staleByTimeout = containsAny(reason, "timeout", "expired", "过期", "超时");
@@ -58,11 +75,141 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
         boolean staleByFailure = containsAny(reason, "failed", "error", "失败", "异常");
         boolean needRagRefresh = staleByTimeout || staleByDataMutation;
         boolean needMcpRefresh = staleByFailure || staleByDataMutation;
-        boolean needReassembly = needRagRefresh || needMcpRefresh || contextPackage == null;
+        boolean needReassembly = needRagRefresh || needMcpRefresh || contextPackage == null || snapshot == null;
         return new RecoveryDecision(needRagRefresh, needMcpRefresh, needReassembly, reason);
     }
 
-    private Map<String, Object> mergePromptPolicy(Map<String, Object> current, RecoveryDecision decision) {
+    private String resolveRecoverySnapshotId(StructuredContextPackage contextPackage) {
+        if (contextPackage == null) {
+            return "";
+        }
+        if (contextPackage.getRecoveryState() != null
+                && contextPackage.getRecoveryState().getRecoverySnapshotId() != null
+                && !contextPackage.getRecoveryState().getRecoverySnapshotId().isBlank()) {
+            return contextPackage.getRecoveryState().getRecoverySnapshotId();
+        }
+        if (contextPackage.getContextState() != null
+                && contextPackage.getContextState().getLatestContextSnapshotId() != null
+                && !contextPackage.getContextState().getLatestContextSnapshotId().isBlank()) {
+            return contextPackage.getContextState().getLatestContextSnapshotId();
+        }
+        return "";
+    }
+
+    private ContextSnapshot loadSnapshot(String sessionId, String snapshotId) {
+        if (snapshotId != null && !snapshotId.isBlank()) {
+            ContextSnapshot byId = contextSnapshotStore.load(sessionId, snapshotId);
+            if (byId != null) {
+                return byId;
+            }
+        }
+        return contextSnapshotStore.loadLatest(sessionId);
+    }
+
+    private String resolveSnapshotId(ContextSnapshot snapshot, String requestedSnapshotId, String sessionId) {
+        if (snapshot != null && snapshot.getSnapshotId() != null && !snapshot.getSnapshotId().isBlank()) {
+            return snapshot.getSnapshotId();
+        }
+        if (requestedSnapshotId != null && !requestedSnapshotId.isBlank()) {
+            return requestedSnapshotId;
+        }
+        return sessionId + ":" + System.currentTimeMillis();
+    }
+
+    private StructuredContextPackage rebuildFromSnapshot(StructuredContextPackage current, ContextSnapshot snapshot) {
+        StructuredContextPackage snapshotPackage = extractStructuredContextPackage(snapshot);
+        if (snapshotPackage == null) {
+            return current;
+        }
+        return mergeContext(snapshotPackage, current);
+    }
+
+    private StructuredContextPackage extractStructuredContextPackage(ContextSnapshot snapshot) {
+        if (snapshot == null || snapshot.getPayload() == null || snapshot.getPayload().isEmpty()) {
+            return null;
+        }
+        Map<String, Object> payload = snapshot.getPayload();
+        if (payload.containsKey("snapshotType")) {
+            return null;
+        }
+        if (!isStructuredPayload(payload)) {
+            return null;
+        }
+        try {
+            return objectMapper.convertValue(payload, StructuredContextPackage.class);
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    private boolean isStructuredPayload(Map<String, Object> payload) {
+        if (payload == null || payload.isEmpty()) {
+            return false;
+        }
+        return payload.containsKey("sessionId")
+                || payload.containsKey("taskState")
+                || payload.containsKey("runtime")
+                || payload.containsKey("taskContext")
+                || payload.containsKey("relationalContext")
+                || payload.containsKey("recentMessages");
+    }
+
+    private StructuredContextPackage mergeContext(StructuredContextPackage snapshot, StructuredContextPackage current) {
+        if (snapshot == null) {
+            return current;
+        }
+        if (current == null) {
+            return snapshot;
+        }
+        return StructuredContextPackage.builder()
+                .sessionId(firstNonBlank(current.getSessionId(), snapshot.getSessionId()))
+                .taskState(current.getTaskState() == null ? snapshot.getTaskState() : current.getTaskState())
+                .relationalState(current.getRelationalState() == null ? snapshot.getRelationalState() : current.getRelationalState())
+                .runtime(preferSnapshotMap(snapshot.getRuntime(), current.getRuntime()))
+                .taskContext(preferSnapshotMap(snapshot.getTaskContext(), current.getTaskContext()))
+                .relationalContext(preferSnapshotMap(snapshot.getRelationalContext(), current.getRelationalContext()))
+                .recentMessages(preferSnapshotList(snapshot.getRecentMessages(), current.getRecentMessages()))
+                .capabilityCandidates(preferSnapshotList(snapshot.getCapabilityCandidates(), current.getCapabilityCandidates()))
+                .promptPolicy(preferSnapshotMap(snapshot.getPromptPolicy(), current.getPromptPolicy()))
+                .tokenBudgetPlan(preferSnapshotMap(snapshot.getTokenBudgetPlan(), current.getTokenBudgetPlan()))
+                .taskStateEntity(snapshot.getTaskStateEntity() == null ? current.getTaskStateEntity() : snapshot.getTaskStateEntity())
+                .retrievalState(snapshot.getRetrievalState() == null ? current.getRetrievalState() : snapshot.getRetrievalState())
+                .toolState(snapshot.getToolState() == null ? current.getToolState() : snapshot.getToolState())
+                .contextState(snapshot.getContextState() == null ? current.getContextState() : snapshot.getContextState())
+                .recoveryState(current.getRecoveryState() == null ? snapshot.getRecoveryState() : current.getRecoveryState())
+                .build();
+    }
+
+    @SuppressWarnings("unchecked")
+    private <T> T preferSnapshotMap(T snapshotValue, T currentValue) {
+        if (snapshotValue instanceof Map<?, ?> map && !map.isEmpty()) {
+            return snapshotValue;
+        }
+        return currentValue;
+    }
+
+    @SuppressWarnings("unchecked")
+    private <T> List<T> preferSnapshotList(List<T> snapshotValue, List<T> currentValue) {
+        if (snapshotValue != null && !snapshotValue.isEmpty()) {
+            return snapshotValue;
+        }
+        if (currentValue == null) {
+            return List.of();
+        }
+        return currentValue;
+    }
+
+    private String firstNonBlank(String first, String second) {
+        if (first != null && !first.isBlank()) {
+            return first;
+        }
+        return second == null ? "" : second;
+    }
+
+    private Map<String, Object> mergePromptPolicy(Map<String, Object> current,
+                                                  RecoveryDecision decision,
+                                                  ContextSnapshot snapshot,
+                                                  String snapshotId) {
         Map<String, Object> merged = new LinkedHashMap<>();
         if (current != null) {
             merged.putAll(current);
@@ -71,7 +218,34 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
         merged.put("recovery_need_rag_refresh", decision.needRagRefresh());
         merged.put("recovery_need_mcp_refresh", decision.needMcpRefresh());
         merged.put("recovery_reason", decision.reason());
+        merged.put("recovery_snapshot_loaded", snapshot != null);
+        merged.put("recovery_snapshot_id", snapshotId);
+        merged.put("recovery_snapshot_type", snapshotType(snapshot));
         return merged;
+    }
+
+    private Map<String, Object> mergeRuntimeWithSnapshot(Map<String, Object> current,
+                                                         ContextSnapshot snapshot,
+                                                         String snapshotId) {
+        Map<String, Object> merged = new LinkedHashMap<>();
+        if (current != null) {
+            merged.putAll(current);
+        }
+        merged.put("recovery_snapshot_id", snapshotId);
+        if (snapshot != null) {
+            merged.put("recovery_snapshot_plan_id", snapshot.getPlanId());
+            merged.put("recovery_snapshot_node_id", snapshot.getNodeId());
+            merged.put("recovery_snapshot_type", snapshotType(snapshot));
+        }
+        return merged;
+    }
+
+    private String snapshotType(ContextSnapshot snapshot) {
+        if (snapshot == null || snapshot.getPayload() == null) {
+            return "UNKNOWN";
+        }
+        Object type = snapshot.getPayload().get("snapshotType");
+        return type == null ? "STRUCTURED_CONTEXT" : String.valueOf(type);
     }
 
     private RetrievalState rebuildRetrievalState(RetrievalState current, RecoveryDecision decision) {

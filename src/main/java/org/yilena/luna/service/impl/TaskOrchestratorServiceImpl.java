@@ -3,18 +3,39 @@ package org.yilena.luna.service.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.context.EvidenceBlockBuilder;
+import org.yilena.luna.context.GlobalContextRerankAgent;
 import org.yilena.luna.context.InputReconstructionAgent;
+import org.yilena.luna.context.McpCandidatePreRank;
+import org.yilena.luna.context.McpQueryBuilder;
+import org.yilena.luna.context.McpResourceHintExtractor;
+import org.yilena.luna.context.RagQueryBuilder;
 import org.yilena.luna.context.RecoveryContextAgent;
+import org.yilena.luna.context.RerankTraceLogger;
+import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.InputReconstructionResult;
+import org.yilena.luna.entity.Resource;
 import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.memory.ContextCompilerService;
 import org.yilena.luna.memory.EventIngressService;
 import org.yilena.luna.memory.RuntimeAuditService;
 import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
+import org.yilena.luna.rag.api.RetrievalService;
+import org.yilena.luna.rag.models.ConversationMessage;
+import org.yilena.luna.rag.models.Evidence;
+import org.yilena.luna.rag.models.RetrievalOptions;
+import org.yilena.luna.rag.models.RetrievalRequest;
+import org.yilena.luna.rag.models.RetrievalResponse;
+import org.yilena.luna.rag.models.RetrievalRoute;
+import org.yilena.luna.rag.models.RetrievalSource;
+import org.yilena.luna.router.ToolRouter;
 import org.yilena.luna.service.TaskOrchestratorService;
+import org.yilena.luna.service.model.NodeWorksetResult;
 import org.yilena.luna.service.model.TaskOrchestrationResult;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -29,6 +50,15 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
     private final EventIngressService eventIngressService;
     private final RecoveryContextAgent recoveryContextAgent;
     private final RuntimeAuditService runtimeAuditService;
+    private final RagQueryBuilder ragQueryBuilder;
+    private final McpQueryBuilder mcpQueryBuilder;
+    private final McpCandidatePreRank mcpCandidatePreRank;
+    private final McpResourceHintExtractor mcpResourceHintExtractor;
+    private final GlobalContextRerankAgent globalContextRerankAgent;
+    private final EvidenceBlockBuilder evidenceBlockBuilder;
+    private final RetrievalService retrievalService;
+    private final ToolRouter toolRouter;
+    private final RerankTraceLogger rerankTraceLogger;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -174,6 +204,156 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .build();
     }
 
+    @Override
+    public NodeWorksetResult orchestrateNodeWorkset(String sessionId,
+                                                    String userInput,
+                                                    OrchestrationDecision decision,
+                                                    StructuredContextPackage contextPackage,
+                                                    InputReconstructionResult reconstructionResult) {
+        String mcpDrivenInput = mcpQueryBuilder.build(
+                reconstructionResult,
+                decision == null ? null : decision.getTaskState()
+        );
+        List<Map<String, Object>> mcpPreRankedCandidates = mcpCandidatePreRank.preRank(
+                mcpDrivenInput,
+                contextPackage == null ? List.of() : contextPackage.getCapabilityCandidates(),
+                reconstructionResult,
+                decision == null ? null : decision.getTaskState(),
+                24
+        );
+        if (mcpPreRankedCandidates == null) {
+            mcpPreRankedCandidates = List.of();
+        }
+        runtimeAuditService.persistDecisionRecord(
+                sessionId,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage),
+                "MCP_PRE_RANK",
+                "system-level pre-rank before global semantic rerank",
+                toJsonSafe(Map.of(
+                        "query", mcpDrivenInput,
+                        "candidateCount", mcpPreRankedCandidates.size(),
+                        "candidates", mcpPreRankedCandidates
+                ))
+        );
+
+        String ragQuery = ragQueryBuilder.build(
+                reconstructionResult,
+                decision == null ? null : decision.getTaskState()
+        );
+        List<String> selectedKnowledge = List.of();
+        List<String> selectedMemory = List.of();
+        List<String> selectedPreference = List.of();
+        ContextRerankResult rerankResult = null;
+        try {
+            List<ConversationMessage> conversationContext = buildRetrievalConversationContext(contextPackage);
+            List<RetrievalRoute> allowedRoutes = resolveAllowedRoutes(decision);
+            RetrievalOptions options = resolveRetrievalOptions(userInput, decision);
+            RetrievalRequest request = RetrievalRequest.builder()
+                    .query(ragQuery)
+                    .sessionId(sessionId)
+                    .conversationContext(conversationContext)
+                    .allowedRoutes(allowedRoutes)
+                    .sourceScope(List.of(RetrievalSource.KNOWLEDGE, RetrievalSource.MEMORY, RetrievalSource.PREFERENCE))
+                    .options(options)
+                    .build();
+            RetrievalResponse response = retrievalService.retrieve(request);
+            runtimeAuditService.persistDecisionRecord(
+                    sessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    "MULTI_ROUTE_RECALL_TRACE",
+                    "raw multi-route retrieval candidates before global rerank",
+                    toJsonSafe(Map.of(
+                            "ragQuery", ragQuery,
+                            "mcpQuery", mcpDrivenInput,
+                            "allowedRoutes", allowedRoutes,
+                            "knowledgeCandidates", getEvidences(response, RetrievalSource.KNOWLEDGE),
+                            "memoryCandidates", getEvidences(response, RetrievalSource.MEMORY),
+                            "preferenceCandidates", getEvidences(response, RetrievalSource.PREFERENCE),
+                            "mcpPreRankCandidates", mcpPreRankedCandidates
+                    ))
+            );
+            rerankResult = globalContextRerankAgent.rerank(
+                    reconstructionResult,
+                    contextPackage,
+                    response,
+                    mcpPreRankedCandidates,
+                    decision == null ? null : decision.getTaskState()
+            );
+            runtimeAuditService.persistDecisionRecord(
+                    sessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    "BOTTOM_RERANK_DETAIL_TRACE",
+                    "bottom rerank detail before global semantic rerank merge",
+                    toJsonSafe(Map.of(
+                            "knowledgeTopIds", getEvidences(response, RetrievalSource.KNOWLEDGE).stream().limit(20).map(Evidence::getId).toList(),
+                            "memoryTopIds", getEvidences(response, RetrievalSource.MEMORY).stream().limit(20).map(Evidence::getId).toList(),
+                            "preferenceTopIds", getEvidences(response, RetrievalSource.PREFERENCE).stream().limit(20).map(Evidence::getId).toList(),
+                            "mcpPreRankTopNames", mcpPreRankedCandidates.stream().limit(20).map(row -> stringValue(row.get("capability_name"))).toList()
+                    ))
+            );
+            runtimeAuditService.persistDecisionRecord(
+                    sessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    "GLOBAL_CONTEXT_RERANK",
+                    "cross-source rerank after retrieval",
+                    toJsonSafe(rerankResult)
+            );
+            rerankTraceLogger.log(sessionId, contextPlanId(contextPackage), contextNodeId(contextPackage), rerankResult);
+
+            if (rerankResult != null && rerankResult.getSelectedKnowledgeBlocks() != null && !rerankResult.getSelectedKnowledgeBlocks().isEmpty()) {
+                selectedKnowledge = rerankResult.getSelectedKnowledgeBlocks();
+            } else {
+                selectedKnowledge = evidenceBlockBuilder.buildKnowledgeBlocks(getEvidences(response, RetrievalSource.KNOWLEDGE));
+            }
+            List<String> mergedMemory = new ArrayList<>(toMemorySnippets(response));
+            if (rerankResult != null && rerankResult.getSelectedMemoryHints() != null) {
+                mergedMemory.addAll(rerankResult.getSelectedMemoryHints());
+            }
+            selectedMemory = mergedMemory;
+            selectedPreference = mergeDistinct(
+                    toPreferenceSnippets(response),
+                    mcpResourceHintExtractor.extract(rerankResult == null ? List.of() : rerankResult.getSelectedPromptResources(), 8)
+            );
+        } catch (Exception e) {
+            runtimeAuditService.persistDecisionRecord(
+                    sessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    "NODE_ORCHESTRATION_RECALL_FAILED",
+                    "recall/rerank branch fallback",
+                    toJsonSafe(Map.of(
+                            "error", nullSafe(e.getMessage()),
+                            "mcpQuery", mcpDrivenInput,
+                            "ragQuery", ragQuery
+                    ))
+            );
+            selectedKnowledge = List.of();
+            selectedMemory = List.of();
+            selectedPreference = List.of();
+        }
+
+        List<Resource> executionCandidates = resolveExecutionCandidates(rerankResult, mcpPreRankedCandidates);
+        List<String> mcpResourceHints = mcpResourceHintExtractor.extract(
+                rerankResult == null ? List.of() : rerankResult.getSelectedPromptResources(),
+                8
+        );
+        return NodeWorksetResult.builder()
+                .mcpDrivenInput(mcpDrivenInput)
+                .ragQuery(ragQuery)
+                .mcpPreRankedCandidates(mcpPreRankedCandidates)
+                .rerankResult(rerankResult)
+                .selectedKnowledgeSnippets(selectedKnowledge)
+                .selectedMemorySnippets(selectedMemory)
+                .selectedPreferenceSnippets(selectedPreference)
+                .executionCandidates(executionCandidates)
+                .mcpResourceHints(mcpResourceHints)
+                .build();
+    }
+
     private String buildOrchestrationSignal(String rawInput, InputReconstructionResult reconstruction) {
         if (reconstruction == null) {
             return rawInput == null ? "" : rawInput;
@@ -224,6 +404,101 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         payload.put("taskState", decision == null || decision.getTaskState() == null ? "" : decision.getTaskState().name());
         payload.put("relationalState", decision == null || decision.getRelationalState() == null ? "" : decision.getRelationalState().name());
         return payload;
+    }
+
+    private List<ConversationMessage> buildRetrievalConversationContext(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getRuntime() == null) {
+            return List.of();
+        }
+        Object raw = contextPackage.getRuntime().get("recent_messages");
+        if (!(raw instanceof List<?> list) || list.isEmpty()) {
+            return List.of();
+        }
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) list;
+        List<ConversationMessage> messages = rows.stream()
+                .map(row -> ConversationMessage.builder()
+                        .role(stringValue(row.get("role")))
+                        .content(stringValue(row.get("content_text")))
+                        .build())
+                .filter(item -> item.getRole() != null && !item.getRole().isBlank()
+                        && item.getContent() != null && !item.getContent().isBlank())
+                .toList();
+        if (messages.size() <= 12) {
+            return messages;
+        }
+        return messages.subList(messages.size() - 12, messages.size());
+    }
+
+    private List<RetrievalRoute> resolveAllowedRoutes(OrchestrationDecision decision) {
+        TaskRuntimeState taskState = decision == null ? null : decision.getTaskState();
+        if (taskState == TaskRuntimeState.PLANNING
+                || taskState == TaskRuntimeState.REPLANNING
+                || taskState == TaskRuntimeState.EXECUTING
+                || taskState == TaskRuntimeState.REFLECTING) {
+            return RetrievalRoute.all();
+        }
+        return List.of(RetrievalRoute.SEARCH, RetrievalRoute.NATIVE, RetrievalRoute.MODULAR);
+    }
+
+    private RetrievalOptions resolveRetrievalOptions(String input, OrchestrationDecision decision) {
+        boolean debug = input != null && (input.contains("#rag_debug") || input.contains("/rag_debug"));
+        TaskRuntimeState taskState = decision == null ? null : decision.getTaskState();
+        long maxLatencyMs = 1200L;
+        if (taskState == TaskRuntimeState.PLANNING
+                || taskState == TaskRuntimeState.REPLANNING
+                || taskState == TaskRuntimeState.EXECUTING
+                || taskState == TaskRuntimeState.REFLECTING) {
+            maxLatencyMs = 1800L;
+        }
+        return RetrievalOptions.builder()
+                .debug(debug)
+                .maxLatencyMs(maxLatencyMs)
+                .build();
+    }
+
+    private List<Evidence> getEvidences(RetrievalResponse response, RetrievalSource source) {
+        if (response == null || response.getEvidences() == null) {
+            return Collections.emptyList();
+        }
+        return response.getEvidences().getOrDefault(source, Collections.emptyList());
+    }
+
+    private List<String> toMemorySnippets(RetrievalResponse response) {
+        return getEvidences(response, RetrievalSource.MEMORY).stream()
+                .map(evidence -> "memory: " + nullSafe(evidence == null ? null : evidence.getContent()))
+                .toList();
+    }
+
+    private List<String> toPreferenceSnippets(RetrievalResponse response) {
+        return getEvidences(response, RetrievalSource.PREFERENCE).stream()
+                .map(evidence -> "preference: " + nullSafe(evidence == null ? null : evidence.getContent()))
+                .toList();
+    }
+
+    private List<String> mergeDistinct(List<String> left, List<String> right) {
+        java.util.LinkedHashSet<String> merged = new java.util.LinkedHashSet<>();
+        if (left != null) {
+            merged.addAll(left);
+        }
+        if (right != null) {
+            merged.addAll(right);
+        }
+        return new ArrayList<>(merged);
+    }
+
+    private List<Resource> resolveExecutionCandidates(ContextRerankResult rerankResult, List<Map<String, Object>> mcpPreRankedCandidates) {
+        List<Map<String, Object>> selected = new ArrayList<>();
+        if (rerankResult != null && rerankResult.getSelectedToolCandidates() != null) {
+            selected.addAll(rerankResult.getSelectedToolCandidates());
+        }
+        if (rerankResult != null && rerankResult.getSelectedPromptResources() != null) {
+            selected.addAll(rerankResult.getSelectedPromptResources());
+        }
+        if (selected.isEmpty() && mcpPreRankedCandidates != null) {
+            selected.addAll(mcpPreRankedCandidates);
+        }
+        return toolRouter.materializeCandidates(selected, 16);
     }
 
     private boolean containsAny(String text, String... keywords) {
@@ -284,6 +559,10 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
 
     private String nullSafe(String value) {
         return value == null ? "" : value;
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? "" : String.valueOf(value);
     }
 
     private record RecoveryTrigger(boolean shouldRecover, String recoveryEvent, String interruptReason) {

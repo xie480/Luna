@@ -44,6 +44,7 @@ public class DefaultSummaryAgent implements SummaryAgent {
             taskState=%s
             relationalState=%s
             shortTermMemorySize=%s
+            shortTermMemoryDigest=%s
             latestToolName=%s
             latestToolStatus=%s
             pendingQuestions=%s
@@ -75,6 +76,7 @@ public class DefaultSummaryAgent implements SummaryAgent {
                     contextPackage == null || contextPackage.getTaskState() == null ? "UNKNOWN" : contextPackage.getTaskState().name(),
                     contextPackage == null || contextPackage.getRelationalState() == null ? "UNKNOWN" : contextPackage.getRelationalState().name(),
                     contextPackage == null || contextPackage.getRecentMessages() == null ? 0 : contextPackage.getRecentMessages().size(),
+                    buildShortTermMemoryDigest(contextPackage),
                     contextPackage == null || contextPackage.getToolState() == null ? "" : safe(contextPackage.getToolState().getLastToolName()),
                     contextPackage == null || contextPackage.getToolState() == null ? "" : safe(contextPackage.getToolState().getLastToolStatus()),
                     contextPackage == null || contextPackage.getTaskStateEntity() == null ? "" : safe(contextPackage.getTaskStateEntity().getPendingQuestions())
@@ -120,13 +122,10 @@ public class DefaultSummaryAgent implements SummaryAgent {
             List<Map<String, Object>> recent = contextPackage.getRecentMessages();
             if (recent != null && !recent.isEmpty()) {
                 int total = recent.size();
-                int from = Math.max(0, total - 20);
-                Map<String, Long> roleCounts = recent.subList(from, total).stream()
+                Map<String, Long> roleCounts = recent.stream()
                         .collect(Collectors.groupingBy(row -> safe(row.get("role")), LinkedHashMap::new, Collectors.counting()));
-                sb.append("Short-term memory size=").append(total).append(", recent role distribution=").append(roleCounts).append(". ");
-                sb.append("Latest interactions: ");
-                recent.subList(from, total).forEach(row ->
-                        sb.append("[").append(safe(row.get("role"))).append("] ").append(safe(row.get("content_text"))).append(" | "));
+                sb.append("Short-term memory size=").append(total).append(", full-memory role distribution=").append(roleCounts).append(". ");
+                sb.append("Interaction digest=").append(buildShortTermMemoryDigest(contextPackage)).append(". ");
             }
             if (contextPackage.getTaskStateEntity() != null) {
                 sb.append("Task objective=").append(safe(contextPackage.getTaskStateEntity().getObjective())).append("; ");
@@ -139,6 +138,56 @@ public class DefaultSummaryAgent implements SummaryAgent {
         }
         sb.append("Assistant response delivered: ").append(safe(assistantReply));
         return sb.toString().trim();
+    }
+
+    private String buildShortTermMemoryDigest(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getRecentMessages() == null || contextPackage.getRecentMessages().isEmpty()) {
+            return "";
+        }
+        List<Map<String, Object>> recentMessages = contextPackage.getRecentMessages();
+        StringBuilder digest = new StringBuilder(2048);
+        final int maxChars = 3200;
+        for (Map<String, Object> row : recentMessages) {
+            String role = safe(row.get("role"));
+            String content = compactContent(safe(row.get("content_text")), 180);
+            if (role.isBlank() && content.isBlank()) {
+                continue;
+            }
+            String line = "[" + role + "] " + content;
+            if (digest.length() + line.length() + 3 > maxChars) {
+                digest.append(" ... [semantic_compacted_from_total=").append(recentMessages.size()).append("]");
+                break;
+            }
+            digest.append(line).append(" | ");
+        }
+        return digest.toString().trim();
+    }
+
+    private String compactContent(String content, int maxLen) {
+        if (content == null || content.isBlank()) {
+            return "";
+        }
+        String normalized = content.replaceAll("\\s+", " ").trim();
+        if (normalized.length() <= maxLen) {
+            return normalized;
+        }
+        StringBuilder compacted = new StringBuilder();
+        for (String word : normalized.split("\\s+")) {
+            if (word == null || word.isBlank()) {
+                continue;
+            }
+            if (compacted.length() == 0) {
+                if (word.length() <= maxLen) {
+                    compacted.append(word);
+                }
+                continue;
+            }
+            if (compacted.length() + 1 + word.length() > maxLen) {
+                break;
+            }
+            compacted.append(' ').append(word);
+        }
+        return compacted.toString();
     }
 
     private Map<String, Object> buildStateSnapshot(StructuredContextPackage contextPackage) {

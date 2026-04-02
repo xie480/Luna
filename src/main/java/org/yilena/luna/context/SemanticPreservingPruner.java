@@ -5,6 +5,7 @@ import lombok.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -113,10 +114,10 @@ public class SemanticPreservingPruner {
         if (text == null) {
             return "";
         }
-        String[] clauses = text.split("[;；\\n]");
+        List<String> clauses = splitClauses(text);
         List<String> critical = new ArrayList<>();
         for (String clause : clauses) {
-            String compact = clause == null ? "" : clause.trim();
+            String compact = clause.trim();
             if (compact.isBlank()) {
                 continue;
             }
@@ -125,20 +126,19 @@ public class SemanticPreservingPruner {
             }
         }
         if (critical.isEmpty()) {
-            critical = List.of(text.length() <= maxLen ? text : text.substring(0, maxLen));
+            critical.addAll(clauses);
         }
-        String merged = String.join(" ; ", critical);
-        return merged.length() <= maxLen ? merged : merged.substring(0, maxLen);
+        return joinClausesWithinLimit(critical, maxLen);
     }
 
     private String semanticFallback(String text) {
         if (text == null || text.isBlank()) {
             return "";
         }
-        String[] clauses = text.split("[;；\\n]");
+        List<String> clauses = splitClauses(text);
         List<String> selected = new ArrayList<>();
         for (String clause : clauses) {
-            String compact = clause == null ? "" : clause.trim();
+            String compact = clause.trim();
             if (compact.isBlank()) {
                 continue;
             }
@@ -147,9 +147,9 @@ public class SemanticPreservingPruner {
             }
         }
         if (selected.isEmpty()) {
-            selected = List.of(text.length() <= 300 ? text : text.substring(0, 300));
+            selected.addAll(clauses);
         }
-        return selected.stream().distinct().collect(Collectors.joining(" ; "));
+        return joinClausesWithinLimit(selected, 300);
     }
 
     private List<String> semanticClusterMerge(List<String> lines, int tokenBudget, boolean mustKeep) {
@@ -186,9 +186,11 @@ public class SemanticPreservingPruner {
             idx = normalized.indexOf(':');
         }
         if (idx > 0) {
-            return normalized.substring(0, Math.min(idx, 40));
+            String key = normalized.split("[=:]", 2)[0].trim();
+            return key.isBlank() ? "generic" : key;
         }
-        return normalized.length() <= 40 ? normalized : normalized.substring(0, 40);
+        String compact = joinWordsWithinLimit(Arrays.asList(normalized.split("\\s+")), 40);
+        return compact.isBlank() ? "generic" : compact;
     }
 
     private int estimateTokens(List<String> lines) {
@@ -197,6 +199,103 @@ public class SemanticPreservingPruner {
         }
         int chars = lines.stream().mapToInt(item -> item == null ? 0 : item.length()).sum();
         return Math.max(1, chars / 4);
+    }
+
+    private List<String> splitClauses(String text) {
+        if (text == null || text.isBlank()) {
+            return List.of();
+        }
+        String[] parts = text.split("[;；\\n]");
+        List<String> clauses = new ArrayList<>();
+        for (String part : parts) {
+            if (part == null) {
+                continue;
+            }
+            String compact = part.trim();
+            if (!compact.isBlank()) {
+                clauses.add(compact);
+            }
+        }
+        if (clauses.isEmpty()) {
+            clauses.add(text.trim());
+        }
+        return clauses;
+    }
+
+    private String joinClausesWithinLimit(List<String> clauses, int maxLen) {
+        if (clauses == null || clauses.isEmpty()) {
+            return "";
+        }
+        List<String> out = new ArrayList<>();
+        int used = 0;
+        for (String clause : clauses.stream().distinct().toList()) {
+            String normalized = clause == null ? "" : clause.trim();
+            if (normalized.isBlank()) {
+                continue;
+            }
+            int next = normalized.length() + (out.isEmpty() ? 0 : 3);
+            if (used + next <= maxLen) {
+                out.add(normalized);
+                used += next;
+                continue;
+            }
+            if (out.isEmpty()) {
+                out.add(compressClauseWithinLimit(normalized, maxLen));
+            }
+            break;
+        }
+        return out.stream().filter(item -> item != null && !item.isBlank()).collect(Collectors.joining(" ; "));
+    }
+
+    private String compressClauseWithinLimit(String clause, int maxLen) {
+        if (clause == null || clause.isBlank()) {
+            return "";
+        }
+        if (clause.length() <= maxLen) {
+            return clause;
+        }
+        List<String> keyTokens = new ArrayList<>();
+        for (String token : clause.split("[\\s,，]+")) {
+            String compact = token == null ? "" : token.trim();
+            if (compact.isBlank()) {
+                continue;
+            }
+            if (KEY_FACT_PATTERN.matcher(compact).find() || compact.contains("=") || compact.contains(":")) {
+                keyTokens.add(compact);
+            }
+        }
+        if (!keyTokens.isEmpty()) {
+            String merged = joinWordsWithinLimit(keyTokens, maxLen);
+            if (!merged.isBlank()) {
+                return merged;
+            }
+        }
+        return joinWordsWithinLimit(Arrays.asList(clause.split("\\s+")), maxLen);
+    }
+
+    private String joinWordsWithinLimit(List<String> words, int maxLen) {
+        if (words == null || words.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String word : words) {
+            String compact = word == null ? "" : word.trim();
+            if (compact.isBlank()) {
+                continue;
+            }
+            if (sb.length() == 0) {
+                if (compact.length() > maxLen) {
+                    continue;
+                }
+                sb.append(compact);
+                continue;
+            }
+            if (sb.length() + 1 + compact.length() > maxLen) {
+                break;
+            }
+            sb.append(' ').append(compact);
+        }
+        return sb.toString();
     }
 
     @Value

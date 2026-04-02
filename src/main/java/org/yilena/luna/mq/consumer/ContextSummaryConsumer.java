@@ -87,7 +87,7 @@ public class ContextSummaryConsumer implements RocketMQListener<SummaryMessage> 
                 .activeMcpPromptRefs(previous == null ? List.of() : safeList(previous.getActiveMcpPromptRefs()))
                 .activeMcpResourceRefs(previous == null ? List.of() : safeList(previous.getActiveMcpResourceRefs()))
                 .latestContextSnapshotId(previous == null
-                        ? sessionKey + ":" + System.currentTimeMillis()
+                        ? ""
                         : previous.getLatestContextSnapshotId())
                 .build();
         contextStateStore.save(sessionKey, next);
