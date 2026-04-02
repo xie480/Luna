@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.yilena.luna.entity.PlanNode;
 import org.yilena.luna.entity.PlanPhase;
 import org.yilena.luna.entity.ExecutionResult;
+import org.yilena.luna.entity.McpToolDescriptor;
 import org.yilena.luna.entity.Resource;
 import org.yilena.luna.enums.PlanNodeStatus;
 import org.yilena.luna.enums.ResourceType;
@@ -600,7 +601,10 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
     private String executeToolCapability(String serverCode, String capabilityName, String sessionId, String argsJson) {
         Resource resource = resolveCapabilityResource(serverCode, capabilityName, ResourceType.TOOL);
         if (resource == null) {
-            return toJsonQuiet(mcpService.callTool(serverCode, capabilityName, argsJson));
+            resource = resolveToolResourceFromCatalog(serverCode, capabilityName);
+        }
+        if (resource == null) {
+            return buildErrorResult("TOOL_NOT_FOUND", "tool capability not found: " + capabilityName);
         }
         ExecutionResult result = toolExecutionGateway.executeTool(
                 sessionId == null || sessionId.isBlank() ? "phase-executor" : sessionId,
@@ -635,6 +639,42 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                 .filter(r -> targetName.equalsIgnoreCase(text(r.getName())) || targetName.equalsIgnoreCase(text(r.getResourceUri())))
                 .findFirst()
                 .orElse(null);
+    }
+
+    private Resource resolveToolResourceFromCatalog(String serverCode, String capabilityName) {
+        try {
+            List<McpToolDescriptor> tools = mcpService.listTools(serverCode);
+            if (tools == null || tools.isEmpty()) {
+                return null;
+            }
+            String targetName = text(capabilityName);
+            for (McpToolDescriptor item : tools) {
+                if (item == null) {
+                    continue;
+                }
+                String toolName = text(item.getToolName());
+                if (!targetName.equalsIgnoreCase(toolName)) {
+                    continue;
+                }
+                return Resource.builder()
+                        .id("runtime-tool:" + text(serverCode) + ":" + toolName)
+                        .type(ResourceType.TOOL)
+                        .serverCode(text(serverCode))
+                        .name(toolName)
+                        .description(item.getDescription())
+                        .version(item.getVersion())
+                        .inputSchema(toJsonQuiet(item.getInputSchema()))
+                        .outputSchema(toJsonQuiet(item.getOutputSchema()))
+                        .requiresApproval(Boolean.TRUE.equals(item.getRequiresApproval()))
+                        .sensitivity(parseSensitivity(item.getSensitivity()))
+                        .build();
+            }
+            return null;
+        } catch (Exception e) {
+            log.warn("[Node] 从 catalog 构建工具资源失败, serverCode={}, toolName={}, err={}",
+                    serverCode, capabilityName, e.getMessage());
+            return null;
+        }
     }
 
     private Map<String, Object> resolveNodeInput(PlanNode node) {
@@ -883,6 +923,17 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
 
     private String text(Object value) {
         return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private org.yilena.luna.enums.Sensitivity parseSensitivity(String value) {
+        if (value == null || value.isBlank()) {
+            return org.yilena.luna.enums.Sensitivity.LOW;
+        }
+        try {
+            return org.yilena.luna.enums.Sensitivity.valueOf(value.trim().toUpperCase(Locale.ROOT));
+        } catch (Exception ignore) {
+            return org.yilena.luna.enums.Sensitivity.LOW;
+        }
     }
 
     private Throwable unwrapRootCause(Throwable t) {

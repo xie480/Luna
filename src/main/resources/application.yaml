@@ -163,6 +163,15 @@ rocketmq:
     retry-times-when-send-async-failed: 1
 
 luna:
+  mcp:
+    migration:
+      auto-enabled: false
+      validation-enabled: true
+      read-legacy-enabled: false
+    execution:
+      allow-spring-bean: false
+    compat:
+      skill-endpoint-enabled: false
   rag:
     default-timeout-ms: 2500
     compression-max-chars: 500

@@ -2,6 +2,7 @@ package org.yilena.luna.service.local;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -17,6 +18,22 @@ public interface LocalMcpToolHandler {
     }
 
     String handle(String argumentsJson);
+
+    default Map<String, Object> inputSchema() {
+        return Map.of();
+    }
+
+    default Map<String, Object> outputSchema() {
+        return Map.of();
+    }
+
+    default int timeoutMs() {
+        return 10000;
+    }
+
+    default String errorCodePrefix() {
+        return "TOOL";
+    }
 
     default String handle(InvocationContext context) {
         String args = context == null ? "{}" : context.argumentsJson();

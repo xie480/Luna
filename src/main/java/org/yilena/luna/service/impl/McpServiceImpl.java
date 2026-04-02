@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.adapter.McpClientAdapter;
 import org.yilena.luna.constants.McpConstant;
@@ -36,6 +37,9 @@ public class McpServiceImpl implements McpService {
     private final CapabilityCatalogSyncService capabilityCatalogSyncService;
     private final LlmClientUtil llmClientUtil;
     private final ObjectMapper objectMapper;
+
+    @Value("${luna.mcp.execution.allow-spring-bean:false}")
+    private boolean allowSpringBean;
 
     @Override
     public List<Resource> listAll() {
@@ -150,6 +154,11 @@ public class McpServiceImpl implements McpService {
     public McpToolImplMapping upsertToolImplMapping(McpToolImplMapping mapping) {
         if (mapping == null || blank(mapping.getServerCode()) || blank(mapping.getToolName())) {
             throw new IllegalArgumentException("serverCode/toolName required");
+        }
+        String implType = normalizeImplType(mapping.getImplType());
+        mapping.setImplType(implType);
+        if ("SPRING_BEAN".equals(implType) && Boolean.TRUE.equals(mapping.getEnabled()) && !allowSpringBean) {
+            throw new IllegalArgumentException("SPRING_BEAN mapping cannot be enabled when luna.mcp.execution.allow-spring-bean=false");
         }
         McpToolImplMapping exist = toolImplMappingMapper.selectOne(new LambdaQueryWrapper<McpToolImplMapping>()
                 .eq(McpToolImplMapping::getServerCode, mapping.getServerCode())
@@ -427,6 +436,17 @@ public class McpServiceImpl implements McpService {
     }
 
     private boolean blank(String s) { return s == null || s.isBlank(); }
+
+    private String normalizeImplType(String implType) {
+        if (blank(implType)) {
+            return "LOCAL_HANDLER";
+        }
+        String normalized = implType.trim().toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case "LOCAL_HANDLER", "HTTP", "RPC", "WORKFLOW", "SPRING_BEAN" -> normalized;
+            default -> throw new IllegalArgumentException("Unsupported implType: " + normalized);
+        };
+    }
 
     private String text(Object o) { return o == null ? "" : String.valueOf(o).trim(); }
 

@@ -251,6 +251,7 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
         String transport = normalizeTransport(registry.getTransportType());
         return switch (transport) {
             case "HTTP", "SSE" -> remoteHttpGet(registry, path, timeoutMs);
+            case "RPC" -> remoteRpcCall(registry, path, null, timeoutMs);
             case "WS" -> remoteWsCall(registry, path, null, timeoutMs);
             case "STDIO" -> remoteStdioCall(registry, "GET", path, null, timeoutMs);
             default -> errorResult("UNSUPPORTED_TRANSPORT", "transport_type " + transport + " is not supported");
@@ -261,10 +262,91 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
         String transport = normalizeTransport(registry.getTransportType());
         return switch (transport) {
             case "HTTP", "SSE" -> remoteHttpPost(registry, path, payload, timeoutMs);
+            case "RPC" -> remoteRpcCall(registry, path, payload, timeoutMs);
             case "WS" -> remoteWsCall(registry, path, payload, timeoutMs);
             case "STDIO" -> remoteStdioCall(registry, "POST", path, payload, timeoutMs);
             default -> errorResult("UNSUPPORTED_TRANSPORT", "transport_type " + transport + " is not supported");
         };
+    }
+
+    private String remoteRpcCall(McpServerRegistry registry, String path, String payload, int timeoutMs) {
+        try {
+            String rpcMethod = mapPathToRpcMethod(path);
+            Map<String, Object> params = extractRpcParams(path, payload);
+            Map<String, Object> requestBody = new java.util.LinkedHashMap<>();
+            requestBody.put("jsonrpc", "2.0");
+            requestBody.put("id", String.valueOf(System.currentTimeMillis()));
+            requestBody.put("method", rpcMethod);
+            requestBody.put("params", params);
+            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(joinUrl(registry.getBaseUrl(), "/rpc")))
+                    .timeout(Duration.ofMillis(timeoutMs))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(toJson(requestBody), StandardCharsets.UTF_8));
+            applyAuth(builder, registry);
+            HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() / 100 != 2) {
+                return errorResult("REMOTE_RPC_HTTP_ERROR", "status=" + response.statusCode() + ", body=" + response.body());
+            }
+            Map<String, Object> rpcResponse = objectMapper.readValue(response.body(), new TypeReference<>() {});
+            Object error = rpcResponse.get("error");
+            if (error != null) {
+                return errorResult("REMOTE_RPC_ERROR", String.valueOf(error));
+            }
+            Object result = rpcResponse.get("result");
+            return result == null ? "{}" : objectMapper.writeValueAsString(result);
+        } catch (Exception e) {
+            return errorResult("REMOTE_RPC_ERROR", e.getMessage());
+        }
+    }
+
+    private String mapPathToRpcMethod(String path) {
+        String clean = path == null ? "" : path.trim();
+        int queryIdx = clean.indexOf('?');
+        if (queryIdx >= 0) {
+            clean = clean.substring(0, queryIdx);
+        }
+        return switch (clean) {
+            case "/tools/list" -> "tools/list";
+            case "/tools/call" -> "tools/call";
+            case "/prompts/list" -> "prompts/list";
+            case "/prompts/get" -> "prompts/get";
+            case "/resources/list" -> "resources/list";
+            case "/resources/read" -> "resources/read";
+            default -> clean.startsWith("/") ? clean.substring(1) : clean;
+        };
+    }
+
+    private Map<String, Object> extractRpcParams(String path, String payload) {
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        String cleanPath = path == null ? "" : path.trim();
+        int queryIdx = cleanPath.indexOf('?');
+        if (queryIdx >= 0 && queryIdx + 1 < cleanPath.length()) {
+            String query = cleanPath.substring(queryIdx + 1);
+            for (String pair : query.split("&")) {
+                if (pair == null || pair.isBlank()) {
+                    continue;
+                }
+                int i = pair.indexOf('=');
+                if (i < 0) {
+                    out.put(urlDecode(pair), "");
+                } else {
+                    out.put(urlDecode(pair.substring(0, i)), urlDecode(pair.substring(i + 1)));
+                }
+            }
+        }
+        if (payload != null && !payload.isBlank()) {
+            try {
+                Map<String, Object> payloadMap = objectMapper.readValue(payload, new TypeReference<>() {});
+                out.putAll(payloadMap);
+            } catch (Exception ignore) {
+                // ignore invalid payload json and keep query-only params
+            }
+        }
+        return out;
+    }
+
+    private String urlDecode(String text) {
+        return java.net.URLDecoder.decode(text == null ? "" : text, StandardCharsets.UTF_8);
     }
 
     private String remoteHttpGet(McpServerRegistry registry, String path, int timeoutMs) {

@@ -13,7 +13,11 @@ create table mcp_tool_impl_mapping
     enabled      boolean   default true,
     created_at   timestamp default CURRENT_TIMESTAMP,
     updated_at   timestamp default CURRENT_TIMESTAMP,
-    unique (server_code, tool_name)
+    unique (server_code, tool_name),
+    constraint chk_mcp_tool_impl_mapping_impl_type
+        check (upper(impl_type) in ('LOCAL_HANDLER', 'HTTP', 'RPC', 'WORKFLOW', 'SPRING_BEAN')),
+    constraint chk_mcp_tool_impl_mapping_spring_bean_disabled
+        check (upper(impl_type) <> 'SPRING_BEAN' or enabled = false)
 );
 
 comment on table mcp_tool_impl_mapping is 'Tool to implementation routing table, internal for MCP server';

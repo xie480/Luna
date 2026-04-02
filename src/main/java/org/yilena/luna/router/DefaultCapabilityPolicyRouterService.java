@@ -1,15 +1,22 @@
 package org.yilena.luna.router;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.enums.RelationalRuntimeState;
 import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.mapper.CapabilityMapper;
 import org.yilena.luna.service.CapabilityCatalogSyncService;
+import org.yilena.luna.utils.AuthContextHolder;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -22,6 +29,10 @@ public class DefaultCapabilityPolicyRouterService implements CapabilityPolicyRou
 
     private final CapabilityMapper capabilityMapper;
     private final CapabilityCatalogSyncService capabilityCatalogSyncService;
+    private final ObjectMapper objectMapper;
+
+    @Value("${luna.capability.policy.role-mapping-json:{}}")
+    private String principalRoleMappingJson;
 
     @Override
     public List<Map<String, Object>> routeForContext(String sessionId,
@@ -30,6 +41,7 @@ public class DefaultCapabilityPolicyRouterService implements CapabilityPolicyRou
                                                      RelationalRuntimeState relationalState,
                                                      int limit) {
         List<Map<String, Object>> rows = loadBaseCandidates(query, limit);
+        rows = filterByAuthorization(rows);
         return rankByPolicy(rows, query, taskState, relationalState, false, limit);
     }
 
@@ -40,6 +52,7 @@ public class DefaultCapabilityPolicyRouterService implements CapabilityPolicyRou
                                                        RelationalRuntimeState relationalState,
                                                        int limit) {
         List<Map<String, Object>> rows = loadBaseCandidates(query, limit);
+        rows = filterByAuthorization(rows);
         return rankByPolicy(rows, query, taskState, relationalState, true, limit);
     }
 
@@ -66,6 +79,166 @@ public class DefaultCapabilityPolicyRouterService implements CapabilityPolicyRou
         } catch (Exception ignore) {
             return Collections.emptyList();
         }
+    }
+
+    private List<Map<String, Object>> filterByAuthorization(List<Map<String, Object>> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return Collections.emptyList();
+        }
+        String principal = normalize(AuthContextHolder.getPrincipalKey());
+        Set<String> roles = resolvePrincipalRoles(principal);
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            if (isAllowed(row, principal, roles)) {
+                out.add(row);
+            }
+        }
+        return out;
+    }
+
+    private boolean isAllowed(Map<String, Object> row, String principal, Set<String> roles) {
+        if (row == null || row.isEmpty()) {
+            return false;
+        }
+        Map<String, Object> metadata = parseMetadata(row.get("metadata_json"));
+        if (metadata.isEmpty()) {
+            return true;
+        }
+
+        Set<String> deniedPrincipals = extractStringSet(metadata.get("deniedPrincipals"));
+        if (matchPrincipal(principal, deniedPrincipals)) {
+            return false;
+        }
+
+        Set<String> allowedPrincipals = extractStringSet(metadata.get("allowedPrincipals"));
+        if (!allowedPrincipals.isEmpty() && !matchPrincipal(principal, allowedPrincipals)) {
+            return false;
+        }
+
+        Set<String> requiredRoles = extractStringSet(metadata.get("requiredRoles"));
+        if (requiredRoles.isEmpty()) {
+            return true;
+        }
+        for (String role : requiredRoles) {
+            if ("*".equals(role) || roles.contains(role.toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean matchPrincipal(String principal, Set<String> candidates) {
+        if (candidates == null || candidates.isEmpty()) {
+            return false;
+        }
+        if (candidates.contains("*")) {
+            return true;
+        }
+        if (principal == null || principal.isBlank()) {
+            return false;
+        }
+        if (candidates.contains(principal)) {
+            return true;
+        }
+        int idx = principal.indexOf(':');
+        if (idx > 0 && idx + 1 < principal.length()) {
+            return candidates.contains(principal.substring(idx + 1));
+        }
+        return false;
+    }
+
+    private Set<String> resolvePrincipalRoles(String principal) {
+        Set<String> out = new HashSet<>();
+        if (principal != null && !principal.isBlank()) {
+            out.add(principal);
+        }
+        Map<String, List<String>> mapping = parseRoleMapping();
+        List<String> direct = mapping.getOrDefault(principal, List.of());
+        for (String role : direct) {
+            if (role != null && !role.isBlank()) {
+                out.add(role.trim().toLowerCase(Locale.ROOT));
+            }
+        }
+        return out;
+    }
+
+    private Map<String, List<String>> parseRoleMapping() {
+        if (principalRoleMappingJson == null || principalRoleMappingJson.isBlank()) {
+            return Map.of();
+        }
+        try {
+            Map<String, Object> parsed = objectMapper.readValue(principalRoleMappingJson, new TypeReference<>() {
+            });
+            Map<String, List<String>> out = new HashMap<>();
+            for (Map.Entry<String, Object> entry : parsed.entrySet()) {
+                if (entry.getKey() == null || entry.getKey().isBlank()) {
+                    continue;
+                }
+                Set<String> roles = extractStringSet(entry.getValue());
+                out.put(normalize(entry.getKey()), new ArrayList<>(roles));
+            }
+            return out;
+        } catch (Exception ignore) {
+            return Map.of();
+        }
+    }
+
+    private Map<String, Object> parseMetadata(Object raw) {
+        if (raw == null) {
+            return Map.of();
+        }
+        if (raw instanceof Map<?, ?> map) {
+            Map<String, Object> out = new HashMap<>();
+            map.forEach((k, v) -> out.put(String.valueOf(k), v));
+            return out;
+        }
+        String text = String.valueOf(raw).trim();
+        if (text.isBlank()) {
+            return Map.of();
+        }
+        try {
+            return objectMapper.readValue(text, new TypeReference<>() {
+            });
+        } catch (Exception ignore) {
+            return Map.of();
+        }
+    }
+
+    private Set<String> extractStringSet(Object raw) {
+        if (raw == null) {
+            return Set.of();
+        }
+        Set<String> out = new LinkedHashSet<>();
+        if (raw instanceof List<?> list) {
+            for (Object item : list) {
+                String text = normalize(item == null ? "" : String.valueOf(item));
+                if (!text.isBlank()) {
+                    out.add(text);
+                }
+            }
+            return out;
+        }
+        String text = String.valueOf(raw).trim();
+        if (text.startsWith("[") && text.endsWith("]")) {
+            try {
+                List<Object> parsed = objectMapper.readValue(text, new TypeReference<>() {
+                });
+                for (Object item : parsed) {
+                    String one = normalize(item == null ? "" : String.valueOf(item));
+                    if (!one.isBlank()) {
+                        out.add(one);
+                    }
+                }
+                return out;
+            } catch (Exception ignore) {
+                return Set.of();
+            }
+        }
+        Arrays.stream(text.split(","))
+                .map(this::normalize)
+                .filter(s -> !s.isBlank())
+                .forEach(out::add);
+        return out;
     }
 
     private void syncAllCapabilities() {

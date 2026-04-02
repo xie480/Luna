@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.constants.McpConstant;
@@ -60,6 +61,9 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
 
     private volatile Map<String, LocalMcpToolHandler> toolHandlerIndex;
 
+    @Value("${luna.mcp.execution.allow-spring-bean:false}")
+    private boolean allowSpringBean;
+
     @Override
     public List<McpToolDescriptor> listTools(String serverCode) {
         String targetServer = normalizeServerCode(serverCode);
@@ -90,11 +94,8 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
         String rawResult = switch (implType) {
             case "HTTP", "RPC", "WORKFLOW" -> invokeRoute(mapping, toolName, targetServer, args);
             case "LOCAL_HANDLER" -> invokeLocalHandler(mapping, toolName, args);
-            case "SPRING_BEAN" -> errorResult(
-                    "IMPL_TYPE_DEPRECATED",
-                    "SPRING_BEAN execution path is retired. Please migrate to LOCAL_HANDLER or route-based impl."
-            );
-            default -> errorResult("UNSUPPORTED_IMPL_TYPE", "Unsupported implType: " + implType);
+            case "SPRING_BEAN" -> invokeSpringBeanCompat(mapping, toolName, args);
+            default -> errorResult("TOOL_UNSUPPORTED_IMPL_TYPE", "Unsupported implType: " + implType);
         };
         Map<String, Object> data = parseMap(rawResult);
         String status = parseStatus(data);
@@ -203,7 +204,7 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
 
     private String invokeRoute(McpToolImplMapping mapping, String toolName, String serverCode, String args) {
         if (mapping.getRouteUri() == null || mapping.getRouteUri().isBlank()) {
-            return errorResult("ROUTE_URI_REQUIRED", "routeUri is required for HTTP/RPC/WORKFLOW impl");
+            return errorResult("TOOL_ROUTE_URI_REQUIRED", "routeUri is required for HTTP/RPC/WORKFLOW impl");
         }
         int timeout = mapping.getTimeoutMs() == null || mapping.getTimeoutMs() <= 0 ? 10000 : mapping.getTimeoutMs();
         try {
@@ -219,11 +220,11 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
                     .build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() / 100 != 2) {
-                return errorResult("ROUTE_CALL_FAILED", "status=" + response.statusCode() + ", body=" + response.body());
+                return errorResult("TOOL_ROUTE_CALL_FAILED", "status=" + response.statusCode() + ", body=" + response.body());
             }
             return response.body() == null ? "{}" : response.body();
         } catch (Exception e) {
-            return errorResult("ROUTE_CALL_FAILED", e.getMessage());
+            return errorResult("TOOL_ROUTE_CALL_FAILED", e.getMessage());
         }
     }
 
@@ -231,9 +232,9 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
         LocalMcpToolHandler.InvocationContext context = new LocalMcpToolHandler.InvocationContext(
                 normalizeServerCode(mapping == null ? null : mapping.getServerCode()),
                 toolName,
-                "LOCAL_HANDLER",
-                "",
-                "",
+                normalizeImplType(mapping == null ? null : mapping.getImplType()),
+                mapping == null ? "" : mapping.getBeanName(),
+                mapping == null ? "" : mapping.getMethodName(),
                 args == null || args.isBlank() ? "{}" : args
         );
         LocalMcpToolHandler handler = resolveLocalHandler(toolName, context);
@@ -241,10 +242,36 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
             try {
                 return handler.handle(context);
             } catch (Exception e) {
-                return errorResult("LOCAL_TOOL_HANDLER_FAILED", e.getMessage());
+                return errorResult("TOOL_LOCAL_HANDLER_FAILED", e.getMessage());
             }
         }
-        return errorResult("LOCAL_TOOL_HANDLER_NOT_FOUND", "No LocalMcpToolHandler registered for toolName=" + toolName);
+        return errorResult("TOOL_LOCAL_HANDLER_NOT_FOUND", "No LocalMcpToolHandler registered for toolName=" + toolName);
+    }
+
+    private String invokeSpringBeanCompat(McpToolImplMapping mapping, String toolName, String args) {
+        if (!allowSpringBean) {
+            return errorResult(
+                    "TOOL_IMPL_DISABLED",
+                    "SPRING_BEAN execution is disabled by config luna.mcp.execution.allow-spring-bean=false"
+            );
+        }
+        LocalMcpToolHandler.InvocationContext context = new LocalMcpToolHandler.InvocationContext(
+                normalizeServerCode(mapping == null ? null : mapping.getServerCode()),
+                toolName,
+                "SPRING_BEAN",
+                mapping == null ? "" : mapping.getBeanName(),
+                mapping == null ? "" : mapping.getMethodName(),
+                args == null || args.isBlank() ? "{}" : args
+        );
+        LocalMcpToolHandler handler = resolveLocalHandler(toolName, context);
+        if (handler == null) {
+            return errorResult("TOOL_COMPAT_HANDLER_NOT_FOUND", "No compatible SPRING_BEAN handler found");
+        }
+        try {
+            return handler.handle(context);
+        } catch (Exception e) {
+            return errorResult("TOOL_COMPAT_EXECUTION_FAILED", e.getMessage());
+        }
     }
 
     private LocalMcpToolHandler resolveLocalHandler(String toolName,
