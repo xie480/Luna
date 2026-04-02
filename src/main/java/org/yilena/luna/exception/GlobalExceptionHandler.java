@@ -40,9 +40,12 @@ public class GlobalExceptionHandler {
             // 审批中断，正常返回，告知前端等待审批
             // 前端通过 SSE 接收审批弹窗，此处的 HTTP 返回值主要用于结束当前请求
             log.info("触发审批中断: {}", e.getMessage());
+            NeedApprovalException approvalException = (NeedApprovalException) e;
+            String taskId = approvalException.getApprovalTask() == null ? "" : approvalException.getApprovalTask().getTaskId();
             return ResponseEntity.ok(Map.of(
                     "status", "pending_approval",
-                    "message", "操作需要审批，请在前端确认"
+                    "message", "操作需要审批，请在前端确认",
+                    "taskId", taskId
             ));
         }
 

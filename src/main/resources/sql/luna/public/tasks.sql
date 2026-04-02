@@ -2,13 +2,14 @@ create table tasks
 (
     task_id      bigint      not null
         primary key,
-    resource_id  bigint      not null,
+    resource_id  bigint,
     status       varchar(20) not null,
     server_code  varchar(100),
     tool_name    varchar(200),
     approval_id  varchar(100),
     session_id   varchar(100),
     input_args   text,
+    approval_payload text,
     result       text,
     error_code   varchar(100),
     created_at   timestamp default CURRENT_TIMESTAMP,
@@ -21,7 +22,7 @@ comment on column tasks.task_id is '任務 ID (雪花算法)';
 
 comment on column tasks.resource_id is '關聯的資源 ID';
 
-comment on column tasks.status is 'PENDING, RUNNING, COMPLETED, REJECTED, PENDING_APPROVAL';
+comment on column tasks.status is 'PENDING, RUNNING, COMPLETED, REJECTED, FAILED, PENDING_APPROVAL';
 
 comment on column tasks.server_code is 'MCP server code for task tracing';
 
@@ -32,6 +33,8 @@ comment on column tasks.approval_id is 'Approval task id linkage';
 comment on column tasks.session_id is 'Session id/jti linkage';
 
 comment on column tasks.input_args is '執行參數';
+
+comment on column tasks.approval_payload is 'Serialized approval context payload';
 
 comment on column tasks.result is '執行結果';
 

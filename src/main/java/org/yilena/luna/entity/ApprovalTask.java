@@ -9,7 +9,7 @@ import java.io.Serializable;
 import java.util.List;
 
 /**
- * Approval task context persisted in Redis.
+ * Approval task context persisted in tasks table (fact source) and Redis (cache).
  */
 @Data
 @Builder
@@ -21,6 +21,8 @@ public class ApprovalTask implements Serializable {
 
     private String taskId;
     private String sessionId;
+    private Long resourceId;
+    private String status;
 
     // Display name for the capability being approved.
     private String skillName;
@@ -34,7 +36,10 @@ public class ApprovalTask implements Serializable {
     private String methodName;
 
     private String argsJson;
+    private String result;
+    private String errorCode;
     private Long createTime;
+    private Long updateTime;
 
     // Chat continuation context.
     private String chatSessionKey;
