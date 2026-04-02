@@ -5,8 +5,10 @@ import org.yilena.luna.context.ContextAssembler;
 import org.yilena.luna.context.SemanticPreservingPruner;
 import org.yilena.luna.context.model.AssembledContext;
 import org.yilena.luna.context.model.ContextRerankResult;
+import org.yilena.luna.context.model.EvidenceBlock;
 import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.context.model.ToolSemanticResult;
+import org.yilena.luna.entity.Resource;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.prompt.PromptTemplates;
 
@@ -30,20 +32,35 @@ public class DefaultContextAssembler implements ContextAssembler {
                                      ContextRerankResult rerankResult,
                                      ToolSemanticResult toolSemanticResult,
                                      String userInput,
+                                     List<EvidenceBlock> knowledgeEvidenceBlocks,
                                      List<String> memorySnippets,
                                      List<String> knowledgeSnippets,
                                      List<String> preferenceSnippets,
                                      List<String> longTermMemorySnippets,
+                                     List<Resource> executionCandidates,
+                                     List<String> mcpResourceHints,
                                      String toolContext) {
+        Map<String, List<String>> candidatePool = buildCandidatePool(
+                rerankResult,
+                knowledgeEvidenceBlocks,
+                memorySnippets,
+                knowledgeSnippets,
+                preferenceSnippets,
+                longTermMemorySnippets,
+                executionCandidates,
+                mcpResourceHints,
+                toolSemanticResult,
+                toolContext
+        );
         Map<String, List<String>> sections = new LinkedHashMap<>();
         sections.put("Instructions", lines(PromptTemplates.SYSTEM_PROMPT));
         sections.put("Current Task State", lines(buildCurrentTaskState(contextPackage)));
         sections.put("Reconstructed User Intent", lines(buildReconstructedIntent(userInput, reconstructionResult)));
-        sections.put("Relevant Knowledge Evidence", lines(buildKnowledgeSection(knowledgeSnippets, rerankResult)));
-        sections.put("MCP Resource / Prompt Hints", lines(buildMcpHintsSection(rerankResult)));
-        sections.put("Tool Evidence", lines(buildToolEvidence(toolContext, toolSemanticResult)));
+        sections.put("Relevant Knowledge Evidence", candidatePool.getOrDefault("knowledge", List.of()));
+        sections.put("MCP Resource / Prompt Hints", candidatePool.getOrDefault("mcp", List.of()));
+        sections.put("Tool Evidence", candidatePool.getOrDefault("tool", List.of()));
         sections.put("Recent Interaction Context", lines(buildRecentInteraction(contextPackage, memorySnippets)));
-        sections.put("Memory Hints", lines(buildMemoryHints(memorySnippets, preferenceSnippets, longTermMemorySnippets, rerankResult)));
+        sections.put("Memory Hints", candidatePool.getOrDefault("memory", List.of()));
         sections.put("Output Constraints", List.of(
                 "Single-line JSON output only.",
                 "Must contain fields: thought, emotion, reply.",
@@ -61,6 +78,83 @@ public class DefaultContextAssembler implements ContextAssembler {
                 .sectionTokenCounts(pruneResult.getSectionTokenCounts())
                 .sectionTokenRatios(pruneResult.getSectionTokenRatios())
                 .build();
+    }
+
+    private Map<String, List<String>> buildCandidatePool(ContextRerankResult rerankResult,
+                                                         List<EvidenceBlock> knowledgeEvidenceBlocks,
+                                                         List<String> memorySnippets,
+                                                         List<String> knowledgeSnippets,
+                                                         List<String> preferenceSnippets,
+                                                         List<String> longTermMemorySnippets,
+                                                         List<Resource> executionCandidates,
+                                                         List<String> mcpResourceHints,
+                                                         ToolSemanticResult toolSemanticResult,
+                                                         String toolContext) {
+        Map<String, List<String>> pool = new LinkedHashMap<>();
+        pool.put("knowledge", selectKnowledgeCandidates(rerankResult, knowledgeEvidenceBlocks, knowledgeSnippets));
+        pool.put("mcp", selectMcpCandidates(rerankResult, executionCandidates, mcpResourceHints));
+        pool.put("tool", lines(buildToolEvidence(toolContext, toolSemanticResult)));
+        pool.put("memory", lines(buildMemoryHints(memorySnippets, preferenceSnippets, longTermMemorySnippets, rerankResult)));
+        return pool;
+    }
+
+    private List<String> selectKnowledgeCandidates(ContextRerankResult rerankResult,
+                                                   List<EvidenceBlock> knowledgeEvidenceBlocks,
+                                                   List<String> knowledgeSnippets) {
+        List<String> out = new ArrayList<>();
+        if (rerankResult != null && rerankResult.getSelectedKnowledgeBlocks() != null && !rerankResult.getSelectedKnowledgeBlocks().isEmpty()) {
+            out.addAll(rerankResult.getSelectedKnowledgeBlocks());
+        }
+        if (out.isEmpty() && knowledgeEvidenceBlocks != null) {
+            for (EvidenceBlock block : knowledgeEvidenceBlocks) {
+                if (block == null) {
+                    continue;
+                }
+                out.add("id=" + safe(block.getBlockId())
+                        + "; source=" + safe(block.getSourceType())
+                        + "; score=" + safe(block.getScore())
+                        + "; title=" + safe(block.getTitle())
+                        + "; content=" + safe(block.getContent())
+                        + "; metadata=" + safe(block.getMetadata()));
+            }
+        }
+        if (out.isEmpty() && knowledgeSnippets != null) {
+            out.addAll(knowledgeSnippets);
+        }
+        return out.stream().filter(v -> v != null && !v.isBlank()).distinct().limit(12).toList();
+    }
+
+    private List<String> selectMcpCandidates(ContextRerankResult rerankResult,
+                                             List<Resource> executionCandidates,
+                                             List<String> mcpResourceHints) {
+        List<String> out = new ArrayList<>();
+        if (rerankResult != null) {
+            if (rerankResult.getSelectedToolCandidates() != null) {
+                rerankResult.getSelectedToolCandidates().forEach(row -> out.add("tool_candidate=" + safe(row)));
+            }
+            if (rerankResult.getSelectedPromptResources() != null) {
+                rerankResult.getSelectedPromptResources().forEach(row -> out.add("prompt_or_resource=" + safe(row)));
+            }
+            if (rerankResult.getRationaleByNode() != null && !rerankResult.getRationaleByNode().isEmpty()) {
+                out.add("rerank_rationale=" + safe(rerankResult.getRationaleByNode()));
+            }
+        }
+        if (executionCandidates != null) {
+            for (Resource candidate : executionCandidates) {
+                if (candidate == null) {
+                    continue;
+                }
+                out.add("execution_candidate="
+                        + safe(candidate.getName())
+                        + "|type=" + (candidate.getType() == null ? "" : candidate.getType().name())
+                        + "|server=" + safe(candidate.getServerCode())
+                        + "|approval=" + safe(candidate.getRequiresApproval()));
+            }
+        }
+        if (mcpResourceHints != null) {
+            out.addAll(mcpResourceHints.stream().map(item -> "mcp_hint=" + safe(item)).toList());
+        }
+        return out.stream().filter(v -> v != null && !v.isBlank()).distinct().limit(14).toList();
     }
 
     private String buildCurrentTaskState(StructuredContextPackage contextPackage) {

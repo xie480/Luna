@@ -27,6 +27,8 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
             You are Tool Semantic Agent.
             Convert raw tool output into strict JSON:
             {
+              "toolName":"...",
+              "toolDescription":"...",
               "toolStatus":"SUCCESS|PENDING|FAILED|UNKNOWN",
               "keyFacts":["..."],
               "businessImpact":"...",
@@ -35,9 +37,11 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
               "confidence":0.0
             }
             Keep faithful to raw output, no hallucination.
+            toolName=%s
+            toolDescription=%s
             taskState=%s
             currentNodeGoal=%s
-            rawToolResult=%s
+            rawResult=%s
             """;
 
     private final ObjectMapper objectMapper;
@@ -45,12 +49,16 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
     private final GeminiProperty geminiProperty;
 
     @Override
-    public ToolSemanticResult translate(String toolContext, TaskRuntimeState taskState, String currentNodeGoal) {
-        ToolSemanticResult llmResult = tryModelTranslation(toolContext, taskState, currentNodeGoal);
+    public ToolSemanticResult translate(String toolName,
+                                        String toolDescription,
+                                        String rawResult,
+                                        TaskRuntimeState taskState,
+                                        String currentNodeGoal) {
+        ToolSemanticResult llmResult = tryModelTranslation(toolName, toolDescription, rawResult, taskState, currentNodeGoal);
         if (llmResult != null) {
             return llmResult;
         }
-        JsonNode node = parse(toolContext);
+        JsonNode node = parse(rawResult);
         String status = normalizeStatus(node.path("status").asText(""));
         List<String> keyFacts = buildKeyFacts(node);
         List<String> unresolved = buildUnresolved(status, node);
@@ -67,6 +75,9 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
         payload.put("confidence", confidence);
 
         return ToolSemanticResult.builder()
+                .toolName(safe(toolName))
+                .toolDescription(safe(toolDescription))
+                .rawResultDigest(compactContent(safe(rawResult), 800))
                 .toolStatus(status)
                 .keyFacts(keyFacts)
                 .businessImpact(businessImpact)
@@ -77,12 +88,18 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
                 .build();
     }
 
-    private ToolSemanticResult tryModelTranslation(String toolContext, TaskRuntimeState taskState, String currentNodeGoal) {
+    private ToolSemanticResult tryModelTranslation(String toolName,
+                                                   String toolDescription,
+                                                   String rawResult,
+                                                   TaskRuntimeState taskState,
+                                                   String currentNodeGoal) {
         try {
             String prompt = TOOL_SEMANTIC_PROMPT.formatted(
+                    safe(toolName),
+                    safe(toolDescription),
                     taskState == null ? "UNKNOWN" : taskState.name(),
                     currentNodeGoal == null ? "" : currentNodeGoal,
-                    toolContext == null ? "" : toolContext
+                    rawResult == null ? "" : rawResult
             );
             LlmRequest request = LlmRequest.builder()
                     .modelType(ModelType.OPENAI_COMPATIBLE)
@@ -114,6 +131,9 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
             payload.put("confidence", confidence);
 
             return ToolSemanticResult.builder()
+                    .toolName(node.path("toolName").asText(safe(toolName)))
+                    .toolDescription(node.path("toolDescription").asText(safe(toolDescription)))
+                    .rawResultDigest(compactContent(safe(rawResult), 800))
                     .toolStatus(status)
                     .keyFacts(keyFacts)
                     .businessImpact(impact)
@@ -275,5 +295,20 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
             return 0.15;
         }
         return Math.min(confidence, 0.98);
+    }
+
+    private String compactContent(String content, int maxLen) {
+        if (content == null || content.isBlank()) {
+            return "";
+        }
+        String normalized = content.replaceAll("\\s+", " ").trim();
+        if (normalized.length() <= maxLen) {
+            return normalized;
+        }
+        return normalized.substring(0, maxLen);
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : value;
     }
 }

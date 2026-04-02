@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.yilena.luna.context.EvidenceBlockBuilder;
 import org.yilena.luna.context.GlobalContextRerankAgent;
 import org.yilena.luna.context.InputReconstructionAgent;
+import org.yilena.luna.context.MemoryQueryBuilder;
 import org.yilena.luna.context.McpCandidatePreRank;
 import org.yilena.luna.context.McpQueryBuilder;
 import org.yilena.luna.context.McpResourceHintExtractor;
@@ -13,6 +14,7 @@ import org.yilena.luna.context.RagQueryBuilder;
 import org.yilena.luna.context.RecoveryContextAgent;
 import org.yilena.luna.context.RerankTraceLogger;
 import org.yilena.luna.context.model.ContextRerankResult;
+import org.yilena.luna.context.model.EvidenceBlock;
 import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.entity.Resource;
 import org.yilena.luna.enums.TaskRuntimeState;
@@ -51,6 +53,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
     private final RecoveryContextAgent recoveryContextAgent;
     private final RuntimeAuditService runtimeAuditService;
     private final RagQueryBuilder ragQueryBuilder;
+    private final MemoryQueryBuilder memoryQueryBuilder;
     private final McpQueryBuilder mcpQueryBuilder;
     private final McpCandidatePreRank mcpCandidatePreRank;
     private final McpResourceHintExtractor mcpResourceHintExtractor;
@@ -245,9 +248,15 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 reconstructionResult,
                 decision == null ? null : decision.getTaskState()
         );
+        String memoryQuery = memoryQueryBuilder.build(
+                reconstructionResult,
+                decision == null ? null : decision.getTaskState()
+        );
         if (refreshPlan.needRagRefresh) {
             ragQuery = appendRefreshFlag(ragQuery, "rag");
+            memoryQuery = appendRefreshFlag(memoryQuery, "memory");
         }
+        List<EvidenceBlock> selectedKnowledgeEvidenceBlocks = List.of();
         List<String> selectedKnowledge = List.of();
         List<String> selectedMemory = List.of();
         List<String> selectedPreference = List.of();
@@ -270,10 +279,20 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     .sessionId(sessionId)
                     .conversationContext(conversationContext)
                     .allowedRoutes(allowedRoutes)
-                    .sourceScope(List.of(RetrievalSource.KNOWLEDGE, RetrievalSource.MEMORY, RetrievalSource.PREFERENCE))
+                    .sourceScope(List.of(RetrievalSource.KNOWLEDGE, RetrievalSource.PREFERENCE))
                     .options(options)
                     .build();
-            RetrievalResponse response = retrievalService.retrieve(request);
+            RetrievalResponse ragResponse = retrievalService.retrieve(request);
+            RetrievalRequest memoryRequest = RetrievalRequest.builder()
+                    .query(memoryQuery)
+                    .sessionId(sessionId)
+                    .conversationContext(conversationContext)
+                    .allowedRoutes(allowedRoutes)
+                    .sourceScope(List.of(RetrievalSource.MEMORY))
+                    .options(options)
+                    .build();
+            RetrievalResponse memoryResponse = retrievalService.retrieve(memoryRequest);
+            RetrievalResponse response = mergeRetrievalResponses(ragResponse, memoryResponse);
             runtimeAuditService.persistDecisionRecord(
                     sessionId,
                     contextPlanId(contextPackage),
@@ -282,11 +301,12 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     "raw multi-route retrieval candidates before global rerank",
                     toJsonSafe(Map.of(
                             "ragQuery", ragQuery,
+                            "memoryQuery", memoryQuery,
                             "mcpQuery", mcpDrivenInput,
                             "allowedRoutes", allowedRoutes,
-                            "knowledgeCandidates", getEvidences(response, RetrievalSource.KNOWLEDGE),
-                            "memoryCandidates", getEvidences(response, RetrievalSource.MEMORY),
-                            "preferenceCandidates", getEvidences(response, RetrievalSource.PREFERENCE),
+                            "knowledgeCandidates", getEvidences(ragResponse, RetrievalSource.KNOWLEDGE),
+                            "memoryCandidates", getEvidences(memoryResponse, RetrievalSource.MEMORY),
+                            "preferenceCandidates", getEvidences(ragResponse, RetrievalSource.PREFERENCE),
                             "mcpPreRankCandidates", mcpPreRankedCandidates,
                             "recoveryRefreshPlan", Map.of(
                                     "needRagRefresh", refreshPlan.needRagRefresh,
@@ -327,7 +347,10 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             if (rerankResult != null && rerankResult.getSelectedKnowledgeBlocks() != null && !rerankResult.getSelectedKnowledgeBlocks().isEmpty()) {
                 selectedKnowledge = rerankResult.getSelectedKnowledgeBlocks();
             } else {
-                selectedKnowledge = evidenceBlockBuilder.buildKnowledgeBlocks(getEvidences(response, RetrievalSource.KNOWLEDGE));
+                selectedKnowledgeEvidenceBlocks = evidenceBlockBuilder.buildKnowledgeBlocks(getEvidences(response, RetrievalSource.KNOWLEDGE));
+                selectedKnowledge = selectedKnowledgeEvidenceBlocks.stream()
+                        .map(this::toEvidenceSnippet)
+                        .toList();
             }
             List<String> mergedMemory = new ArrayList<>(toMemorySnippets(response));
             if (rerankResult != null && rerankResult.getSelectedMemoryHints() != null) {
@@ -348,9 +371,11 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     toJsonSafe(Map.of(
                             "error", nullSafe(e.getMessage()),
                             "mcpQuery", mcpDrivenInput,
-                            "ragQuery", ragQuery
+                            "ragQuery", ragQuery,
+                            "memoryQuery", memoryQuery
                     ))
             );
+            selectedKnowledgeEvidenceBlocks = List.of();
             selectedKnowledge = List.of();
             selectedMemory = List.of();
             selectedPreference = List.of();
@@ -364,14 +389,62 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         return NodeWorksetResult.builder()
                 .mcpDrivenInput(mcpDrivenInput)
                 .ragQuery(ragQuery)
+                .memoryQuery(memoryQuery)
                 .mcpPreRankedCandidates(mcpPreRankedCandidates)
                 .rerankResult(rerankResult)
+                .selectedKnowledgeEvidenceBlocks(selectedKnowledgeEvidenceBlocks)
                 .selectedKnowledgeSnippets(selectedKnowledge)
                 .selectedMemorySnippets(selectedMemory)
                 .selectedPreferenceSnippets(selectedPreference)
                 .executionCandidates(executionCandidates)
                 .mcpResourceHints(mcpResourceHints)
                 .build();
+    }
+
+    private RetrievalResponse mergeRetrievalResponses(RetrievalResponse primary, RetrievalResponse memoryOnly) {
+        if (primary == null && memoryOnly == null) {
+            return RetrievalResponse.builder().route(RetrievalRoute.SEARCH).rewrittenQuery("").evidences(Map.of()).meta(Map.of()).build();
+        }
+        if (primary == null) {
+            return memoryOnly;
+        }
+        if (memoryOnly == null) {
+            return primary;
+        }
+        Map<RetrievalSource, List<Evidence>> mergedEvidences = new LinkedHashMap<>();
+        for (RetrievalSource source : RetrievalSource.values()) {
+            List<Evidence> left = getEvidences(primary, source);
+            List<Evidence> right = getEvidences(memoryOnly, source);
+            List<Evidence> merged = new ArrayList<>();
+            merged.addAll(left);
+            merged.addAll(right);
+            mergedEvidences.put(source, merged.stream().distinct().toList());
+        }
+        Map<String, Object> mergedMeta = new LinkedHashMap<>();
+        if (primary.getMeta() != null) {
+            mergedMeta.putAll(primary.getMeta());
+        }
+        if (memoryOnly.getMeta() != null) {
+            mergedMeta.put("memory_meta", memoryOnly.getMeta());
+        }
+        return RetrievalResponse.builder()
+                .route(primary.getRoute())
+                .rewrittenQuery(primary.getRewrittenQuery())
+                .evidences(mergedEvidences)
+                .evidenceRoleGroups(primary.getEvidenceRoleGroups() == null ? Map.of() : primary.getEvidenceRoleGroups())
+                .meta(mergedMeta)
+                .build();
+    }
+
+    private String toEvidenceSnippet(EvidenceBlock block) {
+        if (block == null) {
+            return "";
+        }
+        return "id=" + nullSafe(block.getBlockId())
+                + "; source=" + nullSafe(block.getSourceType())
+                + "; score=" + nullSafe(block.getScore() == null ? "" : String.valueOf(block.getScore()))
+                + "; title=" + nullSafe(block.getTitle())
+                + "; content=" + nullSafe(block.getContent());
     }
 
     private RecoveryRefreshPlan consumeRecoveryRefreshPlan(StructuredContextPackage contextPackage) {

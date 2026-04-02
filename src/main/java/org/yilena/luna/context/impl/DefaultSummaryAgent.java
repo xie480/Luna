@@ -5,7 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.context.SummaryAgent;
+import org.yilena.luna.context.model.EvidenceBlock;
 import org.yilena.luna.context.model.SummaryResult;
+import org.yilena.luna.context.model.ToolSemanticResult;
 import org.yilena.luna.enums.ModelType;
 import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
@@ -48,6 +50,11 @@ public class DefaultSummaryAgent implements SummaryAgent {
             latestToolName=%s
             latestToolStatus=%s
             pendingQuestions=%s
+            activeEvidenceCount=%s
+            activeEvidenceDigest=%s
+            mcpHintCount=%s
+            mcpHintDigest=%s
+            latestToolSemantic=%s
             """;
 
     private final LlmClientUtil llmClientUtil;
@@ -55,12 +62,31 @@ public class DefaultSummaryAgent implements SummaryAgent {
     private final ObjectMapper objectMapper;
 
     @Override
-    public SummaryResult summarize(String userInput, String assistantReply, StructuredContextPackage contextPackage) {
-        SummaryResult llmSummary = tryModelSummary(userInput, assistantReply, contextPackage);
+    public SummaryResult summarize(String userInput,
+                                   String assistantReply,
+                                   StructuredContextPackage contextPackage,
+                                   List<EvidenceBlock> activeEvidenceBlocks,
+                                   List<String> activeMcpResourceHints,
+                                   ToolSemanticResult latestToolSemanticResult) {
+        SummaryResult llmSummary = tryModelSummary(
+                userInput,
+                assistantReply,
+                contextPackage,
+                activeEvidenceBlocks,
+                activeMcpResourceHints,
+                latestToolSemanticResult
+        );
         if (llmSummary != null) {
             return llmSummary;
         }
-        String narrative = buildNarrative(userInput, assistantReply, contextPackage);
+        String narrative = buildNarrative(
+                userInput,
+                assistantReply,
+                contextPackage,
+                activeEvidenceBlocks,
+                activeMcpResourceHints,
+                latestToolSemanticResult
+        );
         Map<String, Object> snapshot = buildStateSnapshot(contextPackage);
         return SummaryResult.builder()
                 .narrativeSummary(narrative)
@@ -68,7 +94,12 @@ public class DefaultSummaryAgent implements SummaryAgent {
                 .build();
     }
 
-    private SummaryResult tryModelSummary(String userInput, String assistantReply, StructuredContextPackage contextPackage) {
+    private SummaryResult tryModelSummary(String userInput,
+                                          String assistantReply,
+                                          StructuredContextPackage contextPackage,
+                                          List<EvidenceBlock> activeEvidenceBlocks,
+                                          List<String> activeMcpResourceHints,
+                                          ToolSemanticResult latestToolSemanticResult) {
         try {
             String prompt = SUMMARY_PROMPT.formatted(
                     safe(userInput),
@@ -79,7 +110,12 @@ public class DefaultSummaryAgent implements SummaryAgent {
                     buildShortTermMemoryDigest(contextPackage),
                     contextPackage == null || contextPackage.getToolState() == null ? "" : safe(contextPackage.getToolState().getLastToolName()),
                     contextPackage == null || contextPackage.getToolState() == null ? "" : safe(contextPackage.getToolState().getLastToolStatus()),
-                    contextPackage == null || contextPackage.getTaskStateEntity() == null ? "" : safe(contextPackage.getTaskStateEntity().getPendingQuestions())
+                    contextPackage == null || contextPackage.getTaskStateEntity() == null ? "" : safe(contextPackage.getTaskStateEntity().getPendingQuestions()),
+                    activeEvidenceBlocks == null ? 0 : activeEvidenceBlocks.size(),
+                    buildEvidenceDigest(activeEvidenceBlocks),
+                    activeMcpResourceHints == null ? 0 : activeMcpResourceHints.size(),
+                    buildListDigest(activeMcpResourceHints, 8),
+                    latestToolSemanticResult == null ? "{}" : safe(latestToolSemanticResult.getSemanticPayload())
             );
             LlmRequest request = LlmRequest.builder()
                     .modelType(ModelType.OPENAI_COMPATIBLE)
@@ -140,6 +176,28 @@ public class DefaultSummaryAgent implements SummaryAgent {
         return sb.toString().trim();
     }
 
+    private String buildNarrative(String userInput,
+                                  String assistantReply,
+                                  StructuredContextPackage contextPackage,
+                                  List<EvidenceBlock> activeEvidenceBlocks,
+                                  List<String> activeMcpResourceHints,
+                                  ToolSemanticResult latestToolSemanticResult) {
+        String base = buildNarrative(userInput, assistantReply, contextPackage);
+        StringBuilder sb = new StringBuilder(base);
+        if (activeEvidenceBlocks != null && !activeEvidenceBlocks.isEmpty()) {
+            sb.append(" Active evidences=").append(activeEvidenceBlocks.size())
+                    .append(", digest=").append(buildEvidenceDigest(activeEvidenceBlocks)).append(". ");
+        }
+        if (activeMcpResourceHints != null && !activeMcpResourceHints.isEmpty()) {
+            sb.append(" Active MCP hints=").append(buildListDigest(activeMcpResourceHints, 8)).append(". ");
+        }
+        if (latestToolSemanticResult != null) {
+            sb.append(" Latest tool semantic status=").append(safe(latestToolSemanticResult.getToolStatus()))
+                    .append(", nextStep=").append(safe(latestToolSemanticResult.getNextStepHint())).append(". ");
+        }
+        return sb.toString().trim();
+    }
+
     private String buildShortTermMemoryDigest(StructuredContextPackage contextPackage) {
         if (contextPackage == null || contextPackage.getRecentMessages() == null || contextPackage.getRecentMessages().isEmpty()) {
             return "";
@@ -188,6 +246,33 @@ public class DefaultSummaryAgent implements SummaryAgent {
             compacted.append(' ').append(word);
         }
         return compacted.toString();
+    }
+
+    private String buildEvidenceDigest(List<EvidenceBlock> blocks) {
+        if (blocks == null || blocks.isEmpty()) {
+            return "";
+        }
+        StringBuilder digest = new StringBuilder(1024);
+        int limit = Math.min(6, blocks.size());
+        for (int i = 0; i < limit; i++) {
+            EvidenceBlock block = blocks.get(i);
+            if (block == null) {
+                continue;
+            }
+            digest.append("[")
+                    .append(safe(block.getBlockId()))
+                    .append("]")
+                    .append(compactContent(safe(block.getTitle()) + " " + safe(block.getContent()), 120))
+                    .append(" | ");
+        }
+        return digest.toString().trim();
+    }
+
+    private String buildListDigest(List<String> values, int maxItems) {
+        if (values == null || values.isEmpty()) {
+            return "";
+        }
+        return values.stream().limit(maxItems).map(this::safe).collect(Collectors.joining(" | "));
     }
 
     private Map<String, Object> buildStateSnapshot(StructuredContextPackage contextPackage) {

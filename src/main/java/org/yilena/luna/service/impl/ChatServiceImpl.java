@@ -25,6 +25,7 @@ import org.yilena.luna.context.ToolSemanticResultValidator;
 import org.yilena.luna.context.ToolSemanticTraceLogger;
 import org.yilena.luna.context.model.AssembledContext;
 import org.yilena.luna.context.model.ContextRerankResult;
+import org.yilena.luna.context.model.EvidenceBlock;
 import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.context.model.SummaryResult;
 import org.yilena.luna.context.model.ToolSemanticResult;
@@ -160,6 +161,9 @@ public class ChatServiceImpl implements ChatService {
         List<String> ragMemorySnippets = nodeWorkset == null || nodeWorkset.getSelectedMemorySnippets() == null
                 ? List.of()
                 : nodeWorkset.getSelectedMemorySnippets();
+        List<EvidenceBlock> knowledgeEvidenceBlocks = nodeWorkset == null || nodeWorkset.getSelectedKnowledgeEvidenceBlocks() == null
+                ? List.of()
+                : nodeWorkset.getSelectedKnowledgeEvidenceBlocks();
         if (nodeWorkset != null && nodeWorkset.getSelectedKnowledgeSnippets() != null && !nodeWorkset.getSelectedKnowledgeSnippets().isEmpty()) {
             knowledgeSnippets = nodeWorkset.getSelectedKnowledgeSnippets();
         }
@@ -245,6 +249,8 @@ public class ChatServiceImpl implements ChatService {
         }
 
         ToolSemanticResult toolSemanticResult = toolSemanticAgent.translate(
+                resolvePrimaryToolName(executionCandidates),
+                resolvePrimaryToolDescription(executionCandidates),
                 toolContext,
                 decision == null ? null : decision.getTaskState(),
                 reconstruction == null ? "" : reconstruction.getExplicitTaskGoal()
@@ -307,10 +313,13 @@ public class ChatServiceImpl implements ChatService {
                 rerankResult,
                 toolSemanticResult,
                 input,
+                knowledgeEvidenceBlocks,
                 memorySnippets,
                 knowledgeSnippets,
                 preferenceSnippets,
                 longTermMemorySnippets,
+                executionCandidates,
+                mcpResourceHints,
                 mergedToolContext
         );
         contextTraceLogger.log(runtimeSessionId, contextPlanId(contextPackage), contextNodeId(contextPackage), assembledContext);
@@ -337,7 +346,14 @@ public class ChatServiceImpl implements ChatService {
         SendToLuna result = getSendToLuna(finalPrompt, input, contextPackage);
         LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(result.raw());
         memoryWritePipelineService.writeAfterTurn(runtimeSessionId, input, result.replyText(), contextPackage);
-        SummaryResult summaryResult = summaryAgent.summarize(input, result.replyText(), contextPackage);
+        SummaryResult summaryResult = summaryAgent.summarize(
+                input,
+                result.replyText(),
+                contextPackage,
+                knowledgeEvidenceBlocks,
+                mcpResourceHints,
+                toolSemanticResult
+        );
         summaryTraceLogger.log(
                 runtimeSessionId,
                 contextPlanId(contextPackage),
@@ -348,7 +364,19 @@ public class ChatServiceImpl implements ChatService {
                 summaryResult,
                 "CHAT_TURN"
         );
-        writeStateStores(runtimeSessionId, decision, contextPackage, reconstruction, rerankResult, toolSemanticResult, summaryResult, finalSnapshotId);
+        writeStateStores(
+                runtimeSessionId,
+                decision,
+                contextPackage,
+                reconstruction,
+                rerankResult,
+                toolSemanticResult,
+                summaryResult,
+                finalSnapshotId,
+                nodeWorkset == null ? "" : nodeWorkset.getRagQuery(),
+                nodeWorkset == null ? "" : nodeWorkset.getMemoryQuery(),
+                nodeWorkset == null ? "" : nodeWorkset.getMcpDrivenInput()
+        );
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
         return ResponseEntity.ok(tryParseJsonNode(result.valid()));
     }
@@ -382,7 +410,10 @@ public class ChatServiceImpl implements ChatService {
                 null,
                 null,
                 "startup",
+                List.of(),
                 memorySnippets,
+                List.of(),
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of(),
@@ -870,7 +901,10 @@ public class ChatServiceImpl implements ChatService {
                                   ContextRerankResult rerankResult,
                                   ToolSemanticResult toolSemanticResult,
                                   SummaryResult summaryResult,
-                                  String latestSnapshotId) {
+                                  String latestSnapshotId,
+                                  String ragQuery,
+                                  String memoryQuery,
+                                  String mcpQuery) {
         if (sessionId == null || sessionId.isBlank()) {
             return;
         }
@@ -917,10 +951,19 @@ public class ChatServiceImpl implements ChatService {
                 .reconstructedIntent(reconstruction == null ? "" : reconstruction.getNormalizedUserIntent())
                 .activeQueries(mergeDistinctList(
                         previousRetrievalState == null ? List.of() : previousRetrievalState.getActiveQueries(),
-                        reconstruction == null ? List.of() : mergeDistinct(
-                        reconstruction.getReformulatedQueryForRag() == null ? List.of() : List.of(reconstruction.getReformulatedQueryForRag()),
-                        reconstruction.getReformulatedQueryForMcp() == null ? List.of() : List.of(reconstruction.getReformulatedQueryForMcp())
-                )))
+                        mergeDistinct(
+                                mergeDistinct(
+                                        nonBlankList(ragQuery),
+                                        nonBlankList(memoryQuery)
+                                ),
+                                mergeDistinct(
+                                        nonBlankList(mcpQuery),
+                                        reconstruction == null ? List.of() : mergeDistinct(
+                                                nonBlankList(reconstruction.getReformulatedQueryForRag()),
+                                                nonBlankList(reconstruction.getReformulatedQueryForMcp())
+                                        )
+                                )
+                        )))
                 .retrievalPlan(Map.of(
                         "allowedRoutes", resolveAllowedRoutes(decision),
                         "maxLatencyMs", resolveRetrievalOptions("", decision).getMaxLatencyMs()
@@ -1011,6 +1054,9 @@ public class ChatServiceImpl implements ChatService {
                 return name;
             }
         }
+        if (toolSemanticResult != null && toolSemanticResult.getToolName() != null && !toolSemanticResult.getToolName().isBlank()) {
+            return toolSemanticResult.getToolName();
+        }
         return toolSemanticResult == null ? "" : "agent_tool_chain";
     }
 
@@ -1094,6 +1140,36 @@ public class ChatServiceImpl implements ChatService {
             merged.addAll(right);
         }
         return new ArrayList<>(merged);
+    }
+
+    private List<String> nonBlankList(String value) {
+        if (value == null || value.isBlank()) {
+            return List.of();
+        }
+        return List.of(value);
+    }
+
+    private String resolvePrimaryToolName(List<Resource> executionCandidates) {
+        if (executionCandidates == null || executionCandidates.isEmpty()) {
+            return "agent_tool_chain";
+        }
+        Resource first = executionCandidates.get(0);
+        return first == null || first.getName() == null || first.getName().isBlank()
+                ? "agent_tool_chain"
+                : first.getName();
+    }
+
+    private String resolvePrimaryToolDescription(List<Resource> executionCandidates) {
+        if (executionCandidates == null || executionCandidates.isEmpty()) {
+            return "";
+        }
+        Resource first = executionCandidates.get(0);
+        if (first == null) {
+            return "";
+        }
+        return "type=" + (first.getType() == null ? "" : first.getType().name())
+                + ", server=" + stringValue(first.getServerCode())
+                + ", resourceUri=" + stringValue(first.getResourceUri());
     }
 
     private String stringValue(Object value) {

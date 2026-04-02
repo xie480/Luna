@@ -47,7 +47,14 @@ public class ContextSummaryConsumer implements RocketMQListener<SummaryMessage> 
                     msg.getAssistantReply(),
                     latestAssistantReply(contextPackage)
             );
-            SummaryResult summaryResult = summaryAgent.summarize(summaryUserInput, summaryAssistantReply, contextPackage);
+            SummaryResult summaryResult = summaryAgent.summarize(
+                    summaryUserInput,
+                    summaryAssistantReply,
+                    contextPackage,
+                    List.of(),
+                    List.of(),
+                    null
+            );
             String narrative = summaryResult == null ? "" : summaryResult.getNarrativeSummary();
             Map<String, Object> snapshot = summaryResult == null || summaryResult.getStateSnapshot() == null
                     ? Map.of()

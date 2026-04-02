@@ -9,6 +9,9 @@ import java.util.Map;
 @Value
 @Builder
 public class ToolSemanticResult {
+    String toolName;
+    String toolDescription;
+    String rawResultDigest;
     String toolStatus;
     List<String> keyFacts;
     String businessImpact;
@@ -17,4 +20,3 @@ public class ToolSemanticResult {
     double confidence;
     Map<String, Object> semanticPayload;
 }
-
