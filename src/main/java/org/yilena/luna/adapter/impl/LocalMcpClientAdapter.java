@@ -5,58 +5,53 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.adapter.McpClientAdapter;
 import org.yilena.luna.constants.McpConstant;
-import org.yilena.luna.entity.McpPromptCatalog;
 import org.yilena.luna.entity.McpPromptDescriptor;
 import org.yilena.luna.entity.McpPromptResult;
-import org.yilena.luna.entity.McpResourceCatalog;
 import org.yilena.luna.entity.McpResourceDescriptor;
 import org.yilena.luna.entity.McpResourceResult;
-import org.yilena.luna.entity.McpToolCallResult;
-import org.yilena.luna.entity.McpToolCatalog;
-import org.yilena.luna.entity.McpToolDescriptor;
 import org.yilena.luna.entity.McpServerRegistry;
-import org.yilena.luna.entity.McpToolImplMapping;
-import org.yilena.luna.mapper.McpPromptCatalogMapper;
-import org.yilena.luna.mapper.McpResourceCatalogMapper;
+import org.yilena.luna.entity.McpToolCallResult;
+import org.yilena.luna.entity.McpToolDescriptor;
 import org.yilena.luna.mapper.McpServerRegistryMapper;
-import org.yilena.luna.mapper.McpToolCatalogMapper;
-import org.yilena.luna.mapper.McpToolImplMappingMapper;
-import org.yilena.luna.utils.AuthContextHolder;
+import org.yilena.luna.service.LocalMcpServerService;
 
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.WebSocket;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
-/**
- * 本地 MCP 适配器：
- * 从本地目录表读取工具/提示词/资源定义，并通过反射执行本地工具实现。
- */
 public class LocalMcpClientAdapter implements McpClientAdapter {
 
-    private final McpToolCatalogMapper toolCatalogMapper;
-    private final McpPromptCatalogMapper promptCatalogMapper;
-    private final McpResourceCatalogMapper resourceCatalogMapper;
     private final McpServerRegistryMapper serverRegistryMapper;
-    private final McpToolImplMappingMapper toolImplMappingMapper;
-    private final JdbcTemplate jdbcTemplate;
+    private final LocalMcpServerService localMcpServerService;
     private final ObjectMapper objectMapper;
 
     private final HttpClient httpClient = HttpClient.newBuilder()
@@ -67,160 +62,60 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
     public List<McpToolDescriptor> listTools(String serverCode) {
         String targetServer = normalizeServerCode(serverCode);
         McpServerRegistry registry = loadServerRegistry(targetServer);
-        if (!isLocalServer(registry)) {
-            return remoteListTools(registry, targetServer);
+        if (isLocalServer(registry)) {
+            return localMcpServerService.listTools(targetServer);
         }
-        List<McpToolCatalog> rows = toolCatalogMapper.selectList(
-                new LambdaQueryWrapper<McpToolCatalog>()
-                        .eq(McpToolCatalog::getServerCode, targetServer)
-                        .eq(McpToolCatalog::getEnabled, true)
-        );
-        return rows.stream().map(this::toToolDescriptor).toList();
+        return remoteListTools(registry, targetServer);
     }
 
     @Override
     public McpToolCallResult callTool(String serverCode, String toolName, String argumentsJson) {
         String targetServer = normalizeServerCode(serverCode);
         McpServerRegistry registry = loadServerRegistry(targetServer);
-        if (!isLocalServer(registry)) {
-            return remoteCallTool(registry, targetServer, toolName, argumentsJson);
+        if (isLocalServer(registry)) {
+            return localMcpServerService.callTool(targetServer, toolName, argumentsJson);
         }
-
-        // 先从映射表解析 toolName 对应的本地实现入口。
-        McpToolImplMapping mapping = toolImplMappingMapper.findEnabledMapping(targetServer, toolName);
-        if (mapping == null) {
-            return McpToolCallResult.builder()
-                    .status("error")
-                    .serverCode(targetServer)
-                    .toolName(toolName)
-                    .rawResult(errorResult("TOOL_MAPPING_NOT_FOUND", "No enabled impl mapping found"))
-                    .data(Map.of("errorCode", "TOOL_MAPPING_NOT_FOUND", "message", "No enabled impl mapping found"))
-                    .build();
-        }
-
-        String implType = normalizeImplType(mapping.getImplType());
-        // 统一通过反射执行，返回值尽量解析为结构化 Map。
-        String args = (argumentsJson == null || argumentsJson.isBlank()) ? "{}" : argumentsJson;
-        String rawResult = switch (implType) {
-            case "HTTP", "RPC", "WORKFLOW" -> invokeRoute(mapping, toolName, targetServer, args);
-            case "SPRING_BEAN" -> errorResult("UNSUPPORTED_IMPL_TYPE", "SPRING_BEAN reflection path retired; use HTTP/RPC/WORKFLOW mapping");
-            default -> errorResult("UNSUPPORTED_IMPL_TYPE", "Unsupported implType: " + implType);
-        };
-        Map<String, Object> data = parseMap(rawResult);
-        String status = parseStatus(data);
-
-        return McpToolCallResult.builder()
-                .status(status)
-                .serverCode(targetServer)
-                .toolName(toolName)
-                .rawResult(rawResult)
-                .data(data)
-                .build();
+        return remoteCallTool(registry, targetServer, toolName, argumentsJson);
     }
 
     @Override
     public List<McpPromptDescriptor> listPrompts(String serverCode) {
         String targetServer = normalizeServerCode(serverCode);
         McpServerRegistry registry = loadServerRegistry(targetServer);
-        if (!isLocalServer(registry)) {
-            return remoteListPrompts(registry, targetServer);
+        if (isLocalServer(registry)) {
+            return localMcpServerService.listPrompts(targetServer);
         }
-        List<McpPromptCatalog> rows = promptCatalogMapper.selectList(
-                new LambdaQueryWrapper<McpPromptCatalog>()
-                        .eq(McpPromptCatalog::getServerCode, targetServer)
-                        .eq(McpPromptCatalog::getEnabled, true)
-        );
-        return rows.stream().map(this::toPromptDescriptor).toList();
+        return remoteListPrompts(registry, targetServer);
     }
 
     @Override
     public McpPromptResult getPrompt(String serverCode, String promptName, String argumentsJson) {
         String targetServer = normalizeServerCode(serverCode);
         McpServerRegistry registry = loadServerRegistry(targetServer);
-        if (!isLocalServer(registry)) {
-            return remoteGetPrompt(registry, targetServer, promptName, argumentsJson);
+        if (isLocalServer(registry)) {
+            return localMcpServerService.getPrompt(targetServer, promptName, argumentsJson);
         }
-        McpPromptCatalog prompt = promptCatalogMapper.selectOne(
-                new LambdaQueryWrapper<McpPromptCatalog>()
-                        .eq(McpPromptCatalog::getServerCode, targetServer)
-                        .eq(McpPromptCatalog::getPromptName, promptName)
-                        .eq(McpPromptCatalog::getEnabled, true)
-                        .last("LIMIT 1")
-        );
-        if (prompt == null) {
-            return McpPromptResult.builder()
-                    .status("error")
-                    .serverCode(targetServer)
-                    .promptName(promptName)
-                    .promptContent(Map.of("errorCode", "PROMPT_NOT_FOUND", "message", "Prompt not found"))
-                    .build();
-        }
-
-        // prompt 返回内容由目录元数据 + 调用参数组成，便于上层统一消费。
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("promptName", prompt.getPromptName());
-        result.put("title", prompt.getTitle());
-        result.put("description", prompt.getDescription());
-        result.put("rawPayload", prompt.getRawPayload());
-        result.put("arguments", parseMap(argumentsJson));
-
-        return McpPromptResult.builder()
-                .status("success")
-                .serverCode(targetServer)
-                .promptName(promptName)
-                .promptContent(result)
-                .build();
+        return remoteGetPrompt(registry, targetServer, promptName, argumentsJson);
     }
 
     @Override
     public List<McpResourceDescriptor> listResources(String serverCode) {
         String targetServer = normalizeServerCode(serverCode);
         McpServerRegistry registry = loadServerRegistry(targetServer);
-        if (!isLocalServer(registry)) {
-            return remoteListResources(registry, targetServer);
+        if (isLocalServer(registry)) {
+            return localMcpServerService.listResources(targetServer);
         }
-        List<McpResourceCatalog> rows = resourceCatalogMapper.selectList(
-                new LambdaQueryWrapper<McpResourceCatalog>()
-                        .eq(McpResourceCatalog::getServerCode, targetServer)
-                        .eq(McpResourceCatalog::getEnabled, true)
-        );
-        return rows.stream().map(this::toResourceDescriptor).toList();
+        return remoteListResources(registry, targetServer);
     }
 
     @Override
     public McpResourceResult readResource(String serverCode, String resourceUri) {
         String targetServer = normalizeServerCode(serverCode);
         McpServerRegistry registry = loadServerRegistry(targetServer);
-        if (!isLocalServer(registry)) {
-            return remoteReadResource(registry, targetServer, resourceUri);
+        if (isLocalServer(registry)) {
+            return localMcpServerService.readResource(targetServer, resourceUri);
         }
-        McpResourceResult dynamic = readDynamicResource(targetServer, resourceUri);
-        if (dynamic != null) {
-            return dynamic;
-        }
-        McpResourceCatalog row = resourceCatalogMapper.selectOne(
-                new LambdaQueryWrapper<McpResourceCatalog>()
-                        .eq(McpResourceCatalog::getServerCode, targetServer)
-                        .eq(McpResourceCatalog::getResourceUri, resourceUri)
-                        .eq(McpResourceCatalog::getEnabled, true)
-                        .last("LIMIT 1")
-        );
-        if (row == null) {
-            return McpResourceResult.builder()
-                    .status("error")
-                    .serverCode(targetServer)
-                    .resourceUri(resourceUri)
-                    .data(Map.of("errorCode", "RESOURCE_NOT_FOUND", "message", "Resource not found"))
-                    .build();
-        }
-        // 原样透传 rawPayload，避免丢失资源定义里的自定义字段。
-        return McpResourceResult.builder()
-                .status("success")
-                .serverCode(targetServer)
-                .resourceUri(resourceUri)
-                .mimeType(row.getMimeType())
-                .data(row.getRawPayload() == null ? Collections.emptyMap() : row.getRawPayload())
-                .build();
+        return remoteReadResource(registry, targetServer, resourceUri);
     }
 
     private String normalizeServerCode(String serverCode) {
@@ -260,13 +155,6 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
             return "HTTP";
         }
         return transportType.trim().toUpperCase(Locale.ROOT);
-    }
-
-    private String normalizeImplType(String implType) {
-        if (implType == null || implType.isBlank()) {
-            return "HTTP";
-        }
-        return implType.trim().toUpperCase(Locale.ROOT);
     }
 
     private List<McpToolDescriptor> remoteListTools(McpServerRegistry registry, String serverCode) {
@@ -356,68 +244,49 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
         }
     }
 
-    private String invokeRoute(McpToolImplMapping mapping, String toolName, String serverCode, String args) {
-        if (mapping.getRouteUri() == null || mapping.getRouteUri().isBlank()) {
-            return errorResult("ROUTE_URI_REQUIRED", "routeUri is required for HTTP/RPC/WORKFLOW impl");
-        }
-        int timeout = mapping.getTimeoutMs() == null || mapping.getTimeoutMs() <= 0 ? 10000 : mapping.getTimeoutMs();
-        try {
-            String payload = toJson(Map.of(
-                    "serverCode", serverCode,
-                    "toolName", toolName == null ? "" : toolName,
-                    "argumentsJson", args == null ? "{}" : args
-            ));
-            HttpRequest request = HttpRequest.newBuilder(URI.create(mapping.getRouteUri().trim()))
-                    .timeout(Duration.ofMillis(timeout))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(payload))
-                    .build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            if (response.statusCode() / 100 != 2) {
-                return errorResult("ROUTE_CALL_FAILED", "status=" + response.statusCode() + ", body=" + response.body());
-            }
-            return response.body() == null ? "{}" : response.body();
-        } catch (Exception e) {
-            return errorResult("ROUTE_CALL_FAILED", e.getMessage());
-        }
-    }
-
     private String remoteGet(McpServerRegistry registry, String path, int timeoutMs) {
         String transport = normalizeTransport(registry.getTransportType());
-        if (!"HTTP".equals(transport) && !"SSE".equals(transport) && !"WS".equals(transport) && !"STDIO".equals(transport)) {
-            return errorResult("UNSUPPORTED_TRANSPORT", "transport_type " + transport + " is not supported");
-        }
-        if (!"HTTP".equals(transport) && !"SSE".equals(transport)) {
-            log.warn("transport_type={} not fully supported yet; fallback to HTTP GET", transport);
-        }
+        return switch (transport) {
+            case "HTTP", "SSE" -> remoteHttpGet(registry, path, timeoutMs);
+            case "WS" -> remoteWsCall(registry, path, null, timeoutMs);
+            case "STDIO" -> remoteStdioCall(registry, "GET", path, null, timeoutMs);
+            default -> errorResult("UNSUPPORTED_TRANSPORT", "transport_type " + transport + " is not supported");
+        };
+    }
+
+    private String remotePost(McpServerRegistry registry, String path, String payload, int timeoutMs) {
+        String transport = normalizeTransport(registry.getTransportType());
+        return switch (transport) {
+            case "HTTP", "SSE" -> remoteHttpPost(registry, path, payload, timeoutMs);
+            case "WS" -> remoteWsCall(registry, path, payload, timeoutMs);
+            case "STDIO" -> remoteStdioCall(registry, "POST", path, payload, timeoutMs);
+            default -> errorResult("UNSUPPORTED_TRANSPORT", "transport_type " + transport + " is not supported");
+        };
+    }
+
+    private String remoteHttpGet(McpServerRegistry registry, String path, int timeoutMs) {
         try {
             HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(joinUrl(registry.getBaseUrl(), path)))
                     .timeout(Duration.ofMillis(timeoutMs))
+                    .header("Accept", "application/json")
                     .GET();
             applyAuth(builder, registry);
             HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() / 100 != 2) {
                 return errorResult("REMOTE_HTTP_ERROR", "status=" + response.statusCode() + ", body=" + response.body());
             }
-            return response.body() == null ? "[]" : response.body();
+            return response.body() == null ? "{}" : response.body();
         } catch (Exception e) {
             return errorResult("REMOTE_HTTP_ERROR", e.getMessage());
         }
     }
 
-    private String remotePost(McpServerRegistry registry, String path, String payload, int timeoutMs) {
-        String transport = normalizeTransport(registry.getTransportType());
-        if (!"HTTP".equals(transport) && !"SSE".equals(transport) && !"WS".equals(transport) && !"STDIO".equals(transport)) {
-            return errorResult("UNSUPPORTED_TRANSPORT", "transport_type " + transport + " is not supported");
-        }
-        if (!"HTTP".equals(transport) && !"SSE".equals(transport)) {
-            log.warn("transport_type={} not fully supported yet; fallback to HTTP POST", transport);
-        }
+    private String remoteHttpPost(McpServerRegistry registry, String path, String payload, int timeoutMs) {
         try {
             HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(joinUrl(registry.getBaseUrl(), path)))
                     .timeout(Duration.ofMillis(timeoutMs))
                     .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(payload == null ? "{}" : payload));
+                    .POST(HttpRequest.BodyPublishers.ofString(payload == null ? "{}" : payload, StandardCharsets.UTF_8));
             applyAuth(builder, registry);
             HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() / 100 != 2) {
@@ -429,138 +298,129 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
         }
     }
 
-    private McpResourceResult readDynamicResource(String serverCode, String resourceUri) {
-        if (resourceUri == null || resourceUri.isBlank() || !resourceUri.startsWith("resource://")) {
-            return null;
-        }
+    private String remoteWsCall(McpServerRegistry registry, String path, String payload, int timeoutMs) {
         try {
-            URI uri = URI.create(resourceUri.trim());
-            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
-            String path = uri.getPath() == null ? "" : uri.getPath();
-            Map<String, String> query = parseQuery(uri.getRawQuery());
-            Map<String, Object> data = switch (host) {
-                case "knowledge" -> readKnowledge(path, query);
-                case "user" -> readUser(path, query);
-                case "memory" -> readMemory(path, query);
-                case "schedule" -> readSchedule(path, query);
-                default -> null;
-            };
-            if (data == null) {
-                return null;
-            }
-            return McpResourceResult.builder()
-                    .status("success")
-                    .serverCode(serverCode)
-                    .resourceUri(resourceUri)
-                    .mimeType("application/json")
-                    .data(data)
-                    .build();
+            URI target = URI.create(joinUrl(toWebSocketBaseUrl(registry.getBaseUrl()), path));
+            CompletableFuture<String> responseFuture = new CompletableFuture<>();
+            WsCollector collector = new WsCollector(responseFuture);
+            WebSocket socket = httpClient.newWebSocketBuilder()
+                    .connectTimeout(Duration.ofMillis(timeoutMs))
+                    .buildAsync(target, collector)
+                    .get(timeoutMs, TimeUnit.MILLISECONDS);
+
+            String frame = payload == null ? "{}" : payload;
+            socket.sendText(frame, true).get(timeoutMs, TimeUnit.MILLISECONDS);
+            String body = responseFuture.get(timeoutMs, TimeUnit.MILLISECONDS);
+            socket.sendClose(WebSocket.NORMAL_CLOSURE, "done");
+            return body == null || body.isBlank() ? "{}" : body;
+        } catch (TimeoutException e) {
+            return errorResult("REMOTE_WS_TIMEOUT", e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return errorResult("REMOTE_WS_ERROR", e.getMessage());
+        } catch (ExecutionException e) {
+            return errorResult("REMOTE_WS_ERROR", e.getMessage());
         } catch (Exception e) {
-            return McpResourceResult.builder()
-                    .status("error")
-                    .serverCode(serverCode)
-                    .resourceUri(resourceUri)
-                    .data(Map.of("errorCode", "RESOURCE_READ_FAILED", "message", e.getMessage()))
-                    .build();
+            return errorResult("REMOTE_WS_ERROR", e.getMessage());
         }
     }
 
-    private Map<String, Object> readKnowledge(String path, Map<String, String> query) {
-        int limit = normalizeLimit(query.get("limit"), 10, 50);
-        if ("/query".equalsIgnoreCase(path)) {
-            String keyword = query.getOrDefault("q", query.getOrDefault("query", ""));
-            String like = "%" + keyword + "%";
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    """
-                    select id, title, content, source_type, source_path, created_at, updated_at
-                    from knowledge_base
-                    where (? = '' or title ilike ? or content ilike ?)
-                    order by updated_at desc
-                    limit ?
-                    """,
-                    keyword == null ? "" : keyword, like, like, limit
-            );
-            return Map.of("domain", "knowledge", "count", rows.size(), "items", rows);
+    private String remoteStdioCall(McpServerRegistry registry, String method, String path, String payload, int timeoutMs) {
+        Map<String, Object> config = registry.getAuthConfig() == null ? Map.of() : registry.getAuthConfig();
+        List<String> command = parseStdioCommand(config);
+        if (command.isEmpty()) {
+            return errorResult("STDIO_COMMAND_REQUIRED", "auth_config.command is required for STDIO transport");
         }
-        if (path != null && path.startsWith("/") && path.length() > 1) {
-            String idText = path.substring(1);
-            if (idText.chars().allMatch(Character::isDigit)) {
-                List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                        "select id, title, content, source_type, source_path, created_at, updated_at from knowledge_base where id = ? limit 1",
-                        Long.parseLong(idText)
-                );
-                return Map.of("domain", "knowledge", "count", rows.size(), "items", rows);
+        Process process = null;
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            ProcessBuilder pb = new ProcessBuilder(command);
+            String cwd = String.valueOf(config.getOrDefault("cwd", "")).trim();
+            if (!cwd.isBlank()) {
+                pb.directory(new java.io.File(cwd));
+            }
+            process = pb.start();
+            try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
+                 BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
+                 BufferedReader errReader = new BufferedReader(new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
+                String request = toJson(Map.of(
+                        "method", method == null ? "POST" : method,
+                        "path", path == null ? "" : path,
+                        "payload", payload == null ? "{}" : payload
+                ));
+                writer.write(request);
+                writer.newLine();
+                writer.flush();
+                CompletableFuture<String> responseFuture = CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return reader.readLine();
+                    } catch (Exception e) {
+                        return null;
+                    }
+                }, executor);
+                String line = responseFuture.get(timeoutMs, TimeUnit.MILLISECONDS);
+                if (line == null || line.isBlank()) {
+                    String err = errReader.readLine();
+                    if (err != null && !err.isBlank()) {
+                        return errorResult("REMOTE_STDIO_ERROR", err);
+                    }
+                    return "{}";
+                }
+                return line;
+            }
+        } catch (TimeoutException e) {
+            return errorResult("REMOTE_STDIO_TIMEOUT", e.getMessage());
+        } catch (Exception e) {
+            return errorResult("REMOTE_STDIO_ERROR", e.getMessage());
+        } finally {
+            executor.shutdownNow();
+            if (process != null && process.isAlive()) {
+                process.destroyForcibly();
             }
         }
-        return null;
     }
 
-    private Map<String, Object> readUser(String path, Map<String, String> query) {
-        int limit = normalizeLimit(query.get("limit"), 20, 100);
-        if ("/preferences/current".equalsIgnoreCase(path)) {
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    "select pref_key, pref_value, description, updated_at from user_preference where coalesce(deleted,0)=0 order by updated_at desc limit ?",
-                    limit
-            );
-            return Map.of("domain", "user", "count", rows.size(), "items", rows);
+    private List<String> parseStdioCommand(Map<String, Object> config) {
+        Object raw = config.get("command");
+        if (raw == null) {
+            return List.of();
         }
-        if (path != null && path.startsWith("/preferences/") && path.length() > "/preferences/".length()) {
-            String key = decode(path.substring("/preferences/".length()));
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    "select pref_key, pref_value, description, updated_at from user_preference where coalesce(deleted,0)=0 and pref_key = ? order by updated_at desc limit ?",
-                    key, limit
-            );
-            return Map.of("domain", "user", "count", rows.size(), "items", rows);
-        }
-        return null;
-    }
-
-    private Map<String, Object> readMemory(String path, Map<String, String> query) {
-        int limit = normalizeLimit(query.get("limit"), 20, 100);
-        String sessionId = query.getOrDefault("sessionId", "");
-        if ("/session/current".equalsIgnoreCase(path)) {
-            if (sessionId.isBlank()) {
-                sessionId = AuthContextHolder.getSessionId();
+        if (raw instanceof List<?> list) {
+            List<String> cmd = new ArrayList<>();
+            for (Object item : list) {
+                if (item != null && !String.valueOf(item).isBlank()) {
+                    cmd.add(String.valueOf(item).trim());
+                }
             }
-            if (sessionId == null || sessionId.isBlank()) {
-                return Map.of("domain", "memory", "count", 0, "items", List.of(), "message", "sessionId unavailable");
+            return cmd;
+        }
+        String text = String.valueOf(raw).trim();
+        if (text.isBlank()) {
+            return List.of();
+        }
+        if (text.startsWith("[") && text.endsWith("]")) {
+            try {
+                List<String> list = objectMapper.readValue(text, new TypeReference<>() {});
+                return list == null ? List.of() : list.stream().filter(s -> s != null && !s.isBlank()).map(String::trim).toList();
+            } catch (Exception ignore) {
+                // fallback to whitespace splitting below
             }
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    "select id, session_id, memory_type, content, weight, created_at, updated_at from luna_memory where session_id = ? order by updated_at desc limit ?",
-                    sessionId, limit
-            );
-            return Map.of("domain", "memory", "sessionId", sessionId, "count", rows.size(), "items", rows);
         }
-        if (path != null && path.startsWith("/session/") && path.length() > "/session/".length()) {
-            String sid = decode(path.substring("/session/".length()));
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    "select id, session_id, memory_type, content, weight, created_at, updated_at from luna_memory where session_id = ? order by updated_at desc limit ?",
-                    sid, limit
-            );
-            return Map.of("domain", "memory", "sessionId", sid, "count", rows.size(), "items", rows);
-        }
-        return null;
+        return Arrays.stream(text.split("\\s+")).filter(s -> !s.isBlank()).toList();
     }
 
-    private Map<String, Object> readSchedule(String path, Map<String, String> query) {
-        int limit = normalizeLimit(query.get("limit"), 20, 100);
-        if ("/today".equalsIgnoreCase(path)) {
-            LocalDate today = LocalDate.now();
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    """
-                    select id, content, trigger_time, status, task_type, created_at, updated_at
-                    from schedule_task
-                    where coalesce(deleted,0)=0
-                      and trigger_time >= ?
-                      and trigger_time < ?
-                    order by trigger_time asc
-                    limit ?
-                    """,
-                    today.atStartOfDay(), today.plusDays(1).atStartOfDay(), limit
-            );
-            return Map.of("domain", "schedule", "date", today.toString(), "count", rows.size(), "items", rows);
+    private String toWebSocketBaseUrl(String baseUrl) {
+        String base = baseUrl == null ? "" : baseUrl.trim();
+        if (base.startsWith("https://")) {
+            return "wss://" + base.substring("https://".length());
         }
-        return null;
+        if (base.startsWith("http://")) {
+            return "ws://" + base.substring("http://".length());
+        }
+        if (base.startsWith("ws://") || base.startsWith("wss://")) {
+            return base;
+        }
+        return "ws://" + base;
     }
 
     private void applyAuth(HttpRequest.Builder builder, McpServerRegistry registry) {
@@ -603,100 +463,6 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
         return URLEncoder.encode(text == null ? "" : text, StandardCharsets.UTF_8);
     }
 
-    private Map<String, String> parseQuery(String rawQuery) {
-        if (rawQuery == null || rawQuery.isBlank()) {
-            return Map.of();
-        }
-        Map<String, String> out = new LinkedHashMap<>();
-        for (String pair : rawQuery.split("&")) {
-            if (pair == null || pair.isBlank()) {
-                continue;
-            }
-            int idx = pair.indexOf('=');
-            if (idx < 0) {
-                out.put(decode(pair), "");
-            } else {
-                out.put(decode(pair.substring(0, idx)), decode(pair.substring(idx + 1)));
-            }
-        }
-        return out;
-    }
-
-    private String decode(String text) {
-        if (text == null) {
-            return "";
-        }
-        return java.net.URLDecoder.decode(text, StandardCharsets.UTF_8);
-    }
-
-    private int normalizeLimit(String raw, int defaultLimit, int maxLimit) {
-        try {
-            int v = Integer.parseInt(raw == null ? "" : raw.trim());
-            if (v <= 0) {
-                return defaultLimit;
-            }
-            return Math.min(v, maxLimit);
-        } catch (Exception ignore) {
-            return defaultLimit;
-        }
-    }
-
-    private McpToolDescriptor toToolDescriptor(McpToolCatalog row) {
-        return McpToolDescriptor.builder()
-                .serverCode(row.getServerCode())
-                .toolName(row.getToolName())
-                .title(row.getTitle())
-                .description(row.getDescription())
-                .inputSchema(row.getInputSchema())
-                .outputSchema(row.getOutputSchema())
-                .requiresApproval(row.getRequiresApproval())
-                .sensitivity(row.getSensitivity())
-                .version(row.getVersion())
-                .build();
-    }
-
-    private McpPromptDescriptor toPromptDescriptor(McpPromptCatalog row) {
-        return McpPromptDescriptor.builder()
-                .serverCode(row.getServerCode())
-                .promptName(row.getPromptName())
-                .title(row.getTitle())
-                .description(row.getDescription())
-                .argumentsSchema(row.getArgumentsSchema())
-                .version(row.getVersion())
-                .build();
-    }
-
-    private McpResourceDescriptor toResourceDescriptor(McpResourceCatalog row) {
-        return McpResourceDescriptor.builder()
-                .serverCode(row.getServerCode())
-                .resourceUri(row.getResourceUri())
-                .name(row.getName())
-                .description(row.getDescription())
-                .mimeType(row.getMimeType())
-                .annotations(row.getAnnotations())
-                .build();
-    }
-
-    private Map<String, Object> parseMap(String json) {
-        if (json == null || json.isBlank()) {
-            return Collections.emptyMap();
-        }
-        try {
-            return objectMapper.readValue(json, new TypeReference<>() {});
-        } catch (Exception e) {
-            return Map.of("raw", json);
-        }
-    }
-
-    private String parseStatus(Map<String, Object> data) {
-        Object status = data.get("status");
-        if (status == null) {
-            return "success";
-        }
-        String text = String.valueOf(status);
-        return text.isBlank() ? "success" : text;
-    }
-
     private String toJson(Object obj) {
         try {
             return objectMapper.writeValueAsString(obj);
@@ -717,4 +483,37 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
             return "{\"status\":\"error\"}";
         }
     }
+
+    private static final class WsCollector implements WebSocket.Listener {
+
+        private final CompletableFuture<String> resultFuture;
+        private final StringBuilder buffer = new StringBuilder();
+
+        private WsCollector(CompletableFuture<String> resultFuture) {
+            this.resultFuture = resultFuture;
+        }
+
+        @Override
+        public void onOpen(WebSocket webSocket) {
+            webSocket.request(1);
+        }
+
+        @Override
+        public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
+            buffer.append(data);
+            if (last && !resultFuture.isDone()) {
+                resultFuture.complete(buffer.toString());
+            }
+            webSocket.request(1);
+            return null;
+        }
+
+        @Override
+        public void onError(WebSocket webSocket, Throwable error) {
+            if (!resultFuture.isDone()) {
+                resultFuture.completeExceptionally(error);
+            }
+        }
+    }
 }
+

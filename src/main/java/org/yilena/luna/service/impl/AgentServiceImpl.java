@@ -13,7 +13,7 @@ import org.yilena.luna.entity.Resource;
 import org.yilena.luna.enums.RelationalRuntimeState;
 import org.yilena.luna.enums.ResourceType;
 import org.yilena.luna.enums.TaskRuntimeState;
-import org.yilena.luna.executor.SkillExecutor;
+import org.yilena.luna.executor.WorkflowExecutor;
 import org.yilena.luna.gate.ExecutionGate;
 import org.yilena.luna.gate.ToolExecutionGateway;
 import org.yilena.luna.prompt.PromptTemplates;
@@ -42,7 +42,7 @@ public class AgentServiceImpl implements AgentService {
     private final LlmAdapter llmAdapter;
     private final ExecutionGate executionGate;
     private final ToolExecutionGateway toolExecutionGateway;
-    private final SkillExecutor skillExecutor;
+    private final WorkflowExecutor workflowExecutor;
     private final McpService mcpService;
     private final ObjectMapper objectMapper;
     private final SessionService sessionService;
@@ -98,7 +98,7 @@ public class AgentServiceImpl implements AgentService {
         executionGate.check(target);
 
         if (ResourceType.WORKFLOW.equals(target.getType())) {
-            return runAndTrace(target, argsJson, () -> skillExecutor.execute(target, argsJson));
+            return runAndTrace(target, argsJson, () -> workflowExecutor.execute(target, argsJson));
         }
         if (ResourceType.PROMPT.equals(target.getType())) {
             return runAndTrace(target, argsJson, () -> toJson(Map.of(

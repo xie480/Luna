@@ -20,7 +20,7 @@ create table mcp_skills
     updated_at            timestamp   default CURRENT_TIMESTAMP
 );
 
-comment on table mcp_skills is 'MCP 技能表 (Composite Skills) - 存儲複合技能，支持異步執行（能力槽位協議）';
+comment on table mcp_skills is 'Legacy compatibility table, read-only mirror of historical skill definitions';
 
 comment on column mcp_skills.id is '主鍵 ID (雪花算法)';
 
@@ -28,9 +28,9 @@ comment on column mcp_skills.name is '技能唯一名稱';
 
 comment on column mcp_skills.description is '技能語義描述';
 
-comment on column mcp_skills.bean_name is 'Spring Bean 名稱 (或工作流引擎ID)';
+comment on column mcp_skills.bean_name is 'Legacy Spring Bean 名稱 (兼容字段，Host 不再读取)';
 
-comment on column mcp_skills.method_name is '執行方法名稱';
+comment on column mcp_skills.method_name is 'Legacy 執行方法名稱 (兼容字段，Host 不再读取)';
 
 comment on column mcp_skills.input_schema is '參數 JSON Schema';
 
@@ -57,4 +57,3 @@ create index idx_mcp_skills_tool_slots_gin
 
 create index idx_mcp_skills_thought_chain_gin
     on mcp_skills using gin (thought_chain);
-

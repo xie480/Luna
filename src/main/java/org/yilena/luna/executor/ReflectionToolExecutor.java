@@ -5,16 +5,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.aop.support.AopUtils;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import org.springframework.util.ReflectionUtils;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.yilena.luna.entity.Resource;
-import org.yilena.luna.enums.ResourceType;
-import org.yilena.luna.enums.Sensitivity;
-import org.yilena.luna.service.ApprovalService;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
@@ -31,48 +25,6 @@ public class ReflectionToolExecutor {
 
     private final ApplicationContext applicationContext;
     private final ObjectMapper objectMapper;
-    
-    // 【修復循環依賴】
-    // 使用字段注入 + @Lazy，而不是構造器注入
-    // 因為 Lombok 的 @RequiredArgsConstructor 不會將 @Lazy 複製到構造參數上
-    @Lazy
-    @Autowired
-    private ApprovalService approvalService;
-
-    /**
-     * 執行工具 (帶敏感度檢查)
-     * 
-     * @param sessionId 當前會話ID (用於審批關聯)
-     * @param resource 工具資源定義
-     * @param argsJson LLM 生成的參數 JSON 字符串
-     * @return 執行結果 JSON 字符串
-     */
-    public String execute(String sessionId, Resource resource, String argsJson) {
-        log.info("正在執行工具: {}, 參數: {}", resource.getName(), argsJson);
-        // ExecutionGate: 檢查敏感度
-        if (resource.getType().equals(ResourceType.TOOL)) {
-            if (resource.getSensitivity() == Sensitivity.MEDIUM || resource.getSensitivity() == Sensitivity.HIGH) {
-                log.warn("觸發敏感操作攔截: {}, 等級: {}", resource.getName(), resource.getSensitivity());
-                // 創建審批任務並中斷執行
-                approvalService.createTaskAndInterrupt(sessionId, resource, argsJson);
-            }
-        }
-        
-        // 如果通過檢查（或不需要檢查），則執行
-        return executeInternal(resource.getBeanName(), resource.getMethodName(), argsJson);
-    }
-
-    /**
-     * 兼容舊代碼的重載方法 (不帶 sessionId，無法進行審批攔截)
-     */
-    public String execute(Resource resource, String argsJson) {
-        if (resource.getType().equals(ResourceType.TOOL)) {
-            if (resource.getSensitivity() == Sensitivity.MEDIUM || resource.getSensitivity() == Sensitivity.HIGH) {
-                log.error("警告：調用了敏感操作 {} 但未提供 sessionId，無法發起審批！將直接執行（存在風險）。", resource.getName());
-            }
-        }
-        return executeInternal(resource.getBeanName(), resource.getMethodName(), argsJson);
-    }
 
     /**
      * 內部執行邏輯 (繞過敏感度檢查)

@@ -29,6 +29,7 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @TableName(value = "mcp_skills", autoResultMap = true)
+@Deprecated
 public class McpSkill implements Serializable {
 
     private static final long serialVersionUID = 1L;

@@ -661,11 +661,17 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     .phaseId(phaseId)
                     .name(text(n.get("name")))
                     .nodeType(parseNodeType(text(n.get("nodeType"))))
+                    .capabilityType(resolveCapabilityType(n))
+                    .capabilityName(resolveCapabilityName(n))
+                    .serverCode(resolveServerCode(n))
                     .inputJson(asMap(n.get("inputJson")))
+                    .resolvedInputJson(resolveResolvedInputJson(n))
                     .expectedOutputSchema(asMap(n.get("expectedOutputSchema")))
                     .dependencies(remapStringListIds(asStringList(n.get("dependencies")), nodeIdMap, planId))
                     .parallelGroup(text(n.get("parallelGroup")))
                     .status(PlanNodeStatus.PENDING)
+                    .approvalRequired(resolveApprovalRequired(n))
+                    .approvalStatus(resolveApprovalStatus(n))
                     .retryPolicy(asMap(n.get("retryPolicy")))
                     .retryCount(intVal(n.get("retryCount"), 0))
                     .maxRetry(intVal(n.get("maxRetry"), DEFAULT_MAX_RETRY))
@@ -950,6 +956,83 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         return o == null ? "" : String.valueOf(o).trim();
     }
 
+    private String resolveCapabilityType(Map<String, Object> nodeDef) {
+        String explicit = firstNonBlank(
+                text(nodeDef.get("capabilityType")),
+                text(nodeDef.get("capability_type"))
+        );
+        if (!explicit.isBlank()) {
+            return normalizeCapabilityType(explicit);
+        }
+        return normalizeCapabilityType(text(nodeDef.get("nodeType")));
+    }
+
+    private String resolveCapabilityName(Map<String, Object> nodeDef) {
+        String capabilityName = firstNonBlank(
+                text(nodeDef.get("capabilityName")),
+                text(nodeDef.get("capability_name")),
+                text(nodeDef.get("toolName")),
+                text(nodeDef.get("tool_name")),
+                text(nodeDef.get("promptName")),
+                text(nodeDef.get("prompt_name")),
+                text(nodeDef.get("resourceUri")),
+                text(nodeDef.get("resource_uri")),
+                text(nodeDef.get("workflowName")),
+                text(nodeDef.get("workflow_name")),
+                text(nodeDef.get("name"))
+        );
+        return capabilityName;
+    }
+
+    private String resolveServerCode(Map<String, Object> nodeDef) {
+        return firstNonBlank(
+                text(nodeDef.get("serverCode")),
+                text(nodeDef.get("server_code")),
+                "local-agent-server"
+        );
+    }
+
+    private Map<String, Object> resolveResolvedInputJson(Map<String, Object> nodeDef) {
+        Map<String, Object> resolved = asMap(nodeDef.get("resolvedInputJson"));
+        if (resolved != null) {
+            return resolved;
+        }
+        resolved = asMap(nodeDef.get("resolved_input_json"));
+        if (resolved != null) {
+            return resolved;
+        }
+        return asMap(nodeDef.get("inputJson"));
+    }
+
+    private Boolean resolveApprovalRequired(Map<String, Object> nodeDef) {
+        Object raw = nodeDef.containsKey("approvalRequired")
+                ? nodeDef.get("approvalRequired")
+                : nodeDef.get("approval_required");
+        return boolVal(raw, false);
+    }
+
+    private String resolveApprovalStatus(Map<String, Object> nodeDef) {
+        String explicit = firstNonBlank(
+                text(nodeDef.get("approvalStatus")),
+                text(nodeDef.get("approval_status"))
+        );
+        if (!explicit.isBlank()) {
+            return explicit;
+        }
+        return resolveApprovalRequired(nodeDef) ? "PENDING" : "NOT_REQUIRED";
+    }
+
+    private String normalizeCapabilityType(String rawType) {
+        if (rawType == null || rawType.isBlank()) {
+            return "TOOL";
+        }
+        String normalized = rawType.trim().toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case "TOOL", "PROMPT", "RESOURCE", "WORKFLOW", "ANALYZE", "VALIDATE", "REPORT", "CODE" -> normalized;
+            default -> "TOOL";
+        };
+    }
+
     private int intVal(Object o, int def) {
         try {
             if (o == null) return def;
@@ -958,6 +1041,35 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         } catch (Exception e) {
             return def;
         }
+    }
+
+    private boolean boolVal(Object o, boolean def) {
+        if (o == null) {
+            return def;
+        }
+        if (o instanceof Boolean b) {
+            return b;
+        }
+        String t = String.valueOf(o).trim().toLowerCase(Locale.ROOT);
+        if ("true".equals(t) || "1".equals(t) || "yes".equals(t)) {
+            return true;
+        }
+        if ("false".equals(t) || "0".equals(t) || "no".equals(t)) {
+            return false;
+        }
+        return def;
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null || values.length == 0) {
+            return "";
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value.trim();
+            }
+        }
+        return "";
     }
 
     private String toJsonQuiet(Object obj) {
@@ -1051,12 +1163,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
     private PlanNodeType parseNodeType(String text) {
         if (text == null || text.isBlank()) return PlanNodeType.TOOL;
         String normalized = text.trim().toUpperCase(Locale.ROOT);
-        if ("SKILL".equals(normalized)) {
-            return PlanNodeType.WORKFLOW;
-        }
-        if ("SUMMARIZE".equals(normalized)) {
-            return PlanNodeType.PROMPT;
-        }
         try {
             return PlanNodeType.valueOf(normalized);
         } catch (Exception e) {

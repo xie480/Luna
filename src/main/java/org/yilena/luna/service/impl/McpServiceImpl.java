@@ -16,7 +16,6 @@ import org.yilena.luna.mapper.*;
 import org.yilena.luna.service.McpService;
 import org.yilena.luna.utils.LlmClientUtil;
 
-import java.time.LocalDateTime;
 import java.util.*;
 
 @Slf4j
@@ -65,10 +64,18 @@ public class McpServiceImpl implements McpService {
     public List<Resource> searchResources(String query) {
         if (blank(query)) return Collections.emptyList();
         String q = query.toLowerCase(Locale.ROOT);
-        return listAll().stream()
+        List<Resource> keywordMatches = listAll().stream()
                 .filter(r -> contains(r.getName(), q) || contains(r.getDescription(), q) || contains(r.getResourceUri(), q))
-                .limit(20)
                 .toList();
+        List<Resource> semanticMatches = semanticSearchResources(query, 20);
+        LinkedHashMap<String, Resource> merged = new LinkedHashMap<>();
+        for (Resource resource : semanticMatches) {
+            merged.put(resourceUniqueKey(resource), resource);
+        }
+        for (Resource resource : keywordMatches) {
+            merged.putIfAbsent(resourceUniqueKey(resource), resource);
+        }
+        return merged.values().stream().limit(20).toList();
     }
 
     @Override
@@ -120,6 +127,7 @@ public class McpServiceImpl implements McpService {
         if (toolCatalog == null || blank(toolCatalog.getServerCode()) || blank(toolCatalog.getToolName())) {
             throw new IllegalArgumentException("serverCode/toolName required");
         }
+        enrichToolCatalog(toolCatalog);
         McpToolCatalog exist = toolCatalogMapper.selectOne(new LambdaQueryWrapper<McpToolCatalog>()
                 .eq(McpToolCatalog::getServerCode, toolCatalog.getServerCode())
                 .eq(McpToolCatalog::getToolName, toolCatalog.getToolName())
@@ -150,6 +158,7 @@ public class McpServiceImpl implements McpService {
         if (promptCatalog == null || blank(promptCatalog.getServerCode()) || blank(promptCatalog.getPromptName())) {
             throw new IllegalArgumentException("serverCode/promptName required");
         }
+        enrichPromptCatalog(promptCatalog);
         McpPromptCatalog exist = promptCatalogMapper.selectOne(new LambdaQueryWrapper<McpPromptCatalog>()
                 .eq(McpPromptCatalog::getServerCode, promptCatalog.getServerCode())
                 .eq(McpPromptCatalog::getPromptName, promptCatalog.getPromptName())
@@ -165,6 +174,7 @@ public class McpServiceImpl implements McpService {
         if (resourceCatalog == null || blank(resourceCatalog.getServerCode()) || blank(resourceCatalog.getResourceUri())) {
             throw new IllegalArgumentException("serverCode/resourceUri required");
         }
+        enrichResourceCatalog(resourceCatalog);
         McpResourceCatalog exist = resourceCatalogMapper.selectOne(new LambdaQueryWrapper<McpResourceCatalog>()
                 .eq(McpResourceCatalog::getServerCode, resourceCatalog.getServerCode())
                 .eq(McpResourceCatalog::getResourceUri, resourceCatalog.getResourceUri())
@@ -180,6 +190,7 @@ public class McpServiceImpl implements McpService {
         if (workflowTemplate == null || blank(workflowTemplate.getWorkflowName())) {
             throw new IllegalArgumentException("workflowName required");
         }
+        enrichWorkflowTemplate(workflowTemplate);
         WorkflowTemplate exist = workflowTemplateMapper.selectOne(new LambdaQueryWrapper<WorkflowTemplate>()
                 .eq(WorkflowTemplate::getWorkflowName, workflowTemplate.getWorkflowName())
                 .last("LIMIT 1"));
@@ -283,6 +294,98 @@ public class McpServiceImpl implements McpService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private void enrichToolCatalog(McpToolCatalog toolCatalog) {
+        if (toolCatalog == null) {
+            return;
+        }
+        String text = def(toolCatalog.getToolName(), "") + " " + def(toolCatalog.getTitle(), "") + " " + def(toolCatalog.getDescription(), "");
+        String generated = embed(text, toolCatalog.getDescription());
+        if (!blank(generated)) {
+            toolCatalog.setEmbedding(generated);
+        }
+    }
+
+    private void enrichPromptCatalog(McpPromptCatalog promptCatalog) {
+        if (promptCatalog == null) {
+            return;
+        }
+        String text = def(promptCatalog.getPromptName(), "") + " " + def(promptCatalog.getTitle(), "") + " " + def(promptCatalog.getDescription(), "");
+        String generated = embed(text, promptCatalog.getDescription());
+        if (!blank(generated)) {
+            promptCatalog.setEmbedding(generated);
+        }
+    }
+
+    private void enrichResourceCatalog(McpResourceCatalog resourceCatalog) {
+        if (resourceCatalog == null) {
+            return;
+        }
+        String text = def(resourceCatalog.getResourceUri(), "") + " " + def(resourceCatalog.getName(), "") + " " + def(resourceCatalog.getDescription(), "");
+        String generated = embed(text, resourceCatalog.getDescription());
+        if (!blank(generated)) {
+            resourceCatalog.setEmbedding(generated);
+        }
+    }
+
+    private void enrichWorkflowTemplate(WorkflowTemplate workflowTemplate) {
+        if (workflowTemplate == null) {
+            return;
+        }
+        String text = def(workflowTemplate.getWorkflowName(), "") + " " + def(workflowTemplate.getDescription(), "");
+        String generated = embed(text, workflowTemplate.getDescription());
+        if (!blank(generated)) {
+            workflowTemplate.setEmbedding(generated);
+        }
+    }
+
+    private List<Resource> semanticSearchResources(String query, int limit) {
+        String vector = embed(query, query);
+        if (blank(vector)) {
+            return Collections.emptyList();
+        }
+        int topK = Math.max(4, Math.min(limit, 20));
+        LinkedHashMap<String, Resource> merged = new LinkedHashMap<>();
+        try {
+            toolCatalogMapper.searchByVector(vector, topK).stream()
+                    .map(this::toTool)
+                    .forEach(r -> merged.put(resourceUniqueKey(r), r));
+        } catch (Exception e) {
+            log.debug("tool vector search failed: {}", e.getMessage());
+        }
+        try {
+            promptCatalogMapper.searchByVector(vector, topK).stream()
+                    .map(this::toPrompt)
+                    .forEach(r -> merged.put(resourceUniqueKey(r), r));
+        } catch (Exception e) {
+            log.debug("prompt vector search failed: {}", e.getMessage());
+        }
+        try {
+            resourceCatalogMapper.searchByVector(vector, topK).stream()
+                    .map(this::toResource)
+                    .forEach(r -> merged.put(resourceUniqueKey(r), r));
+        } catch (Exception e) {
+            log.debug("resource vector search failed: {}", e.getMessage());
+        }
+        try {
+            workflowTemplateMapper.searchByVector(vector, topK).stream()
+                    .map(this::toWorkflow)
+                    .forEach(r -> merged.put(resourceUniqueKey(r), r));
+        } catch (Exception e) {
+            log.debug("workflow vector search failed: {}", e.getMessage());
+        }
+        return merged.values().stream().limit(limit).toList();
+    }
+
+    private String resourceUniqueKey(Resource resource) {
+        if (resource == null) {
+            return "";
+        }
+        return def(resource.getType() == null ? "" : resource.getType().name(), "")
+                + "|" + def(resource.getServerCode(), "")
+                + "|" + def(resource.getName(), "")
+                + "|" + def(resource.getResourceUri(), "");
     }
 
     private Map<String, Object> jsonMap(String json) {

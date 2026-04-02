@@ -23,6 +23,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @TableName(value = "mcp_tools", autoResultMap = true)
+@Deprecated
 public class McpTool implements Serializable {
 
     private static final long serialVersionUID = 1L;

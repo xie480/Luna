@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import org.yilena.luna.enums.RelationalRuntimeState;
 import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.mapper.CapabilityMapper;
+import org.yilena.luna.service.CapabilityCatalogSyncService;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -20,6 +21,7 @@ import java.util.Set;
 public class DefaultCapabilityPolicyRouterService implements CapabilityPolicyRouterService {
 
     private final CapabilityMapper capabilityMapper;
+    private final CapabilityCatalogSyncService capabilityCatalogSyncService;
 
     @Override
     public List<Map<String, Object>> routeForContext(String sessionId,
@@ -67,12 +69,7 @@ public class DefaultCapabilityPolicyRouterService implements CapabilityPolicyRou
     }
 
     private void syncAllCapabilities() {
-        capabilityMapper.syncToolsIntoRegistry();
-        capabilityMapper.syncPromptsIntoRegistry();
-        capabilityMapper.syncResourcesIntoRegistry();
-        capabilityMapper.syncWorkflowsIntoRegistry();
-        capabilityMapper.syncTaskStrategiesIntoRegistry();
-        capabilityMapper.syncRelationalStrategiesIntoRegistry();
+        capabilityCatalogSyncService.syncFromServers();
     }
 
     private List<Map<String, Object>> rankByPolicy(List<Map<String, Object>> rows,
@@ -172,4 +169,3 @@ public class DefaultCapabilityPolicyRouterService implements CapabilityPolicyRou
         return false;
     }
 }
-

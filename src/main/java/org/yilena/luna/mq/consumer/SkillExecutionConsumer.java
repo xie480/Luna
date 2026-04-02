@@ -10,7 +10,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.constants.LunaStateConstant;
 import org.yilena.luna.constants.RocketMqConstant;
-import org.yilena.luna.executor.SkillExecutor;
+import org.yilena.luna.executor.WorkflowExecutor;
 import org.yilena.luna.memory.MemoryHotLayerService;
 import org.yilena.luna.mq.dto.SkillExecutionMessage;
 import org.yilena.luna.sse.LunaStatusPublisher;
@@ -30,7 +30,7 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
 
     private static final String TASK_REDIS_KEY_PREFIX = "luna:skill:task:";
 
-    private final SkillExecutor skillExecutor;
+    private final WorkflowExecutor workflowExecutor;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
     private final LunaStatusPublisher statusPublisher;
@@ -69,7 +69,7 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
 
         try {
             // 执行技能主流程并统计耗时。
-            String result = skillExecutor.executeLoop(msg.getResource(), argsJson);
+            String result = workflowExecutor.executeLoop(msg.getResource(), argsJson);
             long costMs = System.currentTimeMillis() - start;
 
             // 结果体声明失败时，按业务失败路径处理。

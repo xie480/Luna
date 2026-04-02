@@ -32,10 +32,6 @@ public class Resource implements Serializable {
     private String version;
     private String owner;
 
-    // Legacy local execution fields, kept for compatibility.
-    private String beanName;
-    private String methodName;
-
     private String inputSchema;
     private String outputSchema;
     private String argumentsSchema;

@@ -71,8 +71,6 @@ public class ApprovalServiceImpl implements ApprovalService {
                 .skillName(resource.getName())
                 .serverCode(resource.getServerCode())
                 .toolName(resource.getName())
-                .beanName(resource.getBeanName())
-                .methodName(resource.getMethodName())
                 .argsJson(argsJson)
                 .createTime(System.currentTimeMillis())
                 // chat续跑上下文（可能为空，需兼容非 chat 场景）
