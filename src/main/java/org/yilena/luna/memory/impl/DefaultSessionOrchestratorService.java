@@ -37,6 +37,12 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
     }
 
     @Override
+    public OrchestrationDecision onUserInput(String sessionId, String userInput, String orchestrationSignal) {
+        String signal = orchestrationSignal == null || orchestrationSignal.isBlank() ? userInput : orchestrationSignal;
+        return orchestrate(sessionId, "USER_INPUT", signal, payloadOf("text", userInput));
+    }
+
+    @Override
     public OrchestrationDecision onToolResult(String sessionId, String payloadJson) {
         return orchestrate(sessionId, "TOOL_RESULT", summarizePayload(payloadJson), payloadJson);
     }

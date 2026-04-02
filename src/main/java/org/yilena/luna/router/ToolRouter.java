@@ -32,6 +32,14 @@ public class ToolRouter {
         return capabilityCandidates.size() > 10 ? capabilityCandidates.subList(0, 10) : capabilityCandidates;
     }
 
+    public List<Resource> materializeCandidates(List<Map<String, Object>> rows, int limit) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        int safeLimit = limit <= 0 ? rows.size() : Math.min(limit, rows.size());
+        return rows.stream().limit(safeLimit).map(this::toResource).toList();
+    }
+
     private List<Resource> fromCapabilityRegistry(String query, TaskRuntimeState taskState, RelationalRuntimeState relationalState) {
         if (query == null || query.isBlank()) {
             return Collections.emptyList();

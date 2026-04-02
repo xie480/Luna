@@ -43,6 +43,14 @@ public class DefaultEventIngressService implements EventIngressService {
     }
 
     @Override
+    public OrchestrationDecision ingestUserInput(String sessionId, String userInput, String orchestrationSignal) {
+        return ingestEvent(sessionId, "USER_INPUT", Map.of(
+                "text", userInput == null ? "" : userInput,
+                "orchestration_signal", orchestrationSignal == null ? "" : orchestrationSignal
+        ));
+    }
+
+    @Override
     public OrchestrationDecision ingestToolResult(String sessionId, Map<String, Object> payload) {
         return ingestEvent(sessionId, "TOOL_RESULT", payload == null ? Map.of() : payload);
     }
@@ -82,7 +90,8 @@ public class DefaultEventIngressService implements EventIngressService {
             OrchestrationDecision decision = switch (normalizedEventType) {
                 case "USER_INPUT" -> {
                     String text = payload.path("text").asText("");
-                    OrchestrationDecision orchestrated = sessionOrchestratorService.onUserInput(normalizedSessionId, text);
+                    String orchestrationSignal = payload.path("orchestration_signal").asText("");
+                    OrchestrationDecision orchestrated = sessionOrchestratorService.onUserInput(normalizedSessionId, text, orchestrationSignal);
                     runtimeAuditService.persistDecisionRecord(
                             normalizedSessionId,
                             null,

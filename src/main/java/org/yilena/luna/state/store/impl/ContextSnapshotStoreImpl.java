@@ -8,6 +8,7 @@ import org.yilena.luna.mapper.RuntimeAuditMapper;
 import org.yilena.luna.state.store.ContextSnapshotStore;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -16,6 +17,34 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
 
     private final RuntimeAuditMapper runtimeAuditMapper;
     private final ObjectMapper objectMapper;
+
+    @Override
+    public void savePreToolDecisionSnapshot(String sessionId,
+                                            Long planId,
+                                            Long nodeId,
+                                            String userInput,
+                                            String reconstructedMcpQuery,
+                                            List<Map<String, Object>> executionCandidates,
+                                            Map<String, Object> extra) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        try {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("snapshotType", "PRE_TOOL_DECISION_CONTEXT");
+            payload.put("userInput", userInput == null ? "" : userInput);
+            payload.put("reconstructedMcpQuery", reconstructedMcpQuery == null ? "" : reconstructedMcpQuery);
+            payload.put("executionCandidates", executionCandidates == null ? List.of() : executionCandidates);
+            payload.put("extra", extra == null ? Map.of() : extra);
+            runtimeAuditMapper.insertContextSnapshot(
+                    sessionId,
+                    planId,
+                    nodeId,
+                    objectMapper.writeValueAsString(payload)
+            );
+        } catch (Exception ignore) {
+        }
+    }
 
     @Override
     public void saveFinalSnapshot(String sessionId,
@@ -45,4 +74,3 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
         }
     }
 }
-

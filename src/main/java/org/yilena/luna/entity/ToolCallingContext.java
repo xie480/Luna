@@ -23,5 +23,7 @@ public class ToolCallingContext {
     private List<String> knowledgeSnippets;
     private List<String> preferenceSnippets;
     private List<String> longTermMemorySnippets;
+    private List<Resource> executionCandidates;
+    private List<String> mcpResourceHints;
     private List<Map<String, Object>> toolExecutionTraces;
 }

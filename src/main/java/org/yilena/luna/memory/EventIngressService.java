@@ -8,6 +8,10 @@ public interface EventIngressService {
 
     OrchestrationDecision ingestUserInput(String sessionId, String userInput);
 
+    default OrchestrationDecision ingestUserInput(String sessionId, String userInput, String orchestrationSignal) {
+        return ingestUserInput(sessionId, userInput);
+    }
+
     OrchestrationDecision ingestToolResult(String sessionId, Map<String, Object> payload);
 
     OrchestrationDecision ingestApproval(String sessionId, Map<String, Object> payload);

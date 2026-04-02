@@ -60,6 +60,15 @@ public class AgentServiceImpl implements AgentService {
                                      String input,
                                      TaskRuntimeState taskState,
                                      RelationalRuntimeState relationalState) {
+        return processToolCalling(sessionId, input, taskState, relationalState, null);
+    }
+
+    @Override
+    public String processToolCalling(String sessionId,
+                                     String input,
+                                     TaskRuntimeState taskState,
+                                     RelationalRuntimeState relationalState,
+                                     List<Resource> executionCandidates) {
         log.info("processToolCalling, sessionId={}, input={}", sessionId, input);
 
         if (capabilityPolicyRouterService.shouldTriggerPlanOrchestration(input, taskState)) {
@@ -67,7 +76,9 @@ public class AgentServiceImpl implements AgentService {
             return planOrchestratorService.createAndRunPlan(stableSessionId, input, false);
         }
 
-        List<Resource> candidates = toolRouter.findCandidates(input, taskState, relationalState);
+        List<Resource> candidates = executionCandidates == null || executionCandidates.isEmpty()
+                ? toolRouter.findCandidates(input, taskState, relationalState)
+                : executionCandidates;
         if (candidates.isEmpty()) {
             return null;
         }

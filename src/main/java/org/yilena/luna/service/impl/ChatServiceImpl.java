@@ -21,8 +21,11 @@ import org.yilena.luna.context.ContextTraceLogger;
 import org.yilena.luna.context.EvidenceBlockBuilder;
 import org.yilena.luna.context.GlobalContextRerankAgent;
 import org.yilena.luna.context.InputReconstructionAgent;
+import org.yilena.luna.context.McpCandidatePreRank;
+import org.yilena.luna.context.McpResourceHintExtractor;
 import org.yilena.luna.context.McpQueryBuilder;
 import org.yilena.luna.context.RagQueryBuilder;
+import org.yilena.luna.context.RecoveryContextAgent;
 import org.yilena.luna.context.RerankTraceLogger;
 import org.yilena.luna.context.SummaryAgent;
 import org.yilena.luna.context.SummaryTraceLogger;
@@ -36,6 +39,7 @@ import org.yilena.luna.context.model.SummaryResult;
 import org.yilena.luna.context.model.ToolSemanticResult;
 import org.yilena.luna.entity.ChatMessage;
 import org.yilena.luna.entity.ChatRequest;
+import org.yilena.luna.entity.Resource;
 import org.yilena.luna.entity.ToolCallingContext;
 import org.yilena.luna.enums.LogType;
 import org.yilena.luna.enums.ModelType;
@@ -45,6 +49,7 @@ import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
 import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.memory.EventIngressService;
+import org.yilena.luna.memory.ContextCompilerService;
 import org.yilena.luna.memory.MemoryHotLayerService;
 import org.yilena.luna.memory.MemoryWritePipelineService;
 import org.yilena.luna.memory.RuntimeAuditService;
@@ -63,6 +68,7 @@ import org.yilena.luna.rag.models.RetrievalRequest;
 import org.yilena.luna.rag.models.RetrievalRoute;
 import org.yilena.luna.rag.models.RetrievalResponse;
 import org.yilena.luna.rag.models.RetrievalSource;
+import org.yilena.luna.router.ToolRouter;
 import org.yilena.luna.service.AgentService;
 import org.yilena.luna.service.ChatService;
 import org.yilena.luna.service.SessionService;
@@ -113,13 +119,18 @@ public class ChatServiceImpl implements ChatService {
     private final RuntimeAuditService runtimeAuditService;
     private final SessionRuntimeMapper sessionRuntimeMapper;
     private final InputReconstructionAgent inputReconstructionAgent;
+    private final ContextCompilerService contextCompilerService;
+    private final RecoveryContextAgent recoveryContextAgent;
     private final RagQueryBuilder ragQueryBuilder;
     private final McpQueryBuilder mcpQueryBuilder;
+    private final McpCandidatePreRank mcpCandidatePreRank;
+    private final McpResourceHintExtractor mcpResourceHintExtractor;
     private final GlobalContextRerankAgent globalContextRerankAgent;
     private final ToolSemanticAgent toolSemanticAgent;
     private final ToolSemanticResultValidator toolSemanticResultValidator;
     private final SummaryAgent summaryAgent;
     private final ContextAssembler contextAssembler;
+    private final ToolRouter toolRouter;
     private final EvidenceBlockBuilder evidenceBlockBuilder;
     private final ContextTraceLogger contextTraceLogger;
     private final RerankTraceLogger rerankTraceLogger;
@@ -148,23 +159,34 @@ public class ChatServiceImpl implements ChatService {
                 .filter(s -> !s.isBlank())
                 .orElse(SESSION_KEY_FORMATTER.format(LocalDateTime.now()));
 
-        OrchestrationDecision decision = eventIngressService.ingestUserInput(runtimeSessionId, input);
-        StructuredContextPackage contextPackage = decision == null ? null : decision.getContextPackage();
+        StructuredContextPackage preContextPackage = contextCompilerService.compile(runtimeSessionId, input, null, null);
+        InputReconstructionResult reconstruction = inputReconstructionAgent.reconstruct(
+                runtimeSessionId,
+                input,
+                preContextPackage,
+                preContextPackage == null ? null : preContextPackage.getTaskState(),
+                preContextPackage == null ? null : preContextPackage.getRelationalState()
+        );
+        OrchestrationDecision decision = eventIngressService.ingestUserInput(
+                runtimeSessionId,
+                input,
+                buildOrchestrationSignal(input, reconstruction)
+        );
+        StructuredContextPackage contextPackage = decision == null ? preContextPackage : decision.getContextPackage();
+        contextPackage = recoveryContextAgent.recover(
+                runtimeSessionId,
+                contextPackage,
+                "USER_INPUT",
+                "CHAT_MAIN_LOOP"
+        );
         runtimeAuditService.persistContextSnapshot(runtimeSessionId, contextPackage);
         runtimeAuditService.persistDecisionRecord(
                 runtimeSessionId,
                 contextPlanId(contextPackage),
                 contextNodeId(contextPackage),
                 "ORCHESTRATION_DECISION",
-                "states selected",
+                "states selected by reconstructed input signal",
                 toJsonSafe(buildDecisionStatePayload(decision))
-        );
-        InputReconstructionResult reconstruction = inputReconstructionAgent.reconstruct(
-                runtimeSessionId,
-                input,
-                contextPackage,
-                decision == null ? null : decision.getTaskState(),
-                decision == null ? null : decision.getRelationalState()
         );
         runtimeAuditService.persistDecisionRecord(
                 runtimeSessionId,
@@ -181,6 +203,29 @@ public class ChatServiceImpl implements ChatService {
         List<String> workingMemorySnippets = extractWorkingMemorySnippets(contextPackage);
         List<String> ragMemorySnippets = new ArrayList<>();
         ContextRerankResult rerankResult = null;
+        String mcpDrivenInput = mcpQueryBuilder.build(
+                reconstruction,
+                decision == null ? null : decision.getTaskState(),
+                input
+        );
+        List<Map<String, Object>> mcpPreRankedCandidates = mcpCandidatePreRank.preRank(
+                mcpDrivenInput,
+                contextPackage == null ? List.of() : contextPackage.getCapabilityCandidates(),
+                reconstruction,
+                decision == null ? null : decision.getTaskState(),
+                24
+        );
+        runtimeAuditService.persistDecisionRecord(
+                runtimeSessionId,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage),
+                "MCP_PRE_RANK",
+                "system-level pre-rank before global semantic rerank",
+                toJsonSafe(Map.of(
+                        "query", mcpDrivenInput,
+                        "candidateCount", mcpPreRankedCandidates.size()
+                ))
+        );
 
         try {
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_RETRIEVING, LunaStateConstant.VALUE_RETRIEVING);
@@ -205,7 +250,7 @@ public class ChatServiceImpl implements ChatService {
                     reconstruction,
                     contextPackage,
                     retrievalResponse,
-                    contextPackage == null ? List.of() : contextPackage.getCapabilityCandidates(),
+                    mcpPreRankedCandidates,
                     decision == null ? null : decision.getTaskState()
             );
             runtimeAuditService.persistDecisionRecord(
@@ -227,6 +272,10 @@ public class ChatServiceImpl implements ChatService {
                 ragMemorySnippets.addAll(rerankResult.getSelectedMemoryHints());
             }
             preferenceSnippets = mergeDistinct(preferenceSnippets, toPreferenceSnippets(retrievalResponse));
+            preferenceSnippets = mergeDistinct(
+                    preferenceSnippets,
+                    mcpResourceHintExtractor.extract(rerankResult == null ? List.of() : rerankResult.getSelectedPromptResources(), 8)
+            );
         } catch (Exception e) {
             log.warn("rag retrieve failed: {}", e.getMessage());
         }
@@ -243,14 +292,27 @@ public class ChatServiceImpl implements ChatService {
                 .knowledgeSnippets(knowledgeSnippets)
                 .preferenceSnippets(preferenceSnippets)
                 .longTermMemorySnippets(longTermMemorySnippets)
+                .executionCandidates(resolveExecutionCandidates(rerankResult, mcpPreRankedCandidates))
+                .mcpResourceHints(mcpResourceHintExtractor.extract(
+                        rerankResult == null ? List.of() : rerankResult.getSelectedPromptResources(),
+                        8
+                ))
                 .toolExecutionTraces(new CopyOnWriteArrayList<>())
                 .build());
 
         String toolContext = null;
-        String mcpDrivenInput = mcpQueryBuilder.build(
-                reconstruction,
-                decision == null ? null : decision.getTaskState(),
-                input
+        List<Resource> executionCandidates = resolveExecutionCandidates(rerankResult, mcpPreRankedCandidates);
+        contextSnapshotStore.savePreToolDecisionSnapshot(
+                runtimeSessionId,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage),
+                input,
+                mcpDrivenInput,
+                toExecutionCandidateMaps(executionCandidates),
+                Map.of(
+                        "rerankedToolCandidateCount", rerankResult == null || rerankResult.getSelectedToolCandidates() == null ? 0 : rerankResult.getSelectedToolCandidates().size(),
+                        "rerankedPromptResourceCount", rerankResult == null || rerankResult.getSelectedPromptResources() == null ? 0 : rerankResult.getSelectedPromptResources().size()
+                )
         );
         long toolStartAt = System.currentTimeMillis();
         String toolStatus = "SUCCESS";
@@ -260,7 +322,8 @@ public class ChatServiceImpl implements ChatService {
                     runtimeSessionId,
                     mcpDrivenInput,
                     decision == null ? null : decision.getTaskState(),
-                    decision == null ? null : decision.getRelationalState()
+                    decision == null ? null : decision.getRelationalState(),
+                    executionCandidates
             );
         } catch (Exception ex) {
             toolStatus = "FAILED";
@@ -862,6 +925,51 @@ public class ChatServiceImpl implements ChatService {
         payload.put("taskState", decision == null || decision.getTaskState() == null ? "" : decision.getTaskState().name());
         payload.put("relationalState", decision == null || decision.getRelationalState() == null ? "" : decision.getRelationalState().name());
         return payload;
+    }
+
+    private String buildOrchestrationSignal(String rawInput, InputReconstructionResult reconstruction) {
+        if (reconstruction == null) {
+            return rawInput == null ? "" : rawInput;
+        }
+        StringBuilder signal = new StringBuilder();
+        signal.append("intent=").append(nullSafe(reconstruction.getNormalizedUserIntent()));
+        signal.append(";goal=").append(nullSafe(reconstruction.getExplicitTaskGoal()));
+        signal.append(";timeScope=").append(nullSafe(reconstruction.getTimeScope()));
+        signal.append(";constraints=").append(reconstruction.getBusinessConstraints() == null ? List.of() : reconstruction.getBusinessConstraints());
+        signal.append(";missingSlots=").append(reconstruction.getMissingSlots() == null ? List.of() : reconstruction.getMissingSlots());
+        return signal.toString();
+    }
+
+    private List<Resource> resolveExecutionCandidates(ContextRerankResult rerankResult, List<Map<String, Object>> mcpPreRankedCandidates) {
+        List<Map<String, Object>> selected = new ArrayList<>();
+        if (rerankResult != null && rerankResult.getSelectedToolCandidates() != null) {
+            selected.addAll(rerankResult.getSelectedToolCandidates());
+        }
+        if (rerankResult != null && rerankResult.getSelectedPromptResources() != null) {
+            selected.addAll(rerankResult.getSelectedPromptResources());
+        }
+        if (selected.isEmpty() && mcpPreRankedCandidates != null) {
+            selected.addAll(mcpPreRankedCandidates);
+        }
+        return toolRouter.materializeCandidates(selected, 16);
+    }
+
+    private List<Map<String, Object>> toExecutionCandidateMaps(List<Resource> resources) {
+        if (resources == null || resources.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Resource resource : resources) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("name", resource.getName());
+            row.put("type", resource.getType() == null ? "" : resource.getType().name());
+            row.put("serverCode", resource.getServerCode());
+            row.put("resourceUri", resource.getResourceUri());
+            row.put("requiresApproval", resource.getRequiresApproval());
+            row.put("sensitivity", resource.getSensitivity() == null ? "" : resource.getSensitivity().name());
+            out.add(row);
+        }
+        return out;
     }
 
     private void writeStateStores(String sessionId,
