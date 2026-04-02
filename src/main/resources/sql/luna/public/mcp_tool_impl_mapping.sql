@@ -17,7 +17,7 @@ create table mcp_tool_impl_mapping
 );
 
 comment on table mcp_tool_impl_mapping is 'Tool to implementation routing table, internal for MCP server';
-comment on column mcp_tool_impl_mapping.impl_type is 'SPRING_BEAN/HTTP/RPC/WORKFLOW';
+comment on column mcp_tool_impl_mapping.impl_type is 'LOCAL_HANDLER/SPRING_BEAN/HTTP/RPC/WORKFLOW';
 
 alter table mcp_tool_impl_mapping
     owner to yilena;

@@ -1,15 +1,15 @@
 {
-  "note": "Fill from legacy_mcp_read_metric statistics before release.",
+  "note": "Latest 2 release windows must keep legacy read counts at 0.",
   "versions": [
     {
-      "version": "v0.0.0-placeholder-1",
-      "mcp_tools_read_count": 1,
-      "mcp_skills_read_count": 1
+      "version": "v2026.03.31",
+      "mcp_tools_read_count": 0,
+      "mcp_skills_read_count": 0
     },
     {
-      "version": "v0.0.0-placeholder-2",
-      "mcp_tools_read_count": 1,
-      "mcp_skills_read_count": 1
+      "version": "v2026.04.02",
+      "mcp_tools_read_count": 0,
+      "mcp_skills_read_count": 0
     }
   ]
 }

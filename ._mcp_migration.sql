@@ -1,6 +1,6 @@
--- mcp_server_registry
+﻿-- mcp_server_registry
 INSERT INTO mcp_server_registry (server_code, server_name, description, base_url, transport_type, enabled) VALUES
-('local-agent-server', 'Local Agent MCP Server', '??Spring??????MCP??', 'http://localhost:8080/mcp', 'HTTP', true)
+('local-agent-server', 'Local Agent MCP Server', '本地Spring应用封装出的MCP服务', NULL, 'LOCAL', true)
 ON CONFLICT (server_code) DO UPDATE SET server_name=EXCLUDED.server_name, description=EXCLUDED.description, base_url=EXCLUDED.base_url, transport_type=EXCLUDED.transport_type, enabled=EXCLUDED.enabled;
 
 -- mcp_tool_catalog
@@ -47,44 +47,44 @@ ON CONFLICT (server_code, tool_name) DO UPDATE SET title=EXCLUDED.title, descrip
 
 -- mcp_tool_impl_mapping
 INSERT INTO mcp_tool_impl_mapping (server_code, tool_name, impl_type, bean_name, method_name, route_uri, timeout_ms, retry_policy, enabled) VALUES
-('local-agent-server', 'acquire_execution_lock', 'SPRING_BEAN', 'executionLockTools', 'acquireExecutionLock', NULL, 10000, NULL, true),
-('local-agent-server', 'append_node_output', 'SPRING_BEAN', 'planNodeTools', 'appendNodeOutput', NULL, 10000, NULL, true),
-('local-agent-server', 'apply_unified_patch', 'SPRING_BEAN', 'codeOpsTools', 'applyUnifiedPatch', NULL, 10000, NULL, true),
-('local-agent-server', 'capture_desktop_screenshot', 'SPRING_BEAN', 'desktopTools', 'captureDesktopScreenshot', NULL, 10000, NULL, true),
-('local-agent-server', 'checkpoint_plan_state', 'SPRING_BEAN', 'planCheckpointTools', 'checkpointPlanState', NULL, 10000, NULL, true),
-('local-agent-server', 'collect_test_report', 'SPRING_BEAN', 'codeOpsTools', 'collectTestReport', NULL, 10000, NULL, true),
-('local-agent-server', 'detect_ui_elements', 'SPRING_BEAN', 'desktopTools', 'detectUiElements', NULL, 10000, NULL, true),
-('local-agent-server', 'emit_plan_event_sse', 'SPRING_BEAN', 'planEventTools', 'emitPlanEventSse', NULL, 10000, NULL, true),
-('local-agent-server', 'git_create_checkpoint', 'SPRING_BEAN', 'codeOpsTools', 'gitCreateCheckpoint', NULL, 10000, NULL, true),
-('local-agent-server', 'git_rollback_checkpoint', 'SPRING_BEAN', 'codeOpsTools', 'gitRollbackCheckpoint', NULL, 10000, NULL, true),
-('local-agent-server', 'image_search', 'SPRING_BEAN', 'searchTools', 'image_search', NULL, 10000, NULL, true),
-('local-agent-server', 'lens_search', 'SPRING_BEAN', 'searchTools', 'lens_search', NULL, 10000, NULL, true),
-('local-agent-server', 'list_phase_nodes', 'SPRING_BEAN', 'planNodeTools', 'listPhaseNodes', NULL, 10000, NULL, true),
-('local-agent-server', 'load_plan_blueprint', 'SPRING_BEAN', 'planBlueprintTools', 'loadPlanBlueprint', NULL, 10000, NULL, true),
-('local-agent-server', 'manage_knowledge_base', 'SPRING_BEAN', 'knowledgeBaseTools', 'manageKnowledgeBase', NULL, 10000, NULL, true),
-('local-agent-server', 'manage_log', 'SPRING_BEAN', 'logTools', 'manageLog', NULL, 10000, NULL, true),
-('local-agent-server', 'manage_memory', 'SPRING_BEAN', 'memoryTools', 'manageMemory', NULL, 10000, NULL, true),
-('local-agent-server', 'manage_schedule_task', 'SPRING_BEAN', 'scheduleTools', 'manageScheduleTask', NULL, 10000, NULL, true),
-('local-agent-server', 'manage_user_preference', 'SPRING_BEAN', 'preferenceTools', 'manageUserPreference', NULL, 10000, NULL, true),
-('local-agent-server', 'news_search', 'SPRING_BEAN', 'searchTools', 'news_search', NULL, 10000, NULL, true),
-('local-agent-server', 'open_browser_with_file', 'SPRING_BEAN', 'planReportTools', 'openBrowserWithFile', NULL, 10000, NULL, true),
-('local-agent-server', 'query_plan_progress', 'SPRING_BEAN', 'planNodeTools', 'queryPlanProgress', NULL, 10000, NULL, true),
-('local-agent-server', 'read_repo_tree', 'SPRING_BEAN', 'codeOpsTools', 'readRepoTree', NULL, 10000, NULL, true),
-('local-agent-server', 'read_source_file', 'SPRING_BEAN', 'codeOpsTools', 'readSourceFile', NULL, 10000, NULL, true),
-('local-agent-server', 'record_plan_audit_log', 'SPRING_BEAN', 'planEventTools', 'recordPlanAuditLog', NULL, 10000, NULL, true),
-('local-agent-server', 'release_execution_lock', 'SPRING_BEAN', 'executionLockTools', 'releaseExecutionLock', NULL, 10000, NULL, true),
-('local-agent-server', 'run_build_command', 'SPRING_BEAN', 'codeOpsTools', 'runBuildCommand', NULL, 10000, NULL, true),
-('local-agent-server', 'run_format_command', 'SPRING_BEAN', 'codeOpsTools', 'runFormatCommand', NULL, 10000, NULL, true),
-('local-agent-server', 'run_lint_command', 'SPRING_BEAN', 'codeOpsTools', 'runLintCommand', NULL, 10000, NULL, true),
-('local-agent-server', 'run_test_command', 'SPRING_BEAN', 'codeOpsTools', 'runTestCommand', NULL, 10000, NULL, true),
-('local-agent-server', 'save_plan_blueprint', 'SPRING_BEAN', 'planBlueprintTools', 'savePlanBlueprint', NULL, 10000, NULL, true),
-('local-agent-server', 'scan_dependency_vulnerabilities', 'SPRING_BEAN', 'codeOpsTools', 'scanDependencyVulnerabilities', NULL, 10000, NULL, true),
-('local-agent-server', 'search_symbol_references', 'SPRING_BEAN', 'codeOpsTools', 'searchSymbolReferences', NULL, 10000, NULL, true),
-('local-agent-server', 'update_node_status', 'SPRING_BEAN', 'planNodeTools', 'updateNodeStatus', NULL, 10000, NULL, true),
-('local-agent-server', 'web_scrape', 'SPRING_BEAN', 'searchTools', 'web_scrape', NULL, 10000, NULL, true),
-('local-agent-server', 'web_search', 'SPRING_BEAN', 'searchTools', 'web_search', NULL, 10000, NULL, true),
-('local-agent-server', 'write_html_report_file', 'SPRING_BEAN', 'planReportTools', 'writeHtmlReportFile', NULL, 10000, NULL, true),
-('local-agent-server', 'write_source_file', 'SPRING_BEAN', 'codeOpsTools', 'writeSourceFile', NULL, 10000, NULL, true)
+('local-agent-server', 'acquire_execution_lock', 'LOCAL_HANDLER', 'executionLockTools', 'acquireExecutionLock', NULL, 10000, NULL, true),
+('local-agent-server', 'append_node_output', 'LOCAL_HANDLER', 'planNodeTools', 'appendNodeOutput', NULL, 10000, NULL, true),
+('local-agent-server', 'apply_unified_patch', 'LOCAL_HANDLER', 'codeOpsTools', 'applyUnifiedPatch', NULL, 10000, NULL, true),
+('local-agent-server', 'capture_desktop_screenshot', 'LOCAL_HANDLER', 'desktopTools', 'captureDesktopScreenshot', NULL, 10000, NULL, true),
+('local-agent-server', 'checkpoint_plan_state', 'LOCAL_HANDLER', 'planCheckpointTools', 'checkpointPlanState', NULL, 10000, NULL, true),
+('local-agent-server', 'collect_test_report', 'LOCAL_HANDLER', 'codeOpsTools', 'collectTestReport', NULL, 10000, NULL, true),
+('local-agent-server', 'detect_ui_elements', 'LOCAL_HANDLER', 'desktopTools', 'detectUiElements', NULL, 10000, NULL, true),
+('local-agent-server', 'emit_plan_event_sse', 'LOCAL_HANDLER', 'planEventTools', 'emitPlanEventSse', NULL, 10000, NULL, true),
+('local-agent-server', 'git_create_checkpoint', 'LOCAL_HANDLER', 'codeOpsTools', 'gitCreateCheckpoint', NULL, 10000, NULL, true),
+('local-agent-server', 'git_rollback_checkpoint', 'LOCAL_HANDLER', 'codeOpsTools', 'gitRollbackCheckpoint', NULL, 10000, NULL, true),
+('local-agent-server', 'image_search', 'LOCAL_HANDLER', 'searchTools', 'image_search', NULL, 10000, NULL, true),
+('local-agent-server', 'lens_search', 'LOCAL_HANDLER', 'searchTools', 'lens_search', NULL, 10000, NULL, true),
+('local-agent-server', 'list_phase_nodes', 'LOCAL_HANDLER', 'planNodeTools', 'listPhaseNodes', NULL, 10000, NULL, true),
+('local-agent-server', 'load_plan_blueprint', 'LOCAL_HANDLER', 'planBlueprintTools', 'loadPlanBlueprint', NULL, 10000, NULL, true),
+('local-agent-server', 'manage_knowledge_base', 'LOCAL_HANDLER', 'knowledgeBaseTools', 'manageKnowledgeBase', NULL, 10000, NULL, true),
+('local-agent-server', 'manage_log', 'LOCAL_HANDLER', 'logTools', 'manageLog', NULL, 10000, NULL, true),
+('local-agent-server', 'manage_memory', 'LOCAL_HANDLER', 'memoryTools', 'manageMemory', NULL, 10000, NULL, true),
+('local-agent-server', 'manage_schedule_task', 'LOCAL_HANDLER', 'scheduleTools', 'manageScheduleTask', NULL, 10000, NULL, true),
+('local-agent-server', 'manage_user_preference', 'LOCAL_HANDLER', 'preferenceTools', 'manageUserPreference', NULL, 10000, NULL, true),
+('local-agent-server', 'news_search', 'LOCAL_HANDLER', 'searchTools', 'news_search', NULL, 10000, NULL, true),
+('local-agent-server', 'open_browser_with_file', 'LOCAL_HANDLER', 'planReportTools', 'openBrowserWithFile', NULL, 10000, NULL, true),
+('local-agent-server', 'query_plan_progress', 'LOCAL_HANDLER', 'planNodeTools', 'queryPlanProgress', NULL, 10000, NULL, true),
+('local-agent-server', 'read_repo_tree', 'LOCAL_HANDLER', 'codeOpsTools', 'readRepoTree', NULL, 10000, NULL, true),
+('local-agent-server', 'read_source_file', 'LOCAL_HANDLER', 'codeOpsTools', 'readSourceFile', NULL, 10000, NULL, true),
+('local-agent-server', 'record_plan_audit_log', 'LOCAL_HANDLER', 'planEventTools', 'recordPlanAuditLog', NULL, 10000, NULL, true),
+('local-agent-server', 'release_execution_lock', 'LOCAL_HANDLER', 'executionLockTools', 'releaseExecutionLock', NULL, 10000, NULL, true),
+('local-agent-server', 'run_build_command', 'LOCAL_HANDLER', 'codeOpsTools', 'runBuildCommand', NULL, 10000, NULL, true),
+('local-agent-server', 'run_format_command', 'LOCAL_HANDLER', 'codeOpsTools', 'runFormatCommand', NULL, 10000, NULL, true),
+('local-agent-server', 'run_lint_command', 'LOCAL_HANDLER', 'codeOpsTools', 'runLintCommand', NULL, 10000, NULL, true),
+('local-agent-server', 'run_test_command', 'LOCAL_HANDLER', 'codeOpsTools', 'runTestCommand', NULL, 10000, NULL, true),
+('local-agent-server', 'save_plan_blueprint', 'LOCAL_HANDLER', 'planBlueprintTools', 'savePlanBlueprint', NULL, 10000, NULL, true),
+('local-agent-server', 'scan_dependency_vulnerabilities', 'LOCAL_HANDLER', 'codeOpsTools', 'scanDependencyVulnerabilities', NULL, 10000, NULL, true),
+('local-agent-server', 'search_symbol_references', 'LOCAL_HANDLER', 'codeOpsTools', 'searchSymbolReferences', NULL, 10000, NULL, true),
+('local-agent-server', 'update_node_status', 'LOCAL_HANDLER', 'planNodeTools', 'updateNodeStatus', NULL, 10000, NULL, true),
+('local-agent-server', 'web_scrape', 'LOCAL_HANDLER', 'searchTools', 'web_scrape', NULL, 10000, NULL, true),
+('local-agent-server', 'web_search', 'LOCAL_HANDLER', 'searchTools', 'web_search', NULL, 10000, NULL, true),
+('local-agent-server', 'write_html_report_file', 'LOCAL_HANDLER', 'planReportTools', 'writeHtmlReportFile', NULL, 10000, NULL, true),
+('local-agent-server', 'write_source_file', 'LOCAL_HANDLER', 'codeOpsTools', 'writeSourceFile', NULL, 10000, NULL, true)
 ON CONFLICT (server_code, tool_name) DO UPDATE SET impl_type=EXCLUDED.impl_type, bean_name=EXCLUDED.bean_name, method_name=EXCLUDED.method_name, route_uri=EXCLUDED.route_uri, timeout_ms=EXCLUDED.timeout_ms, retry_policy=EXCLUDED.retry_policy, enabled=EXCLUDED.enabled;
 
 -- workflow_template
@@ -107,3 +107,4 @@ INSERT INTO workflow_template (workflow_name, description, input_schema, output_
 ('user_profile_build', $json$用户个人画像构建与持续更新技能。对输入的对话文本进行深度信息抽取，识别用户的稳定偏好特征（昵称、作息习惯、语气偏好、职业背景、兴趣领域、格式要求、禁忌项等），经过置信度过滤与去重归一化后批量写入用户偏好表，可选同步写入长期记忆表，形成持续演化的个性化用户画像资产，供后续对话的 RAG 检索与 System Prompt 个性化注入使用。适用于首次建立用户画像、对话后增量更新画像以及定期画像回顾与修订等场景，是 Luna 个性化能力的核心数据基础设施。$json$, $json${"type": "object", "properties": {"sessionId": {"type": "string", "description": "会话ID（可选，建议传 JWT jti）。"}, "dialogueText": {"type": "string", "description": "待抽取画像的对话文本（必填）。"}, "profileScope": {"type": "string", "enum": ["PREFERENCE_ONLY", "PREFERENCE_AND_MEMORY"], "description": "写入范围（可选）。PREFERENCE_ONLY=仅写偏好；PREFERENCE_AND_MEMORY=偏好+记忆都写。默认 PREFERENCE_AND_MEMORY。"}, "minConfidence": {"type": "number", "description": "最小置信度阈值（可选），范围 0-1，默认 0.75。低于阈值的不落库。"}}, "required": ["dialogueText"]}$json$::jsonb, $json${"type": "object", "properties": {"status": {"type": "string", "description": "执行状态，常见值：success 或 error。"}, "preferenceUpserts": {"type": "integer", "description": "偏好写入/更新条数。"}, "memoryInserts": {"type": "integer", "description": "长期记忆新增条数。"}, "profileItems": {"type": "array", "description": "抽取并落库的画像项（含 key/value/confidence）。"}}}$json$::jsonb, $json$["PREFERENCE_UPSERT", "MEMORY_INSERT"]$json$::jsonb, $json$[{"slot": "preference", "capability": "PREFERENCE_UPSERT", "required": true}, {"slot": "memory", "capability": "MEMORY_INSERT", "required": false}]$json$::jsonb, $json$["调用【preference】用户偏好写入工具，将从对话文本中抽取并通过置信度过滤的画像项执行幂等 upsert 写入用户偏好表；以 prefKey/prefValue/description 为字段，对置信度高于 minConfidence 的画像项执行 INSERT 或 UPDATE，同义键合并归一化，冲突项以最近且高置信为准，统计 preferenceUpserts 数量并返回落库的 profileItems 列表。", "调用【memory】长期记忆写入工具，当 profileScope=PREFERENCE_AND_MEMORY 时将高价值画像事件同步写入长期记忆表以增强跨会话记忆连续性；将重要画像项以 PREFERENCE 类型构建 Memory 实体，调用 MEMORY_INSERT 能力写入 luna_memory 表，生成向量 embedding 供后续 RAG 检索，统计 memoryInserts 数量，此槽位为可选步骤。"]$json$::jsonb, NULL, true, '1.0.0', NULL),
 ('validate_plan_blueprint', $json$计划蓝图加载与完整性校验技能。从数据库按 planId（可指定版本号）加载目标蓝图 JSON，对蓝图核心字段进行结构完整性检查，包括阶段定义是否齐全、节点依赖关系是否形成有效 DAG、必填字段是否缺失、资源类型与能力标识是否合法等，校验通过后将蓝图内容与来源元数据一并返回，校验失败时返回具体错误描述；无论校验结果如何，均将本次校验行为写入计划审计链路，并可选通过 SSE 向前端推送蓝图加载与校验结果事件。$json$, $json$"{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"planId\":{\"type\":\"string\",\"minLength\":1,\"description\":\"计划ID\"},\"planVersion\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"可选版本号；不传则加载最新版本\"}},\"required\":[\"planId\"]}"$json$::jsonb, $json$"{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\",\"description\":\"执行状态\"},\"data\":{\"type\":\"object\",\"description\":\"蓝图内容、来源与校验结果\"},\"message\":{\"type\":\"string\",\"description\":\"补充说明\"}}}"$json$::jsonb, $json$["LOAD_PLAN_BLUEPRINT", "RECORD_PLAN_AUDIT_LOG", "EMIT_PLAN_EVENT_SSE"]$json$::jsonb, $json$[{"slot": "load_blueprint", "capability": "LOAD_PLAN_BLUEPRINT", "required": true}, {"slot": "audit_log", "capability": "RECORD_PLAN_AUDIT_LOG", "required": true}, {"slot": "emit_event", "capability": "EMIT_PLAN_EVENT_SSE", "required": false}]$json$::jsonb, $json$["调用【load_blueprint】蓝图加载工具，从数据库中按 planId 读取目标计划蓝图；若请求中携带 planVersion 则加载指定版本，否则默认取最新版本；读取成功后对蓝图 JSON 执行结构完整性校验，包括阶段数量是否大于零、每个阶段是否包含合法节点定义、节点间 dependencies/edges 是否构成有效 DAG（无环）、必填字段（nodeId/name）是否齐全；校验失败返回错误描述，校验通过返回完整蓝图与元信息。", "调用【audit_log】审计日志工具，将本次蓝图加载与校验行为完整记录到计划审计链路；通过写入 PLAN_BLUEPRINT_VALIDATED 或 PLAN_BLUEPRINT_INVALID 事件，沉淀 planId、planVersion、校验结论与错误摘要，确保可追溯。", "调用【emit_event】SSE事件推送工具，将蓝图加载与校验结果实时推送到前端订阅客户端；推送失败不阻断主流程。"]$json$::jsonb, NULL, true, '1.2.0', NULL)
 ON CONFLICT (workflow_name) DO UPDATE SET description=EXCLUDED.description, input_schema=EXCLUDED.input_schema, output_schema=EXCLUDED.output_schema, required_capabilities=EXCLUDED.required_capabilities, tool_slots=EXCLUDED.tool_slots, thought_chain=EXCLUDED.thought_chain, blueprint_json=EXCLUDED.blueprint_json, enabled=EXCLUDED.enabled, version=EXCLUDED.version;
+

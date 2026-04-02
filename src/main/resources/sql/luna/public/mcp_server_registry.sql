@@ -35,5 +35,5 @@ create index idx_mcp_server_registry_last_sync_at
 insert into mcp_server_registry
 (id, server_code, server_name, description, base_url, transport_type, enabled)
 values
-    (1, 'local-agent-server', 'Local Agent MCP Server', 'Local Spring-hosted MCP provider', 'http://localhost:8001/mcp', 'HTTP', true)
+    (1, 'local-agent-server', 'Local Agent MCP Server', 'Local Spring-hosted MCP provider', null, 'LOCAL', true)
 on conflict (server_code) do nothing;

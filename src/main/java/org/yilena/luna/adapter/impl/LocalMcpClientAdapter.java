@@ -140,6 +140,9 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
     }
 
     private boolean isLocalServer(McpServerRegistry registry) {
+        if (registry != null && McpConstant.LOCAL_SERVER_CODE.equals(registry.getServerCode())) {
+            return true;
+        }
         if (registry == null) {
             return true;
         }
@@ -516,4 +519,3 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
         }
     }
 }
-

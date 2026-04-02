@@ -89,7 +89,7 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
         String args = (argumentsJson == null || argumentsJson.isBlank()) ? "{}" : argumentsJson;
         String rawResult = switch (implType) {
             case "HTTP", "RPC", "WORKFLOW" -> invokeRoute(mapping, toolName, targetServer, args);
-            case "SPRING_BEAN" -> invokeSpringHandler(mapping, toolName, args);
+            case "SPRING_BEAN", "LOCAL_HANDLER" -> invokeSpringHandler(mapping, toolName, args);
             default -> errorResult("UNSUPPORTED_IMPL_TYPE", "Unsupported implType: " + implType);
         };
         Map<String, Object> data = parseMap(rawResult);
@@ -218,7 +218,15 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
     }
 
     private String invokeSpringHandler(McpToolImplMapping mapping, String toolName, String args) {
-        LocalMcpToolHandler handler = resolveToolHandler(mapping, toolName);
+        LocalMcpToolHandler.InvocationContext context = new LocalMcpToolHandler.InvocationContext(
+                normalizeServerCode(mapping == null ? null : mapping.getServerCode()),
+                toolName,
+                normalizeImplType(mapping == null ? null : mapping.getImplType()),
+                mapping == null ? null : mapping.getBeanName(),
+                mapping == null ? null : mapping.getMethodName(),
+                args == null || args.isBlank() ? "{}" : args
+        );
+        LocalMcpToolHandler handler = resolveToolHandler(mapping, toolName, context);
         if (handler == null) {
             return errorResult(
                     "LOCAL_TOOL_HANDLER_NOT_FOUND",
@@ -226,23 +234,38 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
             );
         }
         try {
-            return handler.handle(args == null || args.isBlank() ? "{}" : args);
+            return handler.handle(context);
         } catch (Exception e) {
             return errorResult("LOCAL_TOOL_HANDLER_FAILED", e.getMessage());
         }
     }
 
-    private LocalMcpToolHandler resolveToolHandler(McpToolImplMapping mapping, String toolName) {
+    private LocalMcpToolHandler resolveToolHandler(McpToolImplMapping mapping,
+                                                   String toolName,
+                                                   LocalMcpToolHandler.InvocationContext context) {
         Map<String, LocalMcpToolHandler> index = localToolHandlerIndex();
         String byTool = toolName == null ? "" : toolName.trim().toLowerCase(Locale.ROOT);
         if (!byTool.isBlank() && index.containsKey(byTool)) {
-            return index.get(byTool);
+            LocalMcpToolHandler handler = index.get(byTool);
+            if (handler != null && handler.supports(context)) {
+                return handler;
+            }
         }
         String byBean = mapping == null || mapping.getBeanName() == null
                 ? ""
                 : mapping.getBeanName().trim().toLowerCase(Locale.ROOT);
         if (!byBean.isBlank() && index.containsKey(byBean)) {
-            return index.get(byBean);
+            LocalMcpToolHandler handler = index.get(byBean);
+            if (handler != null && handler.supports(context)) {
+                return handler;
+            }
+        }
+        if (localToolHandlers != null) {
+            for (LocalMcpToolHandler handler : localToolHandlers) {
+                if (handler != null && handler.supports(context)) {
+                    return handler;
+                }
+            }
         }
         return null;
     }
@@ -423,7 +446,7 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
 
     private String normalizeImplType(String implType) {
         if (implType == null || implType.isBlank()) {
-            return "HTTP";
+            return "LOCAL_HANDLER";
         }
         return implType.trim().toUpperCase(Locale.ROOT);
     }
