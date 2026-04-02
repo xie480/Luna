@@ -13,11 +13,17 @@ import org.yilena.luna.enums.PlanNodeStatus;
 import org.yilena.luna.enums.ResourceType;
 import org.yilena.luna.exception.impl.NeedApprovalException;
 import org.yilena.luna.mapper.PlanNodeMapper;
+import org.yilena.luna.memory.model.OrchestrationDecision;
+import org.yilena.luna.memory.model.StructuredContextPackage;
+import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.service.AgentService;
 import org.yilena.luna.service.McpService;
 import org.yilena.luna.service.PhaseExecutionService;
+import org.yilena.luna.service.TaskOrchestratorService;
 import org.yilena.luna.executor.WorkflowExecutor;
 import org.yilena.luna.gate.ToolExecutionGateway;
+import org.yilena.luna.service.model.NodeWorksetResult;
+import org.yilena.luna.service.model.TaskOrchestrationResult;
 import org.yilena.luna.sse.LunaStatusPublisher;
 import org.yilena.luna.tools.PlanEventTools;
 import org.yilena.luna.tools.PlanNodeTools;
@@ -60,6 +66,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
     private final WorkflowExecutor workflowExecutor;
     private final ToolExecutionGateway toolExecutionGateway;
     private final LunaStatusPublisher statusPublisher;
+    private final TaskOrchestratorService taskOrchestratorService;
     private final ObjectMapper objectMapper;
 
     // =========================================================
@@ -386,6 +393,30 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                 "节点执行中", "", nodeName, nodeType, retryCount, maxRetry, 0L, Map.of());
 
         String nodeGoal = buildNodeGoal(planId, phaseId, node);
+        String governedNodeGoal = nodeGoal;
+        List<Resource> governedExecutionCandidates = List.of();
+        OrchestrationDecision governedDecision = null;
+        try {
+            TaskOrchestrationResult orchestrationResult = taskOrchestratorService.orchestrateUserInput(sessionId, nodeGoal);
+            governedDecision = orchestrationResult == null ? null : orchestrationResult.getDecision();
+            StructuredContextPackage contextPackage = orchestrationResult == null ? null : orchestrationResult.getContextPackage();
+            InputReconstructionResult reconstructionResult = orchestrationResult == null ? null : orchestrationResult.getReconstructionResult();
+            NodeWorksetResult nodeWorksetResult = taskOrchestratorService.orchestrateNodeWorkset(
+                    sessionId,
+                    nodeGoal,
+                    governedDecision,
+                    contextPackage,
+                    reconstructionResult
+            );
+            if (nodeWorksetResult != null && nodeWorksetResult.getMcpDrivenInput() != null && !nodeWorksetResult.getMcpDrivenInput().isBlank()) {
+                governedNodeGoal = nodeWorksetResult.getMcpDrivenInput();
+            }
+            if (nodeWorksetResult != null && nodeWorksetResult.getExecutionCandidates() != null && !nodeWorksetResult.getExecutionCandidates().isEmpty()) {
+                governedExecutionCandidates = nodeWorksetResult.getExecutionCandidates();
+            }
+        } catch (Exception e) {
+            log.warn("[Node] context workset pipeline fallback to raw nodeGoal, nodeId={}, err={}", nodeId, e.getMessage());
+        }
         String agentResult;
         boolean success;
 
@@ -395,7 +426,13 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
             if (directedResult != null) {
                 agentResult = directedResult;
             } else {
-                agentResult = agentService.processToolCalling(sessionId, nodeGoal);
+                agentResult = agentService.processToolCalling(
+                        sessionId,
+                        governedNodeGoal,
+                        governedDecision == null ? null : governedDecision.getTaskState(),
+                        governedDecision == null ? null : governedDecision.getRelationalState(),
+                        governedExecutionCandidates
+                );
             }
             success = !isErrorResult(agentResult);
         } catch (NeedApprovalException e) {
@@ -430,7 +467,13 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                     if (directedResult != null) {
                         agentResult = directedResult;
                     } else {
-                        agentResult = agentService.processToolCalling(sessionId, nodeGoal);
+                        agentResult = agentService.processToolCalling(
+                                sessionId,
+                                governedNodeGoal,
+                                governedDecision == null ? null : governedDecision.getTaskState(),
+                                governedDecision == null ? null : governedDecision.getRelationalState(),
+                                governedExecutionCandidates
+                        );
                     }
                 } catch (NeedApprovalException e) {
                     String taskId = extractApprovalTaskId(e);

@@ -210,10 +210,14 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                                                     OrchestrationDecision decision,
                                                     StructuredContextPackage contextPackage,
                                                     InputReconstructionResult reconstructionResult) {
+        RecoveryRefreshPlan refreshPlan = consumeRecoveryRefreshPlan(contextPackage);
         String mcpDrivenInput = mcpQueryBuilder.build(
                 reconstructionResult,
                 decision == null ? null : decision.getTaskState()
         );
+        if (refreshPlan.needMcpRefresh) {
+            mcpDrivenInput = appendRefreshFlag(mcpDrivenInput, "mcp");
+        }
         List<Map<String, Object>> mcpPreRankedCandidates = mcpCandidatePreRank.preRank(
                 mcpDrivenInput,
                 contextPackage == null ? List.of() : contextPackage.getCapabilityCandidates(),
@@ -241,6 +245,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 reconstructionResult,
                 decision == null ? null : decision.getTaskState()
         );
+        if (refreshPlan.needRagRefresh) {
+            ragQuery = appendRefreshFlag(ragQuery, "rag");
+        }
         List<String> selectedKnowledge = List.of();
         List<String> selectedMemory = List.of();
         List<String> selectedPreference = List.of();
@@ -248,7 +255,16 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         try {
             List<ConversationMessage> conversationContext = buildRetrievalConversationContext(contextPackage);
             List<RetrievalRoute> allowedRoutes = resolveAllowedRoutes(decision);
+            if (refreshPlan.needRagRefresh) {
+                allowedRoutes = RetrievalRoute.all();
+            }
             RetrievalOptions options = resolveRetrievalOptions(userInput, decision);
+            if (refreshPlan.needRagRefresh) {
+                options = RetrievalOptions.builder()
+                        .debug(options.isDebug())
+                        .maxLatencyMs(Math.max(options.getMaxLatencyMs(), 1800L))
+                        .build();
+            }
             RetrievalRequest request = RetrievalRequest.builder()
                     .query(ragQuery)
                     .sessionId(sessionId)
@@ -271,7 +287,11 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                             "knowledgeCandidates", getEvidences(response, RetrievalSource.KNOWLEDGE),
                             "memoryCandidates", getEvidences(response, RetrievalSource.MEMORY),
                             "preferenceCandidates", getEvidences(response, RetrievalSource.PREFERENCE),
-                            "mcpPreRankCandidates", mcpPreRankedCandidates
+                            "mcpPreRankCandidates", mcpPreRankedCandidates,
+                            "recoveryRefreshPlan", Map.of(
+                                    "needRagRefresh", refreshPlan.needRagRefresh,
+                                    "needMcpRefresh", refreshPlan.needMcpRefresh
+                            )
                     ))
             );
             rerankResult = globalContextRerankAgent.rerank(
@@ -352,6 +372,50 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .executionCandidates(executionCandidates)
                 .mcpResourceHints(mcpResourceHints)
                 .build();
+    }
+
+    private RecoveryRefreshPlan consumeRecoveryRefreshPlan(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getRetrievalState() == null) {
+            return new RecoveryRefreshPlan(false, false);
+        }
+        Map<String, Object> retrievalPlan = contextPackage.getRetrievalState().getRetrievalPlan();
+        if (retrievalPlan == null || retrievalPlan.isEmpty()) {
+            return new RecoveryRefreshPlan(false, false);
+        }
+        boolean needRagRefresh = booleanValue(retrievalPlan.get("need_rag_refresh"));
+        boolean needMcpRefresh = booleanValue(retrievalPlan.get("need_mcp_refresh"));
+        if (!needRagRefresh && !needMcpRefresh) {
+            return new RecoveryRefreshPlan(false, false);
+        }
+        Map<String, Object> consumed = new LinkedHashMap<>(retrievalPlan);
+        consumed.put("need_rag_refresh", false);
+        consumed.put("need_mcp_refresh", false);
+        contextPackage.setRetrievalState(org.yilena.luna.state.model.RetrievalState.builder()
+                .reconstructedIntent(contextPackage.getRetrievalState().getReconstructedIntent())
+                .activeQueries(contextPackage.getRetrievalState().getActiveQueries())
+                .retrievalPlan(consumed)
+                .selectedEvidenceRefs(contextPackage.getRetrievalState().getSelectedEvidenceRefs())
+                .rerankSummary(contextPackage.getRetrievalState().getRerankSummary())
+                .build());
+        return new RecoveryRefreshPlan(needRagRefresh, needMcpRefresh);
+    }
+
+    private boolean booleanValue(Object value) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        if (value == null) {
+            return false;
+        }
+        return "true".equalsIgnoreCase(String.valueOf(value));
+    }
+
+    private String appendRefreshFlag(String query, String source) {
+        String base = nullSafe(query).trim();
+        if (base.isBlank()) {
+            base = "recovery refresh";
+        }
+        return base + " [recovery_refresh=" + source + "]";
     }
 
     private String buildOrchestrationSignal(String rawInput, InputReconstructionResult reconstruction) {
@@ -566,5 +630,8 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
     }
 
     private record RecoveryTrigger(boolean shouldRecover, String recoveryEvent, String interruptReason) {
+    }
+
+    private record RecoveryRefreshPlan(boolean needRagRefresh, boolean needMcpRefresh) {
     }
 }

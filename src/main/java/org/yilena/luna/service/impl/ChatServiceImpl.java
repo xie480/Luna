@@ -47,7 +47,6 @@ import org.yilena.luna.memory.ThreeStageResponseService;
 import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.mapper.SessionRuntimeMapper;
-import org.yilena.luna.prompt.PromptAssembler;
 import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.rag.models.RetrievalOptions;
@@ -90,7 +89,6 @@ public class ChatServiceImpl implements ChatService {
 
     private static final DateTimeFormatter SESSION_KEY_FORMATTER = DateTimeFormatter.ofPattern("yyyy:MM:dd");
 
-    private final PromptAssembler promptAssembler;
     private final SessionService sessionService;
     private final StringRedisTemplate stringRedisTemplate;
     private final GeminiProperty geminiProperty;
@@ -378,7 +376,21 @@ public class ChatServiceImpl implements ChatService {
         List<String> memorySnippets = recent.stream()
                 .map(m -> m.getRole().name() + ": " + m.getContent() + ": " + m.getTime())
                 .toList();
-        String prompt = promptAssembler.assembleStartupPrompt(memorySnippets);
+        AssembledContext startupContext = contextAssembler.assemble(
+                null,
+                null,
+                null,
+                null,
+                "startup",
+                memorySnippets,
+                List.of(),
+                List.of(),
+                List.of(),
+                null
+        );
+        String prompt = startupContext == null || startupContext.getPrompt() == null || startupContext.getPrompt().isBlank()
+                ? PromptTemplates.SYSTEM_PROMPT + "\n\n" + PromptTemplates.RUNTIME_PROMPT.formatted("startup")
+                : startupContext.getPrompt();
         SendToLuna result = getSendToLuna(prompt, "startup", null);
         LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(result.raw());
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.LUNA, result.replyText(), LocalTime.now()));

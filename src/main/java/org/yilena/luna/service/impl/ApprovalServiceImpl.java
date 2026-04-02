@@ -10,9 +10,13 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.constants.ModelHintConstant;
 import org.yilena.luna.context.ContextAssembler;
+import org.yilena.luna.context.ContextTraceLogger;
 import org.yilena.luna.context.SummaryAgent;
 import org.yilena.luna.context.ToolSemanticAgent;
+import org.yilena.luna.context.ToolSemanticResultValidator;
+import org.yilena.luna.context.ToolSemanticTraceLogger;
 import org.yilena.luna.context.model.AssembledContext;
+import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.context.model.SummaryResult;
 import org.yilena.luna.context.model.ToolSemanticResult;
@@ -36,6 +40,7 @@ import org.yilena.luna.service.ApprovalService;
 import org.yilena.luna.service.McpService;
 import org.yilena.luna.service.SessionService;
 import org.yilena.luna.service.TaskOrchestratorService;
+import org.yilena.luna.service.model.NodeWorksetResult;
 import org.yilena.luna.service.model.TaskOrchestrationResult;
 import org.yilena.luna.sse.LunaStatusPublisher;
 import org.yilena.luna.sse.SseSessionManager;
@@ -44,7 +49,9 @@ import org.yilena.luna.utils.SnowflakeIdUtil;
 import org.yilena.luna.utils.ToolCallingContextHolder;
 
 import java.time.LocalTime;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -69,7 +76,10 @@ public class ApprovalServiceImpl implements ApprovalService {
     private final LunaStatusPublisher statusPublisher;
 
     private final ContextAssembler contextAssembler;
+    private final ContextTraceLogger contextTraceLogger;
     private final ToolSemanticAgent toolSemanticAgent;
+    private final ToolSemanticResultValidator toolSemanticResultValidator;
+    private final ToolSemanticTraceLogger toolSemanticTraceLogger;
     private final SummaryAgent summaryAgent;
     private final RuntimeAuditService runtimeAuditService;
     private final LlmClientUtil llmClientUtil;
@@ -323,23 +333,72 @@ public class ApprovalServiceImpl implements ApprovalService {
             OrchestrationDecision recoveryDecision = orchestrationResult == null ? null : orchestrationResult.getDecision();
             StructuredContextPackage contextPackage = orchestrationResult == null ? null : orchestrationResult.getContextPackage();
             InputReconstructionResult reconstructionResult = orchestrationResult == null ? null : orchestrationResult.getReconstructionResult();
+            NodeWorksetResult nodeWorksetResult = taskOrchestratorService.orchestrateNodeWorkset(
+                    task.getSessionId(),
+                    task.getUserInput(),
+                    recoveryDecision,
+                    contextPackage,
+                    reconstructionResult
+            );
+            ContextRerankResult rerankResult = nodeWorksetResult == null ? null : nodeWorksetResult.getRerankResult();
+            List<String> selectedMemorySnippets = nodeWorksetResult == null || nodeWorksetResult.getSelectedMemorySnippets() == null
+                    ? List.of()
+                    : nodeWorksetResult.getSelectedMemorySnippets();
+            List<String> selectedKnowledgeSnippets = nodeWorksetResult == null || nodeWorksetResult.getSelectedKnowledgeSnippets() == null
+                    ? List.of()
+                    : nodeWorksetResult.getSelectedKnowledgeSnippets();
+            List<String> selectedPreferenceSnippets = nodeWorksetResult == null || nodeWorksetResult.getSelectedPreferenceSnippets() == null
+                    ? List.of()
+                    : nodeWorksetResult.getSelectedPreferenceSnippets();
             ToolSemanticResult toolSemanticResult = toolSemanticAgent.translate(
                     approved ? toolContext : "",
                     recoveryDecision == null ? null : recoveryDecision.getTaskState(),
                     reconstructionResult == null ? "" : reconstructionResult.getExplicitTaskGoal()
             );
+            ToolSemanticResultValidator.ValidationResult semanticValidation = toolSemanticResultValidator.validate(toolSemanticResult, contextPackage);
+            if (semanticValidation.valid()) {
+                runtimeAuditService.persistDecisionRecord(
+                        task.getSessionId(),
+                        contextPlanId(contextPackage),
+                        contextNodeId(contextPackage),
+                        "TOOL_SEMANTIC_VALIDATION",
+                        "approval recovery semantic channel validation passed",
+                        "{}"
+                );
+            } else {
+                runtimeAuditService.persistDecisionRecord(
+                        task.getSessionId(),
+                        contextPlanId(contextPackage),
+                        contextNodeId(contextPackage),
+                        "TOOL_SEMANTIC_VALIDATION",
+                        "approval recovery semantic channel validation failed",
+                        objectMapper.writeValueAsString(Map.of("issues", semanticValidation.issues()))
+                );
+            }
+            toolSemanticResult = semanticValidation.normalized() == null ? toolSemanticResult : semanticValidation.normalized();
+            toolSemanticTraceLogger.log(task.getSessionId(), contextPlanId(contextPackage), contextNodeId(contextPackage), toolSemanticResult);
             AssembledContext assembledContext = contextAssembler.assemble(
                     contextPackage,
                     reconstructionResult,
-                    null,
+                    rerankResult,
                     toolSemanticResult,
                     task.getUserInput(),
-                    task.getMemorySnippets() != null ? task.getMemorySnippets() : Collections.emptyList(),
-                    task.getKnowledgeSnippets() != null ? task.getKnowledgeSnippets() : Collections.emptyList(),
-                    task.getPreferenceSnippets() != null ? task.getPreferenceSnippets() : Collections.emptyList(),
+                    mergeDistinct(
+                            task.getMemorySnippets() != null ? task.getMemorySnippets() : Collections.emptyList(),
+                            selectedMemorySnippets
+                    ),
+                    mergeDistinct(
+                            task.getKnowledgeSnippets() != null ? task.getKnowledgeSnippets() : Collections.emptyList(),
+                            selectedKnowledgeSnippets
+                    ),
+                    mergeDistinct(
+                            task.getPreferenceSnippets() != null ? task.getPreferenceSnippets() : Collections.emptyList(),
+                            selectedPreferenceSnippets
+                    ),
                     task.getLongTermMemorySnippets() != null ? task.getLongTermMemorySnippets() : Collections.emptyList(),
                     approved ? toolContext : null
             );
+            contextTraceLogger.log(task.getSessionId(), contextPlanId(contextPackage), contextNodeId(contextPackage), assembledContext);
             runtimeAuditService.persistFinalContextSnapshot(
                     task.getSessionId(),
                     contextPlanId(contextPackage),
@@ -412,6 +471,17 @@ public class ApprovalServiceImpl implements ApprovalService {
         } catch (Exception ignore) {
             return null;
         }
+    }
+
+    private List<String> mergeDistinct(List<String> left, List<String> right) {
+        java.util.LinkedHashSet<String> merged = new java.util.LinkedHashSet<>();
+        if (left != null) {
+            merged.addAll(left);
+        }
+        if (right != null) {
+            merged.addAll(right);
+        }
+        return new ArrayList<>(merged);
     }
 
     private SendToLuna getSendToLuna(String prompt, String originalUserInput) {

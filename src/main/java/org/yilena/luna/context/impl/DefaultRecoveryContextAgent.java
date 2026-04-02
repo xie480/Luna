@@ -130,7 +130,7 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
         }
         Map<String, Object> payload = snapshot.getPayload();
         if (payload.containsKey("snapshotType")) {
-            return null;
+            return extractTypedSnapshot(snapshot, payload);
         }
         if (!isStructuredPayload(payload)) {
             return null;
@@ -140,6 +140,80 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
         } catch (Exception ignore) {
             return null;
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private StructuredContextPackage extractTypedSnapshot(ContextSnapshot snapshot, Map<String, Object> payload) {
+        String type = safeType(payload.get("snapshotType"));
+        if ("FINAL_MODEL_CONTEXT".equalsIgnoreCase(type)) {
+            Map<String, Object> runtime = new LinkedHashMap<>();
+            runtime.put("recovery_snapshot_type", type);
+            runtime.put("recovery_prompt", payload.getOrDefault("prompt", ""));
+            runtime.put("recovery_section_token_counts", payload.getOrDefault("sectionTokenCounts", Map.of()));
+            runtime.put("recovery_section_token_ratios", payload.getOrDefault("sectionTokenRatios", Map.of()));
+
+            Map<String, Object> taskContext = new LinkedHashMap<>();
+            Object sections = payload.get("sections");
+            if (sections instanceof Map<?, ?> map) {
+                taskContext.put("final_context_sections", map);
+            }
+            if (snapshot.getNodeId() != null) {
+                taskContext.put("working_memory", Map.of("active_node_id", snapshot.getNodeId()));
+            }
+
+            return StructuredContextPackage.builder()
+                    .sessionId(snapshot.getSessionId())
+                    .runtime(runtime)
+                    .taskContext(taskContext)
+                    .recentMessages(recentMessagesFromSections(payload))
+                    .build();
+        }
+        if ("PRE_TOOL_DECISION_CONTEXT".equalsIgnoreCase(type)) {
+            Map<String, Object> runtime = new LinkedHashMap<>();
+            runtime.put("recovery_snapshot_type", type);
+            runtime.put("recovery_user_input", payload.getOrDefault("userInput", ""));
+            runtime.put("recovery_reconstructed_mcp_query", payload.getOrDefault("reconstructedMcpQuery", ""));
+            runtime.put("recovery_execution_candidates", payload.getOrDefault("executionCandidates", List.of()));
+            runtime.put("recovery_extra", payload.getOrDefault("extra", Map.of()));
+            return StructuredContextPackage.builder()
+                    .sessionId(snapshot.getSessionId())
+                    .runtime(runtime)
+                    .build();
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> recentMessagesFromSections(Map<String, Object> payload) {
+        if (payload == null) {
+            return List.of();
+        }
+        Object sectionsObj = payload.get("sections");
+        if (!(sectionsObj instanceof Map<?, ?> sections)) {
+            return List.of();
+        }
+        Object recentSectionObj = sections.get("Recent Interaction Context");
+        if (!(recentSectionObj instanceof List<?> lines) || lines.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> messages = new ArrayList<>();
+        for (Object lineObj : lines) {
+            String line = lineObj == null ? "" : String.valueOf(lineObj).trim();
+            if (line.isBlank()) {
+                continue;
+            }
+            int split = line.indexOf(':');
+            String role = split > 0 ? line.substring(0, split).trim() : "context";
+            String content = split > 0 ? line.substring(split + 1).trim() : line;
+            if (!content.isBlank()) {
+                messages.add(Map.of("role", role, "content_text", content));
+            }
+        }
+        return messages;
+    }
+
+    private String safeType(Object type) {
+        return type == null ? "" : String.valueOf(type);
     }
 
     private boolean isStructuredPayload(Map<String, Object> payload) {
@@ -182,6 +256,11 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
 
     @SuppressWarnings("unchecked")
     private <T> T preferSnapshotMap(T snapshotValue, T currentValue) {
+        if (snapshotValue instanceof Map<?, ?> snapshotMap && currentValue instanceof Map<?, ?> currentMap) {
+            Map<Object, Object> merged = new LinkedHashMap<>(currentMap);
+            merged.putAll(snapshotMap);
+            return (T) merged;
+        }
         if (snapshotValue instanceof Map<?, ?> map && !map.isEmpty()) {
             return snapshotValue;
         }
@@ -190,6 +269,15 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
 
     @SuppressWarnings("unchecked")
     private <T> List<T> preferSnapshotList(List<T> snapshotValue, List<T> currentValue) {
+        if (snapshotValue != null && !snapshotValue.isEmpty() && currentValue != null && !currentValue.isEmpty()) {
+            List<T> merged = new ArrayList<>(snapshotValue);
+            for (T item : currentValue) {
+                if (!merged.contains(item)) {
+                    merged.add(item);
+                }
+            }
+            return merged;
+        }
         if (snapshotValue != null && !snapshotValue.isEmpty()) {
             return snapshotValue;
         }
