@@ -1,5 +1,7 @@
 package org.yilena.luna.service;
 
+import org.yilena.luna.context.model.InputReconstructionResult;
+
 import java.util.Map;
 
 /**
@@ -16,5 +18,8 @@ public interface MasterPlanningService {
      * @param userGoal  用户目标
      * @return 蓝图对象（Map）
      */
-    Map<String, Object> generateBlueprint(String planId, String sessionId, String userGoal);
+    Map<String, Object> generateBlueprint(String planId,
+                                          String sessionId,
+                                          String userGoal,
+                                          InputReconstructionResult reconstructionResult);
 }

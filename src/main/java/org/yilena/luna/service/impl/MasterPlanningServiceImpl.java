@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.enums.ModelType;
 import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
@@ -32,11 +33,14 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
     private final ObjectMapper objectMapper;
 
     @Override
-    public Map<String, Object> generateBlueprint(String planId, String sessionId, String userGoal) {
+    public Map<String, Object> generateBlueprint(String planId,
+                                                 String sessionId,
+                                                 String userGoal,
+                                                 InputReconstructionResult reconstructionResult) {
         try {
-            PlanningIntent planningIntent = parsePlanningIntent(userGoal);
-            String effectiveGoal = planningIntent.goal().isBlank() ? userGoal : planningIntent.goal();
-            String prompt = buildPlanningPrompt(planId, sessionId, effectiveGoal, planningIntent.meta());
+            String effectiveGoal = resolveEffectiveGoal(userGoal, reconstructionResult);
+            Map<String, Object> reconstructedIntent = toReconstructionPayload(reconstructionResult);
+            String prompt = buildPlanningPrompt(planId, sessionId, effectiveGoal, reconstructedIntent);
 
             String planningModel = resolvePlanningModelName();
 
@@ -53,7 +57,7 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
 
             if (text == null || text.isBlank()) {
                 log.warn("Master Planner 返回为空，使用回退蓝图");
-                return fallbackBlueprint(planId, sessionId, userGoal);
+                return fallbackBlueprint(planId, sessionId, userGoal, reconstructionResult);
             }
 
             String cleaned = cleanJsonFence(text);
@@ -63,12 +67,12 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
             map.putIfAbsent("sessionId", sessionId);
             map.putIfAbsent("userGoal", effectiveGoal);
             map.putIfAbsent("createdAt", LocalDateTime.now().toString());
-            map.putIfAbsent("reconstructedIntent", planningIntent.meta());
+            map.putIfAbsent("reconstructedIntent", reconstructedIntent);
 
             return map;
         } catch (Exception e) {
             log.error("Master Planner 生成蓝图失败，使用回退蓝图", e);
-            return fallbackBlueprint(planId, sessionId, userGoal);
+            return fallbackBlueprint(planId, sessionId, userGoal, reconstructionResult);
         }
     }
 
@@ -82,12 +86,15 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
         throw new IllegalStateException("未配置可用的规划模型（gemini.code 或 gemini.big）");
     }
 
-    private String buildPlanningPrompt(String planId, String sessionId, String effectiveGoal, Map<String, String> planningMeta) {
+    private String buildPlanningPrompt(String planId,
+                                       String sessionId,
+                                       String effectiveGoal,
+                                       Map<String, Object> planningMeta) {
         String base = PromptTemplates.MASTER_PLANNING_PROMPT.formatted(planId, sessionId, effectiveGoal);
         if (planningMeta == null || planningMeta.isEmpty()) {
             return base;
         }
-        return base + "\n\n额外重构意图（必须优先用于蓝图设计，不可忽略）:\n" + planningMeta;
+        return base + "\n\nreconstructed_intent_context (must be used for blueprint generation):\n" + planningMeta;
     }
 
     private String cleanJsonFence(String text) {
@@ -99,14 +106,16 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
         return t.trim();
     }
 
-    private Map<String, Object> fallbackBlueprint(String planId, String sessionId, String userGoal) {
-        PlanningIntent planningIntent = parsePlanningIntent(userGoal);
-        String effectiveGoal = planningIntent.goal().isBlank() ? userGoal : planningIntent.goal();
+    private Map<String, Object> fallbackBlueprint(String planId,
+                                                  String sessionId,
+                                                  String userGoal,
+                                                  InputReconstructionResult reconstructionResult) {
+        String effectiveGoal = resolveEffectiveGoal(userGoal, reconstructionResult);
         Map<String, Object> blueprint = new LinkedHashMap<>();
         blueprint.put("planId", planId);
         blueprint.put("sessionId", sessionId);
         blueprint.put("userGoal", effectiveGoal);
-        blueprint.put("reconstructedIntent", planningIntent.meta());
+        blueprint.put("reconstructedIntent", toReconstructionPayload(reconstructionResult));
         blueprint.put("createdAt", LocalDateTime.now().toString());
 
         List<Map<String, Object>> phases = new ArrayList<>();
@@ -177,36 +186,19 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
         return blueprint;
     }
 
-    private PlanningIntent parsePlanningIntent(String userGoal) {
-        String raw = userGoal == null ? "" : userGoal.trim();
-        if (raw.isBlank()) {
-            return new PlanningIntent("", Map.of());
+    private String resolveEffectiveGoal(String userGoal, InputReconstructionResult reconstructionResult) {
+        if (reconstructionResult != null
+                && reconstructionResult.getExplicitTaskGoal() != null
+                && !reconstructionResult.getExplicitTaskGoal().isBlank()) {
+            return reconstructionResult.getExplicitTaskGoal();
         }
-        String[] segments = raw.split("\\|");
-        String resolvedGoal = raw;
-        Map<String, String> meta = new LinkedHashMap<>();
-        for (String segment : segments) {
-            String item = segment == null ? "" : segment.trim();
-            if (item.isBlank()) {
-                continue;
-            }
-            int idx = item.indexOf('=');
-            if (idx <= 0) {
-                continue;
-            }
-            String key = item.substring(0, idx).trim().toLowerCase(Locale.ROOT);
-            String value = item.substring(idx + 1).trim();
-            if (value.isBlank()) {
-                continue;
-            }
-            meta.put(key, value);
-            if ("task_goal".equals(key) || "goal".equals(key) || "explicit_task_goal".equals(key)) {
-                resolvedGoal = value;
-            }
-        }
-        return new PlanningIntent(resolvedGoal, meta);
+        return userGoal == null ? "" : userGoal;
     }
 
-    private record PlanningIntent(String goal, Map<String, String> meta) {
+    private Map<String, Object> toReconstructionPayload(InputReconstructionResult reconstructionResult) {
+        if (reconstructionResult == null) {
+            return Map.of();
+        }
+        return objectMapper.convertValue(reconstructionResult, new TypeReference<Map<String, Object>>() {});
     }
 }

@@ -10,8 +10,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.constants.ModelHintConstant;
 import org.yilena.luna.context.ContextAssembler;
-import org.yilena.luna.context.InputReconstructionAgent;
-import org.yilena.luna.context.RecoveryContextAgent;
 import org.yilena.luna.context.SummaryAgent;
 import org.yilena.luna.context.ToolSemanticAgent;
 import org.yilena.luna.context.model.AssembledContext;
@@ -37,6 +35,8 @@ import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.service.ApprovalService;
 import org.yilena.luna.service.McpService;
 import org.yilena.luna.service.SessionService;
+import org.yilena.luna.service.TaskOrchestratorService;
+import org.yilena.luna.service.model.TaskOrchestrationResult;
 import org.yilena.luna.sse.LunaStatusPublisher;
 import org.yilena.luna.sse.SseSessionManager;
 import org.yilena.luna.utils.LlmClientUtil;
@@ -69,15 +69,14 @@ public class ApprovalServiceImpl implements ApprovalService {
     private final LunaStatusPublisher statusPublisher;
 
     private final ContextAssembler contextAssembler;
-    private final InputReconstructionAgent inputReconstructionAgent;
     private final ToolSemanticAgent toolSemanticAgent;
     private final SummaryAgent summaryAgent;
-    private final RecoveryContextAgent recoveryContextAgent;
     private final RuntimeAuditService runtimeAuditService;
     private final LlmClientUtil llmClientUtil;
     private final GeminiProperty geminiProperty;
     private final SessionService sessionService;
     private final EventIngressService eventIngressService;
+    private final TaskOrchestratorService taskOrchestratorService;
 
     @Override
     public void createTaskAndInterrupt(String sessionId, Resource resource, String argsJson) {
@@ -313,25 +312,17 @@ public class ApprovalServiceImpl implements ApprovalService {
             return wrapToolResultAsReply(toolContext);
         }
         try {
-            OrchestrationDecision recoveryDecision = eventIngressService.ingestSystemEvent(
+            TaskOrchestrationResult orchestrationResult = taskOrchestratorService.orchestrateSystemRecovery(
                     task.getSessionId(),
+                    task.getUserInput(),
                     "SYSTEM",
-                    Map.of("recovery_event", "APPROVAL_RESUME", "approval_result", approved ? "approved" : "rejected")
-            );
-            StructuredContextPackage contextPackage = recoveryDecision == null ? null : recoveryDecision.getContextPackage();
-            contextPackage = recoveryContextAgent.recover(
-                    task.getSessionId(),
-                    contextPackage,
+                    Map.of("recovery_event", "APPROVAL_RESUME", "approval_result", approved ? "approved" : "rejected"),
                     "APPROVAL_RESUME",
                     approved ? "APPROVED_BY_USER" : "REJECTED_BY_USER"
             );
-            InputReconstructionResult reconstructionResult = inputReconstructionAgent.reconstruct(
-                    task.getSessionId(),
-                    task.getUserInput(),
-                    contextPackage,
-                    recoveryDecision == null ? null : recoveryDecision.getTaskState(),
-                    recoveryDecision == null ? null : recoveryDecision.getRelationalState()
-            );
+            OrchestrationDecision recoveryDecision = orchestrationResult == null ? null : orchestrationResult.getDecision();
+            StructuredContextPackage contextPackage = orchestrationResult == null ? null : orchestrationResult.getContextPackage();
+            InputReconstructionResult reconstructionResult = orchestrationResult == null ? null : orchestrationResult.getReconstructionResult();
             ToolSemanticResult toolSemanticResult = toolSemanticAgent.translate(
                     approved ? toolContext : "",
                     recoveryDecision == null ? null : recoveryDecision.getTaskState(),
@@ -559,4 +550,3 @@ public class ApprovalServiceImpl implements ApprovalService {
     private record SendToLuna(String raw, String valid, String replyText) {
     }
 }
-

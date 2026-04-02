@@ -18,4 +18,7 @@ import java.util.List;
 public class SummaryMessage implements Serializable {
     private String sessionKey;
     private List<String> memorySnippets;
+    private String userInput;
+    private String assistantReply;
+    private String triggerSource;
 }

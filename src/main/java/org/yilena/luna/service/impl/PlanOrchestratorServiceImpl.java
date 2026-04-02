@@ -7,6 +7,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.context.InputReconstructionAgent;
+import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.entity.ChatRequest;
 import org.yilena.luna.entity.PlanEdge;
 import org.yilena.luna.entity.PlanInstance;
@@ -24,6 +26,8 @@ import org.yilena.luna.mapper.PlanInstanceMapper;
 import org.yilena.luna.mapper.PlanNodeMapper;
 import org.yilena.luna.mapper.PlanPhaseMapper;
 import org.yilena.luna.prompt.PromptTemplates;
+import org.yilena.luna.memory.ContextCompilerService;
+import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.service.BlueprintValidationService;
 import org.yilena.luna.service.ChatService;
 import org.yilena.luna.service.MasterPlanningService;
@@ -74,6 +78,8 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
     private final PlanEventTools planEventTools;
     private final PlanReportTools planReportTools;
     private final ChatService chatService;
+    private final ContextCompilerService contextCompilerService;
+    private final InputReconstructionAgent inputReconstructionAgent;
 
     private final MasterPlanningService masterPlanningService;
     private final BlueprintValidationService blueprintValidationService;
@@ -94,8 +100,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             if (userGoal == null || userGoal.isBlank()) {
                 return error("PLAN_INVALID_INPUT", "userGoal 不能為空");
             }
+            InputReconstructionResult reconstructionResult = reconstructPlanInput(sessionId, userGoal);
             PlanningIntent planningIntent = parsePlanningIntent(userGoal);
-            String effectiveGoal = planningIntent.goal().isBlank() ? userGoal : planningIntent.goal();
+            String effectiveGoal = resolveEffectiveGoal(userGoal, planningIntent, reconstructionResult);
 
             planId = "plan-" + SnowflakeIdUtil.nextIdStr();
             int planVersion = 1;
@@ -108,7 +115,10 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     .userGoal(effectiveGoal)
                     .constraintsJson(Map.of(
                             "raw_user_goal", userGoal,
-                            "planning_intent", planningIntent.meta()
+                            "planning_intent", planningIntent.meta(),
+                            "input_reconstruction", reconstructionResult == null
+                                    ? Map.of()
+                                    : objectMapper.convertValue(reconstructionResult, new TypeReference<Map<String, Object>>() {})
                     ))
                     .planVersion(planVersion)
                     .status(PlanStatus.PENDING)
@@ -125,7 +135,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             emitFrontProgress(planId, "PLAN_CREATED", "計劃已建立，正在生成藍圖", 0, 0, 0, 0);
 
             log.info("[Plan] 調用 MasterPlanningService 生成全局藍圖, planId={}", planId);
-            Map<String, Object> blueprint = masterPlanningService.generateBlueprint(planId, sessionId, effectiveGoal);
+            Map<String, Object> blueprint = masterPlanningService.generateBlueprint(planId, sessionId, userGoal, reconstructionResult);
 
             String validateErr = blueprintValidationService.validate(blueprint);
             if (validateErr != null) {
@@ -1037,6 +1047,36 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             case "TOOL", "PROMPT", "RESOURCE", "WORKFLOW", "ANALYZE", "VALIDATE", "REPORT", "CODE" -> normalized;
             default -> "TOOL";
         };
+    }
+
+    private InputReconstructionResult reconstructPlanInput(String sessionId, String userGoal) {
+        try {
+            StructuredContextPackage contextPackage = contextCompilerService.compile(sessionId, userGoal, null, null);
+            return inputReconstructionAgent.reconstruct(
+                    sessionId,
+                    userGoal,
+                    contextPackage,
+                    contextPackage == null ? null : contextPackage.getTaskState(),
+                    contextPackage == null ? null : contextPackage.getRelationalState()
+            );
+        } catch (Exception ex) {
+            log.warn("[Plan] input reconstruction failed, fallback to raw userGoal, sessionId={}, err={}", sessionId, ex.getMessage());
+            return null;
+        }
+    }
+
+    private String resolveEffectiveGoal(String rawUserGoal,
+                                        PlanningIntent planningIntent,
+                                        InputReconstructionResult reconstructionResult) {
+        String reconstructedGoal = reconstructionResult == null ? "" : text(reconstructionResult.getExplicitTaskGoal());
+        if (!reconstructedGoal.isBlank()) {
+            return reconstructedGoal;
+        }
+        String planningIntentGoal = planningIntent == null ? "" : text(planningIntent.goal());
+        if (!planningIntentGoal.isBlank()) {
+            return planningIntentGoal;
+        }
+        return rawUserGoal == null ? "" : rawUserGoal;
     }
 
     private PlanningIntent parsePlanningIntent(String userGoal) {

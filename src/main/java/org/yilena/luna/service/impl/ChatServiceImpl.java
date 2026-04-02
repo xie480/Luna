@@ -20,12 +20,10 @@ import org.yilena.luna.context.ContextAssembler;
 import org.yilena.luna.context.ContextTraceLogger;
 import org.yilena.luna.context.EvidenceBlockBuilder;
 import org.yilena.luna.context.GlobalContextRerankAgent;
-import org.yilena.luna.context.InputReconstructionAgent;
 import org.yilena.luna.context.McpCandidatePreRank;
 import org.yilena.luna.context.McpResourceHintExtractor;
 import org.yilena.luna.context.McpQueryBuilder;
 import org.yilena.luna.context.RagQueryBuilder;
-import org.yilena.luna.context.RecoveryContextAgent;
 import org.yilena.luna.context.RerankTraceLogger;
 import org.yilena.luna.context.SummaryAgent;
 import org.yilena.luna.context.SummaryTraceLogger;
@@ -49,7 +47,6 @@ import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
 import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.memory.EventIngressService;
-import org.yilena.luna.memory.ContextCompilerService;
 import org.yilena.luna.memory.MemoryHotLayerService;
 import org.yilena.luna.memory.MemoryWritePipelineService;
 import org.yilena.luna.memory.RuntimeAuditService;
@@ -72,6 +69,8 @@ import org.yilena.luna.router.ToolRouter;
 import org.yilena.luna.service.AgentService;
 import org.yilena.luna.service.ChatService;
 import org.yilena.luna.service.SessionService;
+import org.yilena.luna.service.TaskOrchestratorService;
+import org.yilena.luna.service.model.TaskOrchestrationResult;
 import org.yilena.luna.state.model.ContextState;
 import org.yilena.luna.state.model.RetrievalState;
 import org.yilena.luna.state.model.TaskState;
@@ -118,9 +117,7 @@ public class ChatServiceImpl implements ChatService {
     private final ThreeStageResponseService threeStageResponseService;
     private final RuntimeAuditService runtimeAuditService;
     private final SessionRuntimeMapper sessionRuntimeMapper;
-    private final InputReconstructionAgent inputReconstructionAgent;
-    private final ContextCompilerService contextCompilerService;
-    private final RecoveryContextAgent recoveryContextAgent;
+    private final TaskOrchestratorService taskOrchestratorService;
     private final RagQueryBuilder ragQueryBuilder;
     private final McpQueryBuilder mcpQueryBuilder;
     private final McpCandidatePreRank mcpCandidatePreRank;
@@ -159,66 +156,10 @@ public class ChatServiceImpl implements ChatService {
                 .filter(s -> !s.isBlank())
                 .orElse(SESSION_KEY_FORMATTER.format(LocalDateTime.now()));
 
-        StructuredContextPackage preContextPackage = contextCompilerService.compile(runtimeSessionId, input, null, null);
-        InputReconstructionResult reconstruction = inputReconstructionAgent.reconstruct(
-                runtimeSessionId,
-                input,
-                preContextPackage,
-                preContextPackage == null ? null : preContextPackage.getTaskState(),
-                preContextPackage == null ? null : preContextPackage.getRelationalState()
-        );
-        OrchestrationDecision decision = eventIngressService.ingestUserInput(
-                runtimeSessionId,
-                input,
-                buildOrchestrationSignal(input, reconstruction)
-        );
-        StructuredContextPackage contextPackage = decision == null ? preContextPackage : decision.getContextPackage();
-        RecoveryTrigger recoveryTrigger = resolveRecoveryTrigger(input, decision, contextPackage);
-        if (recoveryTrigger.shouldRecover()) {
-            contextPackage = recoveryContextAgent.recover(
-                    runtimeSessionId,
-                    contextPackage,
-                    recoveryTrigger.recoveryEvent(),
-                    recoveryTrigger.interruptReason()
-            );
-            runtimeAuditService.persistDecisionRecord(
-                    runtimeSessionId,
-                    contextPlanId(contextPackage),
-                    contextNodeId(contextPackage),
-                    "RECOVERY_TRIGGERED",
-                    "recovery branch entered for interrupted flow",
-                    toJsonSafe(Map.of(
-                            "event", recoveryTrigger.recoveryEvent(),
-                            "reason", recoveryTrigger.interruptReason()
-                    ))
-            );
-        } else {
-            runtimeAuditService.persistDecisionRecord(
-                    runtimeSessionId,
-                    contextPlanId(contextPackage),
-                    contextNodeId(contextPackage),
-                    "RECOVERY_SKIPPED",
-                    "normal chat turn without interrupt/resume event",
-                    toJsonSafe(Map.of("input", input))
-            );
-        }
-        runtimeAuditService.persistContextSnapshot(runtimeSessionId, contextPackage);
-        runtimeAuditService.persistDecisionRecord(
-                runtimeSessionId,
-                contextPlanId(contextPackage),
-                contextNodeId(contextPackage),
-                "ORCHESTRATION_DECISION",
-                "states selected by reconstructed input signal",
-                toJsonSafe(buildDecisionStatePayload(decision))
-        );
-        runtimeAuditService.persistDecisionRecord(
-                runtimeSessionId,
-                contextPlanId(contextPackage),
-                contextNodeId(contextPackage),
-                "INPUT_RECONSTRUCTION",
-                "input reconstructed before RAG/MCP routing",
-                toJsonSafe(reconstruction)
-        );
+        TaskOrchestrationResult orchestration = taskOrchestratorService.orchestrateUserInput(runtimeSessionId, input);
+        OrchestrationDecision decision = orchestration == null ? null : orchestration.getDecision();
+        StructuredContextPackage contextPackage = orchestration == null ? null : orchestration.getContextPackage();
+        InputReconstructionResult reconstruction = orchestration == null ? null : orchestration.getReconstructionResult();
 
         List<String> knowledgeSnippets = extractTaskKnowledgeSnippets(contextPackage);
         List<String> preferenceSnippets = extractRelationalPreferenceSnippets(contextPackage);
@@ -489,7 +430,16 @@ public class ChatServiceImpl implements ChatService {
         LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(result.raw());
         memoryWritePipelineService.writeAfterTurn(runtimeSessionId, input, result.replyText(), contextPackage);
         SummaryResult summaryResult = summaryAgent.summarize(input, result.replyText(), contextPackage);
-        summaryTraceLogger.log(runtimeSessionId, contextPlanId(contextPackage), contextNodeId(contextPackage), summaryResult);
+        summaryTraceLogger.log(
+                runtimeSessionId,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage),
+                input,
+                result.replyText(),
+                contextPackage,
+                summaryResult,
+                "CHAT_TURN"
+        );
         writeStateStores(runtimeSessionId, decision, contextPackage, reconstruction, rerankResult, toolSemanticResult, summaryResult);
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
         return ResponseEntity.ok(tryParseJsonNode(result.valid()));
@@ -973,69 +923,6 @@ public class ChatServiceImpl implements ChatService {
         return Math.max(0L, value);
     }
 
-    private Map<String, Object> buildDecisionStatePayload(OrchestrationDecision decision) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("taskState", decision == null || decision.getTaskState() == null ? "" : decision.getTaskState().name());
-        payload.put("relationalState", decision == null || decision.getRelationalState() == null ? "" : decision.getRelationalState().name());
-        return payload;
-    }
-
-    private RecoveryTrigger resolveRecoveryTrigger(String input,
-                                                   OrchestrationDecision decision,
-                                                   StructuredContextPackage contextPackage) {
-        String normalizedInput = stringValue(input).trim().toLowerCase();
-        TaskRuntimeState taskState = decision == null ? null : decision.getTaskState();
-        boolean waitingResumeState = taskState == TaskRuntimeState.WAITING_APPROVAL
-                || taskState == TaskRuntimeState.WAITING_TOOL
-                || taskState == TaskRuntimeState.WAITING_USER;
-        boolean explicitResume = containsAny(normalizedInput,
-                "resume", "continue", "批准", "通过", "恢复", "继续", "确认", "approve", "confirmed");
-        boolean explicitRetry = containsAny(normalizedInput, "retry", "重试", "再试", "重新执行");
-        boolean explicitInterruptEvent = containsAny(normalizedInput, "callback", "tool result", "审批结果", "approval result");
-        if (waitingResumeState && explicitResume) {
-            return new RecoveryTrigger(true, "RESUME_REQUEST", "USER_RESUME_SIGNAL");
-        }
-        if (waitingResumeState && explicitRetry) {
-            return new RecoveryTrigger(true, "RESUME_REQUEST", "USER_RETRY_SIGNAL");
-        }
-        if (explicitInterruptEvent) {
-            return new RecoveryTrigger(true, "EXTERNAL_EVENT", "EVENT_CALLBACK_SIGNAL");
-        }
-        if (contextPackage != null && contextPackage.getRecoveryState() != null) {
-            String previousEvent = stringValue(contextPackage.getRecoveryState().getRecoveryEvent());
-            String previousReason = stringValue(contextPackage.getRecoveryState().getInterruptReason());
-            if (!previousEvent.isBlank() && containsAny(previousReason.toLowerCase(), "approval", "tool", "interrupt", "timeout", "failed")) {
-                return new RecoveryTrigger(true, previousEvent, previousReason);
-            }
-        }
-        return new RecoveryTrigger(false, "", "");
-    }
-
-    private String buildOrchestrationSignal(String rawInput, InputReconstructionResult reconstruction) {
-        if (reconstruction == null) {
-            return rawInput == null ? "" : rawInput;
-        }
-        StringBuilder signal = new StringBuilder();
-        signal.append("intent=").append(nullSafe(reconstruction.getNormalizedUserIntent()));
-        signal.append(";goal=").append(nullSafe(reconstruction.getExplicitTaskGoal()));
-        signal.append(";timeScope=").append(nullSafe(reconstruction.getTimeScope()));
-        signal.append(";constraints=").append(reconstruction.getBusinessConstraints() == null ? List.of() : reconstruction.getBusinessConstraints());
-        signal.append(";missingSlots=").append(reconstruction.getMissingSlots() == null ? List.of() : reconstruction.getMissingSlots());
-        return signal.toString();
-    }
-
-    private boolean containsAny(String text, String... keywords) {
-        if (text == null || keywords == null) {
-            return false;
-        }
-        for (String keyword : keywords) {
-            if (keyword != null && !keyword.isBlank() && text.contains(keyword.toLowerCase())) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private List<Resource> resolveExecutionCandidates(ContextRerankResult rerankResult, List<Map<String, Object>> mcpPreRankedCandidates) {
         List<Map<String, Object>> selected = new ArrayList<>();
         if (rerankResult != null && rerankResult.getSelectedToolCandidates() != null) {
@@ -1355,8 +1242,5 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private record SendToLuna(String raw, String valid, String replyText) {
-    }
-
-    private record RecoveryTrigger(boolean shouldRecover, String recoveryEvent, String interruptReason) {
     }
 }
