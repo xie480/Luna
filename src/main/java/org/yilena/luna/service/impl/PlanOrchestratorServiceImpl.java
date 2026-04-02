@@ -94,16 +94,22 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             if (userGoal == null || userGoal.isBlank()) {
                 return error("PLAN_INVALID_INPUT", "userGoal 不能為空");
             }
+            PlanningIntent planningIntent = parsePlanningIntent(userGoal);
+            String effectiveGoal = planningIntent.goal().isBlank() ? userGoal : planningIntent.goal();
 
             planId = "plan-" + SnowflakeIdUtil.nextIdStr();
             int planVersion = 1;
 
-            log.info("[Plan] 創建計劃, planId={}, sessionId={}, userGoal={}", planId, sessionId, userGoal);
+            log.info("[Plan] 創建計劃, planId={}, sessionId={}, userGoal={}, effectiveGoal={}", planId, sessionId, userGoal, effectiveGoal);
 
             PlanInstance instance = PlanInstance.builder()
                     .planId(planId)
                     .sessionId(sessionId)
-                    .userGoal(userGoal)
+                    .userGoal(effectiveGoal)
+                    .constraintsJson(Map.of(
+                            "raw_user_goal", userGoal,
+                            "planning_intent", planningIntent.meta()
+                    ))
                     .planVersion(planVersion)
                     .status(PlanStatus.PENDING)
                     .currentLoopIndex(0)
@@ -113,13 +119,13 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             planInstanceMapper.insert(instance);
 
             emitPlanEvent(planId, "", "", "PLAN_CREATED", "INFO",
-                    Map.of("planId", planId, "sessionId", sessionId, "userGoal", userGoal,
+                    Map.of("planId", planId, "sessionId", sessionId, "userGoal", userGoal, "effectiveGoal", effectiveGoal,
                             "planVersion", planVersion, "status", "PENDING",
                             "message", "計劃已創建", "timestamp", System.currentTimeMillis()));
             emitFrontProgress(planId, "PLAN_CREATED", "計劃已建立，正在生成藍圖", 0, 0, 0, 0);
 
             log.info("[Plan] 調用 MasterPlanningService 生成全局藍圖, planId={}", planId);
-            Map<String, Object> blueprint = masterPlanningService.generateBlueprint(planId, sessionId, userGoal);
+            Map<String, Object> blueprint = masterPlanningService.generateBlueprint(planId, sessionId, effectiveGoal);
 
             String validateErr = blueprintValidationService.validate(blueprint);
             if (validateErr != null) {
@@ -1033,6 +1039,36 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         };
     }
 
+    private PlanningIntent parsePlanningIntent(String userGoal) {
+        String raw = userGoal == null ? "" : userGoal.trim();
+        if (raw.isBlank()) {
+            return new PlanningIntent("", Map.of());
+        }
+        String[] segments = raw.split("\\|");
+        String resolvedGoal = raw;
+        Map<String, String> meta = new LinkedHashMap<>();
+        for (String segment : segments) {
+            String item = segment == null ? "" : segment.trim();
+            if (item.isBlank()) {
+                continue;
+            }
+            int idx = item.indexOf('=');
+            if (idx <= 0) {
+                continue;
+            }
+            String key = item.substring(0, idx).trim().toLowerCase(Locale.ROOT);
+            String value = item.substring(idx + 1).trim();
+            if (value.isBlank()) {
+                continue;
+            }
+            meta.put(key, value);
+            if ("task_goal".equals(key) || "goal".equals(key) || "explicit_task_goal".equals(key)) {
+                resolvedGoal = value;
+            }
+        }
+        return new PlanningIntent(resolvedGoal, meta);
+    }
+
     private int intVal(Object o, int def) {
         try {
             if (o == null) return def;
@@ -1186,5 +1222,8 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private record PlanningIntent(String goal, Map<String, String> meta) {
     }
 }

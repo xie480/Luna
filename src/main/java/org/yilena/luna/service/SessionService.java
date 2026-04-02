@@ -37,4 +37,12 @@ public interface SessionService {
      * @param summary 摘要內容
      */
     void replaceHistoryWithSummary(String sessionId, String summary);
+
+    /**
+     * 將歷史記錄替換為雙摘要（敘事 + 狀態快照）
+     * @param sessionId 會話ID
+     * @param narrativeSummary 敘事摘要
+     * @param stateSnapshotText 狀態快照文本
+     */
+    void replaceHistoryWithSummary(String sessionId, String narrativeSummary, String stateSnapshotText);
 }

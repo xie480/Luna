@@ -34,7 +34,9 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
     @Override
     public Map<String, Object> generateBlueprint(String planId, String sessionId, String userGoal) {
         try {
-            String prompt = buildPlanningPrompt(planId, sessionId, userGoal);
+            PlanningIntent planningIntent = parsePlanningIntent(userGoal);
+            String effectiveGoal = planningIntent.goal().isBlank() ? userGoal : planningIntent.goal();
+            String prompt = buildPlanningPrompt(planId, sessionId, effectiveGoal, planningIntent.meta());
 
             String planningModel = resolvePlanningModelName();
 
@@ -59,8 +61,9 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
 
             map.putIfAbsent("planId", planId);
             map.putIfAbsent("sessionId", sessionId);
-            map.putIfAbsent("userGoal", userGoal);
+            map.putIfAbsent("userGoal", effectiveGoal);
             map.putIfAbsent("createdAt", LocalDateTime.now().toString());
+            map.putIfAbsent("reconstructedIntent", planningIntent.meta());
 
             return map;
         } catch (Exception e) {
@@ -79,8 +82,12 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
         throw new IllegalStateException("未配置可用的规划模型（gemini.code 或 gemini.big）");
     }
 
-    private String buildPlanningPrompt(String planId, String sessionId, String userGoal) {
-        return PromptTemplates.MASTER_PLANNING_PROMPT.formatted(planId, sessionId, userGoal);
+    private String buildPlanningPrompt(String planId, String sessionId, String effectiveGoal, Map<String, String> planningMeta) {
+        String base = PromptTemplates.MASTER_PLANNING_PROMPT.formatted(planId, sessionId, effectiveGoal);
+        if (planningMeta == null || planningMeta.isEmpty()) {
+            return base;
+        }
+        return base + "\n\n额外重构意图（必须优先用于蓝图设计，不可忽略）:\n" + planningMeta;
     }
 
     private String cleanJsonFence(String text) {
@@ -93,10 +100,13 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
     }
 
     private Map<String, Object> fallbackBlueprint(String planId, String sessionId, String userGoal) {
+        PlanningIntent planningIntent = parsePlanningIntent(userGoal);
+        String effectiveGoal = planningIntent.goal().isBlank() ? userGoal : planningIntent.goal();
         Map<String, Object> blueprint = new LinkedHashMap<>();
         blueprint.put("planId", planId);
         blueprint.put("sessionId", sessionId);
-        blueprint.put("userGoal", userGoal);
+        blueprint.put("userGoal", effectiveGoal);
+        blueprint.put("reconstructedIntent", planningIntent.meta());
         blueprint.put("createdAt", LocalDateTime.now().toString());
 
         List<Map<String, Object>> phases = new ArrayList<>();
@@ -165,5 +175,38 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
         blueprint.put("edges", edges);
 
         return blueprint;
+    }
+
+    private PlanningIntent parsePlanningIntent(String userGoal) {
+        String raw = userGoal == null ? "" : userGoal.trim();
+        if (raw.isBlank()) {
+            return new PlanningIntent("", Map.of());
+        }
+        String[] segments = raw.split("\\|");
+        String resolvedGoal = raw;
+        Map<String, String> meta = new LinkedHashMap<>();
+        for (String segment : segments) {
+            String item = segment == null ? "" : segment.trim();
+            if (item.isBlank()) {
+                continue;
+            }
+            int idx = item.indexOf('=');
+            if (idx <= 0) {
+                continue;
+            }
+            String key = item.substring(0, idx).trim().toLowerCase(Locale.ROOT);
+            String value = item.substring(idx + 1).trim();
+            if (value.isBlank()) {
+                continue;
+            }
+            meta.put(key, value);
+            if ("task_goal".equals(key) || "goal".equals(key) || "explicit_task_goal".equals(key)) {
+                resolvedGoal = value;
+            }
+        }
+        return new PlanningIntent(resolvedGoal, meta);
+    }
+
+    private record PlanningIntent(String goal, Map<String, String> meta) {
     }
 }

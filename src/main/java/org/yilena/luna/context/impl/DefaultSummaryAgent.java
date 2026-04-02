@@ -1,9 +1,18 @@
 package org.yilena.luna.context.impl;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.context.SummaryAgent;
 import org.yilena.luna.context.model.SummaryResult;
+import org.yilena.luna.enums.ModelType;
+import org.yilena.luna.llm.LlmMessage;
+import org.yilena.luna.llm.LlmRequest;
+import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.memory.model.StructuredContextPackage;
+import org.yilena.luna.properties.GeminiProperty;
+import org.yilena.luna.utils.LlmClientUtil;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -11,16 +20,95 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
+@RequiredArgsConstructor
 public class DefaultSummaryAgent implements SummaryAgent {
+
+    private static final String SUMMARY_PROMPT = """
+            You are Summary Agent.
+            Return JSON only:
+            {
+              "narrativeSummary":"...",
+              "stateSnapshot":{
+                "currentStage":"...",
+                "confirmedSlots":["..."],
+                "finishedSteps":["..."],
+                "pendingIssues":["..."],
+                "latestToolConclusion":"...",
+                "currentConstraints":["..."],
+                "nextStep":"..."
+              }
+            }
+            Keep semantic fidelity. Do not drop unresolved issues.
+            userInput=%s
+            assistantReply=%s
+            taskState=%s
+            relationalState=%s
+            shortTermMemorySize=%s
+            latestToolName=%s
+            latestToolStatus=%s
+            pendingQuestions=%s
+            """;
+
+    private final LlmClientUtil llmClientUtil;
+    private final GeminiProperty geminiProperty;
+    private final ObjectMapper objectMapper;
 
     @Override
     public SummaryResult summarize(String userInput, String assistantReply, StructuredContextPackage contextPackage) {
+        SummaryResult llmSummary = tryModelSummary(userInput, assistantReply, contextPackage);
+        if (llmSummary != null) {
+            return llmSummary;
+        }
         String narrative = buildNarrative(userInput, assistantReply, contextPackage);
         Map<String, Object> snapshot = buildStateSnapshot(contextPackage);
         return SummaryResult.builder()
                 .narrativeSummary(narrative)
                 .stateSnapshot(snapshot)
                 .build();
+    }
+
+    private SummaryResult tryModelSummary(String userInput, String assistantReply, StructuredContextPackage contextPackage) {
+        try {
+            String prompt = SUMMARY_PROMPT.formatted(
+                    safe(userInput),
+                    safe(assistantReply),
+                    contextPackage == null || contextPackage.getTaskState() == null ? "UNKNOWN" : contextPackage.getTaskState().name(),
+                    contextPackage == null || contextPackage.getRelationalState() == null ? "UNKNOWN" : contextPackage.getRelationalState().name(),
+                    contextPackage == null || contextPackage.getRecentMessages() == null ? 0 : contextPackage.getRecentMessages().size(),
+                    contextPackage == null || contextPackage.getToolState() == null ? "" : safe(contextPackage.getToolState().getLastToolName()),
+                    contextPackage == null || contextPackage.getToolState() == null ? "" : safe(contextPackage.getToolState().getLastToolStatus()),
+                    contextPackage == null || contextPackage.getTaskStateEntity() == null ? "" : safe(contextPackage.getTaskStateEntity().getPendingQuestions())
+            );
+            LlmRequest request = LlmRequest.builder()
+                    .modelType(ModelType.OPENAI_COMPATIBLE)
+                    .modelName(resolveSmallAgentModel())
+                    .messages(List.of(LlmMessage.user(prompt)))
+                    .temperature(0.1)
+                    .enablePromptInjectionCheck(false)
+                    .build();
+            LlmResponse response = llmClientUtil.generate(request);
+            String content = response == null ? "" : response.getContent();
+            if (content == null || content.isBlank()) {
+                return null;
+            }
+            JsonNode node = objectMapper.readTree(stripFence(content));
+            String narrative = node.path("narrativeSummary").asText("");
+            if (narrative.isBlank()) {
+                return null;
+            }
+            Map<String, Object> snapshot = node.path("stateSnapshot").isObject()
+                    ? objectMapper.convertValue(node.path("stateSnapshot"), Map.class)
+                    : Map.of();
+            if (snapshot.isEmpty()) {
+                snapshot = buildStateSnapshot(contextPackage);
+            }
+            return SummaryResult.builder()
+                    .narrativeSummary(narrative)
+                    .stateSnapshot(snapshot)
+                    .build();
+        } catch (Exception ignore) {
+            return null;
+        }
     }
 
     private String buildNarrative(String userInput, String assistantReply, StructuredContextPackage contextPackage) {
@@ -90,5 +178,26 @@ public class DefaultSummaryAgent implements SummaryAgent {
 
     private String safe(Object value) {
         return value == null ? "" : String.valueOf(value);
+    }
+
+    private String resolveSmallAgentModel() {
+        if (geminiProperty != null && geminiProperty.getChat() != null && geminiProperty.getChat().getModelName() != null
+                && !geminiProperty.getChat().getModelName().isBlank()) {
+            return geminiProperty.getChat().getModelName();
+        }
+        if (geminiProperty != null && geminiProperty.getBig() != null && geminiProperty.getBig().getModelName() != null
+                && !geminiProperty.getBig().getModelName().isBlank()) {
+            return geminiProperty.getBig().getModelName();
+        }
+        return geminiProperty.getFlash().getModelName();
+    }
+
+    private String stripFence(String text) {
+        String value = text == null ? "" : text.trim();
+        if (value.startsWith("```")) {
+            value = value.replaceAll("(?s)^```[a-zA-Z]*\\s*", "");
+            value = value.replaceAll("(?s)```\\s*$", "");
+        }
+        return value.trim();
     }
 }

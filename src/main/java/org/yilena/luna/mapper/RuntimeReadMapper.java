@@ -24,7 +24,6 @@ public interface RuntimeReadMapper {
             from conversation_message
             where session_id = #{sessionId}
             order by created_at asc
-            limit 300
             """)
     List<Map<String, Object>> selectRuntimeRecentMessages(@Param("sessionId") String sessionId);
 

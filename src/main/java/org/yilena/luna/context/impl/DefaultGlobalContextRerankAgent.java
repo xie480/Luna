@@ -1,14 +1,23 @@
 package org.yilena.luna.context.impl;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.context.GlobalContextRerankAgent;
 import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.InputReconstructionResult;
+import org.yilena.luna.enums.ModelType;
 import org.yilena.luna.enums.TaskRuntimeState;
+import org.yilena.luna.llm.LlmMessage;
+import org.yilena.luna.llm.LlmRequest;
+import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.memory.model.StructuredContextPackage;
+import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.rag.models.Evidence;
 import org.yilena.luna.rag.models.RetrievalResponse;
 import org.yilena.luna.rag.models.RetrievalSource;
+import org.yilena.luna.utils.LlmClientUtil;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -23,7 +32,35 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
+@RequiredArgsConstructor
 public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent {
+
+    private static final String GLOBAL_RERANK_PROMPT = """
+            You are Global Context Rerank Agent.
+            Return strict JSON only:
+            {
+              "knowledgeRankIds":[],
+              "memoryRankIds":[],
+              "preferenceRankIds":[],
+              "toolRankNames":[],
+              "promptResourceRankNames":[],
+              "rationale":"..."
+            }
+            Rank candidates by node-goal fitness, stage relevance, and anti-noise.
+            Do not invent ids or names.
+
+            stage=%s
+            nodeGoal=%s
+            reconstructedIntent=%s
+            knowledgeCandidates=%s
+            memoryCandidates=%s
+            preferenceCandidates=%s
+            mcpCandidates=%s
+            """;
+
+    private final LlmClientUtil llmClientUtil;
+    private final GeminiProperty geminiProperty;
+    private final ObjectMapper objectMapper;
 
     @Override
     public ContextRerankResult rerank(InputReconstructionResult reconstructionResult,
@@ -41,14 +78,21 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
         List<Evidence> knowledge = selectEvidence(retrievalResponse, RetrievalSource.KNOWLEDGE, reconstructionResult, nodeGoal, taskState, 16);
         List<Evidence> memory = selectEvidence(retrievalResponse, RetrievalSource.MEMORY, reconstructionResult, nodeGoal, taskState, 12);
         List<Evidence> preference = selectEvidence(retrievalResponse, RetrievalSource.PREFERENCE, reconstructionResult, nodeGoal, taskState, 8);
+        ModelRerankResult modelRerank = tryModelRerank(reconstructionResult, stage, nodeGoal, capabilityCandidates, knowledge, memory, preference);
+        knowledge = reorderByEvidenceIds(knowledge, modelRerank.knowledgeRankIds());
+        memory = reorderByEvidenceIds(memory, modelRerank.memoryRankIds());
+        preference = reorderByEvidenceIds(preference, modelRerank.preferenceRankIds());
         List<List<String>> duplicateClusters = detectDuplicates(knowledge, memory, preference);
 
         List<String> selectedKnowledge = toKnowledgeBlocks(knowledge, knowledgeBudget);
         List<String> selectedMemoryHints = toMemoryHints(memory, preference, memoryBudget);
-        List<Map<String, Object>> toolCandidates = selectCapabilityCandidates(capabilityCandidates, "TOOL", 12, nodeGoal, taskState, mcpBudget);
-        List<Map<String, Object>> promptResourceCandidates = selectPromptResourceCandidates(capabilityCandidates, 10, nodeGoal, taskState, mcpBudget);
+        List<Map<String, Object>> toolCandidates = selectCapabilityCandidates(capabilityCandidates, "TOOL", 12, nodeGoal, taskState, mcpBudget, modelRerank.toolRankNames());
+        List<Map<String, Object>> promptResourceCandidates = selectPromptResourceCandidates(capabilityCandidates, 10, nodeGoal, taskState, mcpBudget, modelRerank.promptResourceRankNames());
         List<String> rejected = collectRejected(capabilityCandidates, toolCandidates, promptResourceCandidates);
         Map<String, String> rationale = buildRationale(stage, nodeGoal, totalBudget, selectedKnowledge, selectedMemoryHints, toolCandidates, promptResourceCandidates);
+        if (!modelRerank.rationale().isBlank()) {
+            rationale.put("model_rationale", modelRerank.rationale());
+        }
 
         return ContextRerankResult.builder()
                 .selectedKnowledgeBlocks(selectedKnowledge)
@@ -211,7 +255,8 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
                                                                  int limit,
                                                                  String nodeGoal,
                                                                  TaskRuntimeState taskState,
-                                                                 int tokenBudget) {
+                                                                 int tokenBudget,
+                                                                 List<String> modelOrder) {
         if (rows == null || rows.isEmpty()) {
             return List.of();
         }
@@ -220,6 +265,7 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
                 .sorted(Comparator.comparingDouble((Map<String, Object> row) -> capabilityScore(row, nodeGoal, taskState)).reversed())
                 .map(this::copyShallow)
                 .toList();
+        sorted = reorderByCapabilityName(sorted, modelOrder);
         return budgetedCapabilities(sorted, Math.max(limit, 1), tokenBudget);
     }
 
@@ -227,7 +273,8 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
                                                                      int limit,
                                                                      String nodeGoal,
                                                                      TaskRuntimeState taskState,
-                                                                     int tokenBudget) {
+                                                                     int tokenBudget,
+                                                                     List<String> modelOrder) {
         if (rows == null || rows.isEmpty()) {
             return List.of();
         }
@@ -239,6 +286,7 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
                 .sorted(Comparator.comparingDouble((Map<String, Object> row) -> capabilityScore(row, nodeGoal, taskState)).reversed())
                 .map(this::copyShallow)
                 .toList();
+        sorted = reorderByCapabilityName(sorted, modelOrder);
         return budgetedCapabilities(sorted, Math.max(limit, 1), tokenBudget);
     }
 
@@ -397,5 +445,159 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
 
     private int sizeOf(List<?> list) {
         return list == null ? 0 : list.size();
+    }
+
+    private ModelRerankResult tryModelRerank(InputReconstructionResult reconstructionResult,
+                                             String stage,
+                                             String nodeGoal,
+                                             List<Map<String, Object>> capabilityCandidates,
+                                             List<Evidence> knowledge,
+                                             List<Evidence> memory,
+                                             List<Evidence> preference) {
+        try {
+            String prompt = GLOBAL_RERANK_PROMPT.formatted(
+                    stage,
+                    nodeGoal == null ? "" : nodeGoal,
+                    reconstructionResult == null ? "" : String.valueOf(reconstructionResult.getNormalizedUserIntent()),
+                    summarizeEvidence(knowledge),
+                    summarizeEvidence(memory),
+                    summarizeEvidence(preference),
+                    summarizeCapabilities(capabilityCandidates)
+            );
+            LlmRequest request = LlmRequest.builder()
+                    .modelType(ModelType.OPENAI_COMPATIBLE)
+                    .modelName(resolveSmallAgentModel())
+                    .messages(List.of(LlmMessage.user(prompt)))
+                    .temperature(0.1)
+                    .enablePromptInjectionCheck(false)
+                    .build();
+            LlmResponse response = llmClientUtil.generate(request);
+            String content = response == null ? "" : response.getContent();
+            if (content == null || content.isBlank()) {
+                return ModelRerankResult.empty();
+            }
+            JsonNode node = objectMapper.readTree(stripFence(content));
+            return new ModelRerankResult(
+                    jsonArrayToList(node.path("knowledgeRankIds")),
+                    jsonArrayToList(node.path("memoryRankIds")),
+                    jsonArrayToList(node.path("preferenceRankIds")),
+                    jsonArrayToList(node.path("toolRankNames")),
+                    jsonArrayToList(node.path("promptResourceRankNames")),
+                    safe(node.path("rationale").asText(""))
+            );
+        } catch (Exception ignore) {
+            return ModelRerankResult.empty();
+        }
+    }
+
+    private List<Evidence> reorderByEvidenceIds(List<Evidence> items, List<String> modelOrder) {
+        if (items == null || items.isEmpty() || modelOrder == null || modelOrder.isEmpty()) {
+            return items == null ? List.of() : items;
+        }
+        Map<String, Integer> order = new HashMap<>();
+        for (int i = 0; i < modelOrder.size(); i++) {
+            order.put(modelOrder.get(i), i);
+        }
+        return items.stream()
+                .sorted(Comparator.comparingInt(item -> order.getOrDefault(safe(item.getId()), Integer.MAX_VALUE)))
+                .toList();
+    }
+
+    private List<Map<String, Object>> reorderByCapabilityName(List<Map<String, Object>> items, List<String> modelOrder) {
+        if (items == null || items.isEmpty() || modelOrder == null || modelOrder.isEmpty()) {
+            return items == null ? List.of() : items;
+        }
+        Map<String, Integer> order = new HashMap<>();
+        for (int i = 0; i < modelOrder.size(); i++) {
+            order.put(modelOrder.get(i), i);
+        }
+        return items.stream()
+                .sorted(Comparator.comparingInt(item -> order.getOrDefault(capabilityName(item), Integer.MAX_VALUE)))
+                .toList();
+    }
+
+    private String summarizeEvidence(List<Evidence> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return "[]";
+        }
+        List<Map<String, Object>> compact = rows.stream().limit(24).map(item -> {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("id", safe(item.getId()));
+            map.put("title", safe(item.getTitle()));
+            map.put("content", safe(item.getContent()));
+            map.put("score", item.getScore());
+            return map;
+        }).toList();
+        try {
+            return objectMapper.writeValueAsString(compact);
+        } catch (Exception ignore) {
+            return "[]";
+        }
+    }
+
+    private String summarizeCapabilities(List<Map<String, Object>> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return "[]";
+        }
+        List<Map<String, Object>> compact = rows.stream().limit(40).map(row -> {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("capability_name", String.valueOf(row.getOrDefault("capability_name", "")));
+            map.put("capability_type", String.valueOf(row.getOrDefault("capability_type", "")));
+            map.put("description", String.valueOf(row.getOrDefault("description", "")));
+            map.put("requires_approval", boolVal(row.get("requires_approval")));
+            map.put("sensitivity", String.valueOf(row.getOrDefault("sensitivity", "LOW")));
+            return map;
+        }).toList();
+        try {
+            return objectMapper.writeValueAsString(compact);
+        } catch (Exception ignore) {
+            return "[]";
+        }
+    }
+
+    private List<String> jsonArrayToList(JsonNode node) {
+        if (node == null || !node.isArray()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        node.forEach(item -> {
+            String value = item.asText("");
+            if (!value.isBlank()) {
+                out.add(value);
+            }
+        });
+        return out;
+    }
+
+    private String stripFence(String text) {
+        String value = text == null ? "" : text.trim();
+        if (value.startsWith("```")) {
+            value = value.replaceAll("(?s)^```[a-zA-Z]*\\s*", "");
+            value = value.replaceAll("(?s)```\\s*$", "");
+        }
+        return value.trim();
+    }
+
+    private String resolveSmallAgentModel() {
+        if (geminiProperty != null && geminiProperty.getChat() != null && geminiProperty.getChat().getModelName() != null
+                && !geminiProperty.getChat().getModelName().isBlank()) {
+            return geminiProperty.getChat().getModelName();
+        }
+        if (geminiProperty != null && geminiProperty.getBig() != null && geminiProperty.getBig().getModelName() != null
+                && !geminiProperty.getBig().getModelName().isBlank()) {
+            return geminiProperty.getBig().getModelName();
+        }
+        return geminiProperty.getFlash().getModelName();
+    }
+
+    private record ModelRerankResult(List<String> knowledgeRankIds,
+                                     List<String> memoryRankIds,
+                                     List<String> preferenceRankIds,
+                                     List<String> toolRankNames,
+                                     List<String> promptResourceRankNames,
+                                     String rationale) {
+        private static ModelRerankResult empty() {
+            return new ModelRerankResult(List.of(), List.of(), List.of(), List.of(), List.of(), "");
+        }
     }
 }

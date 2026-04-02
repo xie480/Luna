@@ -173,12 +173,35 @@ public class ChatServiceImpl implements ChatService {
                 buildOrchestrationSignal(input, reconstruction)
         );
         StructuredContextPackage contextPackage = decision == null ? preContextPackage : decision.getContextPackage();
-        contextPackage = recoveryContextAgent.recover(
-                runtimeSessionId,
-                contextPackage,
-                "USER_INPUT",
-                "CHAT_MAIN_LOOP"
-        );
+        RecoveryTrigger recoveryTrigger = resolveRecoveryTrigger(input, decision, contextPackage);
+        if (recoveryTrigger.shouldRecover()) {
+            contextPackage = recoveryContextAgent.recover(
+                    runtimeSessionId,
+                    contextPackage,
+                    recoveryTrigger.recoveryEvent(),
+                    recoveryTrigger.interruptReason()
+            );
+            runtimeAuditService.persistDecisionRecord(
+                    runtimeSessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    "RECOVERY_TRIGGERED",
+                    "recovery branch entered for interrupted flow",
+                    toJsonSafe(Map.of(
+                            "event", recoveryTrigger.recoveryEvent(),
+                            "reason", recoveryTrigger.interruptReason()
+                    ))
+            );
+        } else {
+            runtimeAuditService.persistDecisionRecord(
+                    runtimeSessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    "RECOVERY_SKIPPED",
+                    "normal chat turn without interrupt/resume event",
+                    toJsonSafe(Map.of("input", input))
+            );
+        }
         runtimeAuditService.persistContextSnapshot(runtimeSessionId, contextPackage);
         runtimeAuditService.persistDecisionRecord(
                 runtimeSessionId,
@@ -223,7 +246,8 @@ public class ChatServiceImpl implements ChatService {
                 "system-level pre-rank before global semantic rerank",
                 toJsonSafe(Map.of(
                         "query", mcpDrivenInput,
-                        "candidateCount", mcpPreRankedCandidates.size()
+                        "candidateCount", mcpPreRankedCandidates.size(),
+                        "candidates", mcpPreRankedCandidates
                 ))
         );
 
@@ -246,12 +270,41 @@ public class ChatServiceImpl implements ChatService {
                     .options(retrievalOptions)
                     .build();
             RetrievalResponse retrievalResponse = retrievalService.retrieve(retrievalRequest);
+            runtimeAuditService.persistDecisionRecord(
+                    runtimeSessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    "MULTI_ROUTE_RECALL_TRACE",
+                    "raw multi-route retrieval candidates before global rerank",
+                    toJsonSafe(Map.of(
+                            "ragQuery", ragQuery,
+                            "mcpQuery", mcpDrivenInput,
+                            "allowedRoutes", allowedRoutes,
+                            "knowledgeCandidates", getEvidences(retrievalResponse, RetrievalSource.KNOWLEDGE),
+                            "memoryCandidates", getEvidences(retrievalResponse, RetrievalSource.MEMORY),
+                            "preferenceCandidates", getEvidences(retrievalResponse, RetrievalSource.PREFERENCE),
+                            "mcpPreRankCandidates", mcpPreRankedCandidates
+                    ))
+            );
             rerankResult = globalContextRerankAgent.rerank(
                     reconstruction,
                     contextPackage,
                     retrievalResponse,
                     mcpPreRankedCandidates,
                     decision == null ? null : decision.getTaskState()
+            );
+            runtimeAuditService.persistDecisionRecord(
+                    runtimeSessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    "BOTTOM_RERANK_DETAIL_TRACE",
+                    "bottom rerank detail before global semantic rerank merge",
+                    toJsonSafe(Map.of(
+                            "knowledgeTopIds", getEvidences(retrievalResponse, RetrievalSource.KNOWLEDGE).stream().limit(20).map(Evidence::getId).toList(),
+                            "memoryTopIds", getEvidences(retrievalResponse, RetrievalSource.MEMORY).stream().limit(20).map(Evidence::getId).toList(),
+                            "preferenceTopIds", getEvidences(retrievalResponse, RetrievalSource.PREFERENCE).stream().limit(20).map(Evidence::getId).toList(),
+                            "mcpPreRankTopNames", mcpPreRankedCandidates.stream().limit(20).map(row -> stringValue(row.get("capability_name"))).toList()
+                    ))
             );
             runtimeAuditService.persistDecisionRecord(
                     runtimeSessionId,
@@ -927,6 +980,37 @@ public class ChatServiceImpl implements ChatService {
         return payload;
     }
 
+    private RecoveryTrigger resolveRecoveryTrigger(String input,
+                                                   OrchestrationDecision decision,
+                                                   StructuredContextPackage contextPackage) {
+        String normalizedInput = stringValue(input).trim().toLowerCase();
+        TaskRuntimeState taskState = decision == null ? null : decision.getTaskState();
+        boolean waitingResumeState = taskState == TaskRuntimeState.WAITING_APPROVAL
+                || taskState == TaskRuntimeState.WAITING_TOOL
+                || taskState == TaskRuntimeState.WAITING_USER;
+        boolean explicitResume = containsAny(normalizedInput,
+                "resume", "continue", "批准", "通过", "恢复", "继续", "确认", "approve", "confirmed");
+        boolean explicitRetry = containsAny(normalizedInput, "retry", "重试", "再试", "重新执行");
+        boolean explicitInterruptEvent = containsAny(normalizedInput, "callback", "tool result", "审批结果", "approval result");
+        if (waitingResumeState && explicitResume) {
+            return new RecoveryTrigger(true, "RESUME_REQUEST", "USER_RESUME_SIGNAL");
+        }
+        if (waitingResumeState && explicitRetry) {
+            return new RecoveryTrigger(true, "RESUME_REQUEST", "USER_RETRY_SIGNAL");
+        }
+        if (explicitInterruptEvent) {
+            return new RecoveryTrigger(true, "EXTERNAL_EVENT", "EVENT_CALLBACK_SIGNAL");
+        }
+        if (contextPackage != null && contextPackage.getRecoveryState() != null) {
+            String previousEvent = stringValue(contextPackage.getRecoveryState().getRecoveryEvent());
+            String previousReason = stringValue(contextPackage.getRecoveryState().getInterruptReason());
+            if (!previousEvent.isBlank() && containsAny(previousReason.toLowerCase(), "approval", "tool", "interrupt", "timeout", "failed")) {
+                return new RecoveryTrigger(true, previousEvent, previousReason);
+            }
+        }
+        return new RecoveryTrigger(false, "", "");
+    }
+
     private String buildOrchestrationSignal(String rawInput, InputReconstructionResult reconstruction) {
         if (reconstruction == null) {
             return rawInput == null ? "" : rawInput;
@@ -938,6 +1022,18 @@ public class ChatServiceImpl implements ChatService {
         signal.append(";constraints=").append(reconstruction.getBusinessConstraints() == null ? List.of() : reconstruction.getBusinessConstraints());
         signal.append(";missingSlots=").append(reconstruction.getMissingSlots() == null ? List.of() : reconstruction.getMissingSlots());
         return signal.toString();
+    }
+
+    private boolean containsAny(String text, String... keywords) {
+        if (text == null || keywords == null) {
+            return false;
+        }
+        for (String keyword : keywords) {
+            if (keyword != null && !keyword.isBlank() && text.contains(keyword.toLowerCase())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private List<Resource> resolveExecutionCandidates(ContextRerankResult rerankResult, List<Map<String, Object>> mcpPreRankedCandidates) {
@@ -1259,5 +1355,8 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private record SendToLuna(String raw, String valid, String replyText) {
+    }
+
+    private record RecoveryTrigger(boolean shouldRecover, String recoveryEvent, String interruptReason) {
     }
 }

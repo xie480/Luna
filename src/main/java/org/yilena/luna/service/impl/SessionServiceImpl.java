@@ -73,8 +73,20 @@ public class SessionServiceImpl implements SessionService {
 
     @Override
     public void replaceHistoryWithSummary(String sessionId, String summary) {
+        replaceHistoryWithSummary(sessionId, summary, "");
+    }
+
+    @Override
+    public void replaceHistoryWithSummary(String sessionId, String narrativeSummary, String stateSnapshotText) {
         clearSession(sessionId);
-        appendMessage(sessionId, new ChatMessage(ChatMessage.Role.CONTEXT_SUMMARY, summary, LocalTime.now()));
+        String narrative = narrativeSummary == null ? "" : narrativeSummary.trim();
+        String snapshot = stateSnapshotText == null ? "" : stateSnapshotText.trim();
+        if (!narrative.isBlank()) {
+            appendMessage(sessionId, new ChatMessage(ChatMessage.Role.CONTEXT_SUMMARY, narrative, LocalTime.now()));
+        }
+        if (!snapshot.isBlank()) {
+            appendMessage(sessionId, new ChatMessage(ChatMessage.Role.CONTEXT_SUMMARY, "[STATE_SNAPSHOT] " + snapshot, LocalTime.now()));
+        }
     }
 
     private LocalDateTime toCreatedAt(LocalTime time) {
