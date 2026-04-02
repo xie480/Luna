@@ -14,6 +14,7 @@ import org.yilena.luna.enums.RunMode;
 import org.yilena.luna.enums.Sensitivity;
 import org.yilena.luna.mapper.*;
 import org.yilena.luna.service.McpService;
+import org.yilena.luna.service.CapabilityCatalogSyncService;
 import org.yilena.luna.utils.LlmClientUtil;
 
 import java.util.*;
@@ -32,6 +33,7 @@ public class McpServiceImpl implements McpService {
     private final WorkflowTemplateMapper workflowTemplateMapper;
     private final McpServerRegistryMapper serverRegistryMapper;
     private final McpClientAdapter mcpClientAdapter;
+    private final CapabilityCatalogSyncService capabilityCatalogSyncService;
     private final LlmClientUtil llmClientUtil;
     private final ObjectMapper objectMapper;
 
@@ -106,6 +108,12 @@ public class McpServiceImpl implements McpService {
     @Override
     public McpResourceResult readResource(String serverCode, String resourceUri) {
         return mcpClientAdapter.readResource(serverCode, resourceUri);
+    }
+
+    @Override
+    public Map<String, Object> syncCapabilityCatalog() {
+        capabilityCatalogSyncService.syncFromServers();
+        return Map.of("status", "success", "message", "capability catalog sync triggered");
     }
 
     @Override

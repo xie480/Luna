@@ -67,7 +67,7 @@ public class WorkflowExecutor {
                     .argsJson(argsJson)
                     .build();
 
-            rocketMQTemplate.convertAndSend(RocketMqConstant.TOPIC_SKILL_ASYNC, msg);
+            rocketMQTemplate.convertAndSend(RocketMqConstant.TOPIC_WORKFLOW_ASYNC, msg);
 
             return String.format(
                     "{\"status\":\"pending\", \"taskId\":\"%s\", \"workflowName\":\"%s\", \"message\":\"异步任务已提交，后台执行中\"}",
@@ -370,4 +370,3 @@ public class WorkflowExecutor {
         return null;
     }
 }
-

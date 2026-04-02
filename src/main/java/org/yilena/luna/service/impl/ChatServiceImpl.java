@@ -478,12 +478,15 @@ public class ChatServiceImpl implements ChatService {
         try {
             JsonNode node = tryParseJsonNode(toolContext);
             String taskId = node != null ? node.path("taskId").asText("") : "";
-            String skillName = node != null ? node.path("skillName").asText("task") : "task";
+            String workflowName = node != null
+                    ? node.path("workflowName").asText(node.path("skillName").asText("task"))
+                    : "task";
             ObjectNode out = mapper.createObjectNode();
             out.put("emotion", "Soft");
-            out.put("reply", "Luna is processing " + skillName + ". You can continue chatting, result will arrive soon.");
+            out.put("reply", "Luna is processing " + workflowName + ". You can continue chatting, result will arrive soon.");
             out.put("status", "pending");
             out.put("taskId", taskId);
+            out.put("workflowName", workflowName);
             return out.toString();
         } catch (Exception e) {
             return "{\"emotion\":\"Soft\",\"reply\":\"task is running in background\",\"status\":\"pending\"}";
@@ -501,7 +504,9 @@ public class ChatServiceImpl implements ChatService {
         }
         Map<String, Object> payload = new java.util.HashMap<>();
         payload.put("taskId", taskId);
-        payload.put("skillName", node.path("skillName").asText(""));
+        String workflowName = node.path("workflowName").asText(node.path("skillName").asText(""));
+        payload.put("workflowName", workflowName);
+        payload.put("skillName", workflowName);
         payload.put("status", "pending");
         payload.put("toolContext", toolContext == null ? "" : toolContext);
         memoryHotLayerService.putPendingToolCall(sessionId, taskId, payload);

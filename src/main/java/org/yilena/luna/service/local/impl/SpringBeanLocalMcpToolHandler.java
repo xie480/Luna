@@ -33,9 +33,6 @@ public class SpringBeanLocalMcpToolHandler implements LocalMcpToolHandler {
         if (context == null) {
             return false;
         }
-        if ("LOCAL_HANDLER".equalsIgnoreCase(context.implType())) {
-            return true;
-        }
         return "SPRING_BEAN".equalsIgnoreCase(context.implType());
     }
 

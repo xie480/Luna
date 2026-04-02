@@ -22,13 +22,13 @@ import java.util.Map;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@RocketMQMessageListener(topic = RocketMqConstant.TOPIC_SKILL_ASYNC, consumerGroup = RocketMqConstant.GROUP_SKILL_ASYNC)
+@RocketMQMessageListener(topic = RocketMqConstant.TOPIC_WORKFLOW_ASYNC, consumerGroup = RocketMqConstant.GROUP_WORKFLOW_ASYNC)
 /**
  * SkillExecutionConsumer ??
  */
 public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMessage> {
 
-    private static final String TASK_REDIS_KEY_PREFIX = "luna:skill:task:";
+    private static final String TASK_REDIS_KEY_PREFIX = "luna:workflow:task:";
 
     private final WorkflowExecutor workflowExecutor;
     private final StringRedisTemplate stringRedisTemplate;
@@ -152,8 +152,9 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
         try {
             // 组装统一事件载荷并通过 SSE 推送异步执行结果。
             Map<String, Object> payload = new HashMap<>();
-            payload.put("eventType", "SKILL_ASYNC_RESULT");
+            payload.put("eventType", "WORKFLOW_ASYNC_RESULT");
             payload.put("taskId", taskId);
+            payload.put("workflowName", skillName);
             payload.put("skillName", skillName);
             payload.put("planId", "");
             payload.put("phaseId", "");
@@ -168,6 +169,8 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
             payload.put("retryCount", 0);
             payload.put("timestamp", System.currentTimeMillis());
 
+            statusPublisher.publishEvent(LunaStatusPublisher.DEFAULT_CLIENT_ID, "WORKFLOW_ASYNC_RESULT", payload);
+            // Legacy event name for backward compatibility.
             statusPublisher.publishEvent(LunaStatusPublisher.DEFAULT_CLIENT_ID, "SKILL_ASYNC_RESULT", payload);
             log.debug("SkillAsync SSE 推送完成，taskId={}, success={}", taskId, success);
         } catch (Exception e) {

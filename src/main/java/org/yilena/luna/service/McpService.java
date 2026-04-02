@@ -39,6 +39,8 @@ public interface McpService {
 
     McpResourceResult readResource(String serverCode, String resourceUri);
 
+    Map<String, Object> syncCapabilityCatalog();
+
     // Migration upsert APIs (full-field)
     McpServerRegistry upsertServerRegistry(McpServerRegistry registry);
 

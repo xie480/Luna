@@ -134,6 +134,12 @@ public class McpController {
         ));
     }
 
+    @PostMapping("/catalog/sync")
+    @Operation(summary = "Sync capability catalogs from MCP servers")
+    public ResponseEntity<?> syncCatalog() {
+        return ResponseEntity.ok(mcpService.syncCapabilityCatalog());
+    }
+
     // ===== Migration upsert endpoints (full-field) =====
 
     @PostMapping("/migrate/server-registry")

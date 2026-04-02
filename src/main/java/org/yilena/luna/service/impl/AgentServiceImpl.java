@@ -48,6 +48,7 @@ public class AgentServiceImpl implements AgentService {
     private final SessionService sessionService;
     private final CapabilityPolicyRouterService capabilityPolicyRouterService;
     private final PlanOrchestratorService planOrchestratorService;
+    private static final String WORKFLOW_ARGS_PROMPT_TEMPLATE = PromptTemplates.SKILL_ARGS_PROMPT;
 
     @Override
     public String processToolCalling(String sessionId, String input) {
@@ -189,7 +190,7 @@ public class AgentServiceImpl implements AgentService {
         String historyText = (history == null || history.isEmpty()) ? "(empty)" : String.join("\n", history);
         if (ResourceType.WORKFLOW.equals(resource.getType())) {
             return String.format(
-                    PromptTemplates.SKILL_ARGS_PROMPT,
+                    WORKFLOW_ARGS_PROMPT_TEMPLATE,
                     input,
                     historyText,
                     resource.getName(),

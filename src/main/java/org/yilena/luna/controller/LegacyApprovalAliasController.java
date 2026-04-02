@@ -14,6 +14,11 @@ public class LegacyApprovalAliasController {
 
     private final ApprovalController approvalController;
 
+    @PostMapping("/mcp/workflows/approval")
+    public ResponseEntity<Object> submitApprovalWorkflow(@RequestBody Map<String, Object> body) {
+        return approvalController.submitApproval(body);
+    }
+
     @PostMapping("/mcp/skills/approval")
     public ResponseEntity<Object> submitApprovalLegacyAlias(@RequestBody Map<String, Object> body) {
         return approvalController.submitApproval(body);
