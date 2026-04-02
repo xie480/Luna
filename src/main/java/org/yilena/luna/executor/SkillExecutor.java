@@ -1,18 +1,18 @@
 package org.yilena.luna.executor;
 
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Component;
 import org.yilena.luna.entity.Resource;
 
 /**
  * @deprecated Use {@link WorkflowExecutor}. Kept only for compatibility.
  */
-@Deprecated
-@Component
-@RequiredArgsConstructor
+@Deprecated(forRemoval = true)
 public class SkillExecutor {
 
     private final WorkflowExecutor workflowExecutor;
+
+    public SkillExecutor(WorkflowExecutor workflowExecutor) {
+        this.workflowExecutor = workflowExecutor;
+    }
 
     public String execute(Resource skill, String argsJson) {
         return workflowExecutor.execute(skill, argsJson);
@@ -22,4 +22,3 @@ public class SkillExecutor {
         return workflowExecutor.executeLoop(skill, argsJson);
     }
 }
-

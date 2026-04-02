@@ -9,6 +9,7 @@ import org.yilena.luna.enums.RelationalRuntimeState;
 import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.mapper.CapabilityMapper;
 import org.yilena.luna.service.CapabilityCatalogSyncService;
+import org.yilena.luna.utils.LlmClientUtil;
 import org.yilena.luna.utils.AuthContextHolder;
 
 import java.util.ArrayList;
@@ -29,6 +30,7 @@ public class DefaultCapabilityPolicyRouterService implements CapabilityPolicyRou
 
     private final CapabilityMapper capabilityMapper;
     private final CapabilityCatalogSyncService capabilityCatalogSyncService;
+    private final LlmClientUtil llmClientUtil;
     private final ObjectMapper objectMapper;
 
     @Value("${luna.capability.policy.role-mapping-json:{}}")
@@ -75,8 +77,39 @@ public class DefaultCapabilityPolicyRouterService implements CapabilityPolicyRou
             if (text.isBlank()) {
                 return capabilityMapper.selectTopCapabilities();
             }
-            return capabilityMapper.searchCapabilityCandidates(text, Math.max(24, safeLimit * 3));
+            int fetchLimit = Math.max(24, safeLimit * 3);
+            List<Map<String, Object>> lexical = capabilityMapper.searchCapabilityCandidates(text, fetchLimit);
+            List<Map<String, Object>> semantic = semanticCandidates(text, fetchLimit);
+            if (semantic.isEmpty()) {
+                return lexical;
+            }
+            Map<String, Map<String, Object>> merged = new HashMap<>();
+            for (Map<String, Object> row : semantic) {
+                String key = String.valueOf(row.getOrDefault("capability_name", ""));
+                if (!key.isBlank()) {
+                    merged.putIfAbsent(key, row);
+                }
+            }
+            for (Map<String, Object> row : lexical) {
+                String key = String.valueOf(row.getOrDefault("capability_name", ""));
+                if (!key.isBlank()) {
+                    merged.putIfAbsent(key, row);
+                }
+            }
+            return new ArrayList<>(merged.values());
         } catch (Exception ignore) {
+            return Collections.emptyList();
+        }
+    }
+
+    private List<Map<String, Object>> semanticCandidates(String text, int limit) {
+        try {
+            String vector = llmClientUtil.getEmbedding(text);
+            if (vector == null || vector.isBlank() || "[]".equals(vector.trim())) {
+                return Collections.emptyList();
+            }
+            return capabilityMapper.searchCapabilityCandidatesByVector(vector, limit);
+        } catch (Exception e) {
             return Collections.emptyList();
         }
     }
@@ -260,6 +293,7 @@ public class DefaultCapabilityPolicyRouterService implements CapabilityPolicyRou
         List<Map<String, Object>> sorted = new ArrayList<>(rows);
         sorted.sort(Comparator
                 .comparingInt((Map<String, Object> row) -> typePenalty(typeOf(row), preferredTypes))
+                .thenComparingInt(this::riskPenalty)
                 .thenComparingInt(row -> keywordPenalty(q, row))
                 .thenComparing(row -> String.valueOf(row.getOrDefault("capability_name", ""))));
 
@@ -269,6 +303,9 @@ public class DefaultCapabilityPolicyRouterService implements CapabilityPolicyRou
         for (Map<String, Object> row : sorted) {
             String type = typeOf(row);
             if (executionOnly && "STRATEGY".equals(type)) {
+                continue;
+            }
+            if (executionOnly && !isRiskAllowedForExecution(row)) {
                 continue;
             }
             String capabilityName = String.valueOf(row.getOrDefault("capability_name", ""));
@@ -326,6 +363,30 @@ public class DefaultCapabilityPolicyRouterService implements CapabilityPolicyRou
         return String.valueOf(row.getOrDefault("capability_type", "")).toUpperCase(Locale.ROOT);
     }
 
+    private boolean isRiskAllowedForExecution(Map<String, Object> row) {
+        if (row == null || row.isEmpty()) {
+            return false;
+        }
+        return true;
+    }
+
+    private int riskPenalty(Map<String, Object> row) {
+        if (row == null || row.isEmpty()) {
+            return 10;
+        }
+        boolean requiresApproval = boolVal(row.get("requires_approval"));
+        String sensitivity = normalize(String.valueOf(row.getOrDefault("sensitivity", "LOW"))).toUpperCase(Locale.ROOT);
+        int penalty = switch (sensitivity) {
+            case "HIGH" -> 3;
+            case "MEDIUM" -> 2;
+            default -> 0;
+        };
+        if (requiresApproval) {
+            penalty += 2;
+        }
+        return penalty;
+    }
+
     private String normalize(String text) {
         return text == null ? "" : text.trim().toLowerCase(Locale.ROOT);
     }
@@ -340,5 +401,16 @@ public class DefaultCapabilityPolicyRouterService implements CapabilityPolicyRou
             }
         }
         return false;
+    }
+
+    private boolean boolVal(Object value) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        if (value == null) {
+            return false;
+        }
+        String text = String.valueOf(value).trim().toLowerCase(Locale.ROOT);
+        return "true".equals(text) || "1".equals(text) || "yes".equals(text);
     }
 }

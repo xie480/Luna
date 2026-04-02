@@ -108,6 +108,7 @@ public class CapabilityCatalogSyncServiceImpl implements CapabilityCatalogSyncSe
             row.setDescription(descriptor.getDescription());
             row.setInputSchema(descriptor.getInputSchema());
             row.setOutputSchema(descriptor.getOutputSchema());
+            row.setExecutionMode("MCP");
             row.setRequiresApproval(Boolean.TRUE.equals(descriptor.getRequiresApproval()));
             row.setSensitivity(normalizeSensitivity(descriptor.getSensitivity()));
             row.setVersion(descriptor.getVersion() == null || descriptor.getVersion().isBlank() ? "1" : descriptor.getVersion().trim());

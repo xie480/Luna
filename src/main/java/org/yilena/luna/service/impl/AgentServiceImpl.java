@@ -170,7 +170,7 @@ public class AgentServiceImpl implements AgentService {
 
     private String buildDecisionPrompt(String input, List<String> history, List<Resource> tools) {
         String toolDesc = tools.stream()
-                .map(t -> "- name=" + t.getName() + ", type=" + (t.getType() == null ? "TOOL" : t.getType().name()) + ", desc=" + t.getDescription())
+                .map(this::formatCandidateForDecisionPrompt)
                 .collect(Collectors.joining("\n"));
         String historyText = (history == null || history.isEmpty()) ? "(empty)" : String.join("\n", history);
         String base = String.format(PromptTemplates.TOOL_DECISION_PROMPT, input, historyText, toolDesc);
@@ -184,6 +184,23 @@ public class AgentServiceImpl implements AgentService {
                    {"action_type":"direct_answer","answer":"..."}
                 4) 兼容旧格式可返回 {"tool_name":"..."}，系统会自动视为 tool_call。
                 """;
+    }
+
+    private String formatCandidateForDecisionPrompt(Resource resource) {
+        String type = resource == null || resource.getType() == null ? "TOOL" : resource.getType().name();
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("name", resource == null ? "" : resource.getName());
+        payload.put("type", type);
+        payload.put("description", resource == null ? "" : resource.getDescription());
+        payload.put("server_code", resource == null ? "" : resource.getServerCode());
+        payload.put("execution_mode", resource == null ? "MCP" : resource.getExecutionMode());
+        payload.put("input_schema", parseJsonOrText(resource == null ? null : resource.getInputSchema()));
+        payload.put("arguments_schema", parseJsonOrText(resource == null ? null : resource.getArgumentsSchema()));
+        payload.put("approval_required", resource != null && Boolean.TRUE.equals(resource.getRequiresApproval()));
+        payload.put("sensitivity", resource == null || resource.getSensitivity() == null ? "LOW" : resource.getSensitivity().name());
+        payload.put("resource_uri", resource == null ? null : resource.getResourceUri());
+        payload.put("mime_type", resource == null ? null : resource.getMimeType());
+        return "- " + toJson(payload);
     }
 
     private String buildArgsPrompt(String input, List<String> history, Resource resource) {
@@ -408,6 +425,17 @@ public class AgentServiceImpl implements AgentService {
             return objectMapper.writeValueAsString(obj);
         } catch (Exception e) {
             return "{\"status\":\"error\",\"message\":\"serialization failed\"}";
+        }
+    }
+
+    private Object parseJsonOrText(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return Map.of();
+        }
+        try {
+            return objectMapper.readTree(raw);
+        } catch (Exception ignore) {
+            return raw;
         }
     }
 

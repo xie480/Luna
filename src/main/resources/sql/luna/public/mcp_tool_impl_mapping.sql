@@ -5,6 +5,7 @@ create table mcp_tool_impl_mapping
     server_code  varchar(100) not null,
     tool_name    varchar(200) not null,
     impl_type    varchar(50)  not null,
+    execution_mode varchar(16) default 'MCP',
     bean_name    varchar(100),
     method_name  varchar(100),
     route_uri    varchar(500),
@@ -16,8 +17,18 @@ create table mcp_tool_impl_mapping
     unique (server_code, tool_name),
     constraint chk_mcp_tool_impl_mapping_impl_type
         check (upper(impl_type) in ('LOCAL_HANDLER', 'HTTP', 'RPC', 'WORKFLOW', 'SPRING_BEAN')),
-    constraint chk_mcp_tool_impl_mapping_spring_bean_disabled
-        check (upper(impl_type) <> 'SPRING_BEAN' or enabled = false)
+    constraint chk_mcp_tool_impl_mapping_execution_mode
+        check (upper(execution_mode) in ('LEGACY', 'MCP')),
+    constraint chk_mcp_tool_impl_mapping_spring_bean_require_bean_method
+        check (
+            upper(impl_type) <> 'SPRING_BEAN'
+            or (
+                coalesce(length(trim(bean_name)), 0) > 0
+                and coalesce(length(trim(method_name)), 0) > 0
+            )
+        ),
+    constraint chk_mcp_tool_impl_mapping_spring_bean_legacy_mode
+        check (upper(impl_type) <> 'SPRING_BEAN' or upper(execution_mode) = 'LEGACY')
 );
 
 comment on table mcp_tool_impl_mapping is 'Tool to implementation routing table, internal for MCP server';
@@ -34,3 +45,6 @@ create index idx_mcp_tool_impl_mapping_enabled
 
 create index idx_mcp_tool_impl_mapping_impl_type
     on mcp_tool_impl_mapping (impl_type);
+
+create index idx_mcp_tool_impl_mapping_execution_mode
+    on mcp_tool_impl_mapping (execution_mode);

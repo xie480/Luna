@@ -42,6 +42,9 @@ public class McpToolImplMapping implements Serializable {
     @TableField("impl_type")
     private String implType;
 
+    @TableField("execution_mode")
+    private String executionMode;
+
     @TableField("bean_name")
     private String beanName;
 

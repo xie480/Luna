@@ -65,6 +65,9 @@ public class McpToolCatalog implements Serializable {
     @TableField("version")
     private String version;
 
+    @TableField("execution_mode")
+    private String executionMode;
+
     @TableField("requires_approval")
     private Boolean requiresApproval;
 

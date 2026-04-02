@@ -25,12 +25,25 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class McpCatalogMigrationJob {
+
+    private static final Set<String> CORE_LOCAL_HANDLER_TOOLS = Set.of(
+            "manage_memory",
+            "manage_schedule_task",
+            "manage_knowledge_base",
+            "manage_log",
+            "web_search",
+            "image_search",
+            "news_search",
+            "lens_search",
+            "web_scrape"
+    );
 
     private final JdbcTemplate jdbcTemplate;
     private final McpService mcpService;
@@ -48,6 +61,9 @@ public class McpCatalogMigrationJob {
     @Value("${luna.mcp.migration.read-legacy-enabled:false}")
     private boolean readLegacyEnabled;
 
+    @Value("${luna.mcp.migration.fail-on-legacy-pending:false}")
+    private boolean failOnLegacyPending;
+
     @PostConstruct
     public void migrateOnStartup() {
         if (!autoEnabled) {
@@ -61,7 +77,7 @@ public class McpCatalogMigrationJob {
         if (!validationEnabled) {
             return;
         }
-        validateSnapshot("scheduled", 0, 0, 0);
+        validateSnapshot("scheduled", 0, 0, 0, 0);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -71,11 +87,14 @@ public class McpCatalogMigrationJob {
         }
         try {
             if (!readLegacyEnabled) {
-                validateSnapshot(trigger, 0, 0, 0);
+                reportLegacyPendingRetirement(trigger);
+                ensureCoreLocalHandlerMappings();
+                validateSnapshot(trigger, 0, 0, 0, 0);
                 return;
             }
             if (!tableExists("mcp_tools") && !tableExists("mcp_skills")) {
-                validateSnapshot(trigger, 0, 0, 0);
+                ensureCoreLocalHandlerMappings();
+                validateSnapshot(trigger, 0, 0, 0, 0);
                 return;
             }
 
@@ -83,10 +102,12 @@ public class McpCatalogMigrationJob {
 
             int migratedTools = migrateLegacyTools();
             int migratedSkillsAsPrompt = migrateLegacySkillsAsPrompt();
+            int migratedSkillsAsCompositeTool = migrateLegacySkillsAsCompositeTool();
             int migratedSkillsAsWorkflow = migrateLegacySkillsAsWorkflow();
+            ensureCoreLocalHandlerMappings();
 
             capabilityCatalogSyncService.syncFromServers();
-            validateSnapshot(trigger, migratedTools, migratedSkillsAsPrompt, migratedSkillsAsWorkflow);
+            validateSnapshot(trigger, migratedTools, migratedSkillsAsPrompt, migratedSkillsAsWorkflow, migratedSkillsAsCompositeTool);
         } catch (Exception e) {
             log.warn("mcp auto migration failed, trigger={}, err={}", trigger, e.getMessage(), e);
         } finally {
@@ -132,6 +153,7 @@ public class McpCatalogMigrationJob {
                     .outputSchema(parseJsonMap(row.get("output_schema")))
                     .enabled(true)
                     .version(defaultValue(text(row.get("version")), "1.0.0"))
+                    .executionMode(isCoreLocalHandlerTool(toolName) ? "MCP" : "LEGACY")
                     .requiresApproval(boolValue(row.get("requires_approval")))
                     .sensitivity(defaultValue(text(row.get("sensitivity")).toUpperCase(Locale.ROOT), "LOW"))
                     .rawPayload(legacyToolRawPayload(row))
@@ -143,11 +165,12 @@ public class McpCatalogMigrationJob {
             McpToolImplMapping mapping = McpToolImplMapping.builder()
                     .serverCode(McpConstant.LOCAL_SERVER_CODE)
                     .toolName(toolName)
-                    .implType("SPRING_BEAN")
+                    .implType(resolveToolImplType(toolName))
                     .beanName(text(row.get("bean_name")))
                     .methodName(text(row.get("method_name")))
                     .timeoutMs(10000)
-                    .enabled(false)
+                    .enabled(isCoreLocalHandlerTool(toolName))
+                    .executionMode(isCoreLocalHandlerTool(toolName) ? "MCP" : "LEGACY")
                     .build();
             mcpService.upsertToolImplMapping(mapping);
             migrated++;
@@ -167,7 +190,7 @@ public class McpCatalogMigrationJob {
                 """);
         int migrated = 0;
         for (Map<String, Object> row : rows) {
-            if (isWorkflowLike(row)) {
+            if (!isPromptLike(row)) {
                 continue;
             }
             String name = text(row.get("name"));
@@ -193,6 +216,59 @@ public class McpCatalogMigrationJob {
         return migrated;
     }
 
+    private int migrateLegacySkillsAsCompositeTool() {
+        if (!tableExists("mcp_skills")) {
+            return 0;
+        }
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+                select id, name, description, version, owner, bean_name, method_name,
+                       input_schema, output_schema, run_mode,
+                       required_capabilities, tool_slots, thought_chain, embedding
+                from mcp_skills
+                """);
+        int migrated = 0;
+        for (Map<String, Object> row : rows) {
+            if (!isCompositeToolLike(row)) {
+                continue;
+            }
+            String name = text(row.get("name"));
+            if (name.isBlank()) {
+                continue;
+            }
+            McpToolCatalog tool = McpToolCatalog.builder()
+                    .id(longValue(row.get("id")))
+                    .serverCode(McpConstant.LOCAL_SERVER_CODE)
+                    .toolName(name)
+                    .title(name)
+                    .description(text(row.get("description")))
+                    .inputSchema(parseJsonMap(row.get("input_schema")))
+                    .outputSchema(parseJsonMap(row.get("output_schema")))
+                    .enabled(true)
+                    .version(defaultValue(text(row.get("version")), "1.0.0"))
+                    .requiresApproval(false)
+                    .sensitivity("LOW")
+                    .executionMode("MCP")
+                    .rawPayload(legacyCompositeSkillRawPayload(row))
+                    .embedding(text(row.get("embedding")))
+                    .syncedAt(LocalDateTime.now())
+                    .build();
+            mcpService.upsertToolCatalog(tool);
+
+            // Composite tool is executed by CompositeWorkflowLocalMcpToolHandler through workflow_template.
+            McpToolImplMapping mapping = McpToolImplMapping.builder()
+                    .serverCode(McpConstant.LOCAL_SERVER_CODE)
+                    .toolName(name)
+                    .implType("LOCAL_HANDLER")
+                    .timeoutMs(10000)
+                    .enabled(true)
+                    .executionMode("MCP")
+                    .build();
+            mcpService.upsertToolImplMapping(mapping);
+            migrated++;
+        }
+        return migrated;
+    }
+
     private int migrateLegacySkillsAsWorkflow() {
         if (!tableExists("mcp_skills")) {
             return 0;
@@ -205,7 +281,7 @@ public class McpCatalogMigrationJob {
                 """);
         int migrated = 0;
         for (Map<String, Object> row : rows) {
-            if (!isWorkflowLike(row)) {
+            if (!isWorkflowLike(row) || isCompositeToolLike(row)) {
                 continue;
             }
             String name = text(row.get("name"));
@@ -231,10 +307,39 @@ public class McpCatalogMigrationJob {
         return migrated;
     }
 
+    private void ensureCoreLocalHandlerMappings() {
+        if (!tableExists("mcp_tool_catalog")) {
+            return;
+        }
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+                select server_code, tool_name
+                from mcp_tool_catalog
+                where lower(tool_name) in ('manage_memory','manage_schedule_task','manage_knowledge_base','manage_log',
+                                           'web_search','image_search','news_search','lens_search','web_scrape')
+                """);
+        for (Map<String, Object> row : rows) {
+            String serverCode = defaultValue(text(row.get("server_code")), McpConstant.LOCAL_SERVER_CODE);
+            String toolName = text(row.get("tool_name"));
+            if (toolName.isBlank()) {
+                continue;
+            }
+            McpToolImplMapping mapping = McpToolImplMapping.builder()
+                    .serverCode(serverCode)
+                    .toolName(toolName)
+                    .implType("LOCAL_HANDLER")
+                    .enabled(true)
+                    .timeoutMs(10000)
+                    .executionMode("MCP")
+                    .build();
+            mcpService.upsertToolImplMapping(mapping);
+        }
+    }
+
     private void validateSnapshot(String trigger,
                                   int migratedTools,
                                   int migratedPrompts,
-                                  int migratedWorkflows) {
+                                  int migratedWorkflows,
+                                  int migratedCompositeTools) {
         long legacyTools = readLegacyEnabled ? countIfTableExists("mcp_tools") : 0L;
         long legacySkills = readLegacyEnabled ? countIfTableExists("mcp_skills") : 0L;
         long catalogTools = countIfTableExists("mcp_tool_catalog");
@@ -246,13 +351,27 @@ public class McpCatalogMigrationJob {
             log.warn("mcp migration validation warning: tool coverage incomplete, trigger={}, legacyTools={}, catalogTools={}, implMappings={}",
                     trigger, legacyTools, catalogTools, implMappings);
         }
-        if (legacySkills > 0 && (catalogPrompts + workflows) < legacySkills) {
-            log.warn("mcp migration validation warning: skill coverage incomplete, trigger={}, legacySkills={}, prompts={}, workflows={}",
-                    trigger, legacySkills, catalogPrompts, workflows);
+        if (legacySkills > 0 && (catalogPrompts + workflows + migratedCompositeTools) < legacySkills) {
+            log.warn("mcp migration validation warning: skill coverage incomplete, trigger={}, legacySkills={}, prompts={}, workflows={}, compositeTools={}",
+                    trigger, legacySkills, catalogPrompts, workflows, migratedCompositeTools);
         }
 
-        log.info("mcp migration snapshot: trigger={}, migratedTools={}, migratedPrompts={}, migratedWorkflows={}, legacyTools={}, legacySkills={}, catalogTools={}, implMappings={}, prompts={}, workflows={}",
-                trigger, migratedTools, migratedPrompts, migratedWorkflows, legacyTools, legacySkills, catalogTools, implMappings, catalogPrompts, workflows);
+        log.info("mcp migration snapshot: trigger={}, migratedTools={}, migratedPrompts={}, migratedWorkflows={}, migratedCompositeTools={}, legacyTools={}, legacySkills={}, catalogTools={}, implMappings={}, prompts={}, workflows={}",
+                trigger, migratedTools, migratedPrompts, migratedWorkflows, migratedCompositeTools, legacyTools, legacySkills, catalogTools, implMappings, catalogPrompts, workflows);
+    }
+
+    private void reportLegacyPendingRetirement(String trigger) {
+        long legacyTools = countIfTableExists("mcp_tools");
+        long legacySkills = countIfTableExists("mcp_skills");
+        if (legacyTools <= 0 && legacySkills <= 0) {
+            return;
+        }
+        String message = "legacy MCP tables still online while read-legacy is disabled, trigger=" + trigger
+                + ", mcp_tools=" + legacyTools + ", mcp_skills=" + legacySkills;
+        if (failOnLegacyPending) {
+            throw new IllegalStateException(message);
+        }
+        log.warn(message);
     }
 
     private Map<String, Object> legacyToolRawPayload(Map<String, Object> row) {
@@ -277,6 +396,19 @@ public class McpCatalogMigrationJob {
         return payload;
     }
 
+    private Map<String, Object> legacyCompositeSkillRawPayload(Map<String, Object> row) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("migrationType", "COMPOSITE_TOOL");
+        payload.put("skillName", text(row.get("name")));
+        payload.put("legacyBeanName", text(row.get("bean_name")));
+        payload.put("legacyMethodName", text(row.get("method_name")));
+        payload.put("runMode", defaultValue(text(row.get("run_mode")).toUpperCase(Locale.ROOT), "SYNC"));
+        payload.put("requiredCapabilities", parseJsonStringList(row.get("required_capabilities")));
+        payload.put("toolSlots", parseJsonMapList(row.get("tool_slots")));
+        payload.put("thoughtChain", parseJsonStringList(row.get("thought_chain")));
+        return payload;
+    }
+
     private boolean isWorkflowLike(Map<String, Object> row) {
         String runMode = text(row.get("run_mode")).toUpperCase(Locale.ROOT);
         if ("ASYNC".equals(runMode)) {
@@ -289,6 +421,34 @@ public class McpCatalogMigrationJob {
             return true;
         }
         return !parseJsonStringList(row.get("thought_chain")).isEmpty();
+    }
+
+    private boolean isCompositeToolLike(Map<String, Object> row) {
+        if (row == null || row.isEmpty()) {
+            return false;
+        }
+        String runMode = text(row.get("run_mode")).toUpperCase(Locale.ROOT);
+        if ("ASYNC".equals(runMode)) {
+            return false;
+        }
+        String beanName = text(row.get("bean_name"));
+        String methodName = text(row.get("method_name"));
+        if (beanName.isBlank() || methodName.isBlank()) {
+            return false;
+        }
+        return isWorkflowLike(row);
+    }
+
+    private boolean isPromptLike(Map<String, Object> row) {
+        return !isWorkflowLike(row);
+    }
+
+    private String resolveToolImplType(String toolName) {
+        return isCoreLocalHandlerTool(toolName) ? "LOCAL_HANDLER" : "SPRING_BEAN";
+    }
+
+    private boolean isCoreLocalHandlerTool(String toolName) {
+        return CORE_LOCAL_HANDLER_TOOLS.contains(text(toolName).toLowerCase(Locale.ROOT));
     }
 
     private boolean tableExists(String tableName) {

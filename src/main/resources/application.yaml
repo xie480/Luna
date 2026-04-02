@@ -168,7 +168,9 @@ luna:
       auto-enabled: false
       validation-enabled: true
       read-legacy-enabled: false
+      fail-on-legacy-pending: false
     execution:
+      allow-legacy-mode: false
       allow-spring-bean: false
     compat:
       skill-endpoint-enabled: false

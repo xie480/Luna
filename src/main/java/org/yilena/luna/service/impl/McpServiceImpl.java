@@ -139,6 +139,7 @@ public class McpServiceImpl implements McpService {
         if (toolCatalog == null || blank(toolCatalog.getServerCode()) || blank(toolCatalog.getToolName())) {
             throw new IllegalArgumentException("serverCode/toolName required");
         }
+        toolCatalog.setExecutionMode(normalizeExecutionMode(toolCatalog.getExecutionMode()));
         enrichToolCatalog(toolCatalog);
         McpToolCatalog exist = toolCatalogMapper.selectOne(new LambdaQueryWrapper<McpToolCatalog>()
                 .eq(McpToolCatalog::getServerCode, toolCatalog.getServerCode())
@@ -157,6 +158,7 @@ public class McpServiceImpl implements McpService {
         }
         String implType = normalizeImplType(mapping.getImplType());
         mapping.setImplType(implType);
+        mapping.setExecutionMode(normalizeExecutionMode(mapping.getExecutionMode()));
         if ("SPRING_BEAN".equals(implType) && Boolean.TRUE.equals(mapping.getEnabled()) && !allowSpringBean) {
             throw new IllegalArgumentException("SPRING_BEAN mapping cannot be enabled when luna.mcp.execution.allow-spring-bean=false");
         }
@@ -220,6 +222,7 @@ public class McpServiceImpl implements McpService {
     private Resource toTool(McpToolCatalog t) {
         return Resource.builder().id(String.valueOf(t.getId())).type(ResourceType.TOOL).serverCode(t.getServerCode()).name(t.getToolName())
                 .description(t.getDescription()).version(t.getVersion()).inputSchema(json(t.getInputSchema())).outputSchema(json(t.getOutputSchema()))
+                .executionMode(normalizeExecutionMode(t.getExecutionMode()))
                 .requiresApproval(Boolean.TRUE.equals(t.getRequiresApproval())).sensitivity(parseSensitivity(t.getSensitivity())).runMode(RunMode.SYNC).build();
     }
 
@@ -445,6 +448,17 @@ public class McpServiceImpl implements McpService {
         return switch (normalized) {
             case "LOCAL_HANDLER", "HTTP", "RPC", "WORKFLOW", "SPRING_BEAN" -> normalized;
             default -> throw new IllegalArgumentException("Unsupported implType: " + normalized);
+        };
+    }
+
+    private String normalizeExecutionMode(String executionMode) {
+        if (blank(executionMode)) {
+            return "MCP";
+        }
+        String normalized = executionMode.trim().toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case "MCP", "LEGACY" -> normalized;
+            default -> "MCP";
         };
     }
 

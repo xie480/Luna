@@ -30,6 +30,7 @@ public class Resource implements Serializable {
     private String resourceUri;
     private String mimeType;
     private String version;
+    private String executionMode;
     private String owner;
 
     private String inputSchema;

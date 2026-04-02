@@ -64,6 +64,9 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
     @Value("${luna.mcp.execution.allow-spring-bean:false}")
     private boolean allowSpringBean;
 
+    @Value("${luna.mcp.execution.allow-legacy-mode:false}")
+    private boolean allowLegacyMode;
+
     @Override
     public List<McpToolDescriptor> listTools(String serverCode) {
         String targetServer = normalizeServerCode(serverCode);
@@ -90,6 +93,26 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
         }
 
         String implType = normalizeImplType(mapping.getImplType());
+        String executionMode = normalizeExecutionMode(mapping.getExecutionMode());
+        if ("LEGACY".equals(executionMode) && !allowLegacyMode) {
+            return McpToolCallResult.builder()
+                    .status("error")
+                    .serverCode(targetServer)
+                    .toolName(toolName)
+                    .rawResult(errorResult("TOOL_LEGACY_MODE_DISABLED", "LEGACY execution mode is disabled"))
+                    .data(Map.of("errorCode", "TOOL_LEGACY_MODE_DISABLED", "message", "LEGACY execution mode is disabled"))
+                    .build();
+        }
+        if ("SPRING_BEAN".equals(implType) && !"LEGACY".equals(executionMode)) {
+            return McpToolCallResult.builder()
+                    .status("error")
+                    .serverCode(targetServer)
+                    .toolName(toolName)
+                    .rawResult(errorResult("TOOL_IMPL_MODE_INVALID", "SPRING_BEAN impl requires LEGACY execution mode"))
+                    .data(Map.of("errorCode", "TOOL_IMPL_MODE_INVALID", "message", "SPRING_BEAN impl requires LEGACY execution mode"))
+                    .build();
+        }
+
         String args = (argumentsJson == null || argumentsJson.isBlank()) ? "{}" : argumentsJson;
         String rawResult = switch (implType) {
             case "HTTP", "RPC", "WORKFLOW" -> invokeRoute(mapping, toolName, targetServer, args);
@@ -511,6 +534,17 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
             return "LOCAL_HANDLER";
         }
         return implType.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private String normalizeExecutionMode(String executionMode) {
+        if (executionMode == null || executionMode.isBlank()) {
+            return "MCP";
+        }
+        String normalized = executionMode.trim().toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case "MCP", "LEGACY" -> normalized;
+            default -> "MCP";
+        };
     }
 
     private McpToolDescriptor toToolDescriptor(McpToolCatalog row) {

@@ -9,7 +9,6 @@ import org.yilena.luna.enums.ResourceType;
 import org.yilena.luna.enums.RunMode;
 import org.yilena.luna.enums.Sensitivity;
 import org.yilena.luna.enums.TaskRuntimeState;
-import org.yilena.luna.service.McpService;
 
 import java.util.Collections;
 import java.util.List;
@@ -21,7 +20,6 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ToolRouter {
 
-    private final McpService mcpService;
     private final CapabilityPolicyRouterService capabilityPolicyRouterService;
 
     public List<Resource> findCandidates(String query) {
@@ -31,11 +29,7 @@ public class ToolRouter {
     public List<Resource> findCandidates(String query, TaskRuntimeState taskState, RelationalRuntimeState relationalState) {
         log.info("search candidates by query [{}]", query);
         List<Resource> capabilityCandidates = fromCapabilityRegistry(query, taskState, relationalState);
-        if (!capabilityCandidates.isEmpty()) {
-            return capabilityCandidates.size() > 10 ? capabilityCandidates.subList(0, 10) : capabilityCandidates;
-        }
-        List<Resource> fallback = mcpService.searchResources(query);
-        return fallback.size() > 10 ? fallback.subList(0, 10) : fallback;
+        return capabilityCandidates.size() > 10 ? capabilityCandidates.subList(0, 10) : capabilityCandidates;
     }
 
     private List<Resource> fromCapabilityRegistry(String query, TaskRuntimeState taskState, RelationalRuntimeState relationalState) {
@@ -73,6 +67,7 @@ public class ToolRouter {
                 .requiresApproval(boolVal(row.get("requires_approval")))
                 .sensitivity(parseSensitivity(stringVal(row.get("sensitivity"))))
                 .version(stringVal(row.get("version")))
+                .executionMode(resolveExecutionMode(metadata))
                 .type(parseType(capabilityType))
                 .runMode(RunMode.SYNC)
                 .build();
@@ -158,5 +153,16 @@ public class ToolRouter {
 
     private String toJsonText(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private String resolveExecutionMode(Map<String, Object> metadata) {
+        if (metadata == null || metadata.isEmpty()) {
+            return "MCP";
+        }
+        String mode = stringVal(metadata.get("execution_mode")).trim().toUpperCase(Locale.ROOT);
+        if ("LEGACY".equals(mode) || "MCP".equals(mode)) {
+            return mode;
+        }
+        return "MCP";
     }
 }

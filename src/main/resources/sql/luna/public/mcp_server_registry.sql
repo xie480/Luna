@@ -37,3 +37,11 @@ insert into mcp_server_registry
 values
     (1, 'local-agent-server', 'Local Agent MCP Server', 'Local Spring-hosted MCP provider', null, 'LOCAL', true)
 on conflict (server_code) do nothing;
+
+insert into mcp_server_registry
+(id, server_code, server_name, description, base_url, transport_type, enabled)
+values
+    (2, 'knowledge-mcp-server', 'Knowledge MCP Server', 'Independent knowledge domain MCP provider', 'http://127.0.0.1:8101/mcp', 'HTTP', false),
+    (3, 'workflow-mcp-server', 'Workflow MCP Server', 'Independent workflow domain MCP provider', 'http://127.0.0.1:8102/mcp', 'HTTP', false),
+    (4, 'ops-mcp-server', 'Ops MCP Server', 'Independent ops/tooling MCP provider', 'http://127.0.0.1:8103/mcp', 'HTTP', false)
+on conflict (server_code) do nothing;
