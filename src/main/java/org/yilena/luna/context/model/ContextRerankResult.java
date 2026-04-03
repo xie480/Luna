@@ -9,6 +9,7 @@ import java.util.Map;
 @Value
 @Builder
 public class ContextRerankResult {
+    List<EvidenceBlock> selectedKnowledgeEvidenceBlocks;
     List<String> selectedKnowledgeBlocks;
     List<Map<String, Object>> selectedToolCandidates;
     List<Map<String, Object>> selectedPromptResources;
@@ -17,4 +18,3 @@ public class ContextRerankResult {
     List<String> rejectedCandidates;
     Map<String, String> rationaleByNode;
 }
-

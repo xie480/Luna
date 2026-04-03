@@ -1,24 +1,32 @@
 package org.yilena.luna.context.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.enums.RelationalRuntimeState;
 import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.memory.model.StructuredContextPackage;
+import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.state.model.TaskState;
 import org.yilena.luna.state.model.ToolState;
+import org.yilena.luna.utils.LlmClientUtil;
 
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
 class DefaultInputReconstructionAgentTest {
 
     @Test
     void shouldUseStateAndRecentMemoryForReconstruction() {
-        DefaultInputReconstructionAgent agent = new DefaultInputReconstructionAgent();
+        DefaultInputReconstructionAgent agent = new DefaultInputReconstructionAgent(
+                mock(LlmClientUtil.class),
+                new GeminiProperty(),
+                new ObjectMapper()
+        );
         StructuredContextPackage contextPackage = StructuredContextPackage.builder()
                 .taskState(TaskRuntimeState.PLANNING)
                 .relationalState(RelationalRuntimeState.LIGHT_CHAT)
@@ -64,4 +72,3 @@ class DefaultInputReconstructionAgentTest {
         assertTrue(result.getReformulatedQueryForRag().contains("goal=完成Q2经营复盘"));
     }
 }
-

@@ -31,6 +31,7 @@ import org.yilena.luna.rag.models.RetrievalRequest;
 import org.yilena.luna.rag.models.RetrievalResponse;
 import org.yilena.luna.rag.models.RetrievalRoute;
 import org.yilena.luna.rag.models.RetrievalSource;
+import org.yilena.luna.router.CapabilityPolicyRouterService;
 import org.yilena.luna.router.ToolRouter;
 import org.yilena.luna.service.TaskOrchestratorService;
 import org.yilena.luna.service.model.NodeWorksetResult;
@@ -60,6 +61,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
     private final GlobalContextRerankAgent globalContextRerankAgent;
     private final EvidenceBlockBuilder evidenceBlockBuilder;
     private final RetrievalService retrievalService;
+    private final CapabilityPolicyRouterService capabilityPolicyRouterService;
     private final ToolRouter toolRouter;
     private final RerankTraceLogger rerankTraceLogger;
     private final ObjectMapper objectMapper;
@@ -221,9 +223,19 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         if (refreshPlan.needMcpRefresh) {
             mcpDrivenInput = appendRefreshFlag(mcpDrivenInput, "mcp");
         }
+        List<Map<String, Object>> rawMcpCandidates = capabilityPolicyRouterService.routeForContext(
+                sessionId,
+                mcpDrivenInput,
+                decision == null ? null : decision.getTaskState(),
+                decision == null ? null : decision.getRelationalState(),
+                24
+        );
+        if (rawMcpCandidates == null || rawMcpCandidates.isEmpty()) {
+            rawMcpCandidates = contextPackage == null ? List.of() : contextPackage.getCapabilityCandidates();
+        }
         List<Map<String, Object>> mcpPreRankedCandidates = mcpCandidatePreRank.preRank(
                 mcpDrivenInput,
-                contextPackage == null ? List.of() : contextPackage.getCapabilityCandidates(),
+                rawMcpCandidates,
                 reconstructionResult,
                 decision == null ? null : decision.getTaskState(),
                 24
@@ -239,6 +251,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 "system-level pre-rank before global semantic rerank",
                 toJsonSafe(Map.of(
                         "query", mcpDrivenInput,
+                        "rawCandidateCount", rawMcpCandidates.size(),
                         "candidateCount", mcpPreRankedCandidates.size(),
                         "candidates", mcpPreRankedCandidates
                 ))
@@ -344,7 +357,15 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             );
             rerankTraceLogger.log(sessionId, contextPlanId(contextPackage), contextNodeId(contextPackage), rerankResult);
 
-            if (rerankResult != null && rerankResult.getSelectedKnowledgeBlocks() != null && !rerankResult.getSelectedKnowledgeBlocks().isEmpty()) {
+            if (rerankResult != null && rerankResult.getSelectedKnowledgeEvidenceBlocks() != null
+                    && !rerankResult.getSelectedKnowledgeEvidenceBlocks().isEmpty()) {
+                selectedKnowledgeEvidenceBlocks = rerankResult.getSelectedKnowledgeEvidenceBlocks();
+                selectedKnowledge = selectedKnowledgeEvidenceBlocks.stream()
+                        .map(this::toEvidenceSnippet)
+                        .filter(item -> item != null && !item.isBlank())
+                        .toList();
+            } else if (rerankResult != null && rerankResult.getSelectedKnowledgeBlocks() != null
+                    && !rerankResult.getSelectedKnowledgeBlocks().isEmpty()) {
                 selectedKnowledge = rerankResult.getSelectedKnowledgeBlocks();
             } else {
                 selectedKnowledgeEvidenceBlocks = evidenceBlockBuilder.buildKnowledgeBlocks(getEvidences(response, RetrievalSource.KNOWLEDGE));

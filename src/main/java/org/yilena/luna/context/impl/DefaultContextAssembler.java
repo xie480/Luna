@@ -121,7 +121,20 @@ public class DefaultContextAssembler implements ContextAssembler {
                                                    List<EvidenceBlock> knowledgeEvidenceBlocks,
                                                    List<String> knowledgeSnippets) {
         List<String> out = new ArrayList<>();
-        if (rerankResult != null && rerankResult.getSelectedKnowledgeBlocks() != null && !rerankResult.getSelectedKnowledgeBlocks().isEmpty()) {
+        if (rerankResult != null && rerankResult.getSelectedKnowledgeEvidenceBlocks() != null
+                && !rerankResult.getSelectedKnowledgeEvidenceBlocks().isEmpty()) {
+            for (EvidenceBlock block : rerankResult.getSelectedKnowledgeEvidenceBlocks()) {
+                if (block == null) {
+                    continue;
+                }
+                out.add("id=" + safe(block.getBlockId())
+                        + "; source=" + safe(block.getSourceType())
+                        + "; score=" + safe(block.getScore())
+                        + "; title=" + safe(block.getTitle())
+                        + "; content=" + safe(block.getContent())
+                        + "; metadata=" + safe(block.getMetadata()));
+            }
+        } else if (rerankResult != null && rerankResult.getSelectedKnowledgeBlocks() != null && !rerankResult.getSelectedKnowledgeBlocks().isEmpty()) {
             out.addAll(rerankResult.getSelectedKnowledgeBlocks());
         }
         if (out.isEmpty() && knowledgeEvidenceBlocks != null) {
@@ -327,4 +340,3 @@ public class DefaultContextAssembler implements ContextAssembler {
         return mapped;
     }
 }
-

@@ -155,6 +155,31 @@ public interface MemoryWriteMapper {
                                @Param("factValue") String factValue, @Param("sourceType") String sourceType, @Param("sourceRef") String sourceRef,
                                @Param("confidenceScore") double confidenceScore, @Param("stabilityScore") double stabilityScore);
 
+    @Update("""
+            update task_semantic_fact target
+            set fact_value_text = #{factValue},
+                confidence_score = #{confidenceScore},
+                stability_score = #{stabilityScore},
+                source_type = #{sourceType},
+                source_ref = #{sourceRef},
+                deleted = false,
+                updated_at = current_timestamp
+            where target.fact_id = (
+                select tsf.fact_id
+                from task_semantic_fact tsf
+                join agent_session s on coalesce(s.principal_id, -1) = coalesce(tsf.principal_id, -1)
+                where s.session_id = #{sessionId}
+                  and tsf.fact_type = #{factType}
+                  and tsf.fact_key = #{factKey}
+                  and tsf.deleted = false
+                order by tsf.updated_at desc, tsf.fact_id desc
+                limit 1
+            )
+            """)
+    int reviseTaskSemanticFact(@Param("sessionId") String sessionId, @Param("factType") String factType, @Param("factKey") String factKey,
+                               @Param("factValue") String factValue, @Param("sourceType") String sourceType, @Param("sourceRef") String sourceRef,
+                               @Param("confidenceScore") double confidenceScore, @Param("stabilityScore") double stabilityScore);
+
     @Insert("""
             insert into relational_semantic_fact(principal_id, fact_type, fact_key, fact_value_text, confidence_score, stability_score, source_type, source_ref, deleted, created_at, updated_at)
             select s.principal_id, #{factType}, #{factKey}, #{factValue}, #{confidenceScore}, #{stabilityScore}, #{sourceType}, #{sourceRef}, false, current_timestamp, current_timestamp
@@ -162,6 +187,31 @@ public interface MemoryWriteMapper {
             where s.session_id = #{sessionId}
             """)
     int insertRelationalSemanticFact(@Param("sessionId") String sessionId, @Param("factType") String factType, @Param("factKey") String factKey,
+                                     @Param("factValue") String factValue, @Param("sourceType") String sourceType, @Param("sourceRef") String sourceRef,
+                                     @Param("confidenceScore") double confidenceScore, @Param("stabilityScore") double stabilityScore);
+
+    @Update("""
+            update relational_semantic_fact target
+            set fact_value_text = #{factValue},
+                confidence_score = #{confidenceScore},
+                stability_score = #{stabilityScore},
+                source_type = #{sourceType},
+                source_ref = #{sourceRef},
+                deleted = false,
+                updated_at = current_timestamp
+            where target.fact_id = (
+                select rsf.fact_id
+                from relational_semantic_fact rsf
+                join agent_session s on coalesce(s.principal_id, -1) = coalesce(rsf.principal_id, -1)
+                where s.session_id = #{sessionId}
+                  and rsf.fact_type = #{factType}
+                  and rsf.fact_key = #{factKey}
+                  and rsf.deleted = false
+                order by rsf.updated_at desc, rsf.fact_id desc
+                limit 1
+            )
+            """)
+    int reviseRelationalSemanticFact(@Param("sessionId") String sessionId, @Param("factType") String factType, @Param("factKey") String factKey,
                                      @Param("factValue") String factValue, @Param("sourceType") String sourceType, @Param("sourceRef") String sourceRef,
                                      @Param("confidenceScore") double confidenceScore, @Param("stabilityScore") double stabilityScore);
 

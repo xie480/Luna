@@ -60,13 +60,15 @@ public class DefaultContextCompilerService implements ContextCompilerService {
 
         Map<String, Object> runtime = runtimeRetriever.retrieve(sessionId);
         String contextualSignal = buildContextualSignal(runtime, taskStateStore.load(sessionId), retrievalStateStore.load(sessionId), toolStateStore.load(sessionId), contextStateStore.load(sessionId), taskState, relationalState);
+        RetrievalState storedRetrievalState = retrievalStateStore.load(sessionId);
+        String capabilityQuery = resolveCapabilityQuery(storedRetrievalState, contextualSignal);
         Map<String, Object> taskContext = taskMemoryRetriever.retrieve(sessionId, contextualSignal, taskState);
         Map<String, Object> relationalContext = relationalMemoryRetriever.retrieve(sessionId, contextualSignal, relationalState);
 
         List<Map<String, Object>> recentMessages = safeList(runtime.get("recent_messages"));
         List<Map<String, Object>> capabilities = capabilityPolicyRouterService.routeForContext(
                 sessionId,
-                contextualSignal,
+                capabilityQuery,
                 taskState,
                 relationalState,
                 24
@@ -107,6 +109,27 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                 .build();
         memoryHotLayerService.putCompiledContextCache(sessionId, userInput, taskState, relationalState, contextPackage);
         return contextPackage;
+    }
+
+    private String resolveCapabilityQuery(RetrievalState retrievalState, String fallback) {
+        if (retrievalState != null && retrievalState.getActiveQueries() != null && !retrievalState.getActiveQueries().isEmpty()) {
+            List<String> active = retrievalState.getActiveQueries().stream()
+                    .filter(item -> item != null && !item.isBlank())
+                    .toList();
+            String mcpQuery = active.stream()
+                    .filter(item -> item.toLowerCase().contains("task_goal=")
+                            || item.toLowerCase().contains("mcp")
+                            || item.toLowerCase().contains("capability"))
+                    .reduce((first, second) -> second)
+                    .orElse("");
+            if (!mcpQuery.isBlank()) {
+                return mcpQuery;
+            }
+            if (!active.isEmpty()) {
+                return active.get(active.size() - 1);
+            }
+        }
+        return fallback;
     }
 
     private String buildContextualSignal(Map<String, Object> runtime,

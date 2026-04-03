@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.context.GlobalContextRerankAgent;
 import org.yilena.luna.context.model.ContextRerankResult;
+import org.yilena.luna.context.model.EvidenceBlock;
 import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.enums.ModelType;
 import org.yilena.luna.enums.TaskRuntimeState;
@@ -84,17 +85,19 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
         preference = reorderByEvidenceIds(preference, modelRerank.preferenceRankIds());
         List<List<String>> duplicateClusters = detectDuplicates(knowledge, memory, preference);
 
-        List<String> selectedKnowledge = toKnowledgeBlocks(knowledge, knowledgeBudget);
+        List<EvidenceBlock> selectedKnowledgeEvidenceBlocks = toKnowledgeEvidenceBlocks(knowledge, knowledgeBudget);
+        List<String> selectedKnowledge = toKnowledgeSnippets(selectedKnowledgeEvidenceBlocks);
         List<String> selectedMemoryHints = toMemoryHints(memory, preference, memoryBudget);
         List<Map<String, Object>> toolCandidates = selectCapabilityCandidates(capabilityCandidates, "TOOL", 12, nodeGoal, taskState, mcpBudget, modelRerank.toolRankNames());
         List<Map<String, Object>> promptResourceCandidates = selectPromptResourceCandidates(capabilityCandidates, 10, nodeGoal, taskState, mcpBudget, modelRerank.promptResourceRankNames());
         List<String> rejected = collectRejected(capabilityCandidates, toolCandidates, promptResourceCandidates);
-        Map<String, String> rationale = buildRationale(stage, nodeGoal, totalBudget, selectedKnowledge, selectedMemoryHints, toolCandidates, promptResourceCandidates);
+        Map<String, String> rationale = buildRationale(stage, nodeGoal, totalBudget, selectedKnowledgeEvidenceBlocks, selectedMemoryHints, toolCandidates, promptResourceCandidates);
         if (!modelRerank.rationale().isBlank()) {
             rationale.put("model_rationale", modelRerank.rationale());
         }
 
         return ContextRerankResult.builder()
+                .selectedKnowledgeEvidenceBlocks(selectedKnowledgeEvidenceBlocks)
                 .selectedKnowledgeBlocks(selectedKnowledge)
                 .selectedToolCandidates(toolCandidates)
                 .selectedPromptResources(promptResourceCandidates)
@@ -200,26 +203,58 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
         return normalized.length() <= 120 ? normalized : normalized.substring(0, 120);
     }
 
-    private List<String> toKnowledgeBlocks(List<Evidence> evidenceList, int tokenBudget) {
+    private List<EvidenceBlock> toKnowledgeEvidenceBlocks(List<Evidence> evidenceList, int tokenBudget) {
         if (evidenceList == null || evidenceList.isEmpty()) {
             return List.of();
         }
-        Set<String> out = new LinkedHashSet<>();
+        List<EvidenceBlock> out = new ArrayList<>();
         int used = 0;
         for (Evidence evidence : evidenceList) {
-            String block = "id=" + safe(evidence.getId())
-                    + "; title=" + safe(evidence.getTitle())
-                    + "; content=" + safe(evidence.getContent());
-            if (!block.isBlank()) {
-                int estimate = estimateTokens(block);
-                if (used + estimate > tokenBudget && !out.isEmpty()) {
-                    break;
-                }
-                out.add(block);
-                used += estimate;
+            if (evidence == null) {
+                continue;
+            }
+            String content = safe(evidence.getContent());
+            String title = safe(evidence.getTitle());
+            if (content.isBlank() && title.isBlank()) {
+                continue;
+            }
+            String budgetProbe = "id=" + safe(evidence.getId()) + "; title=" + title + "; content=" + content;
+            int estimate = estimateTokens(budgetProbe);
+            if (used + estimate > tokenBudget && !out.isEmpty()) {
+                break;
+            }
+            out.add(EvidenceBlock.builder()
+                    .blockId(safe(evidence.getId()))
+                    .sourceType(evidence.getSource() == null ? "" : evidence.getSource().value())
+                    .title(title)
+                    .content(content)
+                    .score(evidence.getScore())
+                    .metadata(evidence.getMetadata() == null ? Map.of() : new LinkedHashMap<>(evidence.getMetadata()))
+                    .build());
+            used += estimate;
+        }
+        return out;
+    }
+
+    private List<String> toKnowledgeSnippets(List<EvidenceBlock> evidenceBlocks) {
+        if (evidenceBlocks == null || evidenceBlocks.isEmpty()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        for (EvidenceBlock block : evidenceBlocks) {
+            if (block == null) {
+                continue;
+            }
+            String line = "id=" + safe(block.getBlockId())
+                    + "; source=" + safe(block.getSourceType())
+                    + "; score=" + safe(block.getScore())
+                    + "; title=" + safe(block.getTitle())
+                    + "; content=" + safe(block.getContent());
+            if (!line.isBlank()) {
+                out.add(line);
             }
         }
-        return new ArrayList<>(out);
+        return out;
     }
 
     private List<String> toMemoryHints(List<Evidence> memory, List<Evidence> preference, int tokenBudget) {
@@ -341,7 +376,7 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
     private Map<String, String> buildRationale(String stage,
                                                String nodeGoal,
                                                int totalBudget,
-                                               List<String> knowledge,
+                                               List<EvidenceBlock> knowledge,
                                                List<String> memory,
                                                List<Map<String, Object>> tools,
                                                List<Map<String, Object>> promptResources) {
@@ -439,8 +474,8 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
         return "true".equals(text) || "1".equals(text) || "yes".equals(text);
     }
 
-    private String safe(String value) {
-        return value == null ? "" : value;
+    private String safe(Object value) {
+        return value == null ? "" : String.valueOf(value);
     }
 
     private int sizeOf(List<?> list) {

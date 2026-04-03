@@ -16,6 +16,7 @@ import org.yilena.luna.rag.rankers.EvidenceCompressor;
 import org.yilena.luna.rag.rankers.EvidenceDeduplicator;
 import org.yilena.luna.rag.rankers.EvidenceReranker;
 import org.yilena.luna.rag.retrievers.BaseRetriever;
+import org.yilena.luna.rag.support.SemanticTextService;
 
 import java.util.List;
 import java.util.Map;
@@ -63,9 +64,12 @@ class ModularPipelineTest {
 
         EvidenceReranker reranker = mock(EvidenceReranker.class);
         when(reranker.rerank(anyString(), anyList(), anyInt())).thenAnswer(invocation -> invocation.getArgument(1));
-        EvidenceDeduplicator deduplicator = new EvidenceDeduplicator();
         RagProperties properties = new RagProperties();
-        EvidenceCompressor compressor = new EvidenceCompressor(properties);
+        var embeddingProvider = mock(org.yilena.luna.rag.adapters.EmbeddingProvider.class);
+        when(embeddingProvider.embedding(anyString())).thenReturn("[0.1,0.2]");
+        SemanticTextService semanticTextService = new SemanticTextService(embeddingProvider);
+        EvidenceDeduplicator deduplicator = new EvidenceDeduplicator(properties, semanticTextService);
+        EvidenceCompressor compressor = new EvidenceCompressor(properties, semanticTextService);
 
         ModelDrivenRagPlanner planner = mock(ModelDrivenRagPlanner.class);
         when(planner.planSourceProcessing(anyString(), any(), anyInt(), anyInt(), anyBoolean(), anyBoolean()))

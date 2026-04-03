@@ -18,6 +18,7 @@ public class RuntimeRerankTraceLogger implements RerankTraceLogger {
     public void log(String sessionId, Long planId, Long nodeId, ContextRerankResult rerankResult) {
         try {
             java.util.Map<String, Object> payload = new java.util.LinkedHashMap<>();
+            payload.put("selectedKnowledgeEvidenceBlocks", rerankResult == null ? java.util.List.of() : rerankResult.getSelectedKnowledgeEvidenceBlocks());
             payload.put("selectedKnowledgeBlocks", rerankResult == null ? java.util.List.of() : rerankResult.getSelectedKnowledgeBlocks());
             payload.put("selectedToolCandidates", rerankResult == null ? java.util.List.of() : rerankResult.getSelectedToolCandidates());
             payload.put("selectedPromptResources", rerankResult == null ? java.util.List.of() : rerankResult.getSelectedPromptResources());

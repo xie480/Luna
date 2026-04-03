@@ -16,13 +16,12 @@ import org.yilena.luna.service.MasterPlanningService;
 import org.yilena.luna.utils.LlmClientUtil;
 
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
-/**
- * Master Planner 实现：
- * - 使用 code 模型一次性产出全局蓝图
- * - 若模型输出不合法，回退到最小可执行蓝图
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -36,17 +35,26 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
     public Map<String, Object> generateBlueprint(String planId,
                                                  String sessionId,
                                                  String userGoal,
-                                                 InputReconstructionResult reconstructionResult) {
+                                                 InputReconstructionResult reconstructionResult,
+                                                 List<Map<String, Object>> knowledgeEvidence,
+                                                 List<Map<String, Object>> workflowHints) {
+        List<Map<String, Object>> normalizedKnowledgeEvidence = normalizeSignalList(knowledgeEvidence, 12);
+        List<Map<String, Object>> normalizedWorkflowHints = normalizeSignalList(workflowHints, 16);
         try {
             String effectiveGoal = resolveEffectiveGoal(userGoal, reconstructionResult);
             Map<String, Object> reconstructedIntent = toReconstructionPayload(reconstructionResult);
-            String prompt = buildPlanningPrompt(planId, sessionId, effectiveGoal, reconstructedIntent);
-
-            String planningModel = resolvePlanningModelName();
+            String prompt = buildPlanningPrompt(
+                    planId,
+                    sessionId,
+                    effectiveGoal,
+                    reconstructedIntent,
+                    normalizedKnowledgeEvidence,
+                    normalizedWorkflowHints
+            );
 
             LlmRequest req = LlmRequest.builder()
                     .modelType(ModelType.OPENAI_COMPATIBLE)
-                    .modelName(planningModel)
+                    .modelName(resolvePlanningModelName())
                     .messages(List.of(LlmMessage.user(prompt)))
                     .temperature(0.2)
                     .enablePromptInjectionCheck(false)
@@ -54,25 +62,24 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
 
             LlmResponse resp = llmClientUtil.generate(req);
             String text = resp != null ? resp.getContent() : null;
-
             if (text == null || text.isBlank()) {
-                log.warn("Master Planner 返回为空，使用回退蓝图");
-                return fallbackBlueprint(planId, sessionId, userGoal, reconstructionResult);
+                log.warn("Master planner returned empty content, use fallback blueprint");
+                return fallbackBlueprint(planId, sessionId, userGoal, reconstructionResult, normalizedKnowledgeEvidence, normalizedWorkflowHints);
             }
 
             String cleaned = cleanJsonFence(text);
             Map<String, Object> map = objectMapper.readValue(cleaned, new TypeReference<Map<String, Object>>() {});
-
             map.putIfAbsent("planId", planId);
             map.putIfAbsent("sessionId", sessionId);
             map.putIfAbsent("userGoal", effectiveGoal);
             map.putIfAbsent("createdAt", LocalDateTime.now().toString());
             map.putIfAbsent("reconstructedIntent", reconstructedIntent);
-
+            map.putIfAbsent("knowledgeEvidence", normalizedKnowledgeEvidence);
+            map.putIfAbsent("workflowHints", normalizedWorkflowHints);
             return map;
         } catch (Exception e) {
-            log.error("Master Planner 生成蓝图失败，使用回退蓝图", e);
-            return fallbackBlueprint(planId, sessionId, userGoal, reconstructionResult);
+            log.error("Master planner blueprint generation failed, use fallback", e);
+            return fallbackBlueprint(planId, sessionId, userGoal, reconstructionResult, normalizedKnowledgeEvidence, normalizedWorkflowHints);
         }
     }
 
@@ -83,18 +90,29 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
         if (geminiProperty.getBig() != null && geminiProperty.getBig().getModelName() != null && !geminiProperty.getBig().getModelName().isBlank()) {
             return geminiProperty.getBig().getModelName();
         }
-        throw new IllegalStateException("未配置可用的规划模型（gemini.code 或 gemini.big）");
+        throw new IllegalStateException("No planning model configured (gemini.code/gemini.big)");
     }
 
     private String buildPlanningPrompt(String planId,
                                        String sessionId,
                                        String effectiveGoal,
-                                       Map<String, Object> planningMeta) {
-        String base = PromptTemplates.MASTER_PLANNING_PROMPT.formatted(planId, sessionId, effectiveGoal);
-        if (planningMeta == null || planningMeta.isEmpty()) {
-            return base;
+                                       Map<String, Object> planningMeta,
+                                       List<Map<String, Object>> knowledgeEvidence,
+                                       List<Map<String, Object>> workflowHints) {
+        StringBuilder prompt = new StringBuilder(PromptTemplates.MASTER_PLANNING_PROMPT.formatted(planId, sessionId, effectiveGoal));
+        if (planningMeta != null && !planningMeta.isEmpty()) {
+            prompt.append("\n\nreconstructed_intent_context (must be used for blueprint generation):\n")
+                    .append(planningMeta);
         }
-        return base + "\n\nreconstructed_intent_context (must be used for blueprint generation):\n" + planningMeta;
+        if (knowledgeEvidence != null && !knowledgeEvidence.isEmpty()) {
+            prompt.append("\n\nknowledge_evidence_blocks (RAG evidence, high priority for blueprint grounding):\n")
+                    .append(knowledgeEvidence);
+        }
+        if (workflowHints != null && !workflowHints.isEmpty()) {
+            prompt.append("\n\nworkflow_hints_from_mcp (capabilities/resources/workflows):\n")
+                    .append(workflowHints);
+        }
+        return prompt.toString();
     }
 
     private String cleanJsonFence(String text) {
@@ -109,32 +127,36 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
     private Map<String, Object> fallbackBlueprint(String planId,
                                                   String sessionId,
                                                   String userGoal,
-                                                  InputReconstructionResult reconstructionResult) {
+                                                  InputReconstructionResult reconstructionResult,
+                                                  List<Map<String, Object>> knowledgeEvidence,
+                                                  List<Map<String, Object>> workflowHints) {
         String effectiveGoal = resolveEffectiveGoal(userGoal, reconstructionResult);
         Map<String, Object> blueprint = new LinkedHashMap<>();
         blueprint.put("planId", planId);
         blueprint.put("sessionId", sessionId);
         blueprint.put("userGoal", effectiveGoal);
         blueprint.put("reconstructedIntent", toReconstructionPayload(reconstructionResult));
+        blueprint.put("knowledgeEvidence", normalizeSignalList(knowledgeEvidence, 12));
+        blueprint.put("workflowHints", normalizeSignalList(workflowHints, 16));
         blueprint.put("createdAt", LocalDateTime.now().toString());
 
         List<Map<String, Object>> phases = new ArrayList<>();
         phases.add(new LinkedHashMap<>() {{
             put("phaseId", planId + ":phase-1");
             put("name", "RESEARCH");
-            put("objective", "检索信息");
+            put("objective", "collect evidence");
             put("phaseOrder", 1);
         }});
         phases.add(new LinkedHashMap<>() {{
             put("phaseId", planId + ":phase-2");
             put("name", "PROMPT_SUMMARY");
-            put("objective", "整理结果");
+            put("objective", "summarize findings");
             put("phaseOrder", 2);
         }});
         phases.add(new LinkedHashMap<>() {{
             put("phaseId", planId + ":phase-3");
             put("name", "INGEST");
-            put("objective", "写入知识库");
+            put("objective", "write to knowledge base");
             put("phaseOrder", 3);
         }});
         blueprint.put("phases", phases);
@@ -182,7 +204,6 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
             put("conditionExpr", "");
         }});
         blueprint.put("edges", edges);
-
         return blueprint;
     }
 
@@ -193,6 +214,23 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
             return reconstructionResult.getExplicitTaskGoal();
         }
         return userGoal == null ? "" : userGoal;
+    }
+
+    private List<Map<String, Object>> normalizeSignalList(List<Map<String, Object>> rows, int limit) {
+        if (rows == null || rows.isEmpty() || limit <= 0) {
+            return List.of();
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            if (row == null || row.isEmpty()) {
+                continue;
+            }
+            out.add(new LinkedHashMap<>(row));
+            if (out.size() >= limit) {
+                break;
+            }
+        }
+        return out;
     }
 
     private Map<String, Object> toReconstructionPayload(InputReconstructionResult reconstructionResult) {

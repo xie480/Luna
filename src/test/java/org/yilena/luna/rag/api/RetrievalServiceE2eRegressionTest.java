@@ -17,6 +17,7 @@ import org.yilena.luna.rag.rankers.EvidenceCompressor;
 import org.yilena.luna.rag.rankers.EvidenceDeduplicator;
 import org.yilena.luna.rag.rankers.EvidenceReranker;
 import org.yilena.luna.rag.retrievers.BaseRetriever;
+import org.yilena.luna.rag.support.SemanticTextService;
 import org.yilena.luna.rag.router.RouteSelector;
 
 import java.util.List;
@@ -82,8 +83,8 @@ class RetrievalServiceE2eRegressionTest {
         SearchPipeline searchPipeline = new SearchPipeline(
                 List.of(retriever),
                 reranker,
-                new EvidenceDeduplicator(),
-                new EvidenceCompressor(properties),
+                new EvidenceDeduplicator(properties, new SemanticTextService(embeddingProvider)),
+                new EvidenceCompressor(properties, new SemanticTextService(embeddingProvider)),
                 properties,
                 planner,
                 fusionService

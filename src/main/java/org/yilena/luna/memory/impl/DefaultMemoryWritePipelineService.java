@@ -530,16 +530,30 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
                                         double confidence,
                                         double stability) {
         try {
-            memoryWriteMapper.insertTaskSemanticFact(
+            double boundedConfidence = bounded(confidence, 0.20, 0.99);
+            double boundedStability = bounded(stability, 0.20, 0.99);
+            int revised = memoryWriteMapper.reviseTaskSemanticFact(
                     sessionId,
                     factType,
                     factKey,
                     factValue,
                     sourceType,
                     sessionId,
-                    bounded(confidence, 0.20, 0.99),
-                    bounded(stability, 0.20, 0.99)
+                    boundedConfidence,
+                    boundedStability
             );
+            if (revised <= 0) {
+                memoryWriteMapper.insertTaskSemanticFact(
+                        sessionId,
+                        factType,
+                        factKey,
+                        factValue,
+                        sourceType,
+                        sessionId,
+                        boundedConfidence,
+                        boundedStability
+                );
+            }
         } catch (Exception ignore) {
         }
     }
@@ -552,16 +566,30 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
                                               double confidence,
                                               double stability) {
         try {
-            memoryWriteMapper.insertRelationalSemanticFact(
+            double boundedConfidence = bounded(confidence, 0.20, 0.99);
+            double boundedStability = bounded(stability, 0.20, 0.99);
+            int revised = memoryWriteMapper.reviseRelationalSemanticFact(
                     sessionId,
                     factType,
                     factKey,
                     factValue,
                     sourceType,
                     sessionId,
-                    bounded(confidence, 0.20, 0.99),
-                    bounded(stability, 0.20, 0.99)
+                    boundedConfidence,
+                    boundedStability
             );
+            if (revised <= 0) {
+                memoryWriteMapper.insertRelationalSemanticFact(
+                        sessionId,
+                        factType,
+                        factKey,
+                        factValue,
+                        sourceType,
+                        sessionId,
+                        boundedConfidence,
+                        boundedStability
+                );
+            }
         } catch (Exception ignore) {
         }
     }

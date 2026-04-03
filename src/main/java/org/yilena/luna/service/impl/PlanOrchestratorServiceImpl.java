@@ -100,7 +100,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             if (userGoal == null || userGoal.isBlank()) {
                 return error("PLAN_INVALID_INPUT", "userGoal 不能為空");
             }
-            InputReconstructionResult reconstructionResult = reconstructPlanInput(sessionId, userGoal);
+            PlanInputContext planInputContext = reconstructPlanInput(sessionId, userGoal);
+            InputReconstructionResult reconstructionResult = planInputContext == null ? null : planInputContext.reconstructionResult();
+            StructuredContextPackage planningContextPackage = planInputContext == null ? null : planInputContext.contextPackage();
             PlanningIntent planningIntent = parsePlanningIntent(userGoal);
             String effectiveGoal = resolveEffectiveGoal(userGoal, planningIntent, reconstructionResult);
 
@@ -135,7 +137,14 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             emitFrontProgress(planId, "PLAN_CREATED", "計劃已建立，正在生成藍圖", 0, 0, 0, 0);
 
             log.info("[Plan] 調用 MasterPlanningService 生成全局藍圖, planId={}", planId);
-            Map<String, Object> blueprint = masterPlanningService.generateBlueprint(planId, sessionId, userGoal, reconstructionResult);
+            Map<String, Object> blueprint = masterPlanningService.generateBlueprint(
+                    planId,
+                    sessionId,
+                    userGoal,
+                    reconstructionResult,
+                    extractPlanningKnowledgeEvidence(planningContextPackage),
+                    extractPlanningWorkflowHints(planningContextPackage)
+            );
 
             String validateErr = blueprintValidationService.validate(blueprint);
             if (validateErr != null) {
@@ -1049,20 +1058,73 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         };
     }
 
-    private InputReconstructionResult reconstructPlanInput(String sessionId, String userGoal) {
+    private PlanInputContext reconstructPlanInput(String sessionId, String userGoal) {
         try {
             StructuredContextPackage contextPackage = contextCompilerService.compile(sessionId, userGoal, null, null);
-            return inputReconstructionAgent.reconstruct(
+            InputReconstructionResult reconstructionResult = inputReconstructionAgent.reconstruct(
                     sessionId,
                     userGoal,
                     contextPackage,
                     contextPackage == null ? null : contextPackage.getTaskState(),
                     contextPackage == null ? null : contextPackage.getRelationalState()
             );
+            return new PlanInputContext(contextPackage, reconstructionResult);
         } catch (Exception ex) {
             log.warn("[Plan] input reconstruction failed, fallback to raw userGoal, sessionId={}, err={}", sessionId, ex.getMessage());
-            return null;
+            return new PlanInputContext(null, null);
         }
+    }
+
+    private List<Map<String, Object>> extractPlanningKnowledgeEvidence(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getTaskContext() == null) {
+            return List.of();
+        }
+        List<Map<String, Object>> taskKnowledge = asListOfMap(contextPackage.getTaskContext().get("knowledge"));
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Map<String, Object> item : taskKnowledge) {
+            if (item == null || item.isEmpty()) {
+                continue;
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("id", firstNonBlank(text(item.get("chunk_id")), text(item.get("id"))));
+            row.put("title", firstNonBlank(text(item.get("title")), text(item.get("chunk_summary"))));
+            row.put("content", firstNonBlank(text(item.get("chunk_text")), text(item.get("content"))));
+            row.put("source", firstNonBlank(text(item.get("source_type")), "RAG_KNOWLEDGE"));
+            row.put("score", firstNonBlank(text(item.get("score")), text(item.get("similarity"))));
+            out.add(row);
+            if (out.size() >= 12) {
+                break;
+            }
+        }
+        return out;
+    }
+
+    private List<Map<String, Object>> extractPlanningWorkflowHints(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getCapabilityCandidates() == null) {
+            return List.of();
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Map<String, Object> item : contextPackage.getCapabilityCandidates()) {
+            if (item == null || item.isEmpty()) {
+                continue;
+            }
+            String capabilityType = text(item.get("capability_type")).toUpperCase(Locale.ROOT);
+            if (!"WORKFLOW".equals(capabilityType) && !"PROMPT".equals(capabilityType) && !"RESOURCE".equals(capabilityType)) {
+                continue;
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("capabilityName", firstNonBlank(text(item.get("capability_name")), text(item.get("name"))));
+            row.put("capabilityType", capabilityType);
+            row.put("description", text(item.get("description")));
+            row.put("serverCode", text(item.get("server_code")));
+            row.put("requiresApproval", boolVal(item.get("requires_approval"), false));
+            row.put("sensitivity", firstNonBlank(text(item.get("sensitivity")), "LOW"));
+            out.add(row);
+            if (out.size() >= 16) {
+                break;
+            }
+        }
+        return out;
     }
 
     private String resolveEffectiveGoal(String rawUserGoal,
@@ -1265,5 +1327,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
     }
 
     private record PlanningIntent(String goal, Map<String, String> meta) {
+    }
+
+    private record PlanInputContext(StructuredContextPackage contextPackage,
+                                    InputReconstructionResult reconstructionResult) {
     }
 }

@@ -645,7 +645,7 @@ public class ApprovalServiceImpl implements ApprovalService {
                                 )
                         )))
                 .retrievalPlan(Map.of("approvalRecovery", true))
-                .selectedEvidenceRefs(rerankResult == null || rerankResult.getSelectedKnowledgeBlocks() == null ? List.of() : rerankResult.getSelectedKnowledgeBlocks())
+                .selectedEvidenceRefs(extractKnowledgeRefs(rerankResult))
                 .rerankSummary(rerankResult == null ? "" : safe(rerankResult.getRationaleByNode()))
                 .build();
         retrievalStateStore.save(sessionId, retrievalState);
@@ -666,7 +666,7 @@ public class ApprovalServiceImpl implements ApprovalService {
         ContextState contextState = ContextState.builder()
                 .latestNarrativeSummary(summaryResult == null ? "" : summaryResult.getNarrativeSummary())
                 .latestStateSnapshot(summaryResult == null || summaryResult.getStateSnapshot() == null ? Map.of() : summaryResult.getStateSnapshot())
-                .activeKnowledgeRefs(rerankResult == null || rerankResult.getSelectedKnowledgeBlocks() == null ? List.of() : rerankResult.getSelectedKnowledgeBlocks())
+                .activeKnowledgeRefs(extractKnowledgeRefs(rerankResult))
                 .activeMemoryRefs(rerankResult == null || rerankResult.getSelectedMemoryHints() == null ? List.of() : rerankResult.getSelectedMemoryHints())
                 .activeToolEvidenceRefs(List.of("tool_execution_trace:latest"))
                 .activeMcpPromptRefs(rerankResult == null || rerankResult.getSelectedPromptResources() == null ? List.of() : rerankResult.getSelectedPromptResources().stream().map(this::safe).toList())
@@ -674,6 +674,23 @@ public class ApprovalServiceImpl implements ApprovalService {
                 .latestContextSnapshotId(firstNonBlank(latestSnapshotId, previousContextState == null ? "" : previousContextState.getLatestContextSnapshotId()))
                 .build();
         contextStateStore.save(sessionId, contextState);
+    }
+
+    private List<String> extractKnowledgeRefs(ContextRerankResult rerankResult) {
+        if (rerankResult == null) {
+            return List.of();
+        }
+        if (rerankResult.getSelectedKnowledgeEvidenceBlocks() != null && !rerankResult.getSelectedKnowledgeEvidenceBlocks().isEmpty()) {
+            return rerankResult.getSelectedKnowledgeEvidenceBlocks().stream()
+                    .map(EvidenceBlock::getBlockId)
+                    .filter(id -> id != null && !id.isBlank())
+                    .distinct()
+                    .toList();
+        }
+        if (rerankResult.getSelectedKnowledgeBlocks() != null) {
+            return rerankResult.getSelectedKnowledgeBlocks();
+        }
+        return List.of();
     }
 
     private String resolvePrimaryToolName(List<Resource> executionCandidates) {

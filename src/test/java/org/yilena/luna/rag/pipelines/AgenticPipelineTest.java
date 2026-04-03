@@ -15,6 +15,7 @@ import org.yilena.luna.rag.rankers.EvidenceCompressor;
 import org.yilena.luna.rag.rankers.EvidenceDeduplicator;
 import org.yilena.luna.rag.rankers.EvidenceReranker;
 import org.yilena.luna.rag.retrievers.BaseRetriever;
+import org.yilena.luna.rag.support.SemanticTextService;
 
 import java.util.List;
 import java.util.Map;
@@ -39,12 +40,15 @@ class AgenticPipelineTest {
         when(knowledgeRetriever.retrieve(any(), anyInt(), anyMap())).thenReturn(List.of());
 
         EvidenceReranker reranker = mock(EvidenceReranker.class);
-        EvidenceDeduplicator deduplicator = new EvidenceDeduplicator();
         RagProperties properties = new RagProperties();
         properties.setAgenticMinEvidence(2);
         properties.setAgenticMaxCalls(2);
         properties.setAgenticMaxSteps(1);
-        EvidenceCompressor compressor = new EvidenceCompressor(properties);
+        EmbeddingProvider embeddingProvider = mock(EmbeddingProvider.class);
+        when(embeddingProvider.embedding(anyString())).thenReturn("[0.1,0.2]");
+        SemanticTextService semanticTextService = new SemanticTextService(embeddingProvider);
+        EvidenceDeduplicator deduplicator = new EvidenceDeduplicator(properties, semanticTextService);
+        EvidenceCompressor compressor = new EvidenceCompressor(properties, semanticTextService);
 
         ModelDrivenRagPlanner planner = mock(ModelDrivenRagPlanner.class);
         when(planner.planAgentStages(anyString(), anyList(), anyInt())).thenReturn(List.of(
@@ -64,9 +68,6 @@ class AgenticPipelineTest {
                 )
         );
 
-        EmbeddingProvider embeddingProvider = mock(EmbeddingProvider.class);
-        when(embeddingProvider.embedding(anyString())).thenReturn("[0.1,0.2]");
-
         AgenticPipeline pipeline = new AgenticPipeline(
                 List.of(knowledgeRetriever),
                 reranker,
@@ -75,7 +76,8 @@ class AgenticPipelineTest {
                 properties,
                 planner,
                 fusionService,
-                embeddingProvider
+                embeddingProvider,
+                semanticTextService
         );
 
         RetrievalResponse response = pipeline.execute(
