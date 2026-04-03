@@ -5,6 +5,7 @@ import org.yilena.luna.context.model.ContextNodeTemplatePolicy;
 import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.EvidenceBlock;
 import org.yilena.luna.context.model.InputReconstructionResult;
+import org.yilena.luna.context.model.SummaryResult;
 import org.yilena.luna.context.model.ToolSemanticResult;
 import org.yilena.luna.entity.Resource;
 import org.yilena.luna.memory.model.StructuredContextPackage;
@@ -27,5 +28,9 @@ public interface ContextAssembler {
                               List<Resource> executionCandidates,
                               List<String> mcpResourceHints,
                               String toolContext,
-                              ContextNodeTemplatePolicy nodeTemplatePolicy);
+                              ContextNodeTemplatePolicy nodeTemplatePolicy,
+                              SummaryResult roundSummaryInput,
+                              String sessionId,
+                              Long planId,
+                              Long nodeId);
 }

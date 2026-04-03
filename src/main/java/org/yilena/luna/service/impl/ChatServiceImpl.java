@@ -313,6 +313,24 @@ public class ChatServiceImpl implements ChatService {
         }
 
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_THINKING, LunaStateConstant.VALUE_THINKING_ORGANIZE);
+        SummaryResult roundSummaryInput = summaryAgent.summarize(
+                input,
+                "",
+                contextPackage,
+                knowledgeEvidenceBlocks,
+                mcpResourceHints,
+                toolSemanticResult
+        );
+        summaryTraceLogger.log(
+                runtimeSessionId,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage),
+                input,
+                "",
+                contextPackage,
+                roundSummaryInput,
+                "PRE_ASSEMBLY_INPUT"
+        );
         AssembledContext assembledContext = contextAssembler.assemble(
                 contextPackage,
                 reconstruction,
@@ -329,18 +347,14 @@ public class ChatServiceImpl implements ChatService {
                 executionCandidates,
                 mcpResourceHints,
                 mergedToolContext,
-                nodeTemplatePolicy
-        );
-        contextTraceLogger.log(runtimeSessionId, contextPlanId(contextPackage), contextNodeId(contextPackage), assembledContext);
-        String finalSnapshotId = contextSnapshotStore.saveFinalSnapshot(
+                nodeTemplatePolicy,
+                roundSummaryInput,
                 runtimeSessionId,
                 contextPlanId(contextPackage),
-                contextNodeId(contextPackage),
-                assembledContext,
-                assembledContext == null ? "" : assembledContext.getPrompt(),
-                assembledContext == null ? Map.of() : assembledContext.getSectionTokenCounts(),
-                assembledContext == null ? Map.of() : assembledContext.getSectionTokenRatios()
+                contextNodeId(contextPackage)
         );
+        contextTraceLogger.log(runtimeSessionId, contextPlanId(contextPackage), contextNodeId(contextPackage), assembledContext);
+        String finalSnapshotId = assembledContext == null ? "" : stringValue(assembledContext.getSnapshotId());
         runtimeAuditService.persistDecisionRecord(
                 runtimeSessionId,
                 contextPlanId(contextPackage),
@@ -430,7 +444,11 @@ public class ChatServiceImpl implements ChatService {
                 List.of(),
                 List.of(),
                 null,
-                startupPolicy
+                startupPolicy,
+                null,
+                keyPrefix,
+                null,
+                null
         );
         String prompt = startupContext == null || startupContext.getPrompt() == null || startupContext.getPrompt().isBlank()
                 ? PromptTemplates.SYSTEM_PROMPT + "\n\n" + PromptTemplates.RUNTIME_PROMPT.formatted("startup")

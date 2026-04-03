@@ -11,6 +11,8 @@ import java.util.Map;
 public class AssembledContext {
     String prompt;
     Map<String, List<String>> sections;
+    Map<String, List<String>> candidatePool;
     Map<String, Integer> sectionTokenCounts;
     Map<String, Double> sectionTokenRatios;
+    String snapshotId;
 }

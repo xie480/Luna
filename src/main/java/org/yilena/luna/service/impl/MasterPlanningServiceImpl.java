@@ -34,14 +34,17 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
     @Override
     public Map<String, Object> generateBlueprint(String planId,
                                                  String sessionId,
-                                                 String userGoal,
+                                                 String reconstructedGoal,
                                                  InputReconstructionResult reconstructionResult,
                                                  List<Map<String, Object>> knowledgeEvidence,
                                                  List<Map<String, Object>> workflowHints) {
         List<Map<String, Object>> normalizedKnowledgeEvidence = normalizeSignalList(knowledgeEvidence, 12);
         List<Map<String, Object>> normalizedWorkflowHints = normalizeSignalList(workflowHints, 16);
         try {
-            String effectiveGoal = resolveEffectiveGoal(userGoal, reconstructionResult);
+            String effectiveGoal = reconstructedGoal == null ? "" : reconstructedGoal.trim();
+            if (effectiveGoal.isBlank()) {
+                throw new IllegalArgumentException("reconstructed goal is blank");
+            }
             Map<String, Object> reconstructedIntent = toReconstructionPayload(reconstructionResult);
             String prompt = buildPlanningPrompt(
                     planId,
@@ -64,7 +67,7 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
             String text = resp != null ? resp.getContent() : null;
             if (text == null || text.isBlank()) {
                 log.warn("Master planner returned empty content, use fallback blueprint");
-                return fallbackBlueprint(planId, sessionId, userGoal, reconstructionResult, normalizedKnowledgeEvidence, normalizedWorkflowHints);
+                return fallbackBlueprint(planId, sessionId, effectiveGoal, reconstructionResult, normalizedKnowledgeEvidence, normalizedWorkflowHints);
             }
 
             String cleaned = cleanJsonFence(text);
@@ -79,7 +82,7 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
             return map;
         } catch (Exception e) {
             log.error("Master planner blueprint generation failed, use fallback", e);
-            return fallbackBlueprint(planId, sessionId, userGoal, reconstructionResult, normalizedKnowledgeEvidence, normalizedWorkflowHints);
+            return fallbackBlueprint(planId, sessionId, reconstructedGoal, reconstructionResult, normalizedKnowledgeEvidence, normalizedWorkflowHints);
         }
     }
 
@@ -126,11 +129,11 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
 
     private Map<String, Object> fallbackBlueprint(String planId,
                                                   String sessionId,
-                                                  String userGoal,
+                                                  String reconstructedGoal,
                                                   InputReconstructionResult reconstructionResult,
                                                   List<Map<String, Object>> knowledgeEvidence,
                                                   List<Map<String, Object>> workflowHints) {
-        String effectiveGoal = resolveEffectiveGoal(userGoal, reconstructionResult);
+        String effectiveGoal = reconstructedGoal == null ? "" : reconstructedGoal.trim();
         Map<String, Object> blueprint = new LinkedHashMap<>();
         blueprint.put("planId", planId);
         blueprint.put("sessionId", sessionId);
@@ -205,15 +208,6 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
         }});
         blueprint.put("edges", edges);
         return blueprint;
-    }
-
-    private String resolveEffectiveGoal(String userGoal, InputReconstructionResult reconstructionResult) {
-        if (reconstructionResult != null
-                && reconstructionResult.getExplicitTaskGoal() != null
-                && !reconstructionResult.getExplicitTaskGoal().isBlank()) {
-            return reconstructionResult.getExplicitTaskGoal();
-        }
-        return userGoal == null ? "" : userGoal;
     }
 
     private List<Map<String, Object>> normalizeSignalList(List<Map<String, Object>> rows, int limit) {

@@ -8,10 +8,12 @@ import org.yilena.luna.context.model.ContextNodeTemplatePolicy;
 import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.EvidenceBlock;
 import org.yilena.luna.context.model.InputReconstructionResult;
+import org.yilena.luna.context.model.SummaryResult;
 import org.yilena.luna.context.model.ToolSemanticResult;
 import org.yilena.luna.entity.Resource;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.prompt.PromptTemplates;
+import org.yilena.luna.state.store.ContextSnapshotStore;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -22,9 +24,12 @@ import java.util.Map;
 public class DefaultContextAssembler implements ContextAssembler {
 
     private final SemanticPreservingPruner semanticPreservingPruner;
+    private final ContextSnapshotStore contextSnapshotStore;
 
-    public DefaultContextAssembler(SemanticPreservingPruner semanticPreservingPruner) {
+    public DefaultContextAssembler(SemanticPreservingPruner semanticPreservingPruner,
+                                   ContextSnapshotStore contextSnapshotStore) {
         this.semanticPreservingPruner = semanticPreservingPruner;
+        this.contextSnapshotStore = contextSnapshotStore;
     }
 
     @Override
@@ -43,7 +48,11 @@ public class DefaultContextAssembler implements ContextAssembler {
                                      List<Resource> executionCandidates,
                                      List<String> mcpResourceHints,
                                      String toolContext,
-                                     ContextNodeTemplatePolicy nodeTemplatePolicy) {
+                                     ContextNodeTemplatePolicy nodeTemplatePolicy,
+                                     SummaryResult roundSummaryInput,
+                                     String sessionId,
+                                     Long planId,
+                                     Long nodeId) {
         ContextNodeTemplatePolicy policy = nodeTemplatePolicy == null ? ContextNodeTemplatePolicy.defaultPolicy() : nodeTemplatePolicy;
         Map<String, List<String>> candidatePool = buildCandidatePool(
                 rerankResult,
@@ -58,6 +67,7 @@ public class DefaultContextAssembler implements ContextAssembler {
                 mcpResourceHints,
                 toolSemanticResult,
                 toolContext,
+                roundSummaryInput,
                 policy
         );
         Map<String, List<String>> sections = new LinkedHashMap<>();
@@ -68,23 +78,44 @@ public class DefaultContextAssembler implements ContextAssembler {
         sections.put("MCP Resource / Prompt Hints", candidatePool.getOrDefault("mcp", List.of()));
         sections.put("Tool Evidence", candidatePool.getOrDefault("tool", List.of()));
         sections.put("Recent Interaction Context", lines(buildRecentInteraction(contextPackage, runtimeMemorySnippets, policy)));
-        sections.put("Memory Hints", candidatePool.getOrDefault("memory", List.of()));
-        sections.put("Output Constraints", List.of(
-                "Single-line JSON output only.",
-                "Must contain fields: thought, emotion, reply.",
-                "Preserve confirmed constraints and latest tool conclusions."
+        sections.put("Memory Hints", mergeDistinct(
+                candidatePool.getOrDefault("memory", List.of()),
+                candidatePool.getOrDefault("summary", List.of())
         ));
+        sections.put("Output Constraints", buildOutputConstraints(policy, contextPackage, reconstructionResult, toolSemanticResult, roundSummaryInput));
 
         SemanticPreservingPruner.PruneResult pruneResult = semanticPreservingPruner.prune(
                 sections,
                 sectionBudget(contextPackage == null ? Map.of() : contextPackage.getTokenBudgetPlan(), policy)
         );
         String prompt = toPrompt(pruneResult.getSections(), userInput);
-        return AssembledContext.builder()
+        AssembledContext preSnapshotContext = AssembledContext.builder()
                 .prompt(prompt)
                 .sections(pruneResult.getSections())
+                .candidatePool(candidatePool)
                 .sectionTokenCounts(pruneResult.getSectionTokenCounts())
                 .sectionTokenRatios(pruneResult.getSectionTokenRatios())
+                .snapshotId("")
+                .build();
+        String snapshotId = "";
+        if (sessionId != null && !sessionId.isBlank()) {
+            snapshotId = safe(contextSnapshotStore.saveFinalSnapshot(
+                    sessionId,
+                    planId,
+                    nodeId,
+                    preSnapshotContext,
+                    preSnapshotContext.getPrompt(),
+                    preSnapshotContext.getSectionTokenCounts(),
+                    preSnapshotContext.getSectionTokenRatios()
+            ));
+        }
+        return AssembledContext.builder()
+                .prompt(preSnapshotContext.getPrompt())
+                .sections(preSnapshotContext.getSections())
+                .candidatePool(preSnapshotContext.getCandidatePool())
+                .sectionTokenCounts(preSnapshotContext.getSectionTokenCounts())
+                .sectionTokenRatios(preSnapshotContext.getSectionTokenRatios())
+                .snapshotId(snapshotId)
                 .build();
     }
 
@@ -100,6 +131,7 @@ public class DefaultContextAssembler implements ContextAssembler {
                                                          List<String> mcpResourceHints,
                                                          ToolSemanticResult toolSemanticResult,
                                                          String toolContext,
+                                                         SummaryResult roundSummaryInput,
                                                          ContextNodeTemplatePolicy policy) {
         Map<String, List<String>> pool = new LinkedHashMap<>();
         pool.put("knowledge", selectKnowledgeCandidates(rerankResult, knowledgeEvidenceBlocks, knowledgeSnippets));
@@ -114,6 +146,7 @@ public class DefaultContextAssembler implements ContextAssembler {
                 rerankResult,
                 policy
         ));
+        pool.put("summary", buildSummaryInput(roundSummaryInput));
         return pool;
     }
 
@@ -279,6 +312,57 @@ public class DefaultContextAssembler implements ContextAssembler {
                 .toList();
     }
 
+    private List<String> buildSummaryInput(SummaryResult roundSummaryInput) {
+        if (roundSummaryInput == null) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        if (roundSummaryInput.getNarrativeSummary() != null && !roundSummaryInput.getNarrativeSummary().isBlank()) {
+            out.add("narrative_summary=" + roundSummaryInput.getNarrativeSummary());
+        }
+        if (roundSummaryInput.getStateSnapshot() != null && !roundSummaryInput.getStateSnapshot().isEmpty()) {
+            out.add("state_snapshot=" + safe(roundSummaryInput.getStateSnapshot()));
+        }
+        return out;
+    }
+
+    private List<String> buildOutputConstraints(ContextNodeTemplatePolicy policy,
+                                                StructuredContextPackage contextPackage,
+                                                InputReconstructionResult reconstructionResult,
+                                                ToolSemanticResult toolSemanticResult,
+                                                SummaryResult roundSummaryInput) {
+        List<String> constraints = new ArrayList<>();
+        constraints.add("Single-line JSON output only.");
+        constraints.add("Must contain fields: thought, emotion, reply.");
+        constraints.add("Preserve confirmed constraints and latest tool conclusions.");
+        String nodeType = policy == null ? "" : safe(policy.getNodeType()).toUpperCase();
+        if ("PLANNING".equals(nodeType) || "REPLANNING".equals(nodeType)) {
+            constraints.add("Planning node: prioritize explicit goal decomposition and unresolved slots.");
+        } else if ("EXECUTING".equals(nodeType) || "CONTEXT_BUILDING".equals(nodeType) || "REFLECTING".equals(nodeType)) {
+            constraints.add("Execution node: ground response in tool semantic facts and selected evidence.");
+        } else if ("WAITING_APPROVAL".equals(nodeType) || "WAITING_TOOL".equals(nodeType) || "WAITING_USER".equals(nodeType)) {
+            constraints.add("Waiting node: do not fabricate progress; clearly state pending action.");
+        } else if ("REPORTING".equals(nodeType) || "COMPLETED".equals(nodeType)) {
+            constraints.add("Reporting node: summarize completed outcomes, failures, and next actionable step.");
+        }
+        if (contextPackage != null && contextPackage.getPromptPolicy() != null) {
+            Object synthesisMode = contextPackage.getPromptPolicy().get("synthesis_mode");
+            if (synthesisMode != null && !String.valueOf(synthesisMode).isBlank()) {
+                constraints.add("Synthesis policy: " + synthesisMode);
+            }
+        }
+        if (reconstructionResult != null && reconstructionResult.getMissingSlots() != null && !reconstructionResult.getMissingSlots().isEmpty()) {
+            constraints.add("Unresolved slots must stay explicit: " + reconstructionResult.getMissingSlots());
+        }
+        if (toolSemanticResult != null && toolSemanticResult.getUnresolvedIssues() != null && !toolSemanticResult.getUnresolvedIssues().isEmpty()) {
+            constraints.add("Tool unresolved issues must not be omitted: " + toolSemanticResult.getUnresolvedIssues());
+        }
+        if (roundSummaryInput != null && roundSummaryInput.getStateSnapshot() != null && !roundSummaryInput.getStateSnapshot().isEmpty()) {
+            constraints.add("Round summary snapshot must remain semantically consistent with output.");
+        }
+        return constraints;
+    }
+
     private List<String> limit(List<String> input, int maxItems) {
         if (input == null || input.isEmpty() || maxItems <= 0) {
             return List.of();
@@ -287,6 +371,17 @@ public class DefaultContextAssembler implements ContextAssembler {
                 .filter(value -> value != null && !value.isBlank())
                 .limit(maxItems)
                 .toList();
+    }
+
+    private List<String> mergeDistinct(List<String> left, List<String> right) {
+        java.util.LinkedHashSet<String> merged = new java.util.LinkedHashSet<>();
+        if (left != null) {
+            merged.addAll(left);
+        }
+        if (right != null) {
+            merged.addAll(right);
+        }
+        return new ArrayList<>(merged);
     }
 
     private String toPrompt(Map<String, List<String>> sections, String userInput) {

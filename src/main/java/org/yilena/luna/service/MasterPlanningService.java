@@ -16,12 +16,12 @@ public interface MasterPlanningService {
      *
      * @param planId    计划ID
      * @param sessionId 会话ID
-     * @param userGoal  用户目标
+     * @param reconstructedGoal  输入重构后的明确任务目标
      * @return 蓝图对象（Map）
      */
     Map<String, Object> generateBlueprint(String planId,
                                           String sessionId,
-                                          String userGoal,
+                                          String reconstructedGoal,
                                           InputReconstructionResult reconstructionResult,
                                           List<Map<String, Object>> knowledgeEvidence,
                                           List<Map<String, Object>> workflowHints);

@@ -46,11 +46,14 @@ import org.yilena.luna.service.TaskOrchestratorService;
 import org.yilena.luna.service.model.NodeWorksetResult;
 import org.yilena.luna.service.model.TaskOrchestrationResult;
 import org.yilena.luna.state.model.ContextState;
+import org.yilena.luna.state.model.ContextSnapshot;
+import org.yilena.luna.state.model.RecoveryState;
 import org.yilena.luna.state.model.RetrievalState;
 import org.yilena.luna.state.model.TaskState;
 import org.yilena.luna.state.model.ToolState;
 import org.yilena.luna.state.store.ContextSnapshotStore;
 import org.yilena.luna.state.store.ContextStateStore;
+import org.yilena.luna.state.store.RecoveryStateStore;
 import org.yilena.luna.state.store.RetrievalStateStore;
 import org.yilena.luna.state.store.TaskStateStore;
 import org.yilena.luna.state.store.ToolStateStore;
@@ -105,6 +108,7 @@ public class ApprovalServiceImpl implements ApprovalService {
     private final ToolStateStore toolStateStore;
     private final ContextStateStore contextStateStore;
     private final ContextSnapshotStore contextSnapshotStore;
+    private final RecoveryStateStore recoveryStateStore;
 
     @Override
     public void createTaskAndInterrupt(String sessionId, Resource resource, String argsJson) {
@@ -132,6 +136,7 @@ public class ApprovalServiceImpl implements ApprovalService {
                 .build();
 
         persistPendingApprovalTask(task);
+        writeRecoveryStateOnInterrupt(sessionId, taskId, resource);
         redisTemplate.opsForValue().set(REDIS_PREFIX + taskId, task, EXPIRE_MINUTES, TimeUnit.MINUTES);
         sseSessionManager.send(LunaStatusPublisher.DEFAULT_CLIENT_ID, "APPROVAL_REQUEST", task);
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "PENDING_APPROVAL", "Approval required.");
@@ -231,6 +236,40 @@ public class ApprovalServiceImpl implements ApprovalService {
             );
         } catch (Exception e) {
             throw new IllegalStateException("persist approval task failed", e);
+        }
+    }
+
+    private void writeRecoveryStateOnInterrupt(String sessionId, String approvalTaskId, Resource resource) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        try {
+            String snapshotId = "";
+            ContextSnapshot latestSnapshot = contextSnapshotStore.loadLatest(sessionId);
+            if (latestSnapshot != null && latestSnapshot.getSnapshotId() != null && !latestSnapshot.getSnapshotId().isBlank()) {
+                snapshotId = latestSnapshot.getSnapshotId();
+            }
+            String toolName = resource == null ? "" : safe(resource.getName());
+            RecoveryState interruptState = RecoveryState.builder()
+                    .interruptedAt(String.valueOf(System.currentTimeMillis()))
+                    .interruptReason("APPROVAL_PENDING:" + toolName)
+                    .recoveryEvent("APPROVAL_INTERRUPT")
+                    .recoverySnapshotId(snapshotId)
+                    .build();
+            recoveryStateStore.save(sessionId, interruptState);
+            runtimeAuditService.persistDecisionRecord(
+                    sessionId,
+                    null,
+                    null,
+                    "RECOVERY_STATE_WRITTEN_ON_INTERRUPT",
+                    "recovery state persisted at interrupt boundary",
+                    objectMapper.writeValueAsString(Map.of(
+                            "approvalTaskId", approvalTaskId == null ? "" : approvalTaskId,
+                            "snapshotId", snapshotId,
+                            "toolName", toolName
+                    ))
+            );
+        } catch (Exception ignore) {
         }
     }
 
@@ -410,6 +449,22 @@ public class ApprovalServiceImpl implements ApprovalService {
             }
             toolSemanticResult = semanticValidation.normalized() == null ? toolSemanticResult : semanticValidation.normalized();
             toolSemanticTraceLogger.log(task.getSessionId(), contextPlanId(contextPackage), contextNodeId(contextPackage), toolSemanticResult);
+            SummaryResult roundSummaryInput = summaryAgent.summarize(
+                    task.getUserInput(),
+                    "",
+                    contextPackage,
+                    selectedKnowledgeEvidenceBlocks,
+                    mcpResourceHints,
+                    toolSemanticResult
+            );
+            runtimeAuditService.persistDecisionRecord(
+                    task.getSessionId(),
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    "PRE_ASSEMBLY_SUMMARY",
+                    "round summary generated before context assembly",
+                    objectMapper.writeValueAsString(roundSummaryInput)
+            );
             AssembledContext assembledContext = contextAssembler.assemble(
                     contextPackage,
                     reconstructionResult,
@@ -432,18 +487,14 @@ public class ApprovalServiceImpl implements ApprovalService {
                     executionCandidates,
                     mcpResourceHints,
                     approved ? toolContext : null,
-                    nodeTemplatePolicy
-            );
-            contextTraceLogger.log(task.getSessionId(), contextPlanId(contextPackage), contextNodeId(contextPackage), assembledContext);
-            String finalSnapshotId = contextSnapshotStore.saveFinalSnapshot(
+                    nodeTemplatePolicy,
+                    roundSummaryInput,
                     task.getSessionId(),
                     contextPlanId(contextPackage),
-                    contextNodeId(contextPackage),
-                    assembledContext,
-                    assembledContext == null ? "" : assembledContext.getPrompt(),
-                    assembledContext == null ? Map.of() : assembledContext.getSectionTokenCounts(),
-                    assembledContext == null ? Map.of() : assembledContext.getSectionTokenRatios()
+                    contextNodeId(contextPackage)
             );
+            contextTraceLogger.log(task.getSessionId(), contextPlanId(contextPackage), contextNodeId(contextPackage), assembledContext);
+            String finalSnapshotId = assembledContext == null ? "" : safe(assembledContext.getSnapshotId());
             runtimeAuditService.persistFinalContextSnapshot(
                     task.getSessionId(),
                     contextPlanId(contextPackage),

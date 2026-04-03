@@ -17,16 +17,19 @@ public class RuntimeContextTraceLogger implements ContextTraceLogger {
     @Override
     public void log(String sessionId, Long planId, Long nodeId, AssembledContext assembledContext) {
         try {
+            java.util.Map<String, Object> payload = new java.util.LinkedHashMap<>();
+            payload.put("sections", assembledContext == null ? java.util.Map.of() : assembledContext.getSections());
+            payload.put("candidatePool", assembledContext == null ? java.util.Map.of() : assembledContext.getCandidatePool());
+            payload.put("snapshotId", assembledContext == null ? "" : assembledContext.getSnapshotId());
             runtimeAuditService.persistDecisionRecord(
                     sessionId,
                     planId,
                     nodeId,
                     "CONTEXT_TRACE",
                     "context sections assembled",
-                    objectMapper.writeValueAsString(assembledContext == null ? java.util.Map.of() : assembledContext.getSections())
+                    objectMapper.writeValueAsString(payload)
             );
         } catch (Exception ignore) {
         }
     }
 }
-

@@ -104,7 +104,10 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             InputReconstructionResult reconstructionResult = planInputContext == null ? null : planInputContext.reconstructionResult();
             StructuredContextPackage planningContextPackage = planInputContext == null ? null : planInputContext.contextPackage();
             PlanningIntent planningIntent = parsePlanningIntent(userGoal);
-            String effectiveGoal = resolveEffectiveGoal(userGoal, planningIntent, reconstructionResult);
+            String effectiveGoal = resolveEffectiveGoal(reconstructionResult);
+            if (effectiveGoal.isBlank()) {
+                return error("PLAN_RECONSTRUCTION_REQUIRED", "无法从输入重构得到明确任务目标，已拒绝使用原始 userGoal 直接生成蓝图");
+            }
 
             planId = "plan-" + SnowflakeIdUtil.nextIdStr();
             int planVersion = 1;
@@ -140,7 +143,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             Map<String, Object> blueprint = masterPlanningService.generateBlueprint(
                     planId,
                     sessionId,
-                    userGoal,
+                    effectiveGoal,
                     reconstructionResult,
                     extractPlanningKnowledgeEvidence(planningContextPackage),
                     extractPlanningWorkflowHints(planningContextPackage)
@@ -1127,18 +1130,15 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         return out;
     }
 
-    private String resolveEffectiveGoal(String rawUserGoal,
-                                        PlanningIntent planningIntent,
-                                        InputReconstructionResult reconstructionResult) {
-        String reconstructedGoal = reconstructionResult == null ? "" : text(reconstructionResult.getExplicitTaskGoal());
+    private String resolveEffectiveGoal(InputReconstructionResult reconstructionResult) {
+        if (reconstructionResult == null) {
+            return "";
+        }
+        String reconstructedGoal = text(reconstructionResult.getExplicitTaskGoal());
         if (!reconstructedGoal.isBlank()) {
             return reconstructedGoal;
         }
-        String planningIntentGoal = planningIntent == null ? "" : text(planningIntent.goal());
-        if (!planningIntentGoal.isBlank()) {
-            return planningIntentGoal;
-        }
-        return rawUserGoal == null ? "" : rawUserGoal;
+        return text(reconstructionResult.getNormalizedUserIntent());
     }
 
     private PlanningIntent parsePlanningIntent(String userGoal) {
