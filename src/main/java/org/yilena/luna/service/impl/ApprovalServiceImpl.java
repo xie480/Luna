@@ -39,6 +39,7 @@ import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.properties.GeminiProperty;
+import org.yilena.luna.mapper.SessionRuntimeMapper;
 import org.yilena.luna.service.ApprovalService;
 import org.yilena.luna.service.McpService;
 import org.yilena.luna.service.SessionService;
@@ -109,6 +110,7 @@ public class ApprovalServiceImpl implements ApprovalService {
     private final ContextStateStore contextStateStore;
     private final ContextSnapshotStore contextSnapshotStore;
     private final RecoveryStateStore recoveryStateStore;
+    private final SessionRuntimeMapper sessionRuntimeMapper;
 
     @Override
     public void createTaskAndInterrupt(String sessionId, Resource resource, String argsJson) {
@@ -598,7 +600,22 @@ public class ApprovalServiceImpl implements ApprovalService {
         if (contextPackage != null && contextPackage.getTaskStateEntity() != null && contextPackage.getTaskStateEntity().getCurrentNode() != null) {
             currentNode = contextPackage.getTaskStateEntity().getCurrentNode();
         }
-        return ContextNodeTemplatePolicy.forTaskStage(taskState, currentNode);
+        String nodeKind = resolveCurrentNodeKind(contextPackage);
+        return ContextNodeTemplatePolicy.forTaskNode(taskState, currentNode, nodeKind);
+    }
+
+    private String resolveCurrentNodeKind(StructuredContextPackage contextPackage) {
+        Long planId = contextPlanId(contextPackage);
+        Long nodeId = contextNodeId(contextPackage);
+        if (planId == null || nodeId == null) {
+            return "";
+        }
+        try {
+            String nodeType = sessionRuntimeMapper.selectNodeTypeByPlanAndNode(planId, nodeId);
+            return nodeType == null ? "" : nodeType.trim();
+        } catch (Exception ignore) {
+            return "";
+        }
     }
 
     private List<String> extractRuntimeMessageSnippets(StructuredContextPackage contextPackage) {
@@ -701,11 +718,14 @@ public class ApprovalServiceImpl implements ApprovalService {
                 .build();
         retrievalStateStore.save(sessionId, retrievalState);
 
+        String latestToolRawRef = resolveLatestToolRawResultRef(toolRows, previousToolState);
+        List<String> activeToolRefs = resolveActiveToolEvidenceRefs(toolRows, previousContextState);
+
         ToolState toolState = ToolState.builder()
                 .lastToolName(resolveLastToolName(toolRows, toolSemanticResult))
                 .lastToolInput(reconstruction == null ? "" : reconstruction.getReformulatedQueryForMcp())
                 .lastToolStatus(toolSemanticResult == null ? "" : toolSemanticResult.getToolStatus())
-                .lastToolRawResultRef("tool_execution_trace:latest")
+                .lastToolRawResultRef(latestToolRawRef)
                 .lastToolSemanticSummary(toolSemanticResult == null ? "" : toolSemanticResult.getBusinessImpact())
                 .toolCallHistoryRefs(mergeDistinctList(
                         previousToolState == null ? List.of() : previousToolState.getToolCallHistoryRefs(),
@@ -719,7 +739,7 @@ public class ApprovalServiceImpl implements ApprovalService {
                 .latestStateSnapshot(summaryResult == null || summaryResult.getStateSnapshot() == null ? Map.of() : summaryResult.getStateSnapshot())
                 .activeKnowledgeRefs(extractKnowledgeRefs(rerankResult))
                 .activeMemoryRefs(rerankResult == null || rerankResult.getSelectedMemoryHints() == null ? List.of() : rerankResult.getSelectedMemoryHints())
-                .activeToolEvidenceRefs(List.of("tool_execution_trace:latest"))
+                .activeToolEvidenceRefs(activeToolRefs)
                 .activeMcpPromptRefs(rerankResult == null || rerankResult.getSelectedPromptResources() == null ? List.of() : rerankResult.getSelectedPromptResources().stream().map(this::safe).toList())
                 .activeMcpResourceRefs(rerankResult == null || rerankResult.getSelectedToolCandidates() == null ? List.of() : rerankResult.getSelectedToolCandidates().stream().map(this::safe).toList())
                 .latestContextSnapshotId(firstNonBlank(latestSnapshotId, previousContextState == null ? "" : previousContextState.getLatestContextSnapshotId()))
@@ -836,14 +856,51 @@ public class ApprovalServiceImpl implements ApprovalService {
         }
         List<String> out = new ArrayList<>();
         for (Map<String, Object> row : toolRows) {
+            String traceId = stringValue(row.get("trace_id"));
+            if (!traceId.isBlank()) {
+                out.add("tool_execution_trace:id=" + traceId);
+                continue;
+            }
             String name = stringValue(row.get("tool_name"));
             String status = stringValue(row.get("call_status"));
             if (!name.isBlank()) {
                 out.add("tool_execution_trace:" + name + ":" + status);
             }
         }
-        out.add("tool_execution_trace:latest");
+        if (out.isEmpty()) {
+            out.add("tool_execution_trace:latest");
+        }
         return out.stream().distinct().toList();
+    }
+
+    private String resolveLatestToolRawResultRef(List<Map<String, Object>> toolRows, ToolState previousToolState) {
+        if (toolRows != null && !toolRows.isEmpty()) {
+            String traceId = stringValue(toolRows.get(0).get("trace_id"));
+            if (!traceId.isBlank()) {
+                return "tool_execution_trace:id=" + traceId;
+            }
+            String name = stringValue(toolRows.get(0).get("tool_name"));
+            String status = stringValue(toolRows.get(0).get("call_status"));
+            if (!name.isBlank()) {
+                return "tool_execution_trace:" + name + ":" + status;
+            }
+        }
+        if (previousToolState != null && previousToolState.getLastToolRawResultRef() != null && !previousToolState.getLastToolRawResultRef().isBlank()) {
+            return previousToolState.getLastToolRawResultRef();
+        }
+        return "tool_execution_trace:latest";
+    }
+
+    private List<String> resolveActiveToolEvidenceRefs(List<Map<String, Object>> toolRows, ContextState previousContextState) {
+        List<String> refs = new ArrayList<>();
+        refs.addAll(extractToolHistoryRefs(toolRows));
+        if (refs.isEmpty() && previousContextState != null && previousContextState.getActiveToolEvidenceRefs() != null) {
+            refs.addAll(previousContextState.getActiveToolEvidenceRefs());
+        }
+        if (refs.isEmpty()) {
+            refs.add("tool_execution_trace:latest");
+        }
+        return refs.stream().filter(ref -> ref != null && !ref.isBlank()).distinct().toList();
     }
 
     @SuppressWarnings("unchecked")

@@ -336,6 +336,20 @@ public class DefaultContextAssembler implements ContextAssembler {
         constraints.add("Must contain fields: thought, emotion, reply.");
         constraints.add("Preserve confirmed constraints and latest tool conclusions.");
         String nodeType = policy == null ? "" : safe(policy.getNodeType()).toUpperCase();
+        String nodeKind = policy == null ? "" : safe(policy.getNodeKind()).toUpperCase();
+        String templateKey = policy == null ? "" : safe(policy.getTemplateKey());
+        if (!templateKey.isBlank()) {
+            constraints.add("Node template key: " + templateKey);
+        }
+        if ("TOOL".equals(nodeKind) || "RESOURCE".equals(nodeKind) || "WORKFLOW".equals(nodeKind)) {
+            constraints.add("Node kind " + nodeKind + ": prioritize executable facts, params, and verification signals.");
+        } else if ("PROMPT".equals(nodeKind)) {
+            constraints.add("Node kind PROMPT: emphasize prompt/resource hints and avoid fabricated tool outcomes.");
+        } else if ("VALIDATE".equals(nodeKind)) {
+            constraints.add("Node kind VALIDATE: output must include explicit pass/fail rationale and unresolved risks.");
+        } else if ("REPORT".equals(nodeKind) || "CODE".equals(nodeKind) || "ANALYZE".equals(nodeKind)) {
+            constraints.add("Node kind " + nodeKind + ": keep structured conclusions with evidence-backed claims.");
+        }
         if ("PLANNING".equals(nodeType) || "REPLANNING".equals(nodeType)) {
             constraints.add("Planning node: prioritize explicit goal decomposition and unresolved slots.");
         } else if ("EXECUTING".equals(nodeType) || "CONTEXT_BUILDING".equals(nodeType) || "REFLECTING".equals(nodeType)) {

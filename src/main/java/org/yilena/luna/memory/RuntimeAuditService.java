@@ -32,4 +32,27 @@ public interface RuntimeAuditService {
                                    String normalizedOutputJson,
                                    String errorMessage,
                                    Long latencyMs);
+
+    default Long persistToolExecutionTraceAndReturnId(String sessionId,
+                                                      Long planId,
+                                                      Long nodeId,
+                                                      String toolName,
+                                                      String callStatus,
+                                                      String normalizedInputJson,
+                                                      String normalizedOutputJson,
+                                                      String errorMessage,
+                                                      Long latencyMs) {
+        persistToolExecutionTrace(
+                sessionId,
+                planId,
+                nodeId,
+                toolName,
+                callStatus,
+                normalizedInputJson,
+                normalizedOutputJson,
+                errorMessage,
+                latencyMs
+        );
+        return null;
+    }
 }

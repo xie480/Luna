@@ -28,7 +28,7 @@ public interface RuntimeReadMapper {
     List<Map<String, Object>> selectRuntimeRecentMessages(@Param("sessionId") String sessionId);
 
     @Select("""
-            select tool_name, call_status, normalized_output, error_message, created_at
+            select id as trace_id, tool_name, call_status, normalized_output, error_message, created_at
             from tool_execution_trace
             where session_id = #{sessionId}
             order by created_at desc

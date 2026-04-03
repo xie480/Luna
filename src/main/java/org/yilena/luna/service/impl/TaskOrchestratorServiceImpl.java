@@ -36,6 +36,7 @@ import org.yilena.luna.router.ToolRouter;
 import org.yilena.luna.service.TaskOrchestratorService;
 import org.yilena.luna.service.model.NodeWorksetResult;
 import org.yilena.luna.service.model.TaskOrchestrationResult;
+import org.yilena.luna.state.store.RecoveryStateStore;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -64,6 +65,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
     private final CapabilityPolicyRouterService capabilityPolicyRouterService;
     private final ToolRouter toolRouter;
     private final RerankTraceLogger rerankTraceLogger;
+    private final RecoveryStateStore recoveryStateStore;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -101,7 +103,11 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                             "reason", recoveryTrigger.interruptReason
                     ))
             );
+            if (!hasPendingRecoveryWork(contextPackage)) {
+                recoveryStateStore.clear(sessionId);
+            }
         } else {
+            recoveryStateStore.clear(sessionId);
             runtimeAuditService.persistDecisionRecord(
                     sessionId,
                     contextPlanId(contextPackage),
@@ -220,6 +226,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 reconstructionResult,
                 decision == null ? null : decision.getTaskState()
         );
+        if (refreshPlan.needReassembly) {
+            mcpDrivenInput = appendRefreshFlag(mcpDrivenInput, "reassembly");
+        }
         if (refreshPlan.needMcpRefresh) {
             mcpDrivenInput = appendRefreshFlag(mcpDrivenInput, "mcp");
         }
@@ -230,7 +239,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 decision == null ? null : decision.getRelationalState(),
                 24
         );
-        if (rawMcpCandidates == null || rawMcpCandidates.isEmpty()) {
+        if ((rawMcpCandidates == null || rawMcpCandidates.isEmpty()) && !refreshPlan.needReassembly) {
             rawMcpCandidates = contextPackage == null ? List.of() : contextPackage.getCapabilityCandidates();
         }
         List<Map<String, Object>> mcpPreRankedCandidates = mcpCandidatePreRank.preRank(
@@ -265,7 +274,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 reconstructionResult,
                 decision == null ? null : decision.getTaskState()
         );
-        if (refreshPlan.needRagRefresh) {
+        if (refreshPlan.needRagRefresh || refreshPlan.needReassembly) {
             ragQuery = appendRefreshFlag(ragQuery, "rag");
             memoryQuery = appendRefreshFlag(memoryQuery, "memory");
         }
@@ -277,11 +286,11 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         try {
             List<ConversationMessage> conversationContext = buildRetrievalConversationContext(contextPackage);
             List<RetrievalRoute> allowedRoutes = resolveAllowedRoutes(decision);
-            if (refreshPlan.needRagRefresh) {
+            if (refreshPlan.needRagRefresh || refreshPlan.needReassembly) {
                 allowedRoutes = RetrievalRoute.all();
             }
             RetrievalOptions options = resolveRetrievalOptions(userInput, decision);
-            if (refreshPlan.needRagRefresh) {
+            if (refreshPlan.needRagRefresh || refreshPlan.needReassembly) {
                 options = RetrievalOptions.builder()
                         .debug(options.isDebug())
                         .maxLatencyMs(Math.max(options.getMaxLatencyMs(), 1800L))
@@ -323,7 +332,8 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                             "mcpPreRankCandidates", mcpPreRankedCandidates,
                             "recoveryRefreshPlan", Map.of(
                                     "needRagRefresh", refreshPlan.needRagRefresh,
-                                    "needMcpRefresh", refreshPlan.needMcpRefresh
+                                    "needMcpRefresh", refreshPlan.needMcpRefresh,
+                                    "needReassembly", refreshPlan.needReassembly
                             )
                     ))
             );
@@ -402,7 +412,10 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             selectedPreference = List.of();
         }
 
-        List<Resource> executionCandidates = resolveExecutionCandidates(rerankResult, mcpPreRankedCandidates);
+        List<Resource> executionCandidates = resolveExecutionCandidates(
+                rerankResult,
+                refreshPlan.needReassembly ? List.of() : mcpPreRankedCandidates
+        );
         List<String> mcpResourceHints = mcpResourceHintExtractor.extract(
                 rerankResult == null ? List.of() : rerankResult.getSelectedPromptResources(),
                 8
@@ -470,20 +483,22 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
 
     private RecoveryRefreshPlan consumeRecoveryRefreshPlan(StructuredContextPackage contextPackage) {
         if (contextPackage == null || contextPackage.getRetrievalState() == null) {
-            return new RecoveryRefreshPlan(false, false);
+            return new RecoveryRefreshPlan(false, false, false);
         }
         Map<String, Object> retrievalPlan = contextPackage.getRetrievalState().getRetrievalPlan();
         if (retrievalPlan == null || retrievalPlan.isEmpty()) {
-            return new RecoveryRefreshPlan(false, false);
+            return new RecoveryRefreshPlan(false, false, false);
         }
         boolean needRagRefresh = booleanValue(retrievalPlan.get("need_rag_refresh"));
         boolean needMcpRefresh = booleanValue(retrievalPlan.get("need_mcp_refresh"));
-        if (!needRagRefresh && !needMcpRefresh) {
-            return new RecoveryRefreshPlan(false, false);
+        boolean needReassembly = booleanValue(retrievalPlan.get("need_reassembly"));
+        if (!needRagRefresh && !needMcpRefresh && !needReassembly) {
+            return new RecoveryRefreshPlan(false, false, false);
         }
         Map<String, Object> consumed = new LinkedHashMap<>(retrievalPlan);
         consumed.put("need_rag_refresh", false);
         consumed.put("need_mcp_refresh", false);
+        consumed.put("need_reassembly", false);
         contextPackage.setRetrievalState(org.yilena.luna.state.model.RetrievalState.builder()
                 .reconstructedIntent(contextPackage.getRetrievalState().getReconstructedIntent())
                 .activeQueries(contextPackage.getRetrievalState().getActiveQueries())
@@ -491,7 +506,8 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .selectedEvidenceRefs(contextPackage.getRetrievalState().getSelectedEvidenceRefs())
                 .rerankSummary(contextPackage.getRetrievalState().getRerankSummary())
                 .build());
-        return new RecoveryRefreshPlan(needRagRefresh, needMcpRefresh);
+        recoveryStateStore.clear(contextPackage.getSessionId());
+        return new RecoveryRefreshPlan(needRagRefresh, needMcpRefresh, needReassembly);
     }
 
     private boolean booleanValue(Object value) {
@@ -502,6 +518,23 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             return false;
         }
         return "true".equalsIgnoreCase(String.valueOf(value));
+    }
+
+    private boolean hasPendingRecoveryWork(StructuredContextPackage contextPackage) {
+        if (contextPackage == null) {
+            return false;
+        }
+        Map<String, Object> promptPolicy = contextPackage.getPromptPolicy();
+        if (promptPolicy != null && booleanValue(promptPolicy.get("recovery_required"))) {
+            return true;
+        }
+        if (contextPackage.getRetrievalState() == null || contextPackage.getRetrievalState().getRetrievalPlan() == null) {
+            return false;
+        }
+        Map<String, Object> retrievalPlan = contextPackage.getRetrievalState().getRetrievalPlan();
+        return booleanValue(retrievalPlan.get("need_rag_refresh"))
+                || booleanValue(retrievalPlan.get("need_mcp_refresh"))
+                || booleanValue(retrievalPlan.get("need_reassembly"));
     }
 
     private String appendRefreshFlag(String query, String source) {
@@ -741,6 +774,6 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
     private record RecoveryTrigger(boolean shouldRecover, String recoveryEvent, String interruptReason) {
     }
 
-    private record RecoveryRefreshPlan(boolean needRagRefresh, boolean needMcpRefresh) {
+    private record RecoveryRefreshPlan(boolean needRagRefresh, boolean needMcpRefresh, boolean needReassembly) {
     }
 }

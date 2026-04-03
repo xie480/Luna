@@ -438,6 +438,7 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
         retrievalPlan.put("recovery_mode", true);
         retrievalPlan.put("need_rag_refresh", decision.needRagRefresh());
         retrievalPlan.put("need_mcp_refresh", decision.needMcpRefresh());
+        retrievalPlan.put("need_reassembly", decision.needReassembly());
 
         return RetrievalState.builder()
                 .reconstructedIntent(current.getReconstructedIntent())

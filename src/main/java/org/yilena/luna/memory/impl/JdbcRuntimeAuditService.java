@@ -88,12 +88,49 @@ public class JdbcRuntimeAuditService implements RuntimeAuditService {
                                           String normalizedOutputJson,
                                           String errorMessage,
                                           Long latencyMs) {
+        persistToolExecutionTraceAndReturnId(
+                sessionId,
+                planId,
+                nodeId,
+                toolName,
+                callStatus,
+                normalizedInputJson,
+                normalizedOutputJson,
+                errorMessage,
+                latencyMs
+        );
+    }
+
+    @Override
+    public Long persistToolExecutionTraceAndReturnId(String sessionId,
+                                                     Long planId,
+                                                     Long nodeId,
+                                                     String toolName,
+                                                     String callStatus,
+                                                     String normalizedInputJson,
+                                                     String normalizedOutputJson,
+                                                     String errorMessage,
+                                                     Long latencyMs) {
         if (sessionId == null || sessionId.isBlank()) {
-            return;
+            return null;
         }
         try {
             String safeInput = normalizePayload(normalizedInputJson);
             String safeOutput = normalizePayload(normalizedOutputJson);
+            Long insertedId = runtimeAuditMapper.insertToolExecutionTraceAndReturnId(
+                    sessionId,
+                    coalescePlanId(sessionId, planId),
+                    coalesceNodeId(sessionId, nodeId),
+                    toolName == null || toolName.isBlank() ? "agent_tool_chain" : toolName,
+                    callStatus == null || callStatus.isBlank() ? "UNKNOWN" : callStatus,
+                    safeInput,
+                    safeOutput,
+                    errorMessage,
+                    latencyMs
+            );
+            if (insertedId != null) {
+                return insertedId;
+            }
             runtimeAuditMapper.insertToolExecutionTrace(
                     sessionId,
                     coalescePlanId(sessionId, planId),
@@ -105,7 +142,9 @@ public class JdbcRuntimeAuditService implements RuntimeAuditService {
                     errorMessage,
                     latencyMs
             );
+            return null;
         } catch (Exception ignore) {
+            return null;
         }
     }
 

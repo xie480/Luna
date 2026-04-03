@@ -48,6 +48,15 @@ public interface SessionRuntimeMapper {
     Map<String, Object> selectLatestNodeRuntimeByPlanId(@Param("planId") String planId);
 
     @Select("""
+            select node_type
+            from plan_node
+            where plan_id = #{planId}
+              and node_id = #{nodeId}
+            limit 1
+            """)
+    String selectNodeTypeByPlanAndNode(@Param("planId") Long planId, @Param("nodeId") Long nodeId);
+
+    @Select("""
             select active_node_id
             from task_working_memory
             where session_id = #{sessionId}

@@ -5,6 +5,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
+import org.apache.ibatis.annotations.Delete;
 
 import java.util.Map;
 
@@ -53,5 +54,13 @@ public interface StateStoreMapper {
             limit 1
             """)
     Map<String, Object> selectStateSlot(@Param("sessionId") String sessionId, @Param("slotName") String slotName);
-}
 
+    @Delete("""
+            delete from task_working_memory_slot
+            where twm_id = (
+                select twm_id from task_working_memory where session_id = #{sessionId} limit 1
+            )
+              and slot_name = #{slotName}
+            """)
+    int deleteStateSlot(@Param("sessionId") String sessionId, @Param("slotName") String slotName);
+}

@@ -24,6 +24,11 @@ public class RecoveryStateStoreImpl extends AbstractJsonStateStore<RecoveryState
     }
 
     @Override
+    public void clear(String sessionId) {
+        deleteState(sessionId);
+    }
+
+    @Override
     protected String slotName() {
         return "state.recovery";
     }
@@ -38,4 +43,3 @@ public class RecoveryStateStoreImpl extends AbstractJsonStateStore<RecoveryState
         return RecoveryState.class;
     }
 }
-

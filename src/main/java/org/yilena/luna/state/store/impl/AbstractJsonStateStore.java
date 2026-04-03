@@ -53,5 +53,14 @@ abstract class AbstractJsonStateStore<T> {
         } catch (Exception ignore) {
         }
     }
-}
 
+    protected void deleteState(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        try {
+            stateStoreMapper.deleteStateSlot(sessionId, slotName());
+        } catch (Exception ignore) {
+        }
+    }
+}

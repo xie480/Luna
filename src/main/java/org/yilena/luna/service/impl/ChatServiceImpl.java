@@ -221,6 +221,7 @@ public class ChatServiceImpl implements ChatService {
         long toolStartAt = System.currentTimeMillis();
         String toolStatus = "SUCCESS";
         String toolError = null;
+        ToolTraceRefs toolTraceRefs = ToolTraceRefs.empty();
         try {
             toolContext = agentService.processToolCalling(
                     runtimeSessionId,
@@ -236,7 +237,7 @@ public class ChatServiceImpl implements ChatService {
         } finally {
             List<Map<String, Object>> toolExecutionTraces = ToolCallingContextHolder.snapshotToolExecutionTraces();
             ToolCallingContextHolder.clear();
-            persistToolExecutionTraces(
+            toolTraceRefs = persistToolExecutionTraces(
                     runtimeSessionId,
                     contextPlanId(contextPackage),
                     contextNodeId(contextPackage),
@@ -307,7 +308,23 @@ public class ChatServiceImpl implements ChatService {
         if (isAsyncPending(mergedToolContext)) {
             String pendingReply = buildPendingReply(mergedToolContext);
             cachePendingToolCall(runtimeSessionId, mergedToolContext);
-            memoryWritePipelineService.writeAfterTurn(runtimeSessionId, input, pendingReply, contextPackage);
+            MemoryWriteGateDecision pendingGate = evaluateMemoryWriteGate(input, pendingReply, reconstruction, toolSemanticResult, true);
+            runtimeAuditService.persistDecisionRecord(
+                    runtimeSessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    "MEMORY_WRITE_GATE",
+                    pendingGate.allowWrite() ? "pending turn memory write allowed" : "pending turn memory write skipped",
+                    toJsonSafe(Map.of(
+                            "allowWrite", pendingGate.allowWrite(),
+                            "score", pendingGate.score(),
+                            "reason", pendingGate.reason(),
+                            "pending", true
+                    ))
+            );
+            if (pendingGate.allowWrite()) {
+                memoryWritePipelineService.writeAfterTurn(runtimeSessionId, input, pendingReply, contextPackage);
+            }
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
             return ResponseEntity.ok(tryParseJsonNode(pendingReply));
         }
@@ -368,7 +385,23 @@ public class ChatServiceImpl implements ChatService {
                 : assembledContext.getPrompt();
         SendToLuna result = getSendToLuna(finalPrompt, input, contextPackage);
         LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(result.raw());
-        memoryWritePipelineService.writeAfterTurn(runtimeSessionId, input, result.replyText(), contextPackage);
+        MemoryWriteGateDecision writeGate = evaluateMemoryWriteGate(input, result.replyText(), reconstruction, toolSemanticResult, false);
+        runtimeAuditService.persistDecisionRecord(
+                runtimeSessionId,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage),
+                "MEMORY_WRITE_GATE",
+                writeGate.allowWrite() ? "memory write allowed" : "memory write skipped by threshold",
+                toJsonSafe(Map.of(
+                        "allowWrite", writeGate.allowWrite(),
+                        "score", writeGate.score(),
+                        "reason", writeGate.reason(),
+                        "pending", false
+                ))
+        );
+        if (writeGate.allowWrite()) {
+            memoryWritePipelineService.writeAfterTurn(runtimeSessionId, input, result.replyText(), contextPackage);
+        }
         SummaryResult summaryResult = summaryAgent.summarize(
                 input,
                 result.replyText(),
@@ -396,6 +429,7 @@ public class ChatServiceImpl implements ChatService {
                 toolSemanticResult,
                 summaryResult,
                 finalSnapshotId,
+                toolTraceRefs,
                 nodeWorkset == null ? "" : nodeWorkset.getRagQuery(),
                 nodeWorkset == null ? "" : nodeWorkset.getMemoryQuery(),
                 nodeWorkset == null ? "" : nodeWorkset.getMcpDrivenInput()
@@ -786,7 +820,22 @@ public class ChatServiceImpl implements ChatService {
         if (contextPackage != null && contextPackage.getTaskStateEntity() != null && contextPackage.getTaskStateEntity().getCurrentNode() != null) {
             currentNode = contextPackage.getTaskStateEntity().getCurrentNode();
         }
-        return ContextNodeTemplatePolicy.forTaskStage(taskState, currentNode);
+        String nodeKind = resolveCurrentNodeKind(contextPackage);
+        return ContextNodeTemplatePolicy.forTaskNode(taskState, currentNode, nodeKind);
+    }
+
+    private String resolveCurrentNodeKind(StructuredContextPackage contextPackage) {
+        Long planId = contextPlanId(contextPackage);
+        Long nodeId = contextNodeId(contextPackage);
+        if (planId == null || nodeId == null) {
+            return "";
+        }
+        try {
+            String nodeType = sessionRuntimeMapper.selectNodeTypeByPlanAndNode(planId, nodeId);
+            return nodeType == null ? "" : nodeType.trim();
+        } catch (Exception ignore) {
+            return "";
+        }
     }
 
     private List<String> buildNodeScopedMemorySnippets(ContextNodeTemplatePolicy policy,
@@ -819,6 +868,22 @@ public class ChatServiceImpl implements ChatService {
                 .filter(item -> item != null && !item.isBlank())
                 .limit(maxItems)
                 .toList();
+    }
+
+    private MemoryWriteGateDecision evaluateMemoryWriteGate(String userInput,
+                                                            String assistantReply,
+                                                            InputReconstructionResult reconstruction,
+                                                            ToolSemanticResult toolSemanticResult,
+                                                            boolean pendingTurn) {
+        double inputSignal = userInput == null ? 0.0 : Math.min(1.0, userInput.trim().length() / 120.0);
+        double replySignal = assistantReply == null ? 0.0 : Math.min(1.0, assistantReply.trim().length() / 180.0);
+        double intentSignal = reconstruction == null ? 0.0 : bounded(reconstruction.getIntentConfidence(), 0.0, 1.0);
+        double semanticSignal = toolSemanticResult == null ? 0.0 : bounded(toolSemanticResult.getConfidence(), 0.0, 1.0);
+        double score = bounded(inputSignal * 0.30 + replySignal * 0.25 + intentSignal * 0.25 + semanticSignal * 0.20, 0.0, 1.0);
+        double threshold = pendingTurn ? 0.35 : 0.45;
+        boolean allow = score >= threshold || intentSignal >= 0.60 || semanticSignal >= 0.70;
+        String reason = allow ? "signal_above_threshold" : "weak_signal_low_confidence";
+        return new MemoryWriteGateDecision(allow, score, reason);
     }
 
     private String mergeToolContextWithSynthesis(String toolContext, String synthesisBrief) {
@@ -857,18 +922,20 @@ public class ChatServiceImpl implements ChatService {
         }
     }
 
-    private void persistToolExecutionTraces(String sessionId,
-                                            Long planId,
-                                            Long nodeId,
-                                            String userInput,
-                                            String toolContext,
-                                            String chainStatus,
-                                            String chainError,
-                                            long chainLatencyMs,
-                                            List<Map<String, Object>> traces) {
+    private ToolTraceRefs persistToolExecutionTraces(String sessionId,
+                                                     Long planId,
+                                                     Long nodeId,
+                                                     String userInput,
+                                                     String toolContext,
+                                                     String chainStatus,
+                                                     String chainError,
+                                                     long chainLatencyMs,
+                                                     List<Map<String, Object>> traces) {
         List<Map<String, Object>> safeTraces = traces == null ? List.of() : traces;
+        List<String> historyRefs = new ArrayList<>();
+        String latestRawRef = "";
         if (safeTraces.isEmpty()) {
-            runtimeAuditService.persistToolExecutionTrace(
+            Long traceId = runtimeAuditService.persistToolExecutionTraceAndReturnId(
                     sessionId,
                     planId,
                     nodeId,
@@ -879,11 +946,15 @@ public class ChatServiceImpl implements ChatService {
                     chainError,
                     Math.max(0L, chainLatencyMs)
             );
-            return;
+            latestRawRef = toTraceRef(traceId, "agent_tool_chain", chainStatus);
+            historyRefs.add(latestRawRef);
+            return new ToolTraceRefs(latestRawRef, historyRefs.stream().filter(ref -> ref != null && !ref.isBlank()).distinct().toList());
         }
 
         int sequence = 1;
         for (Map<String, Object> trace : safeTraces) {
+            String normalizedToolName = normalizeToolName(trace.get("tool_name"), sequence);
+            String normalizedStatus = normalizeCallStatus(trace.get("call_status"));
             Map<String, Object> normalizedInput = new LinkedHashMap<>();
             normalizedInput.put("sequence", sequence);
             normalizedInput.put("source_type", stringValue(trace.get("source_type")));
@@ -894,21 +965,26 @@ public class ChatServiceImpl implements ChatService {
             normalizedOutput.put("source_type", stringValue(trace.get("source_type")));
             normalizedOutput.put("payload", trace.getOrDefault("normalized_output", Map.of()));
 
-            runtimeAuditService.persistToolExecutionTrace(
+            Long traceId = runtimeAuditService.persistToolExecutionTraceAndReturnId(
                     sessionId,
                     planId,
                     nodeId,
-                    normalizeToolName(trace.get("tool_name"), sequence),
-                    normalizeCallStatus(trace.get("call_status")),
+                    normalizedToolName,
+                    normalizedStatus,
                     toJsonSafe(normalizedInput),
                     toJsonSafe(normalizedOutput),
                     stringValue(trace.get("error_message")),
                     normalizeLatency(trace.get("latency_ms"))
             );
+            String traceRef = toTraceRef(traceId, normalizedToolName, normalizedStatus);
+            historyRefs.add(traceRef);
+            if (latestRawRef.isBlank()) {
+                latestRawRef = traceRef;
+            }
             sequence++;
         }
 
-        runtimeAuditService.persistToolExecutionTrace(
+        Long chainTraceId = runtimeAuditService.persistToolExecutionTraceAndReturnId(
                 sessionId,
                 planId,
                 nodeId,
@@ -925,6 +1001,11 @@ public class ChatServiceImpl implements ChatService {
                 chainError,
                 Math.max(0L, chainLatencyMs)
         );
+        historyRefs.add(toTraceRef(chainTraceId, "agent_tool_chain", chainStatus));
+        if (latestRawRef.isBlank()) {
+            latestRawRef = toTraceRef(chainTraceId, "agent_tool_chain", chainStatus);
+        }
+        return new ToolTraceRefs(latestRawRef, historyRefs.stream().filter(ref -> ref != null && !ref.isBlank()).distinct().toList());
     }
 
     private String normalizeToolName(Object rawName, int sequence) {
@@ -949,6 +1030,15 @@ public class ChatServiceImpl implements ChatService {
             return null;
         }
         return Math.max(0L, value);
+    }
+
+    private String toTraceRef(Long traceId, String toolName, String callStatus) {
+        if (traceId != null && traceId > 0L) {
+            return "tool_execution_trace:id=" + traceId;
+        }
+        String normalizedTool = toolName == null || toolName.isBlank() ? "agent_tool_chain" : toolName;
+        String normalizedStatus = callStatus == null || callStatus.isBlank() ? "UNKNOWN" : callStatus.toUpperCase();
+        return "tool_execution_trace:" + normalizedTool + ":" + normalizedStatus;
     }
 
     private List<Map<String, Object>> toExecutionCandidateMaps(List<Resource> resources) {
@@ -977,6 +1067,7 @@ public class ChatServiceImpl implements ChatService {
                                   ToolSemanticResult toolSemanticResult,
                                   SummaryResult summaryResult,
                                   String latestSnapshotId,
+                                  ToolTraceRefs toolTraceRefs,
                                   String ragQuery,
                                   String memoryQuery,
                                   String mcpQuery) {
@@ -1048,15 +1139,21 @@ public class ChatServiceImpl implements ChatService {
                 .build();
         retrievalStateStore.save(sessionId, retrievalState);
 
+        String latestToolRawRef = resolveLatestToolRawResultRef(toolTraceRefs, toolRows, previousToolState);
+        List<String> activeToolRefs = resolveActiveToolEvidenceRefs(toolTraceRefs, toolRows, previousContextState);
+
         ToolState toolState = ToolState.builder()
                 .lastToolName(resolveLastToolName(toolRows, toolSemanticResult))
                 .lastToolInput(reconstruction == null ? "" : reconstruction.getReformulatedQueryForMcp())
                 .lastToolStatus(toolSemanticResult == null ? "" : toolSemanticResult.getToolStatus())
-                .lastToolRawResultRef("tool_execution_trace:latest")
+                .lastToolRawResultRef(latestToolRawRef)
                 .lastToolSemanticSummary(toolSemanticResult == null ? "" : toolSemanticResult.getBusinessImpact())
                 .toolCallHistoryRefs(mergeDistinctList(
                         previousToolState == null ? List.of() : previousToolState.getToolCallHistoryRefs(),
-                        extractToolHistoryRefs(toolRows)
+                        mergeDistinct(
+                                extractToolHistoryRefs(toolRows),
+                                toolTraceRefs == null || toolTraceRefs.historyRefs() == null ? List.of() : toolTraceRefs.historyRefs()
+                        )
                 ))
                 .build();
         toolStateStore.save(sessionId, toolState);
@@ -1066,7 +1163,7 @@ public class ChatServiceImpl implements ChatService {
                 .latestStateSnapshot(summaryResult == null || summaryResult.getStateSnapshot() == null ? Map.of() : summaryResult.getStateSnapshot())
                 .activeKnowledgeRefs(extractKnowledgeRefs(rerankResult))
                 .activeMemoryRefs(rerankResult == null || rerankResult.getSelectedMemoryHints() == null ? List.of() : rerankResult.getSelectedMemoryHints())
-                .activeToolEvidenceRefs(List.of("tool_execution_trace:latest"))
+                .activeToolEvidenceRefs(activeToolRefs)
                 .activeMcpPromptRefs(rerankResult == null || rerankResult.getSelectedPromptResources() == null ? List.of() : rerankResult.getSelectedPromptResources().stream().map(this::toJsonSafe).toList())
                 .activeMcpResourceRefs(rerankResult == null || rerankResult.getSelectedToolCandidates() == null ? List.of() : rerankResult.getSelectedToolCandidates().stream().map(this::toJsonSafe).toList())
                 .latestContextSnapshotId(firstNonBlank(
@@ -1075,6 +1172,17 @@ public class ChatServiceImpl implements ChatService {
                 ))
                 .build();
         contextStateStore.save(sessionId, contextState);
+
+        persistReplayAndMemoryGovernance(
+                sessionId,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage),
+                previousContextState,
+                latestSnapshotId,
+                summaryResult,
+                toolSemanticResult,
+                reconstruction
+        );
     }
 
     private List<String> extractKnowledgeRefs(ContextRerankResult rerankResult) {
@@ -1099,6 +1207,96 @@ public class ChatServiceImpl implements ChatService {
             return first;
         }
         return second == null ? "" : second;
+    }
+
+    private String resolveLatestToolRawResultRef(ToolTraceRefs traceRefs,
+                                                 List<Map<String, Object>> toolRows,
+                                                 ToolState previousToolState) {
+        if (traceRefs != null && traceRefs.latestRawRef() != null && !traceRefs.latestRawRef().isBlank()) {
+            return traceRefs.latestRawRef();
+        }
+        if (toolRows != null && !toolRows.isEmpty()) {
+            String traceId = stringValue(toolRows.get(0).get("trace_id"));
+            if (!traceId.isBlank()) {
+                return "tool_execution_trace:id=" + traceId;
+            }
+            String toolName = stringValue(toolRows.get(0).get("tool_name"));
+            String status = normalizeCallStatus(toolRows.get(0).get("call_status"));
+            if (!toolName.isBlank()) {
+                return "tool_execution_trace:" + toolName + ":" + status;
+            }
+        }
+        if (previousToolState != null && previousToolState.getLastToolRawResultRef() != null && !previousToolState.getLastToolRawResultRef().isBlank()) {
+            return previousToolState.getLastToolRawResultRef();
+        }
+        return "tool_execution_trace:latest";
+    }
+
+    private List<String> resolveActiveToolEvidenceRefs(ToolTraceRefs traceRefs,
+                                                       List<Map<String, Object>> toolRows,
+                                                       ContextState previousContextState) {
+        List<String> refs = new ArrayList<>();
+        if (traceRefs != null && traceRefs.historyRefs() != null && !traceRefs.historyRefs().isEmpty()) {
+            refs.addAll(traceRefs.historyRefs());
+        }
+        if (refs.isEmpty() && toolRows != null) {
+            refs.addAll(extractToolHistoryRefs(toolRows));
+        }
+        if (refs.isEmpty() && previousContextState != null && previousContextState.getActiveToolEvidenceRefs() != null) {
+            refs.addAll(previousContextState.getActiveToolEvidenceRefs());
+        }
+        if (refs.isEmpty()) {
+            refs.add("tool_execution_trace:latest");
+        }
+        return refs.stream().filter(ref -> ref != null && !ref.isBlank()).distinct().toList();
+    }
+
+    private void persistReplayAndMemoryGovernance(String sessionId,
+                                                  Long planId,
+                                                  Long nodeId,
+                                                  ContextState previousContextState,
+                                                  String latestSnapshotId,
+                                                  SummaryResult summaryResult,
+                                                  ToolSemanticResult toolSemanticResult,
+                                                  InputReconstructionResult reconstruction) {
+        String previousSnapshotId = previousContextState == null ? "" : firstNonBlank(previousContextState.getLatestContextSnapshotId(), "");
+        double toolConfidence = bounded(toolSemanticResult == null ? 0.0 : toolSemanticResult.getConfidence(), 0.0, 1.0);
+        double summaryConfidence = summaryResult == null || summaryResult.getStateSnapshot() == null ? 0.0 : 0.70;
+        double intentConfidence = bounded(reconstruction == null ? 0.0 : reconstruction.getIntentConfidence(), 0.0, 1.0);
+        double qualityScore = bounded(toolConfidence * 0.50 + summaryConfidence * 0.25 + intentConfidence * 0.25, 0.0, 1.0);
+        boolean comparable = previousSnapshotId != null && !previousSnapshotId.isBlank()
+                && latestSnapshotId != null && !latestSnapshotId.isBlank();
+
+        runtimeAuditService.persistDecisionRecord(
+                sessionId,
+                planId,
+                nodeId,
+                "QUALITY_REPLAY_COMPARISON",
+                comparable ? "snapshot replay comparable" : "snapshot replay baseline missing",
+                toJsonSafe(Map.of(
+                        "previousSnapshotId", previousSnapshotId == null ? "" : previousSnapshotId,
+                        "currentSnapshotId", latestSnapshotId == null ? "" : latestSnapshotId,
+                        "comparable", comparable,
+                        "qualityScore", qualityScore,
+                        "toolSemanticConfidence", toolConfidence,
+                        "intentConfidence", intentConfidence
+                ))
+        );
+
+        boolean memoryWriteAllowed = qualityScore >= 0.45 || intentConfidence >= 0.60;
+        runtimeAuditService.persistDecisionRecord(
+                sessionId,
+                planId,
+                nodeId,
+                "MEMORY_WRITE_THRESHOLD_GOVERNANCE",
+                memoryWriteAllowed ? "memory write gate passed" : "memory write gate blocked",
+                toJsonSafe(Map.of(
+                        "memoryWriteAllowed", memoryWriteAllowed,
+                        "threshold", 0.45,
+                        "qualityScore", qualityScore,
+                        "intentConfidence", intentConfidence
+                ))
+        );
     }
 
     private List<String> mergeDistinctList(List<String> left, List<String> right) {
@@ -1158,13 +1356,20 @@ public class ChatServiceImpl implements ChatService {
         }
         List<String> out = new ArrayList<>();
         for (Map<String, Object> row : toolRows) {
+            String traceId = stringValue(row.get("trace_id"));
+            if (!traceId.isBlank()) {
+                out.add("tool_execution_trace:id=" + traceId);
+                continue;
+            }
             String name = stringValue(row.get("tool_name"));
             String status = stringValue(row.get("call_status"));
             if (!name.isBlank()) {
                 out.add("tool_execution_trace:" + name + ":" + status);
             }
         }
-        out.add("tool_execution_trace:latest");
+        if (out.isEmpty()) {
+            out.add("tool_execution_trace:latest");
+        }
         return out.stream().distinct().toList();
     }
 
@@ -1278,6 +1483,28 @@ public class ChatServiceImpl implements ChatService {
         } catch (JsonProcessingException ignore) {
             return "{}";
         }
+    }
+
+    private double bounded(double value, double min, double max) {
+        if (Double.isNaN(value)) {
+            return min;
+        }
+        if (value < min) {
+            return min;
+        }
+        if (value > max) {
+            return max;
+        }
+        return value;
+    }
+
+    private record ToolTraceRefs(String latestRawRef, List<String> historyRefs) {
+        private static ToolTraceRefs empty() {
+            return new ToolTraceRefs("", List.of());
+        }
+    }
+
+    private record MemoryWriteGateDecision(boolean allowWrite, double score, String reason) {
     }
 
     private record SendToLuna(String raw, String valid, String replyText) {

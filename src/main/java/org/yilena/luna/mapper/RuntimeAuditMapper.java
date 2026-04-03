@@ -129,4 +129,33 @@ public interface RuntimeAuditMapper {
                                  @Param("normalizedOutput") String normalizedOutput,
                                  @Param("errorMessage") String errorMessage,
                                  @Param("latencyMs") Long latencyMs);
+
+    @Select("""
+            insert into tool_execution_trace(plan_id, node_id, session_id, tool_name, call_status, normalized_input, normalized_output, error_message, latency_ms, created_at)
+            select coalesce(
+                       #{planId},
+                       current_plan_id,
+                       (select pcs.plan_id from plan_context_snapshot pcs where pcs.session_id = #{sessionId} order by pcs.created_at desc limit 1)
+                   ),
+                   coalesce(
+                       #{nodeId},
+                       (select active_node_id from task_working_memory where session_id = #{sessionId} order by updated_at desc limit 1),
+                       (select pcs.node_id from plan_context_snapshot pcs where pcs.session_id = #{sessionId} order by pcs.created_at desc limit 1)
+                   ),
+                   #{sessionId}, #{toolName}, #{callStatus},
+                   cast(#{normalizedInput} as jsonb), cast(#{normalizedOutput} as jsonb),
+                   #{errorMessage}, #{latencyMs}, current_timestamp
+            from agent_session
+            where session_id = #{sessionId}
+            returning id
+            """)
+    Long insertToolExecutionTraceAndReturnId(@Param("sessionId") String sessionId,
+                                             @Param("planId") Long planId,
+                                             @Param("nodeId") Long nodeId,
+                                             @Param("toolName") String toolName,
+                                             @Param("callStatus") String callStatus,
+                                             @Param("normalizedInput") String normalizedInput,
+                                             @Param("normalizedOutput") String normalizedOutput,
+                                             @Param("errorMessage") String errorMessage,
+                                             @Param("latencyMs") Long latencyMs);
 }

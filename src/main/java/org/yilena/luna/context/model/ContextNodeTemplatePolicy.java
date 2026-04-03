@@ -11,6 +11,8 @@ import java.util.Map;
 @Builder
 public class ContextNodeTemplatePolicy {
     String nodeType;
+    String nodeKind;
+    String templateKey;
     String currentNodeId;
     boolean includeWorkingMemory;
     boolean includeRuntimeMemory;
@@ -23,14 +25,22 @@ public class ContextNodeTemplatePolicy {
     Map<String, Integer> sectionBudgetOverrides;
 
     public static ContextNodeTemplatePolicy defaultPolicy() {
-        return forTaskStage(null, "");
+        return forTaskNode(null, "", "");
     }
 
     public static ContextNodeTemplatePolicy forTaskStage(TaskRuntimeState taskState, String currentNodeId) {
+        return forTaskNode(taskState, currentNodeId, "");
+    }
+
+    public static ContextNodeTemplatePolicy forTaskNode(TaskRuntimeState taskState, String currentNodeId, String nodeKind) {
         TaskRuntimeState stage = taskState == null ? TaskRuntimeState.UNDERSTANDING : taskState;
+        String normalizedNodeKind = nodeKind == null ? "" : nodeKind.trim().toUpperCase();
+        String templateKey = normalizedNodeKind.isBlank() ? stage.name() : stage.name() + ":" + normalizedNodeKind;
         Map<String, Integer> sectionOverrides = new LinkedHashMap<>();
         ContextNodeTemplatePolicyBuilder builder = builder()
                 .nodeType(stage.name())
+                .nodeKind(normalizedNodeKind)
+                .templateKey(templateKey)
                 .currentNodeId(currentNodeId == null ? "" : currentNodeId)
                 .includeWorkingMemory(true)
                 .includeRuntimeMemory(true)
@@ -66,6 +76,34 @@ public class ContextNodeTemplatePolicy {
             }
             default -> {
                 sectionOverrides.put("Memory Hints", 1200);
+            }
+        }
+
+        switch (normalizedNodeKind) {
+            case "TOOL", "RESOURCE", "WORKFLOW" -> {
+                builder.includeRetrievedMemory(true)
+                        .maxRetrievedMemoryItems(10);
+                sectionOverrides.put("Tool Evidence", 1800);
+                sectionOverrides.put("Relevant Knowledge Evidence", 2200);
+            }
+            case "PROMPT" -> {
+                builder.includeLongTermMemory(true);
+                sectionOverrides.put("MCP Resource / Prompt Hints", 1800);
+                sectionOverrides.put("Output Constraints", 280);
+            }
+            case "VALIDATE" -> {
+                builder.includeRetrievedMemory(true)
+                        .includeLongTermMemory(true)
+                        .maxRuntimeMemoryItems(6);
+                sectionOverrides.put("Output Constraints", 340);
+                sectionOverrides.put("Current Task State", 2200);
+            }
+            case "REPORT", "CODE", "ANALYZE" -> {
+                builder.includeRetrievedMemory(true).includeLongTermMemory(true);
+                sectionOverrides.put("Relevant Knowledge Evidence", 2600);
+                sectionOverrides.put("Memory Hints", 1800);
+            }
+            default -> {
             }
         }
         return builder.build();
