@@ -16,6 +16,7 @@ import org.yilena.luna.context.ToolSemanticAgent;
 import org.yilena.luna.context.ToolSemanticResultValidator;
 import org.yilena.luna.context.ToolSemanticTraceLogger;
 import org.yilena.luna.context.model.AssembledContext;
+import org.yilena.luna.context.model.ContextNodeTemplatePolicy;
 import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.EvidenceBlock;
 import org.yilena.luna.context.model.InputReconstructionResult;
@@ -27,6 +28,7 @@ import org.yilena.luna.entity.McpToolCallResult;
 import org.yilena.luna.entity.Resource;
 import org.yilena.luna.entity.ToolCallingContext;
 import org.yilena.luna.enums.ModelType;
+import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.exception.impl.NeedApprovalException;
 import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
@@ -375,6 +377,10 @@ public class ApprovalServiceImpl implements ApprovalService {
             List<String> mcpResourceHints = nodeWorksetResult == null || nodeWorksetResult.getMcpResourceHints() == null
                     ? List.of()
                     : nodeWorksetResult.getMcpResourceHints();
+            List<String> workingMemorySnippets = task.getMemorySnippets() != null ? task.getMemorySnippets() : Collections.emptyList();
+            List<String> runtimeMemorySnippets = extractRuntimeMessageSnippets(contextPackage);
+            List<String> retrievedMemorySnippets = selectedMemorySnippets;
+            ContextNodeTemplatePolicy nodeTemplatePolicy = resolveNodeTemplatePolicy(recoveryDecision, contextPackage);
             ToolSemanticResult toolSemanticResult = toolSemanticAgent.translate(
                     resolvePrimaryToolName(executionCandidates),
                     resolvePrimaryToolDescription(executionCandidates),
@@ -411,10 +417,9 @@ public class ApprovalServiceImpl implements ApprovalService {
                     toolSemanticResult,
                     task.getUserInput(),
                     selectedKnowledgeEvidenceBlocks,
-                    mergeDistinct(
-                            task.getMemorySnippets() != null ? task.getMemorySnippets() : Collections.emptyList(),
-                            selectedMemorySnippets
-                    ),
+                    workingMemorySnippets,
+                    runtimeMemorySnippets,
+                    retrievedMemorySnippets,
                     mergeDistinct(
                             task.getKnowledgeSnippets() != null ? task.getKnowledgeSnippets() : Collections.emptyList(),
                             selectedKnowledgeSnippets
@@ -426,7 +431,8 @@ public class ApprovalServiceImpl implements ApprovalService {
                     task.getLongTermMemorySnippets() != null ? task.getLongTermMemorySnippets() : Collections.emptyList(),
                     executionCandidates,
                     mcpResourceHints,
-                    approved ? toolContext : null
+                    approved ? toolContext : null,
+                    nodeTemplatePolicy
             );
             contextTraceLogger.log(task.getSessionId(), contextPlanId(contextPackage), contextNodeId(contextPackage), assembledContext);
             String finalSnapshotId = contextSnapshotStore.saveFinalSnapshot(
@@ -530,6 +536,34 @@ public class ApprovalServiceImpl implements ApprovalService {
         } catch (Exception ignore) {
             return null;
         }
+    }
+
+    private ContextNodeTemplatePolicy resolveNodeTemplatePolicy(OrchestrationDecision decision, StructuredContextPackage contextPackage) {
+        TaskRuntimeState taskState = decision == null ? null : decision.getTaskState();
+        if (taskState == null && contextPackage != null) {
+            taskState = contextPackage.getTaskState();
+        }
+        String currentNode = "";
+        if (contextPackage != null && contextPackage.getTaskStateEntity() != null && contextPackage.getTaskStateEntity().getCurrentNode() != null) {
+            currentNode = contextPackage.getTaskStateEntity().getCurrentNode();
+        }
+        return ContextNodeTemplatePolicy.forTaskStage(taskState, currentNode);
+    }
+
+    private List<String> extractRuntimeMessageSnippets(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getRuntime() == null) {
+            return List.of();
+        }
+        Object raw = contextPackage.getRuntime().get("recent_messages");
+        if (!(raw instanceof List<?> list)) {
+            return List.of();
+        }
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) list;
+        return rows.stream()
+                .map(item -> safe(item.get("role")) + ": " + safe(item.get("content_text")))
+                .filter(item -> !item.isBlank())
+                .toList();
     }
 
     private List<String> mergeDistinct(List<String> left, List<String> right) {

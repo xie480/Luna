@@ -24,6 +24,7 @@ import org.yilena.luna.context.ToolSemanticAgent;
 import org.yilena.luna.context.ToolSemanticResultValidator;
 import org.yilena.luna.context.ToolSemanticTraceLogger;
 import org.yilena.luna.context.model.AssembledContext;
+import org.yilena.luna.context.model.ContextNodeTemplatePolicy;
 import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.EvidenceBlock;
 import org.yilena.luna.context.model.InputReconstructionResult;
@@ -142,6 +143,8 @@ public class ChatServiceImpl implements ChatService {
         List<String> preferenceSnippets = extractRelationalPreferenceSnippets(contextPackage);
         List<String> longTermMemorySnippets = extractTaskLongTermSnippets(contextPackage);
         List<String> workingMemorySnippets = extractWorkingMemorySnippets(contextPackage);
+        List<String> runtimeMemorySnippets = extractRuntimeMessageSnippets(contextPackage);
+        ContextNodeTemplatePolicy nodeTemplatePolicy = resolveNodeTemplatePolicy(decision, contextPackage);
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_RETRIEVING, LunaStateConstant.VALUE_RETRIEVING);
         NodeWorksetResult nodeWorkset = taskOrchestratorService.orchestrateNodeWorkset(
                 runtimeSessionId,
@@ -174,10 +177,13 @@ public class ChatServiceImpl implements ChatService {
                         : nodeWorkset.getSelectedPreferenceSnippets()
         );
 
-        List<String> memorySnippets = new ArrayList<>();
-        memorySnippets.addAll(workingMemorySnippets);
-        memorySnippets.addAll(extractRuntimeMessageSnippets(contextPackage));
-        memorySnippets.addAll(ragMemorySnippets);
+        List<String> memorySnippets = buildNodeScopedMemorySnippets(
+                nodeTemplatePolicy,
+                workingMemorySnippets,
+                runtimeMemorySnippets,
+                ragMemorySnippets,
+                longTermMemorySnippets
+        );
 
         ToolCallingContextHolder.set(ToolCallingContext.builder()
                 .chatSessionKey(runtimeSessionId)
@@ -314,13 +320,16 @@ public class ChatServiceImpl implements ChatService {
                 toolSemanticResult,
                 input,
                 knowledgeEvidenceBlocks,
-                memorySnippets,
+                workingMemorySnippets,
+                runtimeMemorySnippets,
+                ragMemorySnippets,
                 knowledgeSnippets,
                 preferenceSnippets,
                 longTermMemorySnippets,
                 executionCandidates,
                 mcpResourceHints,
-                mergedToolContext
+                mergedToolContext,
+                nodeTemplatePolicy
         );
         contextTraceLogger.log(runtimeSessionId, contextPlanId(contextPackage), contextNodeId(contextPackage), assembledContext);
         String finalSnapshotId = contextSnapshotStore.saveFinalSnapshot(
@@ -404,6 +413,7 @@ public class ChatServiceImpl implements ChatService {
         List<String> memorySnippets = recent.stream()
                 .map(m -> m.getRole().name() + ": " + m.getContent() + ": " + m.getTime())
                 .toList();
+        ContextNodeTemplatePolicy startupPolicy = ContextNodeTemplatePolicy.defaultPolicy();
         AssembledContext startupContext = contextAssembler.assemble(
                 null,
                 null,
@@ -411,13 +421,16 @@ public class ChatServiceImpl implements ChatService {
                 null,
                 "startup",
                 List.of(),
+                List.of(),
                 memorySnippets,
                 List.of(),
                 List.of(),
                 List.of(),
                 List.of(),
                 List.of(),
-                null
+                List.of(),
+                null,
+                startupPolicy
         );
         String prompt = startupContext == null || startupContext.getPrompt() == null || startupContext.getPrompt().isBlank()
                 ? PromptTemplates.SYSTEM_PROMPT + "\n\n" + PromptTemplates.RUNTIME_PROMPT.formatted("startup")
@@ -743,6 +756,50 @@ public class ChatServiceImpl implements ChatService {
         List<Map<String, Object>> rows = (List<Map<String, Object>>) list;
         return rows.stream()
                 .map(item -> nullSafe(stringValue(item.get("role"))) + ": " + nullSafe(stringValue(item.get("content_text"))))
+                .toList();
+    }
+
+    private ContextNodeTemplatePolicy resolveNodeTemplatePolicy(OrchestrationDecision decision, StructuredContextPackage contextPackage) {
+        TaskRuntimeState taskState = decision == null ? null : decision.getTaskState();
+        if (taskState == null && contextPackage != null) {
+            taskState = contextPackage.getTaskState();
+        }
+        String currentNode = "";
+        if (contextPackage != null && contextPackage.getTaskStateEntity() != null && contextPackage.getTaskStateEntity().getCurrentNode() != null) {
+            currentNode = contextPackage.getTaskStateEntity().getCurrentNode();
+        }
+        return ContextNodeTemplatePolicy.forTaskStage(taskState, currentNode);
+    }
+
+    private List<String> buildNodeScopedMemorySnippets(ContextNodeTemplatePolicy policy,
+                                                       List<String> workingMemorySnippets,
+                                                       List<String> runtimeMemorySnippets,
+                                                       List<String> retrievedMemorySnippets,
+                                                       List<String> longTermMemorySnippets) {
+        ContextNodeTemplatePolicy effective = policy == null ? ContextNodeTemplatePolicy.defaultPolicy() : policy;
+        List<String> out = new ArrayList<>();
+        if (effective.isIncludeWorkingMemory()) {
+            out.addAll(limitSnippets(workingMemorySnippets, effective.getMaxWorkingMemoryItems()));
+        }
+        if (effective.isIncludeRuntimeMemory()) {
+            out.addAll(limitSnippets(runtimeMemorySnippets, effective.getMaxRuntimeMemoryItems()));
+        }
+        if (effective.isIncludeRetrievedMemory()) {
+            out.addAll(limitSnippets(retrievedMemorySnippets, effective.getMaxRetrievedMemoryItems()));
+        }
+        if (effective.isIncludeLongTermMemory()) {
+            out.addAll(limitSnippets(longTermMemorySnippets, effective.getMaxLongTermMemoryItems()));
+        }
+        return out.stream().filter(item -> item != null && !item.isBlank()).distinct().toList();
+    }
+
+    private List<String> limitSnippets(List<String> snippets, int maxItems) {
+        if (snippets == null || snippets.isEmpty() || maxItems <= 0) {
+            return List.of();
+        }
+        return snippets.stream()
+                .filter(item -> item != null && !item.isBlank())
+                .limit(maxItems)
                 .toList();
     }
 

@@ -38,7 +38,10 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
 
     @Override
     public OrchestrationDecision onUserInput(String sessionId, String userInput, String orchestrationSignal) {
-        String signal = orchestrationSignal == null || orchestrationSignal.isBlank() ? userInput : orchestrationSignal;
+        String signal = orchestrationSignal == null ? "" : orchestrationSignal.trim();
+        if (signal.isBlank()) {
+            signal = "intent=intent_unavailable;goal=goal_unavailable;timeScope=unspecified;constraints=[];missingSlots=[];fallback=empty_orchestration_signal";
+        }
         return orchestrate(sessionId, "USER_INPUT", signal, payloadOf("text", userInput));
     }
 

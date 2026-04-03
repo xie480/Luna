@@ -492,15 +492,30 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
     }
 
     private String buildOrchestrationSignal(String rawInput, InputReconstructionResult reconstruction) {
-        if (reconstruction == null) {
-            return rawInput == null ? "" : rawInput;
-        }
+        String normalizedIntent = reconstruction == null ? "" : nullSafe(reconstruction.getNormalizedUserIntent());
+        String explicitGoal = reconstruction == null ? "" : nullSafe(reconstruction.getExplicitTaskGoal());
+        String timeScope = reconstruction == null ? "" : nullSafe(reconstruction.getTimeScope());
+        List<String> constraints = reconstruction == null || reconstruction.getBusinessConstraints() == null
+                ? List.of()
+                : reconstruction.getBusinessConstraints();
+        List<String> missingSlots = reconstruction == null || reconstruction.getMissingSlots() == null
+                ? List.of()
+                : reconstruction.getMissingSlots();
         StringBuilder signal = new StringBuilder();
-        signal.append("intent=").append(nullSafe(reconstruction.getNormalizedUserIntent()));
-        signal.append(";goal=").append(nullSafe(reconstruction.getExplicitTaskGoal()));
-        signal.append(";timeScope=").append(nullSafe(reconstruction.getTimeScope()));
-        signal.append(";constraints=").append(reconstruction.getBusinessConstraints() == null ? List.of() : reconstruction.getBusinessConstraints());
-        signal.append(";missingSlots=").append(reconstruction.getMissingSlots() == null ? List.of() : reconstruction.getMissingSlots());
+        signal.append("intent=").append(normalizedIntent.isBlank() ? "intent_unavailable" : normalizedIntent);
+        signal.append(";goal=").append(explicitGoal.isBlank() ? "goal_unavailable" : explicitGoal);
+        signal.append(";timeScope=").append(timeScope.isBlank() ? "unspecified" : timeScope);
+        signal.append(";constraints=").append(constraints);
+        signal.append(";missingSlots=").append(missingSlots);
+        if (reconstruction == null) {
+            signal.append(";fallback=reconstruction_missing");
+            signal.append(";rawInputPresent=").append(rawInput != null && !rawInput.isBlank());
+            signal.append(";rawInputLength=").append(rawInput == null ? 0 : rawInput.trim().length());
+        } else if (normalizedIntent.isBlank() || explicitGoal.isBlank()) {
+            signal.append(";fallback=reconstruction_partial");
+        } else {
+            signal.append(";fallback=none");
+        }
         return signal.toString();
     }
 

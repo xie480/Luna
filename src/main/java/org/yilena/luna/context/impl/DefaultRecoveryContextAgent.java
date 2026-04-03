@@ -3,12 +3,18 @@ package org.yilena.luna.context.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.context.RecoveryContextAgent;
+import org.yilena.luna.enums.ModelType;
+import org.yilena.luna.llm.LlmMessage;
+import org.yilena.luna.llm.LlmRequest;
+import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.memory.model.StructuredContextPackage;
+import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.state.model.ContextSnapshot;
 import org.yilena.luna.state.model.RecoveryState;
 import org.yilena.luna.state.model.RetrievalState;
 import org.yilena.luna.state.store.ContextSnapshotStore;
 import org.yilena.luna.state.store.RecoveryStateStore;
+import org.yilena.luna.utils.LlmClientUtil;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -20,16 +26,42 @@ import java.util.Map;
 @Service
 public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
 
+    private static final String RECOVERY_DECISION_PROMPT = """
+            You are Recovery Context Agent.
+            Decide whether recovery should refresh RAG/MCP evidence after an interrupt event.
+            Return strict JSON only:
+            {
+              "needRagRefresh": true/false,
+              "needMcpRefresh": true/false,
+              "needReassembly": true/false,
+              "reason": "..."
+            }
+            Rules:
+            - Use the event + interruption reason + context/snapshot drift signals.
+            - Be conservative for stale or failed tool/approval states.
+            - If confidence is low, prefer reassembly=true.
+            recoveryEvent=%s
+            interruptReason=%s
+            contextDigest=%s
+            snapshotDigest=%s
+            """;
+
     private final RecoveryStateStore recoveryStateStore;
     private final ContextSnapshotStore contextSnapshotStore;
     private final ObjectMapper objectMapper;
+    private final LlmClientUtil llmClientUtil;
+    private final GeminiProperty geminiProperty;
 
     public DefaultRecoveryContextAgent(RecoveryStateStore recoveryStateStore,
                                        ContextSnapshotStore contextSnapshotStore,
-                                       ObjectMapper objectMapper) {
+                                       ObjectMapper objectMapper,
+                                       LlmClientUtil llmClientUtil,
+                                       GeminiProperty geminiProperty) {
         this.recoveryStateStore = recoveryStateStore;
         this.contextSnapshotStore = contextSnapshotStore;
         this.objectMapper = objectMapper;
+        this.llmClientUtil = llmClientUtil;
+        this.geminiProperty = geminiProperty;
     }
 
     @Override
@@ -65,9 +97,60 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
     }
 
     private RecoveryDecision evaluateRecoveryDecision(String recoveryEvent,
-                                                     String interruptReason,
-                                                     StructuredContextPackage contextPackage,
-                                                     ContextSnapshot snapshot) {
+                                                      String interruptReason,
+                                                      StructuredContextPackage contextPackage,
+                                                      ContextSnapshot snapshot) {
+        RecoveryDecision llmDecision = tryModelDecision(recoveryEvent, interruptReason, contextPackage, snapshot);
+        if (llmDecision != null) {
+            return llmDecision;
+        }
+        return evaluateWithRules(recoveryEvent, interruptReason, contextPackage, snapshot);
+    }
+
+    private RecoveryDecision tryModelDecision(String recoveryEvent,
+                                              String interruptReason,
+                                              StructuredContextPackage contextPackage,
+                                              ContextSnapshot snapshot) {
+        try {
+            String prompt = RECOVERY_DECISION_PROMPT.formatted(
+                    recoveryEvent == null ? "" : recoveryEvent,
+                    interruptReason == null ? "" : interruptReason,
+                    buildContextDigest(contextPackage),
+                    buildSnapshotDigest(snapshot)
+            );
+            LlmRequest request = LlmRequest.builder()
+                    .modelType(ModelType.OPENAI_COMPATIBLE)
+                    .modelName(resolveSmallAgentModel())
+                    .messages(List.of(LlmMessage.user(prompt)))
+                    .temperature(0.1)
+                    .enablePromptInjectionCheck(false)
+                    .build();
+            LlmResponse response = llmClientUtil.generate(request);
+            String content = response == null ? "" : response.getContent();
+            if (content == null || content.isBlank()) {
+                return null;
+            }
+            String normalized = stripFence(content);
+            var node = objectMapper.readTree(normalized);
+            boolean needRagRefresh = node.path("needRagRefresh").asBoolean(false);
+            boolean needMcpRefresh = node.path("needMcpRefresh").asBoolean(false);
+            boolean needReassembly = node.path("needReassembly").asBoolean(
+                    needRagRefresh || needMcpRefresh || contextPackage == null || snapshot == null
+            );
+            String reason = node.path("reason").asText("");
+            if (reason.isBlank()) {
+                reason = "llm_recovery_decision";
+            }
+            return new RecoveryDecision(needRagRefresh, needMcpRefresh, needReassembly, reason);
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    private RecoveryDecision evaluateWithRules(String recoveryEvent,
+                                               String interruptReason,
+                                               StructuredContextPackage contextPackage,
+                                               ContextSnapshot snapshot) {
         String event = normalize(recoveryEvent);
         String reason = normalize(interruptReason);
         boolean staleByTimeout = containsAny(reason, "timeout", "expired", "过期", "超时");
@@ -76,7 +159,8 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
         boolean needRagRefresh = staleByTimeout || staleByDataMutation;
         boolean needMcpRefresh = staleByFailure || staleByDataMutation;
         boolean needReassembly = needRagRefresh || needMcpRefresh || contextPackage == null || snapshot == null;
-        return new RecoveryDecision(needRagRefresh, needMcpRefresh, needReassembly, reason);
+        String mergedReason = reason.isBlank() ? "rule_based_recovery_fallback" : reason;
+        return new RecoveryDecision(needRagRefresh, needMcpRefresh, needReassembly, mergedReason);
     }
 
     private String resolveRecoverySnapshotId(StructuredContextPackage contextPackage) {
@@ -366,6 +450,60 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
 
     private String normalize(String text) {
         return text == null ? "" : text.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String buildContextDigest(StructuredContextPackage contextPackage) {
+        if (contextPackage == null) {
+            return "context_missing";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("taskState=").append(contextPackage.getTaskState() == null ? "UNKNOWN" : contextPackage.getTaskState().name());
+        sb.append(";relationalState=").append(contextPackage.getRelationalState() == null ? "UNKNOWN" : contextPackage.getRelationalState().name());
+        if (contextPackage.getTaskStateEntity() != null) {
+            sb.append(";currentNode=").append(contextPackage.getTaskStateEntity().getCurrentNode());
+            sb.append(";pendingQuestions=").append(contextPackage.getTaskStateEntity().getPendingQuestions());
+        }
+        if (contextPackage.getToolState() != null) {
+            sb.append(";lastToolStatus=").append(contextPackage.getToolState().getLastToolStatus());
+            sb.append(";lastTool=").append(contextPackage.getToolState().getLastToolName());
+        }
+        if (contextPackage.getRetrievalState() != null) {
+            sb.append(";activeQueries=").append(contextPackage.getRetrievalState().getActiveQueries());
+        }
+        return sb.toString();
+    }
+
+    private String buildSnapshotDigest(ContextSnapshot snapshot) {
+        if (snapshot == null) {
+            return "snapshot_missing";
+        }
+        String type = snapshotType(snapshot);
+        return "snapshotId=" + safeType(snapshot.getSnapshotId())
+                + ";snapshotType=" + type
+                + ";planId=" + safeType(snapshot.getPlanId())
+                + ";nodeId=" + safeType(snapshot.getNodeId())
+                + ";payloadKeys=" + (snapshot.getPayload() == null ? List.of() : snapshot.getPayload().keySet());
+    }
+
+    private String resolveSmallAgentModel() {
+        if (geminiProperty != null && geminiProperty.getChat() != null && geminiProperty.getChat().getModelName() != null
+                && !geminiProperty.getChat().getModelName().isBlank()) {
+            return geminiProperty.getChat().getModelName();
+        }
+        if (geminiProperty != null && geminiProperty.getBig() != null && geminiProperty.getBig().getModelName() != null
+                && !geminiProperty.getBig().getModelName().isBlank()) {
+            return geminiProperty.getBig().getModelName();
+        }
+        return geminiProperty.getFlash().getModelName();
+    }
+
+    private String stripFence(String text) {
+        String value = text == null ? "" : text.trim();
+        if (value.startsWith("```")) {
+            value = value.replaceAll("(?s)^```[a-zA-Z]*\\s*", "");
+            value = value.replaceAll("(?s)```\\s*$", "");
+        }
+        return value.trim();
     }
 
     private boolean containsAny(String text, String... words) {

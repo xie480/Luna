@@ -58,34 +58,7 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
         if (llmResult != null) {
             return llmResult;
         }
-        JsonNode node = parse(rawResult);
-        String status = normalizeStatus(node.path("status").asText(""));
-        List<String> keyFacts = buildKeyFacts(node);
-        List<String> unresolved = buildUnresolved(status, node);
-        String businessImpact = buildBusinessImpact(status, taskState, currentNodeGoal);
-        String nextStepHint = buildNextStepHint(status, unresolved, taskState);
-        double confidence = computeConfidence(status, keyFacts, unresolved);
-
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("status", status);
-        payload.put("keyFacts", keyFacts);
-        payload.put("businessImpact", businessImpact);
-        payload.put("unresolvedIssues", unresolved);
-        payload.put("nextStepHint", nextStepHint);
-        payload.put("confidence", confidence);
-
-        return ToolSemanticResult.builder()
-                .toolName(safe(toolName))
-                .toolDescription(safe(toolDescription))
-                .rawResultDigest(compactContent(safe(rawResult), 800))
-                .toolStatus(status)
-                .keyFacts(keyFacts)
-                .businessImpact(businessImpact)
-                .unresolvedIssues(unresolved)
-                .nextStepHint(nextStepHint)
-                .confidence(confidence)
-                .semanticPayload(payload)
-                .build();
+        return buildConservativeFallback(toolName, toolDescription, rawResult, taskState, currentNodeGoal);
     }
 
     private ToolSemanticResult tryModelTranslation(String toolName,
@@ -145,6 +118,53 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
         } catch (Exception ignore) {
             return null;
         }
+    }
+
+    private ToolSemanticResult buildConservativeFallback(String toolName,
+                                                         String toolDescription,
+                                                         String rawResult,
+                                                         TaskRuntimeState taskState,
+                                                         String currentNodeGoal) {
+        String status = "UNKNOWN";
+        List<String> keyFacts = new ArrayList<>();
+        if (rawResult == null || rawResult.isBlank()) {
+            keyFacts.add("raw_result_missing");
+        } else {
+            keyFacts.add("raw_result_available");
+            keyFacts.add("raw_result_digest=" + compactContent(rawResult, 180));
+        }
+        List<String> unresolved = List.of("tool_semantic_model_unavailable");
+        String businessImpact = "Tool semantic interpretation fallback engaged; keep downstream reasoning conservative.";
+        if (currentNodeGoal != null && !currentNodeGoal.isBlank()) {
+            businessImpact = businessImpact + " Current node goal=" + compactContent(currentNodeGoal, 120) + ".";
+        }
+        if (taskState != null) {
+            businessImpact = businessImpact + " Task stage=" + taskState.name() + ".";
+        }
+        String nextStepHint = "preserve raw tool output and continue with guarded decision path";
+        double confidence = 0.30;
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("status", status);
+        payload.put("keyFacts", keyFacts);
+        payload.put("businessImpact", businessImpact);
+        payload.put("unresolvedIssues", unresolved);
+        payload.put("nextStepHint", nextStepHint);
+        payload.put("confidence", confidence);
+        payload.put("fallback", "small_agent_unavailable");
+
+        return ToolSemanticResult.builder()
+                .toolName(safe(toolName))
+                .toolDescription(safe(toolDescription))
+                .rawResultDigest(compactContent(safe(rawResult), 800))
+                .toolStatus(status)
+                .keyFacts(keyFacts)
+                .businessImpact(businessImpact)
+                .unresolvedIssues(unresolved)
+                .nextStepHint(nextStepHint)
+                .confidence(confidence)
+                .semanticPayload(payload)
+                .build();
     }
 
     private JsonNode parse(String text) {
@@ -208,76 +228,6 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
             }
         });
         return out;
-    }
-
-    private List<String> buildKeyFacts(JsonNode node) {
-        List<String> facts = new ArrayList<>();
-        if (node.has("tool")) {
-            facts.add("tool=" + node.path("tool").asText(""));
-        }
-        if (node.has("taskId")) {
-            facts.add("task_id=" + node.path("taskId").asText(""));
-        }
-        if (node.has("workflowName")) {
-            facts.add("workflow=" + node.path("workflowName").asText(""));
-        }
-        if (node.has("message")) {
-            String msg = node.path("message").asText("");
-            if (!msg.isBlank()) {
-                facts.add("message=" + msg);
-            }
-        }
-        if (facts.isEmpty() && !node.isMissingNode()) {
-            facts.add("raw_result_available");
-        }
-        return facts;
-    }
-
-    private List<String> buildUnresolved(String status, JsonNode node) {
-        List<String> unresolved = new ArrayList<>();
-        if ("FAILED".equals(status)) {
-            String err = node.path("error").asText(node.path("message").asText(""));
-            unresolved.add(err.isBlank() ? "tool_execution_failed" : err);
-        }
-        if ("PENDING".equals(status)) {
-            unresolved.add("tool_execution_pending");
-        }
-        return unresolved;
-    }
-
-    private String buildBusinessImpact(String status, TaskRuntimeState taskState, String currentNodeGoal) {
-        String goal = currentNodeGoal == null || currentNodeGoal.isBlank() ? "current node objective" : currentNodeGoal;
-        if ("SUCCESS".equals(status)) {
-            return "Tool output is ready and can be used to progress " + goal + ".";
-        }
-        if ("PENDING".equals(status)) {
-            return "Tool execution is pending; keep user informed and avoid conflicting calls.";
-        }
-        if ("FAILED".equals(status)) {
-            return "Tool execution failed; evaluate fallback path, retry, or replan.";
-        }
-        if (taskState == TaskRuntimeState.REPORTING) {
-            return "Tool status is unclear, use conservative interpretation in report.";
-        }
-        return "Tool status is unclear; avoid over-committing downstream decisions.";
-    }
-
-    private String buildNextStepHint(String status, List<String> unresolved, TaskRuntimeState taskState) {
-        if ("SUCCESS".equals(status)) {
-            return "inject semantic facts into context and continue execution";
-        }
-        if ("PENDING".equals(status)) {
-            return "return pending response and await callback";
-        }
-        if ("FAILED".equals(status)) {
-            return taskState == TaskRuntimeState.REPLANNING
-                    ? "trigger replan with failure reason"
-                    : "attempt parameter repair or switch capability";
-        }
-        if (!unresolved.isEmpty()) {
-            return "request clarification or validate tool payload";
-        }
-        return "preserve raw output and continue with guarded reasoning";
     }
 
     private double computeConfidence(String status, List<String> keyFacts, List<String> unresolved) {

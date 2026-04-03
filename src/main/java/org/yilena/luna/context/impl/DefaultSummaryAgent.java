@@ -87,7 +87,7 @@ public class DefaultSummaryAgent implements SummaryAgent {
                 activeMcpResourceHints,
                 latestToolSemanticResult
         );
-        Map<String, Object> snapshot = buildStateSnapshot(contextPackage);
+        Map<String, Object> snapshot = buildStateSnapshot(contextPackage, latestToolSemanticResult);
         return SummaryResult.builder()
                 .narrativeSummary(narrative)
                 .stateSnapshot(snapshot)
@@ -137,9 +137,7 @@ public class DefaultSummaryAgent implements SummaryAgent {
             Map<String, Object> snapshot = node.path("stateSnapshot").isObject()
                     ? objectMapper.convertValue(node.path("stateSnapshot"), Map.class)
                     : Map.of();
-            if (snapshot.isEmpty()) {
-                snapshot = buildStateSnapshot(contextPackage);
-            }
+            snapshot = normalizeStateSnapshot(snapshot, contextPackage, latestToolSemanticResult);
             return SummaryResult.builder()
                     .narrativeSummary(narrative)
                     .stateSnapshot(snapshot)
@@ -275,23 +273,62 @@ public class DefaultSummaryAgent implements SummaryAgent {
         return values.stream().limit(maxItems).map(this::safe).collect(Collectors.joining(" | "));
     }
 
-    private Map<String, Object> buildStateSnapshot(StructuredContextPackage contextPackage) {
+    private Map<String, Object> normalizeStateSnapshot(Map<String, Object> rawSnapshot,
+                                                       StructuredContextPackage contextPackage,
+                                                       ToolSemanticResult latestToolSemanticResult) {
+        Map<String, Object> fallback = buildStateSnapshot(contextPackage, latestToolSemanticResult);
+        Map<String, Object> raw = rawSnapshot == null ? Map.of() : rawSnapshot;
+        Map<String, Object> normalized = new LinkedHashMap<>();
+        normalized.put("currentStage", textOrDefault(raw.get("currentStage"), fallback.get("currentStage")));
+        normalized.put("confirmedSlots", mapOrDefault(raw.get("confirmedSlots"), mapOrDefault(raw.get("confirmed_params"), fallback.get("confirmedSlots"))));
+        normalized.put("finishedSteps", listOrDefault(raw.get("finishedSteps"), fallback.get("finishedSteps")));
+        normalized.put("pendingIssues", listOrDefault(raw.get("pendingIssues"), listOrDefault(raw.get("pendingQuestions"), fallback.get("pendingIssues"))));
+        normalized.put("latestToolConclusion", textOrDefault(raw.get("latestToolConclusion"), fallback.get("latestToolConclusion")));
+        normalized.put("currentConstraints", listOrDefault(raw.get("currentConstraints"), listOrDefault(raw.get("constraints"), fallback.get("currentConstraints"))));
+        normalized.put("nextStep", textOrDefault(raw.get("nextStep"), fallback.get("nextStep")));
+        return normalized;
+    }
+
+    private Map<String, Object> buildStateSnapshot(StructuredContextPackage contextPackage,
+                                                   ToolSemanticResult latestToolSemanticResult) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         if (contextPackage == null) {
-            snapshot.put("taskState", "UNKNOWN");
-            snapshot.put("relationalState", "UNKNOWN");
+            snapshot.put("currentStage", "UNKNOWN");
+            snapshot.put("confirmedSlots", Map.of());
+            snapshot.put("finishedSteps", List.of());
+            snapshot.put("pendingIssues", List.of("state_context_missing"));
+            snapshot.put("latestToolConclusion", "");
+            snapshot.put("currentConstraints", List.of());
             snapshot.put("nextStep", "continue");
             return snapshot;
         }
-        snapshot.put("taskState", contextPackage.getTaskState() == null ? "UNKNOWN" : contextPackage.getTaskState().name());
-        snapshot.put("relationalState", contextPackage.getRelationalState() == null ? "UNKNOWN" : contextPackage.getRelationalState().name());
-        snapshot.put("shortTermMemorySize", contextPackage.getRecentMessages() == null ? 0 : contextPackage.getRecentMessages().size());
-        snapshot.put("tokenBudgetPlan", contextPackage.getTokenBudgetPlan() == null ? Map.of() : contextPackage.getTokenBudgetPlan());
-        snapshot.put("activeCapabilities", contextPackage.getCapabilityCandidates() == null ? 0 : contextPackage.getCapabilityCandidates().size());
-        snapshot.put("taskStateEntity", contextPackage.getTaskStateEntity() == null ? Map.of() : contextPackage.getTaskStateEntity());
-        snapshot.put("retrievalState", contextPackage.getRetrievalState() == null ? Map.of() : contextPackage.getRetrievalState());
-        snapshot.put("toolState", contextPackage.getToolState() == null ? Map.of() : contextPackage.getToolState());
-        snapshot.put("contextState", contextPackage.getContextState() == null ? Map.of() : contextPackage.getContextState());
+        List<String> pendingIssues = new java.util.ArrayList<>();
+        if (contextPackage.getTaskStateEntity() != null) {
+            pendingIssues.addAll(contextPackage.getTaskStateEntity().getPendingQuestions() == null
+                    ? List.of()
+                    : contextPackage.getTaskStateEntity().getPendingQuestions());
+            if (contextPackage.getTaskStateEntity().getFailedSteps() != null) {
+                pendingIssues.addAll(contextPackage.getTaskStateEntity().getFailedSteps().stream()
+                        .map(step -> "failed_step:" + safe(step))
+                        .toList());
+            }
+        }
+        List<String> currentConstraints = extractCurrentConstraints(contextPackage);
+        String latestToolConclusion = latestToolSemanticResult == null ? "" : safe(latestToolSemanticResult.getBusinessImpact());
+        if (latestToolConclusion.isBlank() && contextPackage.getToolState() != null) {
+            latestToolConclusion = safe(contextPackage.getToolState().getLastToolSemanticSummary());
+        }
+
+        snapshot.put("currentStage", contextPackage.getTaskState() == null ? "UNKNOWN" : contextPackage.getTaskState().name());
+        snapshot.put("confirmedSlots", contextPackage.getTaskStateEntity() == null || contextPackage.getTaskStateEntity().getConfirmedSlots() == null
+                ? Map.of()
+                : contextPackage.getTaskStateEntity().getConfirmedSlots());
+        snapshot.put("finishedSteps", contextPackage.getTaskStateEntity() == null || contextPackage.getTaskStateEntity().getFinishedSteps() == null
+                ? List.of()
+                : contextPackage.getTaskStateEntity().getFinishedSteps());
+        snapshot.put("pendingIssues", pendingIssues.stream().filter(v -> v != null && !v.isBlank()).distinct().toList());
+        snapshot.put("latestToolConclusion", latestToolConclusion);
+        snapshot.put("currentConstraints", currentConstraints);
         snapshot.put("nextStep", inferNextStep(contextPackage));
         return snapshot;
     }
@@ -312,6 +349,51 @@ public class DefaultSummaryAgent implements SummaryAgent {
 
     private String safe(Object value) {
         return value == null ? "" : String.valueOf(value);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> mapOrDefault(Object candidate, Object fallback) {
+        if (candidate instanceof Map<?, ?> map && !map.isEmpty()) {
+            return (Map<String, Object>) map;
+        }
+        if (fallback instanceof Map<?, ?> map && !map.isEmpty()) {
+            return (Map<String, Object>) map;
+        }
+        return Map.of();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> listOrDefault(Object candidate, Object fallback) {
+        if (candidate instanceof List<?> list && !list.isEmpty()) {
+            return (List<String>) list.stream().map(this::safe).filter(v -> !v.isBlank()).toList();
+        }
+        if (fallback instanceof List<?> list && !list.isEmpty()) {
+            return (List<String>) list.stream().map(this::safe).filter(v -> !v.isBlank()).toList();
+        }
+        return List.of();
+    }
+
+    private String textOrDefault(Object candidate, Object fallback) {
+        String value = safe(candidate);
+        if (!value.isBlank()) {
+            return value;
+        }
+        return safe(fallback);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> extractCurrentConstraints(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getTaskContext() == null) {
+            return List.of();
+        }
+        Object working = contextPackage.getTaskContext().get("working_memory");
+        if (!(working instanceof Map<?, ?> map)) {
+            return List.of();
+        }
+        List<String> constraints = new java.util.ArrayList<>();
+        constraints.add(safe(((Map<String, Object>) map).get("constraints_json")));
+        constraints.add(safe(((Map<String, Object>) map).get("success_criteria_json")));
+        return constraints.stream().filter(item -> item != null && !item.isBlank()).distinct().toList();
     }
 
     private String resolveSmallAgentModel() {

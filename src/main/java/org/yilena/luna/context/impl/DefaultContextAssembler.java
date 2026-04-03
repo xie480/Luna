@@ -4,6 +4,7 @@ import org.springframework.stereotype.Service;
 import org.yilena.luna.context.ContextAssembler;
 import org.yilena.luna.context.SemanticPreservingPruner;
 import org.yilena.luna.context.model.AssembledContext;
+import org.yilena.luna.context.model.ContextNodeTemplatePolicy;
 import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.EvidenceBlock;
 import org.yilena.luna.context.model.InputReconstructionResult;
@@ -33,33 +34,40 @@ public class DefaultContextAssembler implements ContextAssembler {
                                      ToolSemanticResult toolSemanticResult,
                                      String userInput,
                                      List<EvidenceBlock> knowledgeEvidenceBlocks,
-                                     List<String> memorySnippets,
+                                     List<String> workingMemorySnippets,
+                                     List<String> runtimeMemorySnippets,
+                                     List<String> retrievedMemorySnippets,
                                      List<String> knowledgeSnippets,
                                      List<String> preferenceSnippets,
                                      List<String> longTermMemorySnippets,
                                      List<Resource> executionCandidates,
                                      List<String> mcpResourceHints,
-                                     String toolContext) {
+                                     String toolContext,
+                                     ContextNodeTemplatePolicy nodeTemplatePolicy) {
+        ContextNodeTemplatePolicy policy = nodeTemplatePolicy == null ? ContextNodeTemplatePolicy.defaultPolicy() : nodeTemplatePolicy;
         Map<String, List<String>> candidatePool = buildCandidatePool(
                 rerankResult,
                 knowledgeEvidenceBlocks,
-                memorySnippets,
+                workingMemorySnippets,
+                runtimeMemorySnippets,
+                retrievedMemorySnippets,
                 knowledgeSnippets,
                 preferenceSnippets,
                 longTermMemorySnippets,
                 executionCandidates,
                 mcpResourceHints,
                 toolSemanticResult,
-                toolContext
+                toolContext,
+                policy
         );
         Map<String, List<String>> sections = new LinkedHashMap<>();
         sections.put("Instructions", lines(PromptTemplates.SYSTEM_PROMPT));
-        sections.put("Current Task State", lines(buildCurrentTaskState(contextPackage)));
+        sections.put("Current Task State", lines(buildCurrentTaskState(contextPackage, policy)));
         sections.put("Reconstructed User Intent", lines(buildReconstructedIntent(userInput, reconstructionResult)));
         sections.put("Relevant Knowledge Evidence", candidatePool.getOrDefault("knowledge", List.of()));
         sections.put("MCP Resource / Prompt Hints", candidatePool.getOrDefault("mcp", List.of()));
         sections.put("Tool Evidence", candidatePool.getOrDefault("tool", List.of()));
-        sections.put("Recent Interaction Context", lines(buildRecentInteraction(contextPackage, memorySnippets)));
+        sections.put("Recent Interaction Context", lines(buildRecentInteraction(contextPackage, runtimeMemorySnippets, policy)));
         sections.put("Memory Hints", candidatePool.getOrDefault("memory", List.of()));
         sections.put("Output Constraints", List.of(
                 "Single-line JSON output only.",
@@ -69,7 +77,7 @@ public class DefaultContextAssembler implements ContextAssembler {
 
         SemanticPreservingPruner.PruneResult pruneResult = semanticPreservingPruner.prune(
                 sections,
-                sectionBudget(contextPackage == null ? Map.of() : contextPackage.getTokenBudgetPlan())
+                sectionBudget(contextPackage == null ? Map.of() : contextPackage.getTokenBudgetPlan(), policy)
         );
         String prompt = toPrompt(pruneResult.getSections(), userInput);
         return AssembledContext.builder()
@@ -82,19 +90,30 @@ public class DefaultContextAssembler implements ContextAssembler {
 
     private Map<String, List<String>> buildCandidatePool(ContextRerankResult rerankResult,
                                                          List<EvidenceBlock> knowledgeEvidenceBlocks,
-                                                         List<String> memorySnippets,
+                                                         List<String> workingMemorySnippets,
+                                                         List<String> runtimeMemorySnippets,
+                                                         List<String> retrievedMemorySnippets,
                                                          List<String> knowledgeSnippets,
                                                          List<String> preferenceSnippets,
                                                          List<String> longTermMemorySnippets,
                                                          List<Resource> executionCandidates,
                                                          List<String> mcpResourceHints,
                                                          ToolSemanticResult toolSemanticResult,
-                                                         String toolContext) {
+                                                         String toolContext,
+                                                         ContextNodeTemplatePolicy policy) {
         Map<String, List<String>> pool = new LinkedHashMap<>();
         pool.put("knowledge", selectKnowledgeCandidates(rerankResult, knowledgeEvidenceBlocks, knowledgeSnippets));
         pool.put("mcp", selectMcpCandidates(rerankResult, executionCandidates, mcpResourceHints));
         pool.put("tool", lines(buildToolEvidence(toolContext, toolSemanticResult)));
-        pool.put("memory", lines(buildMemoryHints(memorySnippets, preferenceSnippets, longTermMemorySnippets, rerankResult)));
+        pool.put("memory", buildMemoryHints(
+                workingMemorySnippets,
+                runtimeMemorySnippets,
+                retrievedMemorySnippets,
+                preferenceSnippets,
+                longTermMemorySnippets,
+                rerankResult,
+                policy
+        ));
         return pool;
     }
 
@@ -157,9 +176,9 @@ public class DefaultContextAssembler implements ContextAssembler {
         return out.stream().filter(v -> v != null && !v.isBlank()).distinct().limit(14).toList();
     }
 
-    private String buildCurrentTaskState(StructuredContextPackage contextPackage) {
+    private String buildCurrentTaskState(StructuredContextPackage contextPackage, ContextNodeTemplatePolicy policy) {
         if (contextPackage == null) {
-            return "taskState=UNKNOWN; relationalState=UNKNOWN";
+            return "taskState=UNKNOWN; relationalState=UNKNOWN; nodeTemplate=" + safe(policy == null ? null : policy.getNodeType());
         }
         String explicitTask = contextPackage.getTaskStateEntity() == null ? "" : safe(contextPackage.getTaskStateEntity());
         String retrievalState = contextPackage.getRetrievalState() == null ? "" : safe(contextPackage.getRetrievalState());
@@ -173,7 +192,9 @@ public class DefaultContextAssembler implements ContextAssembler {
                 + "; toolState=" + toolState
                 + "; contextState=" + contextState
                 + "; recoveryState=" + recoveryState
-                + "; tokenBudget=" + safe(contextPackage.getTokenBudgetPlan());
+                + "; tokenBudget=" + safe(contextPackage.getTokenBudgetPlan())
+                + "; nodeTemplate=" + safe(policy == null ? null : policy.getNodeType())
+                + "; nodeTemplatePolicy=" + safe(policy);
     }
 
     private String buildReconstructedIntent(String userInput, InputReconstructionResult reconstructionResult) {
@@ -189,69 +210,70 @@ public class DefaultContextAssembler implements ContextAssembler {
                 + "; intentConfidence=" + reconstructionResult.getIntentConfidence();
     }
 
-    private String buildKnowledgeSection(List<String> knowledgeSnippets, ContextRerankResult rerankResult) {
-        List<String> blocks = new ArrayList<>();
-        if (rerankResult != null && rerankResult.getSelectedKnowledgeBlocks() != null) {
-            blocks.addAll(rerankResult.getSelectedKnowledgeBlocks());
-        }
-        if (blocks.isEmpty() && knowledgeSnippets != null) {
-            blocks.addAll(knowledgeSnippets);
-        }
-        return String.join("\n", blocks);
-    }
-
-    private String buildMcpHintsSection(ContextRerankResult rerankResult) {
-        if (rerankResult == null) {
-            return "";
-        }
-        return "tools=" + safe(rerankResult.getSelectedToolCandidates())
-                + "; promptResources=" + safe(rerankResult.getSelectedPromptResources())
-                + "; rationale=" + safe(rerankResult.getRationaleByNode());
-    }
-
     private String buildToolEvidence(String toolContext, ToolSemanticResult toolSemanticResult) {
         String semantic = toolSemanticResult == null ? "" : safe(toolSemanticResult.getSemanticPayload());
         return "rawToolContext=" + safe(toolContext) + "\nsemanticToolContext=" + semantic;
     }
 
-    @SuppressWarnings("unchecked")
-    private String buildRecentInteraction(StructuredContextPackage contextPackage, List<String> memorySnippets) {
+    private String buildRecentInteraction(StructuredContextPackage contextPackage,
+                                          List<String> runtimeMemorySnippets,
+                                          ContextNodeTemplatePolicy policy) {
         List<String> lines = new ArrayList<>();
-        if (contextPackage != null && contextPackage.getRecentMessages() != null) {
+        if (policy != null && policy.isIncludeRuntimeMemory() && runtimeMemorySnippets != null && !runtimeMemorySnippets.isEmpty()) {
+            lines.addAll(limit(runtimeMemorySnippets, policy.getMaxRuntimeMemoryItems()));
+        }
+        if (lines.isEmpty() && contextPackage != null && contextPackage.getRecentMessages() != null) {
             List<Map<String, Object>> messages = contextPackage.getRecentMessages();
-            int from = Math.max(0, messages.size() - 10);
+            int from = Math.max(0, messages.size() - 8);
             for (Map<String, Object> row : messages.subList(from, messages.size())) {
                 lines.add(safe(row.get("role")) + ": " + safe(row.get("content_text")));
             }
         }
-        if (lines.isEmpty() && memorySnippets != null) {
-            lines.addAll(memorySnippets.stream().limit(10).toList());
-        }
-        return String.join("\n", lines);
+        return String.join("\n", lines.stream().filter(line -> line != null && !line.isBlank()).toList());
     }
 
-    private String buildMemoryHints(List<String> memorySnippets,
-                                    List<String> preferenceSnippets,
-                                    List<String> longTermMemorySnippets,
-                                    ContextRerankResult rerankResult) {
+    private List<String> buildMemoryHints(List<String> workingMemorySnippets,
+                                          List<String> runtimeMemorySnippets,
+                                          List<String> retrievedMemorySnippets,
+                                          List<String> preferenceSnippets,
+                                          List<String> longTermMemorySnippets,
+                                          ContextRerankResult rerankResult,
+                                          ContextNodeTemplatePolicy policy) {
         List<String> out = new ArrayList<>();
-        if (out.isEmpty() && rerankResult == null) {
-            // keep ordering deterministic even when no external retrieval was selected
-            out.add("memory_hints: use latest validated state + summary first");
+        if (policy != null && policy.isIncludeWorkingMemory()) {
+            out.addAll(limit(workingMemorySnippets, policy.getMaxWorkingMemoryItems()));
         }
-        if (rerankResult != null && rerankResult.getSelectedMemoryHints() != null) {
-            out.addAll(rerankResult.getSelectedMemoryHints());
+        if (policy != null && policy.isIncludeRuntimeMemory()) {
+            out.addAll(limit(runtimeMemorySnippets, policy.getMaxRuntimeMemoryItems()));
         }
-        if (memorySnippets != null) {
-            out.addAll(memorySnippets.stream().limit(8).toList());
+        if (policy != null && policy.isIncludeRetrievedMemory()) {
+            out.addAll(limit(retrievedMemorySnippets, policy.getMaxRetrievedMemoryItems()));
+            if (rerankResult != null && rerankResult.getSelectedMemoryHints() != null) {
+                out.addAll(limit(rerankResult.getSelectedMemoryHints(), policy.getMaxRetrievedMemoryItems()));
+            }
         }
-        if (preferenceSnippets != null) {
-            out.addAll(preferenceSnippets.stream().limit(5).toList());
+        if (policy != null && policy.isIncludeLongTermMemory()) {
+            out.addAll(limit(preferenceSnippets, Math.max(4, policy.getMaxLongTermMemoryItems() / 2)));
+            out.addAll(limit(longTermMemorySnippets, policy.getMaxLongTermMemoryItems()));
         }
-        if (longTermMemorySnippets != null) {
-            out.addAll(longTermMemorySnippets.stream().limit(5).toList());
+        if (out.isEmpty()) {
+            out.add("memory_hints: skipped by node template policy");
         }
-        return String.join("\n", out.stream().distinct().toList());
+        return out.stream()
+                .filter(value -> value != null && !value.isBlank())
+                .distinct()
+                .limit(24)
+                .toList();
+    }
+
+    private List<String> limit(List<String> input, int maxItems) {
+        if (input == null || input.isEmpty() || maxItems <= 0) {
+            return List.of();
+        }
+        return input.stream()
+                .filter(value -> value != null && !value.isBlank())
+                .limit(maxItems)
+                .toList();
     }
 
     private String toPrompt(Map<String, List<String>> sections, String userInput) {
@@ -284,7 +306,7 @@ public class DefaultContextAssembler implements ContextAssembler {
         return value == null ? "" : String.valueOf(value);
     }
 
-    private Map<String, Integer> sectionBudget(Map<String, Integer> rawBudget) {
+    private Map<String, Integer> sectionBudget(Map<String, Integer> rawBudget, ContextNodeTemplatePolicy policy) {
         Map<String, Integer> mapped = new LinkedHashMap<>();
         mapped.put("Instructions", 800);
         mapped.put("Current Task State", rawBudget.getOrDefault("task_working", 1800));
@@ -295,6 +317,14 @@ public class DefaultContextAssembler implements ContextAssembler {
         mapped.put("Recent Interaction Context", rawBudget.getOrDefault("recent_messages", 1200));
         mapped.put("Memory Hints", rawBudget.getOrDefault("task_facts", 1300));
         mapped.put("Output Constraints", 220);
+        if (policy != null && policy.getSectionBudgetOverrides() != null) {
+            for (Map.Entry<String, Integer> entry : policy.getSectionBudgetOverrides().entrySet()) {
+                if (entry.getValue() != null && entry.getValue() > 0) {
+                    mapped.put(entry.getKey(), entry.getValue());
+                }
+            }
+        }
         return mapped;
     }
 }
+

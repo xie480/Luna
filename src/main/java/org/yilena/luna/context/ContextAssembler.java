@@ -1,6 +1,7 @@
 package org.yilena.luna.context;
 
 import org.yilena.luna.context.model.AssembledContext;
+import org.yilena.luna.context.model.ContextNodeTemplatePolicy;
 import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.EvidenceBlock;
 import org.yilena.luna.context.model.InputReconstructionResult;
@@ -17,11 +18,14 @@ public interface ContextAssembler {
                               ToolSemanticResult toolSemanticResult,
                               String userInput,
                               List<EvidenceBlock> knowledgeEvidenceBlocks,
-                              List<String> memorySnippets,
+                              List<String> workingMemorySnippets,
+                              List<String> runtimeMemorySnippets,
+                              List<String> retrievedMemorySnippets,
                               List<String> knowledgeSnippets,
                               List<String> preferenceSnippets,
                               List<String> longTermMemorySnippets,
                               List<Resource> executionCandidates,
                               List<String> mcpResourceHints,
-                              String toolContext);
+                              String toolContext,
+                              ContextNodeTemplatePolicy nodeTemplatePolicy);
 }
