@@ -10,6 +10,7 @@ import org.yilena.luna.common.utils.JsonSchemaValidator;
 import org.yilena.luna.entity.ChatMessage;
 import org.yilena.luna.entity.ExecutionResult;
 import org.yilena.luna.entity.Resource;
+import org.yilena.luna.entity.ToolCallingContext;
 import org.yilena.luna.enums.RelationalRuntimeState;
 import org.yilena.luna.enums.ResourceType;
 import org.yilena.luna.enums.TaskRuntimeState;
@@ -70,21 +71,22 @@ public class AgentServiceImpl implements AgentService {
                                      RelationalRuntimeState relationalState,
                                      List<Resource> executionCandidates) {
         log.info("processToolCalling, sessionId={}, input={}", sessionId, input);
+        String decisionInput = resolveDecisionInput(input);
 
-        if (capabilityPolicyRouterService.shouldTriggerPlanOrchestration(input, taskState)) {
+        if (capabilityPolicyRouterService.shouldTriggerPlanOrchestration(decisionInput, taskState)) {
             String stableSessionId = resolveStableSessionId(sessionId);
-            return planOrchestratorService.createAndRunPlan(stableSessionId, input, false);
+            return planOrchestratorService.createAndRunPlan(stableSessionId, decisionInput, false);
         }
 
         List<Resource> candidates = executionCandidates == null || executionCandidates.isEmpty()
-                ? toolRouter.findCandidates(input, taskState, relationalState)
+                ? toolRouter.findCandidates(decisionInput, taskState, relationalState)
                 : executionCandidates;
         if (candidates.isEmpty()) {
             return null;
         }
 
         List<String> history = loadRecentHistory(sessionId);
-        String decisionJson = llmAdapter.generate(buildDecisionPrompt(input, history, candidates));
+        String decisionJson = llmAdapter.generate(buildDecisionPrompt(decisionInput, history, candidates));
         DecisionAction decision = parseDecisionAction(decisionJson);
         if (decision == null || "none".equalsIgnoreCase(decision.targetName()) || "null".equalsIgnoreCase(decision.targetName())) {
             return null;
@@ -100,7 +102,7 @@ public class AgentServiceImpl implements AgentService {
 
         String generatedArgsJson = decision.argumentsJson();
         if (generatedArgsJson == null || generatedArgsJson.isBlank()) {
-            generatedArgsJson = llmAdapter.generate(buildArgsPrompt(input, history, target));
+            generatedArgsJson = llmAdapter.generate(buildArgsPrompt(decisionInput, history, target));
         }
         if (!JsonSchemaValidator.validate(target.getInputSchema(), generatedArgsJson)) {
             generatedArgsJson = llmAdapter.generate(String.format(PromptTemplates.TOOL_ARGS_REPAIR_PROMPT, target.getInputSchema(), generatedArgsJson));
@@ -126,9 +128,9 @@ public class AgentServiceImpl implements AgentService {
             )));
         }
         if (ResourceType.STRATEGY.equals(target.getType())
-                && capabilityPolicyRouterService.shouldTriggerPlanOrchestration(input, taskState)) {
+                && capabilityPolicyRouterService.shouldTriggerPlanOrchestration(decisionInput, taskState)) {
             String stableSessionId = resolveStableSessionId(sessionId);
-            return runAndTrace(target, argsJson, () -> planOrchestratorService.createAndRunPlan(stableSessionId, input, false));
+            return runAndTrace(target, argsJson, () -> planOrchestratorService.createAndRunPlan(stableSessionId, decisionInput, false));
         }
 
         String stableSessionId = resolveStableSessionId(sessionId);
@@ -177,6 +179,17 @@ public class AgentServiceImpl implements AgentService {
             return "agent-default";
         }
         return sessionId;
+    }
+
+    private String resolveDecisionInput(String input) {
+        ToolCallingContext context = ToolCallingContextHolder.get();
+        if (context != null && context.getToolDecisionInput() != null && !context.getToolDecisionInput().isBlank()) {
+            return context.getToolDecisionInput();
+        }
+        if (input == null || input.isBlank()) {
+            return "";
+        }
+        return input;
     }
 
     private String buildDecisionPrompt(String input, List<String> history, List<Resource> tools) {

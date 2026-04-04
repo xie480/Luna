@@ -451,10 +451,10 @@ public class DefaultContextAssembler implements ContextAssembler {
                                                 StructuredContextPackage contextPackage,
                                                 InputReconstructionResult reconstructionResult,
                                                 ToolSemanticResult toolSemanticResult,
-                                                SummaryResult roundSummaryInput) {
+        SummaryResult roundSummaryInput) {
         List<String> constraints = new ArrayList<>();
         constraints.add("Single-line JSON output only.");
-        constraints.add("Must contain fields: thought, emotion, reply.");
+        constraints.add("Must contain fields: " + String.join(", ", resolveNodeOutputFields(policy)) + ".");
         constraints.add("Preserve confirmed constraints and latest tool conclusions.");
         String nodeType = policy == null ? "" : safe(policy.getNodeType()).toUpperCase();
         String nodeKind = policy == null ? "" : safe(policy.getNodeKind()).toUpperCase();
@@ -496,6 +496,27 @@ public class DefaultContextAssembler implements ContextAssembler {
             constraints.add("Round summary snapshot must remain semantically consistent with output.");
         }
         return constraints;
+    }
+
+    private List<String> resolveNodeOutputFields(ContextNodeTemplatePolicy policy) {
+        String nodeType = policy == null ? "" : safe(policy.getNodeType()).toUpperCase();
+        String nodeKind = policy == null ? "" : safe(policy.getNodeKind()).toUpperCase();
+        if ("TOOL".equals(nodeKind) || "RESOURCE".equals(nodeKind) || "WORKFLOW".equals(nodeKind)) {
+            return List.of("action", "target", "arguments", "verification", "reply");
+        }
+        if ("VALIDATE".equals(nodeKind)) {
+            return List.of("result", "rationale", "risks", "reply");
+        }
+        if ("REPORT".equals(nodeKind) || "CODE".equals(nodeKind) || "ANALYZE".equals(nodeKind)) {
+            return List.of("summary", "evidence", "next_step", "reply");
+        }
+        if ("PLANNING".equals(nodeType) || "REPLANNING".equals(nodeType)) {
+            return List.of("plan", "open_questions", "next_step", "reply");
+        }
+        if ("WAITING_APPROVAL".equals(nodeType) || "WAITING_TOOL".equals(nodeType) || "WAITING_USER".equals(nodeType)) {
+            return List.of("pending", "reason", "next_step", "reply");
+        }
+        return List.of("thought", "emotion", "reply");
     }
 
     private OnDemandMemoryPayload resolveOnDemandMemory(String sessionId,

@@ -56,17 +56,13 @@ import org.yilena.luna.service.ChatService;
 import org.yilena.luna.service.SessionService;
 import org.yilena.luna.service.TaskOrchestratorService;
 import org.yilena.luna.service.model.NodeWorksetResult;
+import org.yilena.luna.service.model.RoundStateWriteRequest;
 import org.yilena.luna.service.model.SummaryOrchestrationResult;
 import org.yilena.luna.service.model.TaskOrchestrationResult;
 import org.yilena.luna.state.model.ContextState;
-import org.yilena.luna.state.model.RetrievalState;
 import org.yilena.luna.state.model.TaskState;
 import org.yilena.luna.state.model.ToolState;
-import org.yilena.luna.state.store.ContextStateStore;
 import org.yilena.luna.state.store.ContextSnapshotStore;
-import org.yilena.luna.state.store.RetrievalStateStore;
-import org.yilena.luna.state.store.TaskStateStore;
-import org.yilena.luna.state.store.ToolStateStore;
 import org.yilena.luna.sse.LunaStatusPublisher;
 import org.yilena.luna.utils.AuthContextHolder;
 import org.yilena.luna.utils.LlmClientUtil;
@@ -108,10 +104,6 @@ public class ChatServiceImpl implements ChatService {
     private final ContextAssembler contextAssembler;
     private final ContextTraceLogger contextTraceLogger;
     private final ToolSemanticTraceLogger toolSemanticTraceLogger;
-    private final TaskStateStore taskStateStore;
-    private final RetrievalStateStore retrievalStateStore;
-    private final ToolStateStore toolStateStore;
-    private final ContextStateStore contextStateStore;
     private final ContextSnapshotStore contextSnapshotStore;
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -185,6 +177,7 @@ public class ChatServiceImpl implements ChatService {
         ToolCallingContextHolder.set(ToolCallingContext.builder()
                 .chatSessionKey(runtimeSessionId)
                 .userInput(input)
+                .toolDecisionInput(mcpDrivenInput)
                 .memorySnippets(memorySnippets)
                 .knowledgeSnippets(knowledgeSnippets)
                 .preferenceSnippets(preferenceSnippets)
@@ -413,19 +406,31 @@ public class ChatServiceImpl implements ChatService {
                 "CHAT_TURN"
         );
         SummaryResult summaryResult = turnSummary == null ? null : turnSummary.getSummaryResult();
-        writeStateStores(
+        ContextState previousContextState = contextPackage == null ? null : contextPackage.getContextState();
+        taskOrchestratorService.writeRoundState(RoundStateWriteRequest.builder()
+                .sessionId(runtimeSessionId)
+                .decision(decision)
+                .contextPackage(contextPackage)
+                .reconstruction(reconstruction)
+                .rerankResult(rerankResult)
+                .toolSemanticResult(toolSemanticResult)
+                .summaryResult(summaryResult)
+                .latestSnapshotId(finalSnapshotId)
+                .latestToolRawRef(toolTraceRefs == null ? "" : toolTraceRefs.latestRawRef())
+                .latestToolHistoryRefs(toolTraceRefs == null ? List.of() : toolTraceRefs.historyRefs())
+                .ragQuery(nodeWorkset == null ? "" : nodeWorkset.getRagQuery())
+                .memoryQuery(nodeWorkset == null ? "" : nodeWorkset.getMemoryQuery())
+                .mcpQuery(nodeWorkset == null ? "" : nodeWorkset.getMcpDrivenInput())
+                .build());
+        persistReplayAndMemoryGovernance(
                 runtimeSessionId,
-                decision,
-                contextPackage,
-                reconstruction,
-                rerankResult,
-                toolSemanticResult,
-                summaryResult,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage),
+                previousContextState,
                 finalSnapshotId,
-                toolTraceRefs,
-                nodeWorkset == null ? "" : nodeWorkset.getRagQuery(),
-                nodeWorkset == null ? "" : nodeWorkset.getMemoryQuery(),
-                nodeWorkset == null ? "" : nodeWorkset.getMcpDrivenInput()
+                summaryResult,
+                toolSemanticResult,
+                reconstruction
         );
         replaceHistoryWithSummaryInMainChain(runtimeSessionId, contextPackage, summaryResult);
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
@@ -1077,132 +1082,6 @@ public class ChatServiceImpl implements ChatService {
             out.add(row);
         }
         return out;
-    }
-
-    private void writeStateStores(String sessionId,
-                                  OrchestrationDecision decision,
-                                  StructuredContextPackage contextPackage,
-                                  InputReconstructionResult reconstruction,
-                                  ContextRerankResult rerankResult,
-                                  ToolSemanticResult toolSemanticResult,
-                                  SummaryResult summaryResult,
-                                  String latestSnapshotId,
-                                  ToolTraceRefs toolTraceRefs,
-                                  String ragQuery,
-                                  String memoryQuery,
-                                  String mcpQuery) {
-        if (sessionId == null || sessionId.isBlank()) {
-            return;
-        }
-        TaskState previousTaskState = contextPackage == null ? null : contextPackage.getTaskStateEntity();
-        RetrievalState previousRetrievalState = contextPackage == null ? null : contextPackage.getRetrievalState();
-        ToolState previousToolState = contextPackage == null ? null : contextPackage.getToolState();
-        ContextState previousContextState = contextPackage == null ? null : contextPackage.getContextState();
-        Map<String, Object> runtime = contextPackage == null ? Map.of() : safeMap(contextPackage.getRuntime());
-        Map<String, Object> sessionRow = safeMap(runtime.get("session"));
-        List<Map<String, Object>> toolRows = safeMapList(runtime.get("active_tool_results"));
-        List<String> finishedSteps = mergeDistinctList(
-                previousTaskState == null ? List.of() : previousTaskState.getFinishedSteps(),
-                extractToolStepNames(toolRows, "success", "ok", "completed")
-        );
-        List<String> failedSteps = mergeDistinctList(
-                previousTaskState == null ? List.of() : previousTaskState.getFailedSteps(),
-                extractToolStepNames(toolRows, "failed", "error")
-        );
-        int retryCount = deriveRetryCount(previousTaskState, sessionRow, failedSteps);
-        Map<String, Object> confirmedSlots = mergeMaps(
-                previousTaskState == null ? Map.of() : previousTaskState.getConfirmedSlots(),
-                reconstruction == null || reconstruction.getClarifiedEntities() == null ? Map.of() : new LinkedHashMap<>(reconstruction.getClarifiedEntities())
-        );
-        List<String> pendingQuestions = mergeDistinctList(
-                previousTaskState == null ? List.of() : previousTaskState.getPendingQuestions(),
-                reconstruction == null || reconstruction.getMissingSlots() == null ? List.of() : reconstruction.getMissingSlots()
-        );
-        TaskState taskState = TaskState.builder()
-                .taskId(String.valueOf(contextPlanId(contextPackage)))
-                .sessionId(sessionId)
-                .objective(reconstruction == null ? "" : reconstruction.getExplicitTaskGoal())
-                .currentStage(decision == null || decision.getTaskState() == null ? "UNKNOWN" : decision.getTaskState().name())
-                .currentNode(String.valueOf(contextNodeId(contextPackage)))
-                .confirmedSlots(confirmedSlots)
-                .pendingQuestions(pendingQuestions)
-                .finishedSteps(finishedSteps)
-                .failedSteps(failedSteps)
-                .retryCount(retryCount)
-                .nextActionHint(summaryResult == null || summaryResult.getStateSnapshot() == null ? "continue" : String.valueOf(summaryResult.getStateSnapshot().getOrDefault("nextStep", "continue")))
-                .build();
-        taskStateStore.save(sessionId, taskState);
-
-        RetrievalState retrievalState = RetrievalState.builder()
-                .reconstructedIntent(reconstruction == null ? "" : reconstruction.getNormalizedUserIntent())
-                .activeQueries(mergeDistinctList(
-                        previousRetrievalState == null ? List.of() : previousRetrievalState.getActiveQueries(),
-                        mergeDistinct(
-                                mergeDistinct(
-                                        nonBlankList(ragQuery),
-                                        nonBlankList(memoryQuery)
-                                ),
-                                mergeDistinct(
-                                        nonBlankList(mcpQuery),
-                                        reconstruction == null ? List.of() : mergeDistinct(
-                                                nonBlankList(reconstruction.getReformulatedQueryForRag()),
-                                                nonBlankList(reconstruction.getReformulatedQueryForMcp())
-                                        )
-                                )
-                        )))
-                .retrievalPlan(Map.of(
-                        "allowedRoutes", resolveAllowedRoutes(decision),
-                        "maxLatencyMs", resolveRetrievalOptions("", decision).getMaxLatencyMs()
-                ))
-                .selectedEvidenceRefs(extractKnowledgeRefs(rerankResult))
-                .rerankSummary(rerankResult == null ? "" : toJsonSafe(rerankResult.getRationaleByNode()))
-                .build();
-        retrievalStateStore.save(sessionId, retrievalState);
-
-        String latestToolRawRef = resolveLatestToolRawResultRef(toolTraceRefs, toolRows, previousToolState);
-        List<String> activeToolRefs = resolveActiveToolEvidenceRefs(toolTraceRefs, toolRows, previousContextState);
-
-        ToolState toolState = ToolState.builder()
-                .lastToolName(resolveLastToolName(toolRows, toolSemanticResult))
-                .lastToolInput(reconstruction == null ? "" : reconstruction.getReformulatedQueryForMcp())
-                .lastToolStatus(toolSemanticResult == null ? "" : toolSemanticResult.getToolStatus())
-                .lastToolRawResultRef(latestToolRawRef)
-                .lastToolSemanticSummary(toolSemanticResult == null ? "" : toolSemanticResult.getBusinessImpact())
-                .toolCallHistoryRefs(mergeDistinctList(
-                        previousToolState == null ? List.of() : previousToolState.getToolCallHistoryRefs(),
-                        mergeDistinct(
-                                extractToolHistoryRefs(toolRows),
-                                toolTraceRefs == null || toolTraceRefs.historyRefs() == null ? List.of() : toolTraceRefs.historyRefs()
-                        )
-                ))
-                .build();
-        toolStateStore.save(sessionId, toolState);
-
-        ContextState contextState = ContextState.builder()
-                .latestNarrativeSummary(summaryResult == null ? "" : summaryResult.getNarrativeSummary())
-                .latestStateSnapshot(summaryResult == null || summaryResult.getStateSnapshot() == null ? Map.of() : summaryResult.getStateSnapshot())
-                .activeKnowledgeRefs(extractKnowledgeRefs(rerankResult))
-                .activeMemoryRefs(rerankResult == null || rerankResult.getSelectedMemoryHints() == null ? List.of() : rerankResult.getSelectedMemoryHints())
-                .activeToolEvidenceRefs(activeToolRefs)
-                .activeMcpPromptRefs(rerankResult == null || rerankResult.getSelectedPromptResources() == null ? List.of() : rerankResult.getSelectedPromptResources().stream().map(this::toJsonSafe).toList())
-                .activeMcpResourceRefs(rerankResult == null || rerankResult.getSelectedToolCandidates() == null ? List.of() : rerankResult.getSelectedToolCandidates().stream().map(this::toJsonSafe).toList())
-                .latestContextSnapshotId(firstNonBlank(
-                        latestSnapshotId,
-                        previousContextState == null ? "" : previousContextState.getLatestContextSnapshotId()
-                ))
-                .build();
-        contextStateStore.save(sessionId, contextState);
-
-        persistReplayAndMemoryGovernance(
-                sessionId,
-                contextPlanId(contextPackage),
-                contextNodeId(contextPackage),
-                previousContextState,
-                latestSnapshotId,
-                summaryResult,
-                toolSemanticResult,
-                reconstruction
-        );
     }
 
     private List<String> extractKnowledgeRefs(ContextRerankResult rerankResult) {

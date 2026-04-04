@@ -41,11 +41,18 @@ import org.yilena.luna.service.TaskOrchestratorService;
 import org.yilena.luna.service.SessionService;
 import org.yilena.luna.service.model.BlueprintOrchestrationResult;
 import org.yilena.luna.service.model.NodeWorksetResult;
+import org.yilena.luna.service.model.RoundStateWriteRequest;
 import org.yilena.luna.service.model.SummaryOrchestrationResult;
 import org.yilena.luna.service.model.TaskOrchestrationResult;
 import org.yilena.luna.state.model.ContextState;
+import org.yilena.luna.state.model.RetrievalState;
+import org.yilena.luna.state.model.TaskState;
+import org.yilena.luna.state.model.ToolState;
 import org.yilena.luna.state.store.ContextStateStore;
 import org.yilena.luna.state.store.RecoveryStateStore;
+import org.yilena.luna.state.store.RetrievalStateStore;
+import org.yilena.luna.state.store.TaskStateStore;
+import org.yilena.luna.state.store.ToolStateStore;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -80,6 +87,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
     private final SummaryAgent summaryAgent;
     private final SummaryTraceLogger summaryTraceLogger;
     private final ContextStateStore contextStateStore;
+    private final TaskStateStore taskStateStore;
+    private final RetrievalStateStore retrievalStateStore;
+    private final ToolStateStore toolStateStore;
     private final SessionService sessionService;
     private final ObjectMapper objectMapper;
 
@@ -515,7 +525,14 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             );
         }
         ContextState previous = sessionId == null || sessionId.isBlank() ? null : contextStateStore.load(sessionId);
-        ContextState contextState = buildContextStateFromSummary(previous, summaryResult);
+        ContextState contextState = buildContextStateFromSummary(
+                previous,
+                summaryResult,
+                effectiveContext,
+                activeEvidenceBlocks,
+                activeMcpResourceHints,
+                latestToolSemanticResult
+        );
         if (sessionId != null && !sessionId.isBlank()) {
             contextStateStore.save(sessionId, contextState);
             if (replaceHistory && summaryResult != null && summaryResult.getNarrativeSummary() != null
@@ -531,6 +548,135 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .summaryResult(summaryResult)
                 .contextState(contextState)
                 .build();
+    }
+
+    @Override
+    public void writeRoundState(RoundStateWriteRequest request) {
+        if (request == null || request.getSessionId() == null || request.getSessionId().isBlank()) {
+            return;
+        }
+        String sessionId = request.getSessionId();
+        StructuredContextPackage contextPackage = request.getContextPackage();
+        TaskState previousTaskState = contextPackage == null ? null : contextPackage.getTaskStateEntity();
+        RetrievalState previousRetrievalState = contextPackage == null ? null : contextPackage.getRetrievalState();
+        ToolState previousToolState = contextPackage == null ? null : contextPackage.getToolState();
+        ContextState previousContextState = contextPackage == null ? null : contextPackage.getContextState();
+        Map<String, Object> runtime = contextPackage == null ? Map.of() : safeMap(contextPackage.getRuntime());
+        Map<String, Object> sessionRow = safeMap(runtime.get("session"));
+        List<Map<String, Object>> toolRows = safeMapList(runtime.get("active_tool_results"));
+
+        List<String> finishedSteps = mergeDistinctList(
+                previousTaskState == null ? List.of() : previousTaskState.getFinishedSteps(),
+                extractToolStepNames(toolRows, "success", "ok", "completed")
+        );
+        List<String> failedSteps = mergeDistinctList(
+                previousTaskState == null ? List.of() : previousTaskState.getFailedSteps(),
+                extractToolStepNames(toolRows, "failed", "error")
+        );
+        int retryCount = deriveRetryCount(previousTaskState, sessionRow, failedSteps);
+        InputReconstructionResult reconstruction = request.getReconstruction();
+        SummaryResult summaryResult = request.getSummaryResult();
+        ContextRerankResult rerankResult = request.getRerankResult();
+        ToolSemanticResult toolSemanticResult = request.getToolSemanticResult();
+
+        Map<String, Object> confirmedSlots = mergeMaps(
+                previousTaskState == null ? Map.of() : previousTaskState.getConfirmedSlots(),
+                reconstruction == null || reconstruction.getClarifiedEntities() == null ? Map.of() : new LinkedHashMap<>(reconstruction.getClarifiedEntities())
+        );
+        List<String> pendingQuestions = mergeDistinctList(
+                previousTaskState == null ? List.of() : previousTaskState.getPendingQuestions(),
+                reconstruction == null || reconstruction.getMissingSlots() == null ? List.of() : reconstruction.getMissingSlots()
+        );
+        TaskState taskState = TaskState.builder()
+                .taskId(String.valueOf(contextPlanId(contextPackage)))
+                .sessionId(sessionId)
+                .objective(reconstruction == null ? "" : reconstruction.getExplicitTaskGoal())
+                .currentStage(request.getDecision() == null || request.getDecision().getTaskState() == null ? "UNKNOWN" : request.getDecision().getTaskState().name())
+                .currentNode(String.valueOf(contextNodeId(contextPackage)))
+                .confirmedSlots(confirmedSlots)
+                .pendingQuestions(pendingQuestions)
+                .finishedSteps(finishedSteps)
+                .failedSteps(failedSteps)
+                .retryCount(retryCount)
+                .nextActionHint(summaryResult == null || summaryResult.getStateSnapshot() == null ? "continue" : String.valueOf(summaryResult.getStateSnapshot().getOrDefault("nextStep", "continue")))
+                .build();
+        taskStateStore.save(sessionId, taskState);
+
+        Map<String, Object> retrievalPlan = new LinkedHashMap<>();
+        if (request.getRetrievalPlanOverrides() != null && !request.getRetrievalPlanOverrides().isEmpty()) {
+            retrievalPlan.putAll(request.getRetrievalPlanOverrides());
+        } else {
+            retrievalPlan.put("allowedRoutes", resolveAllowedRoutes(request.getDecision()));
+            retrievalPlan.put("maxLatencyMs", resolveRetrievalOptions("", request.getDecision()).getMaxLatencyMs());
+        }
+        RetrievalState retrievalState = RetrievalState.builder()
+                .reconstructedIntent(reconstruction == null ? "" : reconstruction.getNormalizedUserIntent())
+                .activeQueries(mergeDistinctList(
+                        previousRetrievalState == null ? List.of() : previousRetrievalState.getActiveQueries(),
+                        mergeDistinct(
+                                mergeDistinct(nonBlankList(request.getRagQuery()), nonBlankList(request.getMemoryQuery())),
+                                mergeDistinct(
+                                        nonBlankList(request.getMcpQuery()),
+                                        reconstruction == null ? List.of() : mergeDistinct(
+                                                nonBlankList(reconstruction.getReformulatedQueryForRag()),
+                                                nonBlankList(reconstruction.getReformulatedQueryForMcp())
+                                        )
+                                )
+                        )))
+                .retrievalPlan(retrievalPlan)
+                .selectedEvidenceRefs(extractKnowledgeRefs(rerankResult))
+                .rerankSummary(rerankResult == null ? "" : toJsonSafe(rerankResult.getRationaleByNode()))
+                .build();
+        retrievalStateStore.save(sessionId, retrievalState);
+
+        String latestToolRawRef = resolveLatestToolRawResultRef(
+                request.getLatestToolRawRef(),
+                toolRows,
+                previousToolState
+        );
+        List<String> activeToolRefs = resolveActiveToolEvidenceRefs(
+                request.getLatestToolHistoryRefs(),
+                toolRows,
+                previousContextState
+        );
+        ToolState toolState = ToolState.builder()
+                .lastToolName(resolveLastToolName(toolRows, toolSemanticResult))
+                .lastToolInput(reconstruction == null ? "" : reconstruction.getReformulatedQueryForMcp())
+                .lastToolStatus(toolSemanticResult == null ? "" : toolSemanticResult.getToolStatus())
+                .lastToolRawResultRef(latestToolRawRef)
+                .lastToolSemanticSummary(toolSemanticResult == null ? "" : toolSemanticResult.getBusinessImpact())
+                .toolCallHistoryRefs(mergeDistinctList(
+                        previousToolState == null ? List.of() : previousToolState.getToolCallHistoryRefs(),
+                        mergeDistinct(
+                                extractToolHistoryRefs(toolRows),
+                                request.getLatestToolHistoryRefs() == null ? List.of() : request.getLatestToolHistoryRefs()
+                        )
+                ))
+                .build();
+        toolStateStore.save(sessionId, toolState);
+
+        List<String> knowledgeRefs = extractKnowledgeRefs(rerankResult);
+        List<String> memoryRefs = rerankResult == null || rerankResult.getSelectedMemoryHints() == null ? List.of() : rerankResult.getSelectedMemoryHints();
+        List<String> mcpPromptRefs = rerankResult == null || rerankResult.getSelectedPromptResources() == null
+                ? List.of()
+                : rerankResult.getSelectedPromptResources().stream().map(this::toJsonSafe).toList();
+        List<String> mcpResourceRefs = rerankResult == null || rerankResult.getSelectedToolCandidates() == null
+                ? List.of()
+                : rerankResult.getSelectedToolCandidates().stream().map(this::toJsonSafe).toList();
+        ContextState contextState = ContextState.builder()
+                .latestNarrativeSummary(summaryResult == null ? "" : nullSafe(summaryResult.getNarrativeSummary()))
+                .latestStateSnapshot(summaryResult == null || summaryResult.getStateSnapshot() == null ? Map.of() : summaryResult.getStateSnapshot())
+                .activeKnowledgeRefs(knowledgeRefs.isEmpty() ? previousOrEmpty(previousContextState == null ? null : previousContextState.getActiveKnowledgeRefs()) : knowledgeRefs)
+                .activeMemoryRefs(memoryRefs.isEmpty() ? previousOrEmpty(previousContextState == null ? null : previousContextState.getActiveMemoryRefs()) : memoryRefs)
+                .activeToolEvidenceRefs(activeToolRefs)
+                .activeMcpPromptRefs(mcpPromptRefs.isEmpty() ? previousOrEmpty(previousContextState == null ? null : previousContextState.getActiveMcpPromptRefs()) : mcpPromptRefs)
+                .activeMcpResourceRefs(mcpResourceRefs.isEmpty() ? previousOrEmpty(previousContextState == null ? null : previousContextState.getActiveMcpResourceRefs()) : mcpResourceRefs)
+                .latestContextSnapshotId(firstNonBlank(
+                        request.getLatestSnapshotId(),
+                        previousContextState == null ? "" : previousContextState.getLatestContextSnapshotId()
+                ))
+                .build();
+        contextStateStore.save(sessionId, contextState);
     }
 
     private RetrievalResponse mergeRetrievalResponses(RetrievalResponse primary, RetrievalResponse memoryOnly) {
@@ -895,19 +1041,260 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         return new ArrayList<>(merged);
     }
 
-    private ContextState buildContextStateFromSummary(ContextState previous, SummaryResult summaryResult) {
+    private ContextState buildContextStateFromSummary(ContextState previous,
+                                                      SummaryResult summaryResult,
+                                                      StructuredContextPackage contextPackage,
+                                                      List<EvidenceBlock> activeEvidenceBlocks,
+                                                      List<String> activeMcpResourceHints,
+                                                      ToolSemanticResult latestToolSemanticResult) {
+        List<String> derivedKnowledgeRefs = activeEvidenceBlocks == null ? List.of() : activeEvidenceBlocks.stream()
+                .map(EvidenceBlock::getBlockId)
+                .filter(id -> id != null && !id.isBlank())
+                .distinct()
+                .toList();
+        List<String> derivedMemoryRefs = contextPackage == null || contextPackage.getRetrievalState() == null
+                ? List.of()
+                : previousOrEmpty(contextPackage.getRetrievalState().getSelectedEvidenceRefs());
+        List<String> derivedToolRefs = deriveToolEvidenceRefsFromContext(contextPackage, latestToolSemanticResult);
+        List<String> derivedMcpPromptRefs = activeMcpResourceHints == null ? List.of() : activeMcpResourceHints.stream()
+                .filter(item -> item != null && !item.isBlank())
+                .distinct()
+                .toList();
+        List<String> derivedMcpResourceRefs = derivedMcpPromptRefs;
         return ContextState.builder()
                 .latestNarrativeSummary(summaryResult == null ? "" : nullSafe(summaryResult.getNarrativeSummary()))
                 .latestStateSnapshot(summaryResult == null || summaryResult.getStateSnapshot() == null
                         ? Map.of()
                         : summaryResult.getStateSnapshot())
-                .activeKnowledgeRefs(previous == null || previous.getActiveKnowledgeRefs() == null ? List.of() : previous.getActiveKnowledgeRefs())
-                .activeMemoryRefs(previous == null || previous.getActiveMemoryRefs() == null ? List.of() : previous.getActiveMemoryRefs())
-                .activeToolEvidenceRefs(previous == null || previous.getActiveToolEvidenceRefs() == null ? List.of() : previous.getActiveToolEvidenceRefs())
-                .activeMcpPromptRefs(previous == null || previous.getActiveMcpPromptRefs() == null ? List.of() : previous.getActiveMcpPromptRefs())
-                .activeMcpResourceRefs(previous == null || previous.getActiveMcpResourceRefs() == null ? List.of() : previous.getActiveMcpResourceRefs())
+                .activeKnowledgeRefs(derivedKnowledgeRefs.isEmpty() ? previousOrEmpty(previous == null ? null : previous.getActiveKnowledgeRefs()) : derivedKnowledgeRefs)
+                .activeMemoryRefs(derivedMemoryRefs.isEmpty() ? previousOrEmpty(previous == null ? null : previous.getActiveMemoryRefs()) : derivedMemoryRefs)
+                .activeToolEvidenceRefs(derivedToolRefs.isEmpty() ? previousOrEmpty(previous == null ? null : previous.getActiveToolEvidenceRefs()) : derivedToolRefs)
+                .activeMcpPromptRefs(derivedMcpPromptRefs.isEmpty() ? previousOrEmpty(previous == null ? null : previous.getActiveMcpPromptRefs()) : derivedMcpPromptRefs)
+                .activeMcpResourceRefs(derivedMcpResourceRefs.isEmpty() ? previousOrEmpty(previous == null ? null : previous.getActiveMcpResourceRefs()) : derivedMcpResourceRefs)
                 .latestContextSnapshotId(previous == null ? "" : nullSafe(previous.getLatestContextSnapshotId()))
                 .build();
+    }
+
+    private List<String> deriveToolEvidenceRefsFromContext(StructuredContextPackage contextPackage,
+                                                           ToolSemanticResult latestToolSemanticResult) {
+        if (contextPackage == null || contextPackage.getRuntime() == null) {
+            return List.of();
+        }
+        List<Map<String, Object>> toolRows = safeMapList(contextPackage.getRuntime().get("active_tool_results"));
+        List<String> refs = extractToolHistoryRefs(toolRows);
+        if (!refs.isEmpty()) {
+            return refs;
+        }
+        if (latestToolSemanticResult != null && latestToolSemanticResult.getToolStatus() != null
+                && !latestToolSemanticResult.getToolStatus().isBlank()) {
+            return List.of("tool_semantic:" + latestToolSemanticResult.getToolStatus().toLowerCase(Locale.ROOT));
+        }
+        return List.of();
+    }
+
+    private List<String> previousOrEmpty(List<String> refs) {
+        return refs == null ? List.of() : refs;
+    }
+
+    private List<String> mergeDistinctList(List<String> left, List<String> right) {
+        return mergeDistinct(left == null ? List.of() : left, right == null ? List.of() : right);
+    }
+
+    private List<String> extractToolStepNames(List<Map<String, Object>> toolRows, String... statuses) {
+        if (toolRows == null || toolRows.isEmpty()) {
+            return List.of();
+        }
+        List<String> expected = new ArrayList<>();
+        for (String status : statuses) {
+            expected.add(status.toLowerCase(Locale.ROOT));
+        }
+        return toolRows.stream()
+                .filter(row -> expected.contains(stringValue(row.get("call_status")).toLowerCase(Locale.ROOT)))
+                .map(row -> stringValue(row.get("tool_name")))
+                .filter(name -> name != null && !name.isBlank())
+                .distinct()
+                .toList();
+    }
+
+    private int deriveRetryCount(TaskState previousTaskState, Map<String, Object> sessionRow, List<String> failedSteps) {
+        int fromPrevious = previousTaskState == null || previousTaskState.getRetryCount() == null ? 0 : previousTaskState.getRetryCount();
+        int fromSession = intValue(sessionRow.get("retry_count"));
+        int fromFailureSignals = failedSteps == null ? 0 : failedSteps.size();
+        return Math.max(fromPrevious, Math.max(fromSession, fromFailureSignals));
+    }
+
+    private int intValue(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value == null) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value).trim());
+        } catch (Exception ignore) {
+            return 0;
+        }
+    }
+
+    private Map<String, Object> mergeMaps(Map<String, Object> left, Map<String, Object> right) {
+        Map<String, Object> merged = new LinkedHashMap<>();
+        if (left != null) {
+            merged.putAll(left);
+        }
+        if (right != null) {
+            merged.putAll(right);
+        }
+        return merged;
+    }
+
+    private List<String> nonBlankList(String value) {
+        if (value == null || value.isBlank()) {
+            return List.of();
+        }
+        return List.of(value);
+    }
+
+    private String resolveLatestToolRawResultRef(String explicitLatestRef,
+                                                 List<Map<String, Object>> toolRows,
+                                                 ToolState previousToolState) {
+        if (explicitLatestRef != null && !explicitLatestRef.isBlank()) {
+            return explicitLatestRef;
+        }
+        if (toolRows != null && !toolRows.isEmpty()) {
+            String traceId = stringValue(toolRows.get(0).get("trace_id"));
+            if (!traceId.isBlank()) {
+                return "tool_execution_trace:id=" + traceId;
+            }
+            String toolName = stringValue(toolRows.get(0).get("tool_name"));
+            String status = normalizeCallStatus(toolRows.get(0).get("call_status"));
+            if (!toolName.isBlank()) {
+                return "tool_execution_trace:" + toolName + ":" + status;
+            }
+        }
+        if (previousToolState != null && previousToolState.getLastToolRawResultRef() != null && !previousToolState.getLastToolRawResultRef().isBlank()) {
+            return previousToolState.getLastToolRawResultRef();
+        }
+        return "tool_execution_trace:latest";
+    }
+
+    private List<String> resolveActiveToolEvidenceRefs(List<String> explicitHistoryRefs,
+                                                       List<Map<String, Object>> toolRows,
+                                                       ContextState previousContextState) {
+        List<String> refs = new ArrayList<>();
+        if (explicitHistoryRefs != null && !explicitHistoryRefs.isEmpty()) {
+            refs.addAll(explicitHistoryRefs);
+        }
+        if (refs.isEmpty() && toolRows != null) {
+            refs.addAll(extractToolHistoryRefs(toolRows));
+        }
+        if (refs.isEmpty() && previousContextState != null && previousContextState.getActiveToolEvidenceRefs() != null) {
+            refs.addAll(previousContextState.getActiveToolEvidenceRefs());
+        }
+        if (refs.isEmpty()) {
+            refs.add("tool_execution_trace:latest");
+        }
+        return refs.stream().filter(ref -> ref != null && !ref.isBlank()).distinct().toList();
+    }
+
+    private String resolveLastToolName(List<Map<String, Object>> toolRows, ToolSemanticResult toolSemanticResult) {
+        if (toolRows != null && !toolRows.isEmpty()) {
+            String name = stringValue(toolRows.get(0).get("tool_name"));
+            if (!name.isBlank()) {
+                return name;
+            }
+        }
+        return toolSemanticResult == null ? "" : nullSafe(toolSemanticResult.getToolName());
+    }
+
+    private List<String> extractToolHistoryRefs(List<Map<String, Object>> toolRows) {
+        if (toolRows == null || toolRows.isEmpty()) {
+            return List.of();
+        }
+        return toolRows.stream()
+                .map(row -> {
+                    String traceId = stringValue(row.get("trace_id"));
+                    if (!traceId.isBlank()) {
+                        return "tool_execution_trace:id=" + traceId;
+                    }
+                    String toolName = stringValue(row.get("tool_name"));
+                    String status = normalizeCallStatus(row.get("call_status"));
+                    if (toolName.isBlank()) {
+                        return "";
+                    }
+                    return "tool_execution_trace:" + toolName + ":" + status;
+                })
+                .filter(ref -> ref != null && !ref.isBlank())
+                .distinct()
+                .toList();
+    }
+
+    private String normalizeCallStatus(Object status) {
+        String value = stringValue(status);
+        if (value.isBlank()) {
+            return "UNKNOWN";
+        }
+        return value.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private String firstNonBlank(String first, String second) {
+        if (first != null && !first.isBlank()) {
+            return first;
+        }
+        return second == null ? "" : second;
+    }
+
+    private List<String> extractKnowledgeRefs(ContextRerankResult rerankResult) {
+        if (rerankResult == null) {
+            return List.of();
+        }
+        if (rerankResult.getSelectedKnowledgeEvidenceBlocks() != null && !rerankResult.getSelectedKnowledgeEvidenceBlocks().isEmpty()) {
+            return rerankResult.getSelectedKnowledgeEvidenceBlocks().stream()
+                    .map(EvidenceBlock::getBlockId)
+                    .filter(id -> id != null && !id.isBlank())
+                    .distinct()
+                    .toList();
+        }
+        if (rerankResult.getSelectedKnowledgeBlocks() != null) {
+            return rerankResult.getSelectedKnowledgeBlocks();
+        }
+        return List.of();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> safeMap(Object value) {
+        if (value instanceof Map<?, ?> map && !map.isEmpty()) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                if (entry.getKey() == null) {
+                    continue;
+                }
+                out.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+            return out;
+        }
+        return Map.of();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> safeMapList(Object value) {
+        if (!(value instanceof List<?> list) || list.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Object item : list) {
+            if (item instanceof Map<?, ?> map) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                for (Map.Entry<?, ?> entry : map.entrySet()) {
+                    if (entry.getKey() == null) {
+                        continue;
+                    }
+                    row.put(String.valueOf(entry.getKey()), entry.getValue());
+                }
+                rows.add(row);
+            }
+        }
+        return rows;
     }
 
     private List<Resource> resolveExecutionCandidates(ContextRerankResult rerankResult, List<Map<String, Object>> mcpPreRankedCandidates) {
