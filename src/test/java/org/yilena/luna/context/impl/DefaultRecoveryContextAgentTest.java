@@ -7,6 +7,7 @@ import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.state.model.ContextState;
+import org.yilena.luna.state.model.ContextSnapshot;
 import org.yilena.luna.state.model.RecoveryState;
 import org.yilena.luna.state.model.RetrievalState;
 import org.yilena.luna.state.store.ContextSnapshotStore;
@@ -76,6 +77,71 @@ class DefaultRecoveryContextAgentTest {
         ArgumentCaptor<RecoveryState> stateCaptor = ArgumentCaptor.forClass(RecoveryState.class);
         verify(recoveryStateStore).save(org.mockito.ArgumentMatchers.eq("s-1"), stateCaptor.capture());
         assertEquals("APPROVAL_RESUME", stateCaptor.getValue().getRecoveryEvent());
+    }
+
+    @Test
+    void shouldReadActiveRefsFromFinalSnapshotForPreciseInvalidation() {
+        RecoveryStateStore recoveryStateStore = mock(RecoveryStateStore.class);
+        ContextSnapshotStore contextSnapshotStore = mock(ContextSnapshotStore.class);
+        when(contextSnapshotStore.loadLatest("s-2")).thenReturn(ContextSnapshot.builder()
+                .snapshotId("42")
+                .sessionId("s-2")
+                .planId(1L)
+                .nodeId(2L)
+                .payload(Map.of(
+                        "snapshotType", "FINAL_MODEL_CONTEXT",
+                        "activeKnowledgeRefs", List.of("knowledge:block-1"),
+                        "activeMcpPromptRefs", List.of("{\"capability_name\":\"prompt.cap.alpha\"}"),
+                        "activeMcpResourceRefs", List.of("{\"capability_name\":\"tool.search_knowledge\"}")
+                ))
+                .build());
+
+        DefaultRecoveryContextAgent agent = new DefaultRecoveryContextAgent(
+                recoveryStateStore,
+                contextSnapshotStore,
+                new ObjectMapper(),
+                mock(LlmClientUtil.class),
+                geminiProperty()
+        );
+        StructuredContextPackage contextPackage = StructuredContextPackage.builder()
+                .sessionId("s-2")
+                .taskState(TaskRuntimeState.WAITING_TOOL)
+                .retrievalState(RetrievalState.builder()
+                        .reconstructedIntent("intent")
+                        .activeQueries(List.of("q1"))
+                        .retrievalPlan(Map.of())
+                        .selectedEvidenceRefs(List.of())
+                        .rerankSummary("")
+                        .build())
+                .contextState(ContextState.builder()
+                        .activeKnowledgeRefs(List.of())
+                        .activeMcpResourceRefs(List.of())
+                        .activeMcpPromptRefs(List.of())
+                        .activeMemoryRefs(List.of())
+                        .activeToolEvidenceRefs(List.of())
+                        .latestStateSnapshot(Map.of())
+                        .latestNarrativeSummary("")
+                        .latestContextSnapshotId("")
+                        .build())
+                .build();
+
+        StructuredContextPackage recovered = agent.recover(
+                "s-2",
+                contextPackage,
+                "TOOL_RESULT",
+                "timeout"
+        );
+
+        assertNotNull(recovered);
+        assertTrue(Boolean.TRUE.equals(recovered.getRetrievalState().getRetrievalPlan().get("need_rag_refresh")));
+        assertTrue(Boolean.TRUE.equals(recovered.getRetrievalState().getRetrievalPlan().get("need_mcp_refresh")));
+        @SuppressWarnings("unchecked")
+        List<String> invalidatedEvidenceRefs = (List<String>) recovered.getRetrievalState().getRetrievalPlan().get("invalidated_evidence_refs");
+        @SuppressWarnings("unchecked")
+        List<String> invalidatedCapabilityNames = (List<String>) recovered.getRetrievalState().getRetrievalPlan().get("invalidated_capability_names");
+        assertTrue(invalidatedEvidenceRefs.contains("knowledge:block-1"));
+        assertTrue(invalidatedCapabilityNames.contains("prompt.cap.alpha"));
+        assertTrue(invalidatedCapabilityNames.contains("tool.search_knowledge"));
     }
 
     private GeminiProperty geminiProperty() {

@@ -85,6 +85,14 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
 
     private static final int ACTIVE_REF_MAX_PER_CHANNEL = 24;
     private static final int ACTIVE_TOOL_REF_MAX = 12;
+    private static final String REF_GOVERNANCE_META_KEY = "_activeRefGovernance";
+    private static final int ROUND_DECAY_ON_STAGE_CHANGE = 2;
+    private static final int ROUND_DECAY_ON_STEP_ADVANCED = 1;
+    private static final int KNOWLEDGE_REF_TTL = 5;
+    private static final int MEMORY_REF_TTL = 8;
+    private static final int TOOL_REF_TTL = 3;
+    private static final int MCP_PROMPT_REF_TTL = 4;
+    private static final int MCP_RESOURCE_REF_TTL = 4;
 
     private final ContextCompilerService contextCompilerService;
     private final InputReconstructionAgent inputReconstructionAgent;
@@ -649,7 +657,8 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     assembledContext == null ? "" : nullSafe(assembledContext.getPrompt()),
                     assembledContext == null || assembledContext.getSectionTokenCounts() == null ? Map.of() : assembledContext.getSectionTokenCounts(),
                     assembledContext == null || assembledContext.getSectionTokenRatios() == null ? Map.of() : assembledContext.getSectionTokenRatios(),
-                    request.getRawToolResultChannel() == null ? Map.of() : request.getRawToolResultChannel()
+                    request.getRawToolResultChannel() == null ? Map.of() : request.getRawToolResultChannel(),
+                    buildFinalSnapshotActiveRefs(request, contextPackage)
             ));
             runtimeAuditService.persistDecisionRecord(
                     sessionId,
@@ -832,14 +841,62 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         List<String> mcpResourceRefs = rerankResult == null || rerankResult.getSelectedToolCandidates() == null
                 ? List.of()
                 : rerankResult.getSelectedToolCandidates().stream().map(this::toJsonSafe).toList();
+        Map<String, Object> latestStateSnapshot = new LinkedHashMap<>(
+                summaryResult == null || summaryResult.getStateSnapshot() == null ? Map.of() : summaryResult.getStateSnapshot()
+        );
+        ActiveRefGovernanceResult governedKnowledgeRefs = governActiveRefs(
+                "knowledge",
+                knowledgeRefs,
+                previousContextState == null ? List.of() : previousContextState.getActiveKnowledgeRefs(),
+                stageChanged,
+                finishedStepsAdvanced,
+                ACTIVE_REF_MAX_PER_CHANNEL,
+                latestStateSnapshot
+        );
+        ActiveRefGovernanceResult governedMemoryRefs = governActiveRefs(
+                "memory",
+                memoryRefs,
+                previousContextState == null ? List.of() : previousContextState.getActiveMemoryRefs(),
+                stageChanged,
+                finishedStepsAdvanced,
+                ACTIVE_REF_MAX_PER_CHANNEL,
+                latestStateSnapshot
+        );
+        ActiveRefGovernanceResult governedToolRefs = governActiveRefs(
+                "tool",
+                activeToolRefs,
+                previousContextState == null ? List.of() : previousContextState.getActiveToolEvidenceRefs(),
+                stageChanged,
+                finishedStepsAdvanced,
+                ACTIVE_TOOL_REF_MAX,
+                latestStateSnapshot
+        );
+        ActiveRefGovernanceResult governedMcpPromptRefs = governActiveRefs(
+                "mcp_prompt",
+                mcpPromptRefs,
+                previousContextState == null ? List.of() : previousContextState.getActiveMcpPromptRefs(),
+                stageChanged,
+                finishedStepsAdvanced,
+                ACTIVE_REF_MAX_PER_CHANNEL,
+                latestStateSnapshot
+        );
+        ActiveRefGovernanceResult governedMcpResourceRefs = governActiveRefs(
+                "mcp_resource",
+                mcpResourceRefs,
+                previousContextState == null ? List.of() : previousContextState.getActiveMcpResourceRefs(),
+                stageChanged,
+                finishedStepsAdvanced,
+                ACTIVE_REF_MAX_PER_CHANNEL,
+                latestStateSnapshot
+        );
         ContextState contextState = ContextState.builder()
                 .latestNarrativeSummary(summaryResult == null ? "" : nullSafe(summaryResult.getNarrativeSummary()))
-                .latestStateSnapshot(summaryResult == null || summaryResult.getStateSnapshot() == null ? Map.of() : summaryResult.getStateSnapshot())
-                .activeKnowledgeRefs(governActiveRefs(knowledgeRefs, stageChanged, finishedStepsAdvanced, ACTIVE_REF_MAX_PER_CHANNEL))
-                .activeMemoryRefs(governActiveRefs(memoryRefs, stageChanged, finishedStepsAdvanced, ACTIVE_REF_MAX_PER_CHANNEL))
-                .activeToolEvidenceRefs(governActiveRefs(activeToolRefs, stageChanged, finishedStepsAdvanced, ACTIVE_TOOL_REF_MAX))
-                .activeMcpPromptRefs(governActiveRefs(mcpPromptRefs, stageChanged, finishedStepsAdvanced, ACTIVE_REF_MAX_PER_CHANNEL))
-                .activeMcpResourceRefs(governActiveRefs(mcpResourceRefs, stageChanged, finishedStepsAdvanced, ACTIVE_REF_MAX_PER_CHANNEL))
+                .latestStateSnapshot(latestStateSnapshot)
+                .activeKnowledgeRefs(governedKnowledgeRefs.refs())
+                .activeMemoryRefs(governedMemoryRefs.refs())
+                .activeToolEvidenceRefs(governedToolRefs.refs())
+                .activeMcpPromptRefs(governedMcpPromptRefs.refs())
+                .activeMcpResourceRefs(governedMcpResourceRefs.refs())
                 .latestContextSnapshotId(firstNonBlank(
                         request.getLatestSnapshotId(),
                         previousContextState == null ? "" : previousContextState.getLatestContextSnapshotId()
@@ -1348,16 +1405,64 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 && previous.getLatestStateSnapshot() != null
                 && !nullSafe(contextPackage.getTaskStateEntity().getCurrentStage())
                 .equalsIgnoreCase(stringValue(previous.getLatestStateSnapshot().get("currentStage")));
+        Map<String, Object> latestStateSnapshot = new LinkedHashMap<>(
+                summaryResult == null || summaryResult.getStateSnapshot() == null
+                        ? Map.of()
+                        : summaryResult.getStateSnapshot()
+        );
+        ActiveRefGovernanceResult governedKnowledgeRefs = governActiveRefs(
+                "knowledge",
+                derivedKnowledgeRefs,
+                previous == null ? List.of() : previous.getActiveKnowledgeRefs(),
+                stageChanged,
+                false,
+                ACTIVE_REF_MAX_PER_CHANNEL,
+                latestStateSnapshot
+        );
+        ActiveRefGovernanceResult governedMemoryRefs = governActiveRefs(
+                "memory",
+                derivedMemoryRefs,
+                previous == null ? List.of() : previous.getActiveMemoryRefs(),
+                stageChanged,
+                false,
+                ACTIVE_REF_MAX_PER_CHANNEL,
+                latestStateSnapshot
+        );
+        ActiveRefGovernanceResult governedToolRefs = governActiveRefs(
+                "tool",
+                derivedToolRefs,
+                previous == null ? List.of() : previous.getActiveToolEvidenceRefs(),
+                stageChanged,
+                false,
+                ACTIVE_TOOL_REF_MAX,
+                latestStateSnapshot
+        );
+        ActiveRefGovernanceResult governedMcpPromptRefs = governActiveRefs(
+                "mcp_prompt",
+                derivedMcpPromptRefs,
+                previous == null ? List.of() : previous.getActiveMcpPromptRefs(),
+                stageChanged,
+                false,
+                ACTIVE_REF_MAX_PER_CHANNEL,
+                latestStateSnapshot
+        );
+        ActiveRefGovernanceResult governedMcpResourceRefs = governActiveRefs(
+                "mcp_resource",
+                derivedMcpResourceRefs,
+                previous == null ? List.of() : previous.getActiveMcpResourceRefs(),
+                stageChanged,
+                false,
+                ACTIVE_REF_MAX_PER_CHANNEL,
+                latestStateSnapshot
+        );
         return ContextState.builder()
                 .latestNarrativeSummary(summaryResult == null ? "" : nullSafe(summaryResult.getNarrativeSummary()))
-                .latestStateSnapshot(summaryResult == null || summaryResult.getStateSnapshot() == null
-                        ? Map.of()
-                        : summaryResult.getStateSnapshot())
-                .activeKnowledgeRefs(governActiveRefs(derivedKnowledgeRefs, stageChanged, false, ACTIVE_REF_MAX_PER_CHANNEL))
-                .activeMemoryRefs(governActiveRefs(derivedMemoryRefs, stageChanged, false, ACTIVE_REF_MAX_PER_CHANNEL))
-                .activeToolEvidenceRefs(governActiveRefs(derivedToolRefs, stageChanged, false, ACTIVE_TOOL_REF_MAX))
-                .activeMcpPromptRefs(governActiveRefs(derivedMcpPromptRefs, stageChanged, false, ACTIVE_REF_MAX_PER_CHANNEL))
-                .activeMcpResourceRefs(governActiveRefs(derivedMcpResourceRefs, stageChanged, false, ACTIVE_REF_MAX_PER_CHANNEL))
+                .latestStateSnapshot(latestStateSnapshot)
+                .activeKnowledgeRefs(governedKnowledgeRefs.refs())
+                .activeMemoryRefs(governedMemoryRefs.refs())
+                .activeToolEvidenceRefs(governedToolRefs.refs())
+                .activeMcpPromptRefs(governedMcpPromptRefs.refs())
+                .activeMcpResourceRefs(governedMcpResourceRefs.refs())
                 .latestContextSnapshotId(previous == null ? "" : nullSafe(previous.getLatestContextSnapshotId()))
                 .build();
     }
@@ -1477,26 +1582,168 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         return refs.stream().filter(ref -> ref != null && !ref.isBlank()).distinct().toList();
     }
 
-    private List<String> governActiveRefs(List<String> currentRefs,
-                                          boolean stageChanged,
-                                          boolean finishedStepsAdvanced,
-                                          int maxSize) {
-        if (currentRefs == null || currentRefs.isEmpty()) {
-            // Hard rule: no new evidence in current round means evidence exits active context.
-            return List.of();
+    private ActiveRefGovernanceResult governActiveRefs(String channel,
+                                                       List<String> currentRefs,
+                                                       List<String> previousRefs,
+                                                       boolean stageChanged,
+                                                       boolean finishedStepsAdvanced,
+                                                       int maxSize,
+                                                       Map<String, Object> latestStateSnapshot) {
+        List<String> current = normalizeRefs(currentRefs);
+        List<String> previous = normalizeRefs(previousRefs);
+        Map<String, Integer> previousAgeMap = readChannelAgeMap(latestStateSnapshot, channel);
+        LinkedHashSet<String> candidateSet = new LinkedHashSet<>();
+        candidateSet.addAll(current);
+        candidateSet.addAll(previous);
+        int ttl = resolveTtlByChannel(channel);
+        int extraDecay = 0;
+        if (stageChanged) {
+            extraDecay += ROUND_DECAY_ON_STAGE_CHANGE;
         }
-        if (stageChanged || finishedStepsAdvanced) {
-            return currentRefs.stream()
-                    .filter(ref -> ref != null && !ref.isBlank())
-                    .distinct()
-                    .limit(maxSize)
-                    .toList();
+        if (finishedStepsAdvanced) {
+            extraDecay += ROUND_DECAY_ON_STEP_ADVANCED;
         }
-        return currentRefs.stream()
-                .filter(ref -> ref != null && !ref.isBlank())
-                .distinct()
+        List<ScoredRef> scored = new ArrayList<>();
+        Map<String, Integer> nextAgeMap = new LinkedHashMap<>();
+        for (String ref : candidateSet) {
+            boolean seenThisRound = current.contains(ref);
+            int previousAge = previousAgeMap.getOrDefault(ref, 0);
+            int nextAge = seenThisRound ? 0 : previousAge + 1 + extraDecay;
+            double score = computeRefScore(channel, seenThisRound, nextAge, ttl, stageChanged, finishedStepsAdvanced);
+            boolean expired = nextAge > ttl || score <= 0.0;
+            if (expired) {
+                continue;
+            }
+            scored.add(new ScoredRef(ref, score, seenThisRound));
+            nextAgeMap.put(ref, nextAge);
+        }
+        scored.sort((a, b) -> {
+            if (a.seenThisRound() != b.seenThisRound()) {
+                return a.seenThisRound() ? -1 : 1;
+            }
+            int scoreCompare = Double.compare(b.score(), a.score());
+            if (scoreCompare != 0) {
+                return scoreCompare;
+            }
+            return a.ref().compareTo(b.ref());
+        });
+        List<String> governedRefs = scored.stream()
+                .map(ScoredRef::ref)
                 .limit(maxSize)
                 .toList();
+        Map<String, Integer> trimmedAgeMap = new LinkedHashMap<>();
+        for (String ref : governedRefs) {
+            trimmedAgeMap.put(ref, nextAgeMap.getOrDefault(ref, 0));
+        }
+        writeChannelAgeMap(latestStateSnapshot, channel, trimmedAgeMap);
+        return new ActiveRefGovernanceResult(governedRefs, trimmedAgeMap);
+    }
+
+    private List<String> normalizeRefs(List<String> refs) {
+        if (refs == null || refs.isEmpty()) {
+            return List.of();
+        }
+        return refs.stream()
+                .filter(ref -> ref != null && !ref.isBlank())
+                .distinct()
+                .toList();
+    }
+
+    private int resolveTtlByChannel(String channel) {
+        if ("tool".equals(channel)) {
+            return TOOL_REF_TTL;
+        }
+        if ("mcp_prompt".equals(channel)) {
+            return MCP_PROMPT_REF_TTL;
+        }
+        if ("mcp_resource".equals(channel)) {
+            return MCP_RESOURCE_REF_TTL;
+        }
+        if ("memory".equals(channel)) {
+            return MEMORY_REF_TTL;
+        }
+        return KNOWLEDGE_REF_TTL;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Integer> readChannelAgeMap(Map<String, Object> latestStateSnapshot, String channel) {
+        if (latestStateSnapshot == null || latestStateSnapshot.isEmpty() || channel == null || channel.isBlank()) {
+            return Map.of();
+        }
+        Object metaObj = latestStateSnapshot.get(REF_GOVERNANCE_META_KEY);
+        if (!(metaObj instanceof Map<?, ?> metaMap)) {
+            return Map.of();
+        }
+        Object channelObj = metaMap.get(channel);
+        if (!(channelObj instanceof Map<?, ?> channelMap)) {
+            return Map.of();
+        }
+        Map<String, Integer> out = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : channelMap.entrySet()) {
+            if (entry.getKey() == null) {
+                continue;
+            }
+            String ref = String.valueOf(entry.getKey()).trim();
+            if (ref.isBlank()) {
+                continue;
+            }
+            out.put(ref, intValue(entry.getValue()));
+        }
+        return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void writeChannelAgeMap(Map<String, Object> latestStateSnapshot, String channel, Map<String, Integer> ageMap) {
+        if (latestStateSnapshot == null || channel == null || channel.isBlank()) {
+            return;
+        }
+        Map<String, Object> meta;
+        Object metaObj = latestStateSnapshot.get(REF_GOVERNANCE_META_KEY);
+        if (metaObj instanceof Map<?, ?> map) {
+            meta = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                if (entry.getKey() == null) {
+                    continue;
+                }
+                meta.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+        } else {
+            meta = new LinkedHashMap<>();
+        }
+        meta.put(channel, ageMap == null ? Map.of() : ageMap);
+        latestStateSnapshot.put(REF_GOVERNANCE_META_KEY, meta);
+    }
+
+    private double computeRefScore(String channel,
+                                   boolean seenThisRound,
+                                   int age,
+                                   int ttl,
+                                   boolean stageChanged,
+                                   boolean finishedStepsAdvanced) {
+        if (seenThisRound) {
+            return 1.0;
+        }
+        if (ttl <= 0) {
+            return 0.0;
+        }
+        double freshnessScore = 1.0 - (double) age / (double) ttl;
+        if (freshnessScore < 0.0) {
+            freshnessScore = 0.0;
+        }
+        if (stageChanged) {
+            freshnessScore -= isStageBoundChannel(channel) ? 0.30 : 0.15;
+        }
+        if (finishedStepsAdvanced) {
+            freshnessScore -= isStageBoundChannel(channel) ? 0.20 : 0.10;
+        }
+        if (freshnessScore < 0.0) {
+            return 0.0;
+        }
+        return freshnessScore;
+    }
+
+    private boolean isStageBoundChannel(String channel) {
+        return "tool".equals(channel) || "mcp_prompt".equals(channel) || "mcp_resource".equals(channel);
     }
 
     private int safeSize(List<String> values) {
@@ -1778,6 +2025,59 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .toList();
     }
 
+    private Map<String, List<String>> buildFinalSnapshotActiveRefs(MainModelExecutionRequest request,
+                                                                   StructuredContextPackage contextPackage) {
+        ContextRerankResult rerankResult = request == null ? null : request.getRerankResult();
+        List<String> knowledgeRefs = extractKnowledgeRefs(rerankResult);
+        List<String> memoryRefs = rerankResult == null || rerankResult.getSelectedMemoryHints() == null
+                ? List.of()
+                : rerankResult.getSelectedMemoryHints().stream()
+                .filter(item -> item != null && !item.isBlank())
+                .distinct()
+                .toList();
+        List<String> mcpPromptRefs = rerankResult == null || rerankResult.getSelectedPromptResources() == null
+                ? List.of()
+                : rerankResult.getSelectedPromptResources().stream()
+                .map(this::toJsonSafe)
+                .filter(item -> item != null && !item.isBlank())
+                .distinct()
+                .toList();
+        List<String> mcpResourceRefs = rerankResult == null || rerankResult.getSelectedToolCandidates() == null
+                ? List.of()
+                : rerankResult.getSelectedToolCandidates().stream()
+                .map(this::toJsonSafe)
+                .filter(item -> item != null && !item.isBlank())
+                .distinct()
+                .toList();
+        List<String> toolRefs = extractToolRefsFromRawChannel(request == null ? null : request.getRawToolResultChannel());
+        if ((toolRefs == null || toolRefs.isEmpty()) && contextPackage != null && contextPackage.getContextState() != null) {
+            toolRefs = contextPackage.getContextState().getActiveToolEvidenceRefs();
+        }
+        Map<String, List<String>> activeRefs = new LinkedHashMap<>();
+        activeRefs.put("activeKnowledgeRefs", knowledgeRefs == null ? List.of() : knowledgeRefs);
+        activeRefs.put("activeMemoryRefs", memoryRefs == null ? List.of() : memoryRefs);
+        activeRefs.put("activeToolEvidenceRefs", toolRefs == null ? List.of() : toolRefs);
+        activeRefs.put("activeMcpPromptRefs", mcpPromptRefs == null ? List.of() : mcpPromptRefs);
+        activeRefs.put("activeMcpResourceRefs", mcpResourceRefs == null ? List.of() : mcpResourceRefs);
+        return activeRefs;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> extractToolRefsFromRawChannel(Map<String, Object> rawToolResultChannel) {
+        if (rawToolResultChannel == null || rawToolResultChannel.isEmpty()) {
+            return List.of();
+        }
+        Object refsObj = rawToolResultChannel.get("toolHistoryRefs");
+        if (!(refsObj instanceof List<?> list) || list.isEmpty()) {
+            return List.of();
+        }
+        return list.stream()
+                .map(item -> item == null ? "" : String.valueOf(item).trim())
+                .filter(item -> !item.isBlank())
+                .distinct()
+                .toList();
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, String> safeStringMap(Object value) {
         if (!(value instanceof Map<?, ?> map) || map.isEmpty()) {
@@ -1818,6 +2118,12 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         private static RecoveryRefreshPlan empty() {
             return new RecoveryRefreshPlan(false, false, false, List.of(), List.of(), Map.of());
         }
+    }
+
+    private record ScoredRef(String ref, double score, boolean seenThisRound) {
+    }
+
+    private record ActiveRefGovernanceResult(List<String> refs, Map<String, Integer> ageByRef) {
     }
 
     private record ModelReply(String raw, String valid, String replyText) {

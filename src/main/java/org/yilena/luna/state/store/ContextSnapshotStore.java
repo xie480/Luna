@@ -57,6 +57,28 @@ public interface ContextSnapshotStore {
                 assembledContext,
                 prompt,
                 sectionTokenCounts,
+                sectionTokenRatios,
+                rawToolResultChannel,
+                Map.of()
+        );
+    }
+
+    default String saveFinalSnapshot(String sessionId,
+                                     Long planId,
+                                     Long nodeId,
+                                     AssembledContext assembledContext,
+                                     String prompt,
+                                     Map<String, Integer> sectionTokenCounts,
+                                     Map<String, Double> sectionTokenRatios,
+                                     Map<String, Object> rawToolResultChannel,
+                                     Map<String, List<String>> activeRefs) {
+        return saveFinalSnapshot(
+                sessionId,
+                planId,
+                nodeId,
+                assembledContext,
+                prompt,
+                sectionTokenCounts,
                 sectionTokenRatios
         );
     }

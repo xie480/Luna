@@ -269,6 +269,7 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
             runtime.put("recovery_prompt", payload.getOrDefault("prompt", ""));
             runtime.put("recovery_section_token_counts", payload.getOrDefault("sectionTokenCounts", Map.of()));
             runtime.put("recovery_section_token_ratios", payload.getOrDefault("sectionTokenRatios", Map.of()));
+            runtime.put("recovery_active_refs", payload.getOrDefault("activeRefs", Map.of()));
 
             Map<String, Object> taskContext = new LinkedHashMap<>();
             Object sections = payload.get("sections");
@@ -284,6 +285,16 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
                     .runtime(runtime)
                     .taskContext(taskContext)
                     .recentMessages(recentMessagesFromSections(payload))
+                    .contextState(ContextState.builder()
+                            .latestNarrativeSummary("")
+                            .latestStateSnapshot(Map.of())
+                            .activeKnowledgeRefs(readSnapshotRefList(payload, "activeKnowledgeRefs"))
+                            .activeMemoryRefs(readSnapshotRefList(payload, "activeMemoryRefs"))
+                            .activeToolEvidenceRefs(readSnapshotRefList(payload, "activeToolEvidenceRefs"))
+                            .activeMcpPromptRefs(readSnapshotRefList(payload, "activeMcpPromptRefs"))
+                            .activeMcpResourceRefs(readSnapshotRefList(payload, "activeMcpResourceRefs"))
+                            .latestContextSnapshotId(snapshot.getSnapshotId() == null ? "" : snapshot.getSnapshotId())
+                            .build())
                     .build();
         }
         if ("PRE_TOOL_DECISION_CONTEXT".equalsIgnoreCase(type)) {
@@ -600,16 +611,20 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
                     .filter(item -> item != null && !item.isBlank())
                     .toList());
         }
+        if (contextPackage != null && contextPackage.getContextState() != null && contextPackage.getContextState().getActiveMemoryRefs() != null) {
+            refs.addAll(contextPackage.getContextState().getActiveMemoryRefs().stream()
+                    .filter(item -> item != null && !item.isBlank())
+                    .toList());
+        }
+        if (contextPackage != null && contextPackage.getContextState() != null && contextPackage.getContextState().getActiveToolEvidenceRefs() != null) {
+            refs.addAll(contextPackage.getContextState().getActiveToolEvidenceRefs().stream()
+                    .filter(item -> item != null && !item.isBlank())
+                    .toList());
+        }
         if (snapshot != null && snapshot.getPayload() != null) {
-            Object refsObj = snapshot.getPayload().get("activeKnowledgeRefs");
-            if (refsObj instanceof List<?> list) {
-                for (Object one : list) {
-                    String ref = one == null ? "" : String.valueOf(one).trim();
-                    if (!ref.isBlank()) {
-                        refs.add(ref);
-                    }
-                }
-            }
+            refs.addAll(readSnapshotRefList(snapshot.getPayload(), "activeKnowledgeRefs"));
+            refs.addAll(readSnapshotRefList(snapshot.getPayload(), "activeMemoryRefs"));
+            refs.addAll(readSnapshotRefList(snapshot.getPayload(), "activeToolEvidenceRefs"));
         }
         return refs.stream().limit(40).toList();
     }
@@ -622,16 +637,37 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
             addCapabilityNamesFromRefs(names, contextState.getActiveMcpPromptRefs());
         }
         if (snapshot != null && snapshot.getPayload() != null) {
-            addCapabilityNamesFromPayload(names, snapshot.getPayload().get("activeMcpResourceRefs"));
-            addCapabilityNamesFromPayload(names, snapshot.getPayload().get("activeMcpPromptRefs"));
+            addCapabilityNamesFromRefs(names, readSnapshotRefList(snapshot.getPayload(), "activeMcpResourceRefs"));
+            addCapabilityNamesFromRefs(names, readSnapshotRefList(snapshot.getPayload(), "activeMcpPromptRefs"));
         }
         return names.stream().limit(40).toList();
     }
 
-    private void addCapabilityNamesFromPayload(java.util.LinkedHashSet<String> names, Object payloadValue) {
-        if (payloadValue instanceof List<?> list) {
-            addCapabilityNamesFromRefs(names, list.stream().map(item -> item == null ? "" : String.valueOf(item)).toList());
+    @SuppressWarnings("unchecked")
+    private List<String> readSnapshotRefList(Map<String, Object> payload, String key) {
+        if (payload == null || key == null || key.isBlank()) {
+            return List.of();
         }
+        Object refsObj = payload.get(key);
+        if (refsObj instanceof List<?> list) {
+            return list.stream()
+                    .map(item -> item == null ? "" : String.valueOf(item).trim())
+                    .filter(item -> !item.isBlank())
+                    .distinct()
+                    .toList();
+        }
+        Object activeRefsObj = payload.get("activeRefs");
+        if (activeRefsObj instanceof Map<?, ?> activeRefsMap) {
+            Object nested = activeRefsMap.get(key);
+            if (nested instanceof List<?> nestedList) {
+                return nestedList.stream()
+                        .map(item -> item == null ? "" : String.valueOf(item).trim())
+                        .filter(item -> !item.isBlank())
+                        .distinct()
+                        .toList();
+            }
+        }
+        return List.of();
     }
 
     private void addCapabilityNamesFromRefs(java.util.LinkedHashSet<String> names, List<String> refs) {

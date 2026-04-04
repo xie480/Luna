@@ -109,6 +109,29 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
                                     Map<String, Integer> sectionTokenCounts,
                                     Map<String, Double> sectionTokenRatios,
                                     Map<String, Object> rawToolResultChannel) {
+        return saveFinalSnapshot(
+                sessionId,
+                planId,
+                nodeId,
+                assembledContext,
+                prompt,
+                sectionTokenCounts,
+                sectionTokenRatios,
+                rawToolResultChannel,
+                Map.of()
+        );
+    }
+
+    @Override
+    public String saveFinalSnapshot(String sessionId,
+                                    Long planId,
+                                    Long nodeId,
+                                    AssembledContext assembledContext,
+                                    String prompt,
+                                    Map<String, Integer> sectionTokenCounts,
+                                    Map<String, Double> sectionTokenRatios,
+                                    Map<String, Object> rawToolResultChannel,
+                                    Map<String, List<String>> activeRefs) {
         if (sessionId == null || sessionId.isBlank()) {
             return "";
         }
@@ -120,6 +143,13 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
             payload.put("sectionTokenCounts", sectionTokenCounts == null ? Map.of() : sectionTokenCounts);
             payload.put("sectionTokenRatios", sectionTokenRatios == null ? Map.of() : sectionTokenRatios);
             payload.put("rawToolResultChannel", rawToolResultChannel == null ? Map.of() : rawToolResultChannel);
+            Map<String, List<String>> normalizedActiveRefs = normalizeActiveRefs(activeRefs);
+            payload.put("activeRefs", normalizedActiveRefs);
+            payload.put("activeKnowledgeRefs", normalizedActiveRefs.getOrDefault("activeKnowledgeRefs", List.of()));
+            payload.put("activeMemoryRefs", normalizedActiveRefs.getOrDefault("activeMemoryRefs", List.of()));
+            payload.put("activeToolEvidenceRefs", normalizedActiveRefs.getOrDefault("activeToolEvidenceRefs", List.of()));
+            payload.put("activeMcpPromptRefs", normalizedActiveRefs.getOrDefault("activeMcpPromptRefs", List.of()));
+            payload.put("activeMcpResourceRefs", normalizedActiveRefs.getOrDefault("activeMcpResourceRefs", List.of()));
             Long snapshotId = runtimeAuditMapper.insertContextSnapshotAndReturnId(
                     sessionId,
                     planId,
@@ -139,6 +169,27 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
         } catch (Exception ignore) {
             return "";
         }
+    }
+
+    private Map<String, List<String>> normalizeActiveRefs(Map<String, List<String>> activeRefs) {
+        if (activeRefs == null || activeRefs.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, List<String>> normalized = new LinkedHashMap<>();
+        for (Map.Entry<String, List<String>> entry : activeRefs.entrySet()) {
+            String key = entry.getKey();
+            if (key == null || key.isBlank()) {
+                continue;
+            }
+            List<String> refs = entry.getValue() == null
+                    ? List.of()
+                    : entry.getValue().stream()
+                    .filter(item -> item != null && !item.isBlank())
+                    .distinct()
+                    .toList();
+            normalized.put(key, refs);
+        }
+        return normalized;
     }
 
     @Override
