@@ -1,8 +1,13 @@
 package org.yilena.luna.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.constants.ModelHintConstant;
+import org.yilena.luna.context.ContextAssembler;
+import org.yilena.luna.context.ContextTraceLogger;
 import org.yilena.luna.context.EvidenceBlockBuilder;
 import org.yilena.luna.context.GlobalContextRerankAgent;
 import org.yilena.luna.context.InputReconstructionAgent;
@@ -14,7 +19,9 @@ import org.yilena.luna.context.RagQueryBuilder;
 import org.yilena.luna.context.RecoveryContextAgent;
 import org.yilena.luna.context.RerankTraceLogger;
 import org.yilena.luna.context.SummaryAgent;
+import org.yilena.luna.context.SummaryStateSnapshotValidator;
 import org.yilena.luna.context.SummaryTraceLogger;
+import org.yilena.luna.context.model.AssembledContext;
 import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.EvidenceBlock;
 import org.yilena.luna.context.model.InputReconstructionResult;
@@ -25,8 +32,13 @@ import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.memory.ContextCompilerService;
 import org.yilena.luna.memory.EventIngressService;
 import org.yilena.luna.memory.RuntimeAuditService;
+import org.yilena.luna.llm.LlmMessage;
+import org.yilena.luna.llm.LlmRequest;
+import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
+import org.yilena.luna.prompt.PromptTemplates;
+import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.rag.api.RetrievalService;
 import org.yilena.luna.rag.models.ConversationMessage;
 import org.yilena.luna.rag.models.Evidence;
@@ -40,6 +52,8 @@ import org.yilena.luna.router.ToolRouter;
 import org.yilena.luna.service.TaskOrchestratorService;
 import org.yilena.luna.service.SessionService;
 import org.yilena.luna.service.model.BlueprintOrchestrationResult;
+import org.yilena.luna.service.model.MainModelExecutionRequest;
+import org.yilena.luna.service.model.MainModelOrchestrationResult;
 import org.yilena.luna.service.model.NodeWorksetResult;
 import org.yilena.luna.service.model.RoundStateWriteRequest;
 import org.yilena.luna.service.model.SummaryOrchestrationResult;
@@ -53,6 +67,8 @@ import org.yilena.luna.state.store.RecoveryStateStore;
 import org.yilena.luna.state.store.RetrievalStateStore;
 import org.yilena.luna.state.store.TaskStateStore;
 import org.yilena.luna.state.store.ToolStateStore;
+import org.yilena.luna.state.store.ContextSnapshotStore;
+import org.yilena.luna.utils.LlmClientUtil;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -85,11 +101,17 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
     private final RerankTraceLogger rerankTraceLogger;
     private final RecoveryStateStore recoveryStateStore;
     private final SummaryAgent summaryAgent;
+    private final SummaryStateSnapshotValidator summaryStateSnapshotValidator;
     private final SummaryTraceLogger summaryTraceLogger;
+    private final ContextAssembler contextAssembler;
+    private final ContextTraceLogger contextTraceLogger;
     private final ContextStateStore contextStateStore;
     private final TaskStateStore taskStateStore;
     private final RetrievalStateStore retrievalStateStore;
     private final ToolStateStore toolStateStore;
+    private final ContextSnapshotStore contextSnapshotStore;
+    private final LlmClientUtil llmClientUtil;
+    private final GeminiProperty geminiProperty;
     private final SessionService sessionService;
     private final ObjectMapper objectMapper;
 
@@ -512,6 +534,30 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 activeMcpResourceHints == null ? List.of() : activeMcpResourceHints,
                 latestToolSemanticResult
         );
+        SummaryStateSnapshotValidator.ValidationResult snapshotValidation = summaryStateSnapshotValidator.validate(
+                summaryResult,
+                effectiveContext,
+                latestToolSemanticResult
+        );
+        if (snapshotValidation != null && snapshotValidation.normalized() != null) {
+            summaryResult = snapshotValidation.normalized();
+        }
+        if (sessionId != null && !sessionId.isBlank()) {
+            runtimeAuditService.persistDecisionRecord(
+                    sessionId,
+                    contextPlanId(effectiveContext),
+                    contextNodeId(effectiveContext),
+                    "SUMMARY_SNAPSHOT_VALIDATION",
+                    snapshotValidation != null && snapshotValidation.valid()
+                            ? "summary state snapshot validation passed"
+                            : "summary state snapshot validation adjusted",
+                    toJsonSafe(Map.of(
+                            "valid", snapshotValidation != null && snapshotValidation.valid(),
+                            "issues", snapshotValidation == null ? List.of("validator_unavailable") : snapshotValidation.issues(),
+                            "triggerSource", triggerSource == null ? "" : triggerSource
+                    ))
+            );
+        }
         if (sessionId != null && !sessionId.isBlank()) {
             summaryTraceLogger.log(
                     sessionId,
@@ -547,6 +593,122 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .contextPackage(effectiveContext)
                 .summaryResult(summaryResult)
                 .contextState(contextState)
+                .build();
+    }
+
+    @Override
+    public MainModelOrchestrationResult orchestrateMainModel(MainModelExecutionRequest request) {
+        if (request == null) {
+            return MainModelOrchestrationResult.builder()
+                    .blocked(true)
+                    .blockedReason("request_missing")
+                    .finalPrompt("")
+                    .rawResponse("")
+                    .validResponse("")
+                    .replyText("")
+                    .build();
+        }
+        String sessionId = nullSafe(request.getSessionId());
+        StructuredContextPackage contextPackage = request.getContextPackage();
+        Long planId = request.getPlanId() == null ? contextPlanId(contextPackage) : request.getPlanId();
+        Long nodeId = request.getNodeId() == null ? contextNodeId(contextPackage) : request.getNodeId();
+        AssembledContext assembledContext = contextAssembler.assemble(
+                contextPackage,
+                request.getReconstructionResult(),
+                request.getRerankResult(),
+                request.getToolSemanticResult(),
+                request.getUserInput(),
+                request.getKnowledgeEvidenceBlocks() == null ? List.of() : request.getKnowledgeEvidenceBlocks(),
+                request.getWorkingMemorySnippets() == null ? List.of() : request.getWorkingMemorySnippets(),
+                request.getRuntimeMemorySnippets() == null ? List.of() : request.getRuntimeMemorySnippets(),
+                request.getRetrievedMemorySnippets() == null ? List.of() : request.getRetrievedMemorySnippets(),
+                request.getKnowledgeSnippets() == null ? List.of() : request.getKnowledgeSnippets(),
+                request.getPreferenceSnippets() == null ? List.of() : request.getPreferenceSnippets(),
+                request.getLongTermMemorySnippets() == null ? List.of() : request.getLongTermMemorySnippets(),
+                request.getExecutionCandidates() == null ? List.of() : request.getExecutionCandidates(),
+                request.getMcpResourceHints() == null ? List.of() : request.getMcpResourceHints(),
+                request.getToolContext(),
+                request.getNodeTemplatePolicy(),
+                request.getRoundSummaryInput(),
+                sessionId,
+                planId,
+                nodeId
+        );
+        contextTraceLogger.log(sessionId, planId, nodeId, assembledContext);
+
+        String finalSnapshotId = "";
+        if (!sessionId.isBlank()) {
+            finalSnapshotId = nullSafe(contextSnapshotStore.saveFinalSnapshot(
+                    sessionId,
+                    planId,
+                    nodeId,
+                    assembledContext,
+                    assembledContext == null ? "" : nullSafe(assembledContext.getPrompt()),
+                    assembledContext == null || assembledContext.getSectionTokenCounts() == null ? Map.of() : assembledContext.getSectionTokenCounts(),
+                    assembledContext == null || assembledContext.getSectionTokenRatios() == null ? Map.of() : assembledContext.getSectionTokenRatios(),
+                    request.getRawToolResultChannel() == null ? Map.of() : request.getRawToolResultChannel()
+            ));
+            runtimeAuditService.persistDecisionRecord(
+                    sessionId,
+                    planId,
+                    nodeId,
+                    "CONTEXT_SNAPSHOT_FINAL",
+                    "final model context snapshot persisted",
+                    toJsonSafe(Map.of("snapshotId", finalSnapshotId))
+            );
+        }
+
+        AssembledContext assembledWithSnapshot = assembledContext == null
+                ? null
+                : AssembledContext.builder()
+                .prompt(assembledContext.getPrompt())
+                .sections(assembledContext.getSections())
+                .candidatePool(assembledContext.getCandidatePool())
+                .sectionTokenCounts(assembledContext.getSectionTokenCounts())
+                .sectionTokenRatios(assembledContext.getSectionTokenRatios())
+                .snapshotId(finalSnapshotId)
+                .build();
+
+        String finalPrompt = assembledWithSnapshot == null ? "" : nullSafe(assembledWithSnapshot.getPrompt());
+        if (finalPrompt.isBlank()) {
+            runtimeAuditService.persistDecisionRecord(
+                    sessionId,
+                    planId,
+                    nodeId,
+                    "CONTEXT_GOVERNANCE_BLOCKED",
+                    "main model execution blocked because final governed workset is empty",
+                    toJsonSafe(Map.of(
+                            "stage", nullSafe(request.getStage()),
+                            "snapshotId", finalSnapshotId,
+                            "assembledContextPresent", assembledWithSnapshot != null
+                    ))
+            );
+            return MainModelOrchestrationResult.builder()
+                    .blocked(true)
+                    .blockedReason("final_governed_workset_empty")
+                    .assembledContext(assembledWithSnapshot)
+                    .finalSnapshotId(finalSnapshotId)
+                    .finalPrompt("")
+                    .rawResponse("")
+                    .validResponse("")
+                    .replyText("")
+                    .build();
+        }
+
+        ModelReply modelReply = invokeMainModel(
+                finalPrompt,
+                request.getRepairSeed() == null ? request.getUserInput() : request.getRepairSeed(),
+                contextPackage
+        );
+        return MainModelOrchestrationResult.builder()
+                .blocked(false)
+                .blockedReason("")
+                .assembledContext(assembledWithSnapshot)
+                .finalSnapshotId(finalSnapshotId)
+                .finalPrompt(finalPrompt)
+                .rawResponse(modelReply.raw())
+                .validResponse(modelReply.valid())
+                .replyText(modelReply.replyText())
                 .build();
     }
 
@@ -677,6 +839,118 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 ))
                 .build();
         contextStateStore.save(sessionId, contextState);
+    }
+
+    private ModelReply invokeMainModel(String prompt, String repairSeed, StructuredContextPackage contextPackage) {
+        String executionModelName = resolveExecutionModelName(contextPackage);
+        LlmRequest request = LlmRequest.builder()
+                .modelType(org.yilena.luna.enums.ModelType.OPENAI_COMPATIBLE)
+                .modelName(executionModelName)
+                .messages(List.of(LlmMessage.user(prompt)))
+                .enablePromptInjectionCheck(true)
+                .build();
+        LlmResponse response = llmClientUtil.generate(request);
+        String valid = response == null ? null : response.getContent();
+        if (valid == null) {
+            String fallback = createFallbackJson();
+            return new ModelReply(fallback, removeThoughtFromJson(fallback), extractReplyFromJsonSafe(fallback));
+        }
+        JsonNode node = tryParseJsonNode(valid);
+        if (!isValidReplyNode(node)) {
+            try {
+                String repairPrompt = PromptTemplates.REPAIR_PROMPT.formatted(
+                        repairSeed == null || repairSeed.isBlank() ? valid : repairSeed
+                );
+                LlmRequest repairRequest = LlmRequest.builder()
+                        .modelType(org.yilena.luna.enums.ModelType.OPENAI_COMPATIBLE)
+                        .modelName(executionModelName)
+                        .messages(List.of(LlmMessage.user(repairPrompt)))
+                        .enablePromptInjectionCheck(false)
+                        .build();
+                LlmResponse repairedResponse = llmClientUtil.generate(repairRequest);
+                String repairedText = repairedResponse == null ? null : repairedResponse.getContent();
+                if (repairedText != null) {
+                    JsonNode repairedNode = tryParseJsonNode(repairedText);
+                    if (isValidReplyNode(repairedNode)) {
+                        String raw = repairedNode.toString();
+                        return new ModelReply(raw, removeThoughtFromJson(raw), repairedNode.get(ModelHintConstant.REPLY).asText());
+                    }
+                }
+            } catch (Exception ignore) {
+            }
+            String fallback = createFallbackJson();
+            return new ModelReply(fallback, removeThoughtFromJson(fallback), extractReplyFromJsonSafe(fallback));
+        }
+        String raw = node.toString();
+        return new ModelReply(raw, removeThoughtFromJson(raw), node.get(ModelHintConstant.REPLY).asText());
+    }
+
+    private String resolveExecutionModelName(StructuredContextPackage contextPackage) {
+        if (contextPackage == null) {
+            return geminiProperty.getBig().getModelName();
+        }
+        TaskRuntimeState taskState = contextPackage.getTaskState();
+        org.yilena.luna.enums.RelationalRuntimeState relationalState = contextPackage.getRelationalState();
+        if ((taskState == TaskRuntimeState.PLANNING || taskState == TaskRuntimeState.REPLANNING || taskState == TaskRuntimeState.EXECUTING)
+                && geminiProperty.getCode() != null && geminiProperty.getCode().getModelName() != null) {
+            return geminiProperty.getCode().getModelName();
+        }
+        if ((relationalState == org.yilena.luna.enums.RelationalRuntimeState.EMOTIONAL_SUPPORT
+                || relationalState == org.yilena.luna.enums.RelationalRuntimeState.FRAGILE_MOMENT
+                || relationalState == org.yilena.luna.enums.RelationalRuntimeState.REPAIRING)
+                && geminiProperty.getChat() != null && geminiProperty.getChat().getModelName() != null) {
+            return geminiProperty.getChat().getModelName();
+        }
+        if (geminiProperty.getBig() != null && geminiProperty.getBig().getModelName() != null) {
+            return geminiProperty.getBig().getModelName();
+        }
+        return geminiProperty.getFlash().getModelName();
+    }
+
+    private JsonNode tryParseJsonNode(String text) {
+        if (text == null) {
+            return null;
+        }
+        String cleaned = text.trim();
+        if (cleaned.startsWith("```")) {
+            cleaned = cleaned.replaceAll("(?s)^```[a-zA-Z]*\\s*", "")
+                    .replaceAll("(?s)```\\s*$", "")
+                    .trim();
+        }
+        try {
+            return objectMapper.readTree(cleaned);
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    private boolean isValidReplyNode(JsonNode node) {
+        return node != null && node.hasNonNull(ModelHintConstant.REPLY) && node.get(ModelHintConstant.REPLY).isTextual();
+    }
+
+    private String createFallbackJson() {
+        return "{\"thought\":\"fallback\",\"emotion\":\"Solemn\",\"reply\":\"Generation failed, please retry.\"}";
+    }
+
+    private String extractReplyFromJsonSafe(String json) {
+        JsonNode node = tryParseJsonNode(json);
+        if (node != null && node.hasNonNull(ModelHintConstant.REPLY)) {
+            return node.get(ModelHintConstant.REPLY).asText();
+        }
+        return "";
+    }
+
+    private String removeThoughtFromJson(String json) {
+        try {
+            JsonNode node = tryParseJsonNode(json);
+            if (node != null && node.isObject()) {
+                ObjectNode objectNode = (ObjectNode) node;
+                objectNode.remove("thought");
+                return objectNode.toString();
+            }
+        } catch (Exception ignore) {
+        }
+        return json;
     }
 
     private RetrievalResponse mergeRetrievalResponses(RetrievalResponse primary, RetrievalResponse memoryOnly) {
@@ -1512,5 +1786,8 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         private static RecoveryRefreshPlan empty() {
             return new RecoveryRefreshPlan(false, false, false, List.of(), List.of(), Map.of());
         }
+    }
+
+    private record ModelReply(String raw, String valid, String replyText) {
     }
 }

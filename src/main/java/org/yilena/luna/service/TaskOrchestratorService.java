@@ -6,6 +6,8 @@ import org.yilena.luna.context.model.EvidenceBlock;
 import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.service.model.BlueprintOrchestrationResult;
+import org.yilena.luna.service.model.MainModelExecutionRequest;
+import org.yilena.luna.service.model.MainModelOrchestrationResult;
 import org.yilena.luna.service.model.NodeWorksetResult;
 import org.yilena.luna.service.model.RoundStateWriteRequest;
 import org.yilena.luna.service.model.SummaryOrchestrationResult;
@@ -42,6 +44,8 @@ public interface TaskOrchestratorService {
                                                   ToolSemanticResult latestToolSemanticResult,
                                                   boolean replaceHistory,
                                                   String triggerSource);
+
+    MainModelOrchestrationResult orchestrateMainModel(MainModelExecutionRequest request);
 
     void writeRoundState(RoundStateWriteRequest request);
 }

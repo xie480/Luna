@@ -27,6 +27,27 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
                                               String reconstructedMcpQuery,
                                               List<Map<String, Object>> executionCandidates,
                                               Map<String, Object> extra) {
+        return savePreToolDecisionSnapshot(
+                sessionId,
+                planId,
+                nodeId,
+                userInput,
+                reconstructedMcpQuery,
+                executionCandidates,
+                extra,
+                Map.of()
+        );
+    }
+
+    @Override
+    public String savePreToolDecisionSnapshot(String sessionId,
+                                              Long planId,
+                                              Long nodeId,
+                                              String userInput,
+                                              String reconstructedMcpQuery,
+                                              List<Map<String, Object>> executionCandidates,
+                                              Map<String, Object> extra,
+                                              Map<String, Object> rawToolResultChannel) {
         if (sessionId == null || sessionId.isBlank()) {
             return "";
         }
@@ -37,6 +58,7 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
             payload.put("reconstructedMcpQuery", reconstructedMcpQuery == null ? "" : reconstructedMcpQuery);
             payload.put("executionCandidates", executionCandidates == null ? List.of() : executionCandidates);
             payload.put("extra", extra == null ? Map.of() : extra);
+            payload.put("rawToolResultChannel", rawToolResultChannel == null ? Map.of() : rawToolResultChannel);
             Long snapshotId = runtimeAuditMapper.insertContextSnapshotAndReturnId(
                     sessionId,
                     planId,
@@ -66,6 +88,27 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
                                     String prompt,
                                     Map<String, Integer> sectionTokenCounts,
                                     Map<String, Double> sectionTokenRatios) {
+        return saveFinalSnapshot(
+                sessionId,
+                planId,
+                nodeId,
+                assembledContext,
+                prompt,
+                sectionTokenCounts,
+                sectionTokenRatios,
+                Map.of()
+        );
+    }
+
+    @Override
+    public String saveFinalSnapshot(String sessionId,
+                                    Long planId,
+                                    Long nodeId,
+                                    AssembledContext assembledContext,
+                                    String prompt,
+                                    Map<String, Integer> sectionTokenCounts,
+                                    Map<String, Double> sectionTokenRatios,
+                                    Map<String, Object> rawToolResultChannel) {
         if (sessionId == null || sessionId.isBlank()) {
             return "";
         }
@@ -76,6 +119,7 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
             payload.put("sections", assembledContext == null ? Map.of() : assembledContext.getSections());
             payload.put("sectionTokenCounts", sectionTokenCounts == null ? Map.of() : sectionTokenCounts);
             payload.put("sectionTokenRatios", sectionTokenRatios == null ? Map.of() : sectionTokenRatios);
+            payload.put("rawToolResultChannel", rawToolResultChannel == null ? Map.of() : rawToolResultChannel);
             Long snapshotId = runtimeAuditMapper.insertContextSnapshotAndReturnId(
                     sessionId,
                     planId,

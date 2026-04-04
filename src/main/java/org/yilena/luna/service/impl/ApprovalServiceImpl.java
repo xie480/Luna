@@ -2,19 +2,14 @@ package org.yilena.luna.service.impl;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-import org.yilena.luna.constants.ModelHintConstant;
-import org.yilena.luna.context.ContextAssembler;
-import org.yilena.luna.context.ContextTraceLogger;
 import org.yilena.luna.context.ToolSemanticAgent;
 import org.yilena.luna.context.ToolSemanticResultValidator;
 import org.yilena.luna.context.ToolSemanticTraceLogger;
-import org.yilena.luna.context.model.AssembledContext;
 import org.yilena.luna.context.model.ContextNodeTemplatePolicy;
 import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.EvidenceBlock;
@@ -26,23 +21,19 @@ import org.yilena.luna.entity.ChatMessage;
 import org.yilena.luna.entity.McpToolCallResult;
 import org.yilena.luna.entity.Resource;
 import org.yilena.luna.entity.ToolCallingContext;
-import org.yilena.luna.enums.ModelType;
 import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.exception.impl.NeedApprovalException;
-import org.yilena.luna.llm.LlmMessage;
-import org.yilena.luna.llm.LlmRequest;
-import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.memory.EventIngressService;
 import org.yilena.luna.memory.RuntimeAuditService;
 import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
-import org.yilena.luna.prompt.PromptTemplates;
-import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.mapper.SessionRuntimeMapper;
 import org.yilena.luna.service.ApprovalService;
 import org.yilena.luna.service.McpService;
 import org.yilena.luna.service.SessionService;
 import org.yilena.luna.service.TaskOrchestratorService;
+import org.yilena.luna.service.model.MainModelExecutionRequest;
+import org.yilena.luna.service.model.MainModelOrchestrationResult;
 import org.yilena.luna.service.model.NodeWorksetResult;
 import org.yilena.luna.service.model.RoundStateWriteRequest;
 import org.yilena.luna.service.model.SummaryOrchestrationResult;
@@ -56,7 +47,6 @@ import org.yilena.luna.state.store.ContextSnapshotStore;
 import org.yilena.luna.state.store.RecoveryStateStore;
 import org.yilena.luna.sse.LunaStatusPublisher;
 import org.yilena.luna.sse.SseSessionManager;
-import org.yilena.luna.utils.LlmClientUtil;
 import org.yilena.luna.utils.SnowflakeIdUtil;
 import org.yilena.luna.utils.ToolCallingContextHolder;
 
@@ -88,14 +78,10 @@ public class ApprovalServiceImpl implements ApprovalService {
     private final SseSessionManager sseSessionManager;
     private final LunaStatusPublisher statusPublisher;
 
-    private final ContextAssembler contextAssembler;
-    private final ContextTraceLogger contextTraceLogger;
     private final ToolSemanticAgent toolSemanticAgent;
     private final ToolSemanticResultValidator toolSemanticResultValidator;
     private final ToolSemanticTraceLogger toolSemanticTraceLogger;
     private final RuntimeAuditService runtimeAuditService;
-    private final LlmClientUtil llmClientUtil;
-    private final GeminiProperty geminiProperty;
     private final SessionService sessionService;
     private final EventIngressService eventIngressService;
     private final TaskOrchestratorService taskOrchestratorService;
@@ -462,60 +448,52 @@ public class ApprovalServiceImpl implements ApprovalService {
                     "round summary generated before context assembly",
                     objectMapper.writeValueAsString(roundSummaryInput)
             );
-            AssembledContext assembledContext = contextAssembler.assemble(
-                    contextPackage,
-                    reconstructionResult,
-                    rerankResult,
-                    toolSemanticResult,
-                    task.getUserInput(),
-                    selectedKnowledgeEvidenceBlocks,
-                    workingMemorySnippets,
-                    runtimeMemorySnippets,
-                    retrievedMemorySnippets,
-                    mergeDistinct(
-                            task.getKnowledgeSnippets() != null ? task.getKnowledgeSnippets() : Collections.emptyList(),
-                            selectedKnowledgeSnippets
-                    ),
-                    mergeDistinct(
-                            task.getPreferenceSnippets() != null ? task.getPreferenceSnippets() : Collections.emptyList(),
-                            selectedPreferenceSnippets
-                    ),
-                    task.getLongTermMemorySnippets() != null ? task.getLongTermMemorySnippets() : Collections.emptyList(),
-                    executionCandidates,
-                    mcpResourceHints,
-                    approved ? toolContext : null,
-                    nodeTemplatePolicy,
-                    roundSummaryInput,
-                    task.getSessionId(),
-                    contextPlanId(contextPackage),
-                    contextNodeId(contextPackage)
+            MainModelOrchestrationResult modelResult = taskOrchestratorService.orchestrateMainModel(
+                    MainModelExecutionRequest.builder()
+                            .sessionId(task.getSessionId())
+                            .userInput(task.getUserInput())
+                            .contextPackage(contextPackage)
+                            .reconstructionResult(reconstructionResult)
+                            .rerankResult(rerankResult)
+                            .toolSemanticResult(toolSemanticResult)
+                            .knowledgeEvidenceBlocks(selectedKnowledgeEvidenceBlocks)
+                            .workingMemorySnippets(workingMemorySnippets)
+                            .runtimeMemorySnippets(runtimeMemorySnippets)
+                            .retrievedMemorySnippets(retrievedMemorySnippets)
+                            .knowledgeSnippets(mergeDistinct(
+                                    task.getKnowledgeSnippets() != null ? task.getKnowledgeSnippets() : Collections.emptyList(),
+                                    selectedKnowledgeSnippets
+                            ))
+                            .preferenceSnippets(mergeDistinct(
+                                    task.getPreferenceSnippets() != null ? task.getPreferenceSnippets() : Collections.emptyList(),
+                                    selectedPreferenceSnippets
+                            ))
+                            .longTermMemorySnippets(task.getLongTermMemorySnippets() != null ? task.getLongTermMemorySnippets() : Collections.emptyList())
+                            .executionCandidates(executionCandidates)
+                            .mcpResourceHints(mcpResourceHints)
+                            .toolContext(approved ? toolContext : null)
+                            .nodeTemplatePolicy(nodeTemplatePolicy)
+                            .roundSummaryInput(roundSummaryInput)
+                            .planId(contextPlanId(contextPackage))
+                            .nodeId(contextNodeId(contextPackage))
+                            .stage("APPROVAL_RECOVERY")
+                            .repairSeed(task.getUserInput())
+                            .rawToolResultChannel(buildRawToolResultChannel(
+                                    approved ? toolContext : "",
+                                    approved ? List.of(Map.of("rawResult", safe(toolContext))) : List.of(),
+                                    "",
+                                    List.of()
+                            ))
+                            .build()
             );
-            contextTraceLogger.log(task.getSessionId(), contextPlanId(contextPackage), contextNodeId(contextPackage), assembledContext);
-            String finalSnapshotId = assembledContext == null ? "" : safe(assembledContext.getSnapshotId());
-            runtimeAuditService.persistFinalContextSnapshot(
-                    task.getSessionId(),
-                    contextPlanId(contextPackage),
-                    contextNodeId(contextPackage),
-                    assembledContext,
-                    assembledContext == null ? "" : assembledContext.getPrompt(),
-                    assembledContext == null ? Map.of() : assembledContext.getSectionTokenCounts(),
-                    assembledContext == null ? Map.of() : assembledContext.getSectionTokenRatios()
-            );
-            String prompt = governedPromptOrBlank(
-                    assembledContext,
-                    task.getSessionId(),
-                    contextPlanId(contextPackage),
-                    contextNodeId(contextPackage),
-                    "APPROVAL_RECOVERY"
-            );
-            if (prompt.isBlank()) {
+            if (modelResult == null || modelResult.isBlocked()) {
                 return errorJson("context governance blocked: final governed workset is empty");
             }
-            SendToLuna result = getSendToLuna(prompt, task.getUserInput());
+            String finalSnapshotId = safe(modelResult.getFinalSnapshotId());
             SummaryOrchestrationResult recoveryTurnSummary = taskOrchestratorService.orchestrateSummary(
                     task.getSessionId(),
                     task.getUserInput(),
-                    result.replyText(),
+                    modelResult.getReplyText(),
                     contextPackage,
                     selectedKnowledgeEvidenceBlocks,
                     mcpResourceHints,
@@ -546,8 +524,8 @@ public class ApprovalServiceImpl implements ApprovalService {
                     .mcpQuery(nodeWorksetResult == null ? "" : nodeWorksetResult.getMcpDrivenInput())
                     .retrievalPlanOverrides(Map.of("approvalRecovery", true))
                     .build());
-            sessionService.appendMessage(task.getChatSessionKey(), new ChatMessage(ChatMessage.Role.LUNA, result.replyText(), LocalTime.now()));
-            return result.valid();
+            sessionService.appendMessage(task.getChatSessionKey(), new ChatMessage(ChatMessage.Role.LUNA, modelResult.getReplyText(), LocalTime.now()));
+            return modelResult.getValidResponse();
         } catch (Exception e) {
             log.error("approval continue chat failed: {}", e.getMessage(), e);
             return wrapToolResultAsReply(toolContext);
@@ -674,6 +652,18 @@ public class ApprovalServiceImpl implements ApprovalService {
             merged.addAll(right);
         }
         return new ArrayList<>(merged);
+    }
+
+    private Map<String, Object> buildRawToolResultChannel(String rawToolContext,
+                                                          List<Map<String, Object>> rawToolExecutionTraces,
+                                                          String latestToolRawRef,
+                                                          List<String> toolHistoryRefs) {
+        Map<String, Object> channel = new LinkedHashMap<>();
+        channel.put("rawToolContext", rawToolContext == null ? "" : rawToolContext);
+        channel.put("rawToolExecutionTraces", rawToolExecutionTraces == null ? List.of() : rawToolExecutionTraces);
+        channel.put("latestToolRawRef", latestToolRawRef == null ? "" : latestToolRawRef);
+        channel.put("toolHistoryRefs", toolHistoryRefs == null ? List.of() : toolHistoryRefs);
+        return channel;
     }
 
     private List<String> extractKnowledgeRefs(ContextRerankResult rerankResult) {
@@ -857,124 +847,12 @@ public class ApprovalServiceImpl implements ApprovalService {
         return List.of(value);
     }
 
-    private String governedPromptOrBlank(AssembledContext assembledContext,
-                                         String sessionId,
-                                         Long planId,
-                                         Long nodeId,
-                                         String stage) {
-        String prompt = assembledContext == null ? "" : safe(assembledContext.getPrompt());
-        if (!prompt.isBlank()) {
-            return prompt;
-        }
-        runtimeAuditService.persistDecisionRecord(
-                sessionId,
-                planId,
-                nodeId,
-                "CONTEXT_GOVERNANCE_BLOCKED",
-                "main model execution blocked because final governed workset is empty",
-                toJsonSafe(Map.of(
-                        "stage", safe(stage),
-                        "snapshotId", assembledContext == null ? "" : safe(assembledContext.getSnapshotId()),
-                        "assembledContextPresent", assembledContext != null
-                ))
-        );
-        return "";
-    }
-
     private String toJsonSafe(Object value) {
         try {
             return objectMapper.writeValueAsString(value);
         } catch (Exception ignore) {
             return "{}";
         }
-    }
-
-    private SendToLuna getSendToLuna(String prompt, String originalUserInput) {
-        LlmRequest request = LlmRequest.builder()
-                .modelType(ModelType.OPENAI_COMPATIBLE)
-                .modelName(geminiProperty.getBig().getModelName())
-                .messages(java.util.List.of(LlmMessage.user(prompt)))
-                .enablePromptInjectionCheck(true)
-                .build();
-        LlmResponse response = llmClientUtil.generate(request);
-        String valid = response != null ? response.getContent() : null;
-        if (valid == null) {
-            String fallback = createFallbackJson();
-            return new SendToLuna(fallback, removeThoughtFromJson(fallback), extractReplyFromJsonSafe(fallback));
-        }
-        JsonNode node = tryParseJsonNode(valid);
-        if (!isValidReplyNode(node)) {
-            try {
-                String repairSeed = (originalUserInput != null && !originalUserInput.isBlank()) ? originalUserInput : valid;
-                String repairPrompt = PromptTemplates.REPAIR_PROMPT.formatted(repairSeed);
-                LlmRequest repairReq = LlmRequest.builder()
-                        .modelType(ModelType.OPENAI_COMPATIBLE)
-                        .modelName(geminiProperty.getBig().getModelName())
-                        .messages(java.util.List.of(LlmMessage.user(repairPrompt)))
-                        .enablePromptInjectionCheck(false)
-                        .build();
-                LlmResponse repairRes = llmClientUtil.generate(repairReq);
-                String repairedText = repairRes != null ? repairRes.getContent() : null;
-                if (repairedText != null) {
-                    JsonNode repairedNode = tryParseJsonNode(repairedText);
-                    if (isValidReplyNode(repairedNode)) {
-                        String raw = repairedNode.toString();
-                        return new SendToLuna(raw, removeThoughtFromJson(raw), repairedNode.get(ModelHintConstant.REPLY).asText());
-                    }
-                }
-            } catch (Exception ignore) {
-            }
-            String fallback = createFallbackJson();
-            return new SendToLuna(fallback, removeThoughtFromJson(fallback), extractReplyFromJsonSafe(fallback));
-        }
-        String raw = node.toString();
-        return new SendToLuna(raw, removeThoughtFromJson(raw), node.get(ModelHintConstant.REPLY).asText());
-    }
-
-    private JsonNode tryParseJsonNode(String text) {
-        if (text == null) {
-            return null;
-        }
-        String cleaned = text.trim();
-        if (cleaned.startsWith("```")) {
-            cleaned = cleaned.replaceAll("(?s)^```[a-zA-Z]*\\s*", "")
-                    .replaceAll("(?s)```\\s*$", "")
-                    .trim();
-        }
-        try {
-            return objectMapper.readTree(cleaned);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private boolean isValidReplyNode(JsonNode node) {
-        return node != null && node.hasNonNull(ModelHintConstant.REPLY) && node.get(ModelHintConstant.REPLY).isTextual();
-    }
-
-    private String createFallbackJson() {
-        return "{\"thought\":\"fallback\",\"emotion\":\"Solemn\",\"reply\":\"Generation failed, please retry.\"}";
-    }
-
-    private String extractReplyFromJsonSafe(String json) {
-        JsonNode node = tryParseJsonNode(json);
-        if (node != null && node.hasNonNull(ModelHintConstant.REPLY)) {
-            return node.get(ModelHintConstant.REPLY).asText();
-        }
-        return "";
-    }
-
-    private String removeThoughtFromJson(String json) {
-        try {
-            JsonNode node = tryParseJsonNode(json);
-            if (node != null && node.isObject()) {
-                ObjectNode objectNode = (ObjectNode) node;
-                objectNode.remove("thought");
-                return objectNode.toString();
-            }
-        } catch (Exception ignore) {
-        }
-        return json;
     }
 
     private String wrapToolResultAsReply(String toolResult) {
@@ -1029,6 +907,4 @@ public class ApprovalServiceImpl implements ApprovalService {
         return second == null ? "" : second;
     }
 
-    private record SendToLuna(String raw, String valid, String replyText) {
-    }
 }

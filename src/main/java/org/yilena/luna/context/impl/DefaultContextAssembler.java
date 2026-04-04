@@ -18,7 +18,6 @@ import org.yilena.luna.memory.TaskMemoryRetriever;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.state.model.TaskState;
-import org.yilena.luna.state.store.ContextSnapshotStore;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -30,20 +29,17 @@ import java.util.Map;
 public class DefaultContextAssembler implements ContextAssembler {
 
     private final SemanticPreservingPruner semanticPreservingPruner;
-    private final ContextSnapshotStore contextSnapshotStore;
     private final TaskMemoryRetriever taskMemoryRetriever;
     private final RelationalMemoryRetriever relationalMemoryRetriever;
     private final SummaryAgent summaryAgent;
     private final ToolSemanticAgent toolSemanticAgent;
 
     public DefaultContextAssembler(SemanticPreservingPruner semanticPreservingPruner,
-                                   ContextSnapshotStore contextSnapshotStore,
                                    TaskMemoryRetriever taskMemoryRetriever,
                                    RelationalMemoryRetriever relationalMemoryRetriever,
                                    SummaryAgent summaryAgent,
                                    ToolSemanticAgent toolSemanticAgent) {
         this.semanticPreservingPruner = semanticPreservingPruner;
-        this.contextSnapshotStore = contextSnapshotStore;
         this.taskMemoryRetriever = taskMemoryRetriever;
         this.relationalMemoryRetriever = relationalMemoryRetriever;
         this.summaryAgent = summaryAgent;
@@ -154,25 +150,13 @@ public class DefaultContextAssembler implements ContextAssembler {
                 .sectionTokenRatios(pruneResult.getSectionTokenRatios())
                 .snapshotId("")
                 .build();
-        String snapshotId = "";
-        if (sessionId != null && !sessionId.isBlank()) {
-            snapshotId = safe(contextSnapshotStore.saveFinalSnapshot(
-                    sessionId,
-                    planId,
-                    nodeId,
-                    preSnapshotContext,
-                    preSnapshotContext.getPrompt(),
-                    preSnapshotContext.getSectionTokenCounts(),
-                    preSnapshotContext.getSectionTokenRatios()
-            ));
-        }
         return AssembledContext.builder()
                 .prompt(preSnapshotContext.getPrompt())
                 .sections(preSnapshotContext.getSections())
                 .candidatePool(preSnapshotContext.getCandidatePool())
                 .sectionTokenCounts(preSnapshotContext.getSectionTokenCounts())
                 .sectionTokenRatios(preSnapshotContext.getSectionTokenRatios())
-                .snapshotId(snapshotId)
+                .snapshotId("")
                 .build();
     }
 

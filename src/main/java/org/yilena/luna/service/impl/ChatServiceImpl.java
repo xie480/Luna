@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.annotation.LunaLogRecord;
@@ -14,14 +13,9 @@ import org.yilena.luna.annotation.aspect.LunaLogAspect;
 import org.yilena.luna.constants.LogActionConstant;
 import org.yilena.luna.constants.LogModuleConstant;
 import org.yilena.luna.constants.LunaStateConstant;
-import org.yilena.luna.constants.ModelHintConstant;
-import org.yilena.luna.constants.RedisKeyConstant;
-import org.yilena.luna.context.ContextAssembler;
-import org.yilena.luna.context.ContextTraceLogger;
 import org.yilena.luna.context.ToolSemanticAgent;
 import org.yilena.luna.context.ToolSemanticResultValidator;
 import org.yilena.luna.context.ToolSemanticTraceLogger;
-import org.yilena.luna.context.model.AssembledContext;
 import org.yilena.luna.context.model.ContextNodeTemplatePolicy;
 import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.EvidenceBlock;
@@ -33,12 +27,8 @@ import org.yilena.luna.entity.ChatRequest;
 import org.yilena.luna.entity.Resource;
 import org.yilena.luna.entity.ToolCallingContext;
 import org.yilena.luna.enums.LogType;
-import org.yilena.luna.enums.ModelType;
 import org.yilena.luna.enums.RelationalRuntimeState;
 import org.yilena.luna.enums.TaskRuntimeState;
-import org.yilena.luna.llm.LlmMessage;
-import org.yilena.luna.llm.LlmRequest;
-import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.memory.EventIngressService;
 import org.yilena.luna.memory.MemoryHotLayerService;
 import org.yilena.luna.memory.MemoryWritePipelineService;
@@ -47,14 +37,14 @@ import org.yilena.luna.memory.ThreeStageResponseService;
 import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.mapper.SessionRuntimeMapper;
-import org.yilena.luna.prompt.PromptTemplates;
-import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.rag.models.RetrievalOptions;
 import org.yilena.luna.rag.models.RetrievalRoute;
 import org.yilena.luna.service.AgentService;
 import org.yilena.luna.service.ChatService;
 import org.yilena.luna.service.SessionService;
 import org.yilena.luna.service.TaskOrchestratorService;
+import org.yilena.luna.service.model.MainModelExecutionRequest;
+import org.yilena.luna.service.model.MainModelOrchestrationResult;
 import org.yilena.luna.service.model.NodeWorksetResult;
 import org.yilena.luna.service.model.RoundStateWriteRequest;
 import org.yilena.luna.service.model.SummaryOrchestrationResult;
@@ -65,7 +55,6 @@ import org.yilena.luna.state.model.ToolState;
 import org.yilena.luna.state.store.ContextSnapshotStore;
 import org.yilena.luna.sse.LunaStatusPublisher;
 import org.yilena.luna.utils.AuthContextHolder;
-import org.yilena.luna.utils.LlmClientUtil;
 import org.yilena.luna.utils.ToolCallingContextHolder;
 
 import java.time.LocalDateTime;
@@ -87,9 +76,6 @@ public class ChatServiceImpl implements ChatService {
     private static final DateTimeFormatter SESSION_KEY_FORMATTER = DateTimeFormatter.ofPattern("yyyy:MM:dd");
 
     private final SessionService sessionService;
-    private final StringRedisTemplate stringRedisTemplate;
-    private final GeminiProperty geminiProperty;
-    private final LlmClientUtil llmClientUtil;
     private final LunaStatusPublisher statusPublisher;
     private final AgentService agentService;
     private final EventIngressService eventIngressService;
@@ -101,8 +87,6 @@ public class ChatServiceImpl implements ChatService {
     private final TaskOrchestratorService taskOrchestratorService;
     private final ToolSemanticAgent toolSemanticAgent;
     private final ToolSemanticResultValidator toolSemanticResultValidator;
-    private final ContextAssembler contextAssembler;
-    private final ContextTraceLogger contextTraceLogger;
     private final ToolSemanticTraceLogger toolSemanticTraceLogger;
     private final ContextSnapshotStore contextSnapshotStore;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -198,7 +182,8 @@ public class ChatServiceImpl implements ChatService {
                 Map.of(
                         "rerankedToolCandidateCount", rerankResult == null || rerankResult.getSelectedToolCandidates() == null ? 0 : rerankResult.getSelectedToolCandidates().size(),
                         "rerankedPromptResourceCount", rerankResult == null || rerankResult.getSelectedPromptResources() == null ? 0 : rerankResult.getSelectedPromptResources().size()
-                )
+                ),
+                buildRawToolResultChannel("", List.of(), "", List.of())
         );
         runtimeAuditService.persistDecisionRecord(
                 runtimeSessionId,
@@ -212,6 +197,7 @@ public class ChatServiceImpl implements ChatService {
         String toolStatus = "SUCCESS";
         String toolError = null;
         ToolTraceRefs toolTraceRefs = ToolTraceRefs.empty();
+        List<Map<String, Object>> latestToolExecutionTraces = List.of();
         try {
             toolContext = agentService.processToolCalling(
                     runtimeSessionId,
@@ -226,6 +212,7 @@ public class ChatServiceImpl implements ChatService {
             throw ex;
         } finally {
             List<Map<String, Object>> toolExecutionTraces = ToolCallingContextHolder.snapshotToolExecutionTraces();
+            latestToolExecutionTraces = toolExecutionTraces == null ? List.of() : toolExecutionTraces;
             ToolCallingContextHolder.clear();
             toolTraceRefs = persistToolExecutionTraces(
                     runtimeSessionId,
@@ -332,52 +319,45 @@ public class ChatServiceImpl implements ChatService {
                 "PRE_ASSEMBLY_INPUT"
         );
         SummaryResult roundSummaryInput = preAssemblySummary == null ? null : preAssemblySummary.getSummaryResult();
-        AssembledContext assembledContext = contextAssembler.assemble(
-                contextPackage,
-                reconstruction,
-                rerankResult,
-                toolSemanticResult,
-                input,
-                knowledgeEvidenceBlocks,
-                workingMemorySnippets,
-                runtimeMemorySnippets,
-                ragMemorySnippets,
-                knowledgeSnippets,
-                preferenceSnippets,
-                longTermMemorySnippets,
-                executionCandidates,
-                mcpResourceHints,
-                mergedToolContext,
-                nodeTemplatePolicy,
-                roundSummaryInput,
-                runtimeSessionId,
-                contextPlanId(contextPackage),
-                contextNodeId(contextPackage)
+        MainModelOrchestrationResult modelResult = taskOrchestratorService.orchestrateMainModel(
+                MainModelExecutionRequest.builder()
+                        .sessionId(runtimeSessionId)
+                        .userInput(input)
+                        .contextPackage(contextPackage)
+                        .reconstructionResult(reconstruction)
+                        .rerankResult(rerankResult)
+                        .toolSemanticResult(toolSemanticResult)
+                        .knowledgeEvidenceBlocks(knowledgeEvidenceBlocks)
+                        .workingMemorySnippets(workingMemorySnippets)
+                        .runtimeMemorySnippets(runtimeMemorySnippets)
+                        .retrievedMemorySnippets(ragMemorySnippets)
+                        .knowledgeSnippets(knowledgeSnippets)
+                        .preferenceSnippets(preferenceSnippets)
+                        .longTermMemorySnippets(longTermMemorySnippets)
+                        .executionCandidates(executionCandidates)
+                        .mcpResourceHints(mcpResourceHints)
+                        .toolContext(mergedToolContext)
+                        .nodeTemplatePolicy(nodeTemplatePolicy)
+                        .roundSummaryInput(roundSummaryInput)
+                        .planId(contextPlanId(contextPackage))
+                        .nodeId(contextNodeId(contextPackage))
+                        .stage("CHAT_TURN")
+                        .repairSeed(input)
+                        .rawToolResultChannel(buildRawToolResultChannel(
+                                mergedToolContext,
+                                latestToolExecutionTraces,
+                                toolTraceRefs == null ? "" : toolTraceRefs.latestRawRef(),
+                                toolTraceRefs == null ? List.of() : toolTraceRefs.historyRefs()
+                        ))
+                        .build()
         );
-        contextTraceLogger.log(runtimeSessionId, contextPlanId(contextPackage), contextNodeId(contextPackage), assembledContext);
-        String finalSnapshotId = assembledContext == null ? "" : stringValue(assembledContext.getSnapshotId());
-        runtimeAuditService.persistDecisionRecord(
-                runtimeSessionId,
-                contextPlanId(contextPackage),
-                contextNodeId(contextPackage),
-                "CONTEXT_SNAPSHOT_FINAL",
-                "final model context snapshot persisted",
-                toJsonSafe(Map.of("snapshotId", finalSnapshotId == null ? "" : finalSnapshotId))
-        );
-        String finalPrompt = governedPromptOrBlank(
-                assembledContext,
-                runtimeSessionId,
-                contextPlanId(contextPackage),
-                contextNodeId(contextPackage),
-                "CHAT_TURN"
-        );
-        if (finalPrompt.isBlank()) {
+        String finalSnapshotId = modelResult == null ? "" : stringValue(modelResult.getFinalSnapshotId());
+        if (modelResult == null || modelResult.isBlocked()) {
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
             return ResponseEntity.status(503).body(contextGovernanceBlockedPayload("chat turn aborted because final governed workset is empty"));
         }
-        SendToLuna result = getSendToLuna(finalPrompt, input, contextPackage);
-        LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(result.raw());
-        MemoryWriteGateDecision writeGate = evaluateMemoryWriteGate(input, result.replyText(), reconstruction, toolSemanticResult, false);
+        LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(modelResult.getRawResponse());
+        MemoryWriteGateDecision writeGate = evaluateMemoryWriteGate(input, modelResult.getReplyText(), reconstruction, toolSemanticResult, false);
         runtimeAuditService.persistDecisionRecord(
                 runtimeSessionId,
                 contextPlanId(contextPackage),
@@ -392,12 +372,12 @@ public class ChatServiceImpl implements ChatService {
                 ))
         );
         if (writeGate.allowWrite()) {
-            memoryWritePipelineService.writeAfterTurn(runtimeSessionId, input, result.replyText(), contextPackage);
+            memoryWritePipelineService.writeAfterTurn(runtimeSessionId, input, modelResult.getReplyText(), contextPackage);
         }
         SummaryOrchestrationResult turnSummary = taskOrchestratorService.orchestrateSummary(
                 runtimeSessionId,
                 input,
-                result.replyText(),
+                modelResult.getReplyText(),
                 contextPackage,
                 knowledgeEvidenceBlocks,
                 mcpResourceHints,
@@ -434,7 +414,7 @@ public class ChatServiceImpl implements ChatService {
         );
         replaceHistoryWithSummaryInMainChain(runtimeSessionId, contextPackage, summaryResult);
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
-        return ResponseEntity.ok(tryParseJsonNode(result.valid()));
+        return ResponseEntity.ok(tryParseJsonNode(modelResult.getValidResponse()));
     }
 
     @Override
@@ -461,38 +441,25 @@ public class ChatServiceImpl implements ChatService {
                 .map(m -> m.getRole().name() + ": " + m.getContent() + ": " + m.getTime())
                 .toList();
         ContextNodeTemplatePolicy startupPolicy = ContextNodeTemplatePolicy.defaultPolicy();
-        AssembledContext startupContext = contextAssembler.assemble(
-                null,
-                null,
-                null,
-                null,
-                "startup",
-                List.of(),
-                List.of(),
-                memorySnippets,
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                null,
-                startupPolicy,
-                null,
-                keyPrefix,
-                null,
-                null
+        MainModelOrchestrationResult startupResult = taskOrchestratorService.orchestrateMainModel(
+                MainModelExecutionRequest.builder()
+                        .sessionId(keyPrefix)
+                        .userInput("startup")
+                        .runtimeMemorySnippets(memorySnippets)
+                        .nodeTemplatePolicy(startupPolicy)
+                        .stage("STARTUP")
+                        .repairSeed("startup")
+                        .rawToolResultChannel(Map.of())
+                        .build()
         );
-        String prompt = governedPromptOrBlank(startupContext, keyPrefix, null, null, "STARTUP");
-        if (prompt.isBlank()) {
+        if (startupResult == null || startupResult.isBlocked()) {
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
             return ResponseEntity.status(503).body(contextGovernanceBlockedPayload("startup aborted because final governed workset is empty"));
         }
-        SendToLuna result = getSendToLuna(prompt, "startup", null);
-        LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(result.raw());
-        sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.LUNA, result.replyText(), LocalTime.now()));
+        LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(startupResult.getRawResponse());
+        sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.LUNA, startupResult.getReplyText(), LocalTime.now()));
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
-        return ResponseEntity.ok(tryParseJsonNode(result.valid()));
+        return ResponseEntity.ok(tryParseJsonNode(startupResult.getValidResponse()));
     }
 
     @Override
@@ -526,77 +493,6 @@ public class ChatServiceImpl implements ChatService {
             return Collections.emptyList();
         }
         return chats.stream().map(m -> m.getRole().name() + ":" + m.getContent() + ":" + m.getTime()).toList();
-    }
-
-    private SendToLuna getSendToLuna(String prompt, String originalUserInput, StructuredContextPackage contextPackage) {
-        String executionModelName = resolveExecutionModelName(contextPackage);
-        LlmRequest request = LlmRequest.builder()
-                .modelType(ModelType.OPENAI_COMPATIBLE)
-                .modelName(executionModelName)
-                .messages(List.of(LlmMessage.user(prompt)))
-                .enablePromptInjectionCheck(true)
-                .build();
-
-        LlmResponse response = llmClientUtil.generate(request);
-        String valid = response != null ? response.getContent() : null;
-        if (valid == null) {
-            String fallback = createFallbackJson();
-            return new SendToLuna(fallback, removeThoughtFromJson(fallback), extractReplyFromJsonSafe(fallback));
-        }
-
-        JsonNode node = tryParseJsonNode(valid);
-        if (!isValidReplyNode(node)) {
-            String fallbackKey = RedisKeyConstant.GENERATE_FALLBACK_KEY;
-            try {
-                stringRedisTemplate.opsForValue().set(fallbackKey, "1");
-                String repairPrompt = PromptTemplates.REPAIR_PROMPT.formatted(originalUserInput == null ? valid : originalUserInput);
-                LlmRequest repairReq = LlmRequest.builder()
-                        .modelType(ModelType.OPENAI_COMPATIBLE)
-                        .modelName(executionModelName)
-                        .messages(List.of(LlmMessage.user(repairPrompt)))
-                        .enablePromptInjectionCheck(false)
-                        .build();
-                LlmResponse repairRes = llmClientUtil.generate(repairReq);
-                String repairedText = repairRes != null ? repairRes.getContent() : null;
-                if (repairedText != null) {
-                    JsonNode repairedNode = tryParseJsonNode(repairedText);
-                    if (isValidReplyNode(repairedNode)) {
-                        String raw = repairedNode.toString();
-                        return new SendToLuna(raw, removeThoughtFromJson(raw), repairedNode.get(ModelHintConstant.REPLY).asText());
-                    }
-                }
-            } catch (Exception ignore) {
-            } finally {
-                stringRedisTemplate.delete(fallbackKey);
-            }
-            String fallback = createFallbackJson();
-            return new SendToLuna(fallback, removeThoughtFromJson(fallback), extractReplyFromJsonSafe(fallback));
-        }
-
-        String raw = node.toString();
-        return new SendToLuna(raw, removeThoughtFromJson(raw), node.get(ModelHintConstant.REPLY).asText());
-    }
-
-    private String resolveExecutionModelName(StructuredContextPackage contextPackage) {
-        if (contextPackage == null) {
-            return geminiProperty.getBig().getModelName();
-        }
-        TaskRuntimeState taskState = contextPackage.getTaskState();
-        RelationalRuntimeState relationalState = contextPackage.getRelationalState();
-        if ((taskState == TaskRuntimeState.PLANNING || taskState == TaskRuntimeState.REPLANNING || taskState == TaskRuntimeState.EXECUTING)
-                && geminiProperty.getCode() != null && geminiProperty.getCode().getModelName() != null) {
-            return geminiProperty.getCode().getModelName();
-        }
-        if ((relationalState == RelationalRuntimeState.EMOTIONAL_SUPPORT
-                || relationalState == RelationalRuntimeState.FRAGILE_MOMENT
-                || relationalState == RelationalRuntimeState.REPAIRING)
-                && geminiProperty.getChat() != null && geminiProperty.getChat().getModelName() != null) {
-            return geminiProperty.getChat().getModelName();
-        }
-        if (geminiProperty.getBig() != null && geminiProperty.getBig().getModelName() != null) {
-            return geminiProperty.getBig().getModelName();
-        }
-        return geminiProperty.getFlash().getModelName();
     }
 
     private Long contextPlanId(StructuredContextPackage contextPackage) {
@@ -680,32 +576,6 @@ public class ChatServiceImpl implements ChatService {
         } catch (Exception ignore) {
             return null;
         }
-    }
-
-    private boolean isValidReplyNode(JsonNode node) {
-        return node != null && node.hasNonNull(ModelHintConstant.REPLY) && node.get(ModelHintConstant.REPLY).isTextual();
-    }
-
-    private String createFallbackJson() {
-        return "{\"thought\":\"fallback\",\"emotion\":\"Solemn\",\"reply\":\"please try again\"}";
-    }
-
-    private String extractReplyFromJsonSafe(String json) {
-        JsonNode node = tryParseJsonNode(json);
-        return node != null && node.hasNonNull(ModelHintConstant.REPLY) ? node.get(ModelHintConstant.REPLY).asText() : "";
-    }
-
-    private String removeThoughtFromJson(String json) {
-        try {
-            JsonNode node = tryParseJsonNode(json);
-            if (node != null && node.isObject()) {
-                ObjectNode objectNode = (ObjectNode) node;
-                objectNode.remove("thought");
-                return objectNode.toString();
-            }
-        } catch (Exception ignore) {
-        }
-        return json;
     }
 
     private boolean isAsyncPending(String toolContext) {
@@ -1084,6 +954,18 @@ public class ChatServiceImpl implements ChatService {
         return out;
     }
 
+    private Map<String, Object> buildRawToolResultChannel(String rawToolContext,
+                                                          List<Map<String, Object>> rawToolExecutionTraces,
+                                                          String latestToolRawRef,
+                                                          List<String> toolHistoryRefs) {
+        Map<String, Object> channel = new LinkedHashMap<>();
+        channel.put("rawToolContext", rawToolContext == null ? "" : rawToolContext);
+        channel.put("rawToolExecutionTraces", rawToolExecutionTraces == null ? List.of() : rawToolExecutionTraces);
+        channel.put("latestToolRawRef", latestToolRawRef == null ? "" : latestToolRawRef);
+        channel.put("toolHistoryRefs", toolHistoryRefs == null ? List.of() : toolHistoryRefs);
+        return channel;
+    }
+
     private List<String> extractKnowledgeRefs(ContextRerankResult rerankResult) {
         if (rerankResult == null) {
             return List.of();
@@ -1390,30 +1272,6 @@ public class ChatServiceImpl implements ChatService {
         return List.of(value);
     }
 
-    private String governedPromptOrBlank(AssembledContext assembledContext,
-                                         String sessionId,
-                                         Long planId,
-                                         Long nodeId,
-                                         String stage) {
-        String prompt = assembledContext == null ? "" : stringValue(assembledContext.getPrompt());
-        if (!prompt.isBlank()) {
-            return prompt;
-        }
-        runtimeAuditService.persistDecisionRecord(
-                sessionId,
-                planId,
-                nodeId,
-                "CONTEXT_GOVERNANCE_BLOCKED",
-                "main model execution blocked because final governed workset is empty",
-                toJsonSafe(Map.of(
-                        "stage", nullSafe(stage),
-                        "snapshotId", assembledContext == null ? "" : stringValue(assembledContext.getSnapshotId()),
-                        "assembledContextPresent", assembledContext != null
-                ))
-        );
-        return "";
-    }
-
     private Map<String, Object> contextGovernanceBlockedPayload(String message) {
         return Map.of(
                 "status", "context_governance_blocked",
@@ -1482,6 +1340,4 @@ public class ChatServiceImpl implements ChatService {
     private record MemoryWriteGateDecision(boolean allowWrite, double score, String reason) {
     }
 
-    private record SendToLuna(String raw, String valid, String replyText) {
-    }
 }
