@@ -242,7 +242,6 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 24
         );
         rawMcpCandidates = filterInvalidatedCapabilities(rawMcpCandidates, refreshPlan.invalidatedCapabilityNames);
-        rawMcpCandidates = filterInvalidatedCapabilities(rawMcpCandidates, refreshPlan.invalidatedCapabilityNames);
         List<Map<String, Object>> mcpPreRankedCandidates = mcpCandidatePreRank.preRank(
                 mcpDrivenInput,
                 rawMcpCandidates,
@@ -393,10 +392,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 mergedMemory.addAll(rerankResult.getSelectedMemoryHints());
             }
             selectedMemory = mergedMemory;
-            selectedPreference = mergeDistinct(
-                    toPreferenceSnippets(response),
-                    mcpResourceHintExtractor.extract(rerankResult == null ? List.of() : rerankResult.getSelectedPromptResources(), 8)
-            );
+            selectedPreference = toPreferenceSnippets(response);
         } catch (Exception e) {
             runtimeAuditService.persistDecisionRecord(
                     sessionId,

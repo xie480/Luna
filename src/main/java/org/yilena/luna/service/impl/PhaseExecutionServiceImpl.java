@@ -6,28 +6,21 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.entity.PlanNode;
 import org.yilena.luna.entity.PlanPhase;
-import org.yilena.luna.entity.ExecutionResult;
-import org.yilena.luna.entity.McpToolDescriptor;
 import org.yilena.luna.entity.Resource;
 import org.yilena.luna.enums.PlanNodeStatus;
-import org.yilena.luna.enums.ResourceType;
 import org.yilena.luna.exception.impl.NeedApprovalException;
 import org.yilena.luna.mapper.PlanNodeMapper;
 import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.service.AgentService;
-import org.yilena.luna.service.McpService;
 import org.yilena.luna.service.PhaseExecutionService;
 import org.yilena.luna.service.TaskOrchestratorService;
-import org.yilena.luna.executor.WorkflowExecutor;
-import org.yilena.luna.gate.ToolExecutionGateway;
 import org.yilena.luna.service.model.NodeWorksetResult;
 import org.yilena.luna.service.model.TaskOrchestrationResult;
 import org.yilena.luna.sse.LunaStatusPublisher;
 import org.yilena.luna.tools.PlanEventTools;
 import org.yilena.luna.tools.PlanNodeTools;
-import org.yilena.luna.constants.McpConstant;
 
 import java.util.*;
 import java.util.concurrent.*;
@@ -62,9 +55,6 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
     private final PlanNodeTools planNodeTools;
     private final PlanEventTools planEventTools;
     private final AgentService agentService;
-    private final McpService mcpService;
-    private final WorkflowExecutor workflowExecutor;
-    private final ToolExecutionGateway toolExecutionGateway;
     private final LunaStatusPublisher statusPublisher;
     private final TaskOrchestratorService taskOrchestratorService;
     private final ObjectMapper objectMapper;
@@ -396,6 +386,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         String governedNodeGoal = nodeGoal;
         List<Resource> governedExecutionCandidates = List.of();
         OrchestrationDecision governedDecision = null;
+        String governanceError = null;
         try {
             TaskOrchestrationResult orchestrationResult = taskOrchestratorService.orchestrateUserInput(sessionId, nodeGoal);
             governedDecision = orchestrationResult == null ? null : orchestrationResult.getDecision();
@@ -415,25 +406,28 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                 governedExecutionCandidates = nodeWorksetResult.getExecutionCandidates();
             }
         } catch (Exception e) {
-            log.warn("[Node] context workset pipeline fallback to raw nodeGoal, nodeId={}, err={}", nodeId, e.getMessage());
+            governanceError = e.getMessage();
+            log.error("[Node] context workset pipeline failed, nodeId={}, err={}", nodeId, governanceError, e);
+        }
+        if (governanceError != null) {
+            long costMs = System.currentTimeMillis() - nodeStart;
+            safeUpdateNodeStatus(planId, nodeId, PlanNodeStatus.FAILED, costMs, governanceError, retryCount);
+            emitNodeEvent(planId, phaseId, nodeId, "PLAN_NODE_FAILED", "FAILED", "WARN",
+                    "上下文治理失败，拒绝执行原始节点目标", "NODE_CONTEXT_GOVERNANCE_FAILED", nodeName, nodeType,
+                    retryCount, maxRetry, costMs, Map.of("governanceError", governanceError));
+            return new NodeResult(false, nodeId, false);
         }
         String agentResult;
         boolean success;
 
         try {
-            // capability 元数据齐全时，优先走定向执行；否则回退至 agent 决策执行。
-            String directedResult = executeByCapability(node, sessionId);
-            if (directedResult != null) {
-                agentResult = directedResult;
-            } else {
-                agentResult = agentService.processToolCalling(
-                        sessionId,
-                        governedNodeGoal,
-                        governedDecision == null ? null : governedDecision.getTaskState(),
-                        governedDecision == null ? null : governedDecision.getRelationalState(),
-                        governedExecutionCandidates
-                );
-            }
+            agentResult = agentService.processToolCalling(
+                    sessionId,
+                    governedNodeGoal,
+                    governedDecision == null ? null : governedDecision.getTaskState(),
+                    governedDecision == null ? null : governedDecision.getRelationalState(),
+                    governedExecutionCandidates
+            );
             success = !isErrorResult(agentResult);
         } catch (NeedApprovalException e) {
             String taskId = extractApprovalTaskId(e);
@@ -463,18 +457,13 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                 safeUpdateNodeStatus(planId, nodeId, PlanNodeStatus.RUNNING, null, null, r);
 
                 try {
-                    String directedResult = executeByCapability(node, sessionId);
-                    if (directedResult != null) {
-                        agentResult = directedResult;
-                    } else {
-                        agentResult = agentService.processToolCalling(
-                                sessionId,
-                                governedNodeGoal,
-                                governedDecision == null ? null : governedDecision.getTaskState(),
-                                governedDecision == null ? null : governedDecision.getRelationalState(),
-                                governedExecutionCandidates
-                        );
-                    }
+                    agentResult = agentService.processToolCalling(
+                            sessionId,
+                            governedNodeGoal,
+                            governedDecision == null ? null : governedDecision.getTaskState(),
+                            governedDecision == null ? null : governedDecision.getRelationalState(),
+                            governedExecutionCandidates
+                    );
                 } catch (NeedApprovalException e) {
                     String taskId = extractApprovalTaskId(e);
                     long costMs = System.currentTimeMillis() - nodeStart;
@@ -612,138 +601,6 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         outputForNext.put("result", "ok");
         outputForNext.put("agentResult", safeParse(agentResult));
         return outputForNext;
-    }
-
-    private String executeByCapability(PlanNode node, String sessionId) {
-        String capabilityName = text(node.getCapabilityName());
-        if (capabilityName.isBlank()) {
-            return null;
-        }
-        String capabilityType = normalizeCapabilityType(node.getCapabilityType(), node.getNodeType());
-        String serverCode = text(node.getServerCode());
-        if (serverCode.isBlank()) {
-            serverCode = McpConstant.LOCAL_SERVER_CODE;
-        }
-        String argsJson = toJsonQuiet(resolveNodeInput(node));
-
-        return switch (capabilityType) {
-            case "TOOL" -> executeToolCapability(serverCode, capabilityName, sessionId, argsJson);
-            case "PROMPT" -> toJsonQuiet(Map.of(
-                    "status", "success",
-                    "data", mcpService.getPrompt(serverCode, capabilityName, argsJson)
-            ));
-            case "RESOURCE" -> toJsonQuiet(Map.of(
-                    "status", "success",
-                    "data", mcpService.readResource(serverCode, capabilityName)
-            ));
-            case "WORKFLOW" -> executeWorkflowCapability(serverCode, capabilityName, argsJson);
-            default -> null;
-        };
-    }
-
-    private String executeToolCapability(String serverCode, String capabilityName, String sessionId, String argsJson) {
-        Resource resource = resolveCapabilityResource(serverCode, capabilityName, ResourceType.TOOL);
-        if (resource == null) {
-            resource = resolveToolResourceFromCatalog(serverCode, capabilityName);
-        }
-        if (resource == null) {
-            return buildErrorResult("TOOL_NOT_FOUND", "tool capability not found: " + capabilityName);
-        }
-        ExecutionResult result = toolExecutionGateway.executeTool(
-                sessionId == null || sessionId.isBlank() ? "phase-executor" : sessionId,
-                resource,
-                argsJson
-        );
-        if (result.getRawResult() != null && !result.getRawResult().isBlank()) {
-            return result.getRawResult();
-        }
-        return toJsonQuiet(Map.of(
-                "status", result.getStatus() == null ? "success" : result.getStatus(),
-                "message", result.getMessage() == null ? "" : result.getMessage(),
-                "data", result.getData() == null ? Map.of() : result.getData()
-        ));
-    }
-
-    private String executeWorkflowCapability(String serverCode, String capabilityName, String argsJson) {
-        Resource resource = resolveCapabilityResource(serverCode, capabilityName, ResourceType.WORKFLOW);
-        if (resource == null) {
-            return buildErrorResult("WORKFLOW_NOT_FOUND", "workflow capability not found: " + capabilityName);
-        }
-        return workflowExecutor.execute(resource, argsJson);
-    }
-
-    private Resource resolveCapabilityResource(String serverCode, String capabilityName, ResourceType expectedType) {
-        List<Resource> all = mcpService.listAll();
-        String targetServer = text(serverCode);
-        String targetName = text(capabilityName);
-        return all.stream()
-                .filter(r -> expectedType.equals(r.getType()))
-                .filter(r -> targetServer.isBlank() || targetServer.equalsIgnoreCase(text(r.getServerCode())))
-                .filter(r -> targetName.equalsIgnoreCase(text(r.getName())) || targetName.equalsIgnoreCase(text(r.getResourceUri())))
-                .findFirst()
-                .orElse(null);
-    }
-
-    private Resource resolveToolResourceFromCatalog(String serverCode, String capabilityName) {
-        try {
-            List<McpToolDescriptor> tools = mcpService.listTools(serverCode);
-            if (tools == null || tools.isEmpty()) {
-                return null;
-            }
-            String targetName = text(capabilityName);
-            for (McpToolDescriptor item : tools) {
-                if (item == null) {
-                    continue;
-                }
-                String toolName = text(item.getToolName());
-                if (!targetName.equalsIgnoreCase(toolName)) {
-                    continue;
-                }
-                return Resource.builder()
-                        .id("runtime-tool:" + text(serverCode) + ":" + toolName)
-                        .type(ResourceType.TOOL)
-                        .serverCode(text(serverCode))
-                        .name(toolName)
-                        .description(item.getDescription())
-                        .version(item.getVersion())
-                        .inputSchema(toJsonQuiet(item.getInputSchema()))
-                        .outputSchema(toJsonQuiet(item.getOutputSchema()))
-                        .requiresApproval(Boolean.TRUE.equals(item.getRequiresApproval()))
-                        .sensitivity(parseSensitivity(item.getSensitivity()))
-                        .build();
-            }
-            return null;
-        } catch (Exception e) {
-            log.warn("[Node] 从 catalog 构建工具资源失败, serverCode={}, toolName={}, err={}",
-                    serverCode, capabilityName, e.getMessage());
-            return null;
-        }
-    }
-
-    private Map<String, Object> resolveNodeInput(PlanNode node) {
-        if (node.getResolvedInputJson() != null && !node.getResolvedInputJson().isEmpty()) {
-            return node.getResolvedInputJson();
-        }
-        if (node.getInputJson() != null && !node.getInputJson().isEmpty()) {
-            return node.getInputJson();
-        }
-        return Map.of();
-    }
-
-    private String normalizeCapabilityType(String rawType, org.yilena.luna.enums.PlanNodeType nodeType) {
-        if (rawType != null && !rawType.isBlank()) {
-            String normalized = rawType.trim().toUpperCase(Locale.ROOT);
-            return normalized;
-        }
-        if (nodeType == null) {
-            return "TOOL";
-        }
-        return switch (nodeType) {
-            case PROMPT -> "PROMPT";
-            case RESOURCE -> "RESOURCE";
-            case WORKFLOW -> "WORKFLOW";
-            default -> "TOOL";
-        };
     }
 
     /**
@@ -966,17 +823,6 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
 
     private String text(Object value) {
         return value == null ? "" : String.valueOf(value).trim();
-    }
-
-    private org.yilena.luna.enums.Sensitivity parseSensitivity(String value) {
-        if (value == null || value.isBlank()) {
-            return org.yilena.luna.enums.Sensitivity.LOW;
-        }
-        try {
-            return org.yilena.luna.enums.Sensitivity.valueOf(value.trim().toUpperCase(Locale.ROOT));
-        } catch (Exception ignore) {
-            return org.yilena.luna.enums.Sensitivity.LOW;
-        }
     }
 
     private Throwable unwrapRootCause(Throwable t) {

@@ -57,7 +57,18 @@ public class RagController {
                 && nodeWorksetResult.getRagQuery() != null
                 && !nodeWorksetResult.getRagQuery().isBlank()
                 ? nodeWorksetResult.getRagQuery()
-                : rawQuery;
+                : "";
+        if (governedQuery.isBlank()) {
+            Map<String, Object> rejectedMeta = new LinkedHashMap<>();
+            rejectedMeta.put("governed", true);
+            rejectedMeta.put("status", "rejected");
+            rejectedMeta.put("reason", "RAG query governance failed: empty governed query");
+            rejectedMeta.put("rawQuery", rawQuery);
+            rejectedMeta.put("governedQuery", governedQuery);
+            rejectedMeta.put("mcpDrivenInput", nodeWorksetResult == null ? "" : nodeWorksetResult.getMcpDrivenInput());
+            return ResponseEntity.unprocessableEntity()
+                    .body(RetrievalResponse.builder().meta(rejectedMeta).build());
+        }
 
         RetrievalRequest governedRequest = RetrievalRequest.builder()
                 .query(governedQuery)
