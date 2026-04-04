@@ -14,6 +14,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Component
@@ -59,10 +60,7 @@ public class McpResourceHintExtractor {
 
     private String compact(String name, String title, String description) {
         String head = !title.isBlank() ? title : name;
-        String tail = description;
-        if (tail.length() > 160) {
-            tail = tail.substring(0, 160);
-        }
+        String tail = semanticShorten(description, 160);
         if (tail.isBlank()) {
             return head;
         }
@@ -159,13 +157,85 @@ public class McpResourceHintExtractor {
     }
 
     private String shorten(String text, int maxLen) {
+        return semanticShorten(text, maxLen);
+    }
+
+    private String semanticShorten(String text, int maxLen) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        String normalized = text.replaceAll("\\s+", " ").trim();
+        if (normalized.length() <= maxLen) {
+            return normalized;
+        }
+        List<String> segments = splitSemanticSegments(normalized);
+        StringBuilder out = new StringBuilder();
+        for (String segment : segments) {
+            String cleaned = safe(segment);
+            if (cleaned.isBlank()) {
+                continue;
+            }
+            int nextLength = out.length() + (out.length() == 0 ? 0 : 1) + cleaned.length();
+            if (nextLength <= maxLen) {
+                if (out.length() > 0) {
+                    out.append(' ');
+                }
+                out.append(cleaned);
+                continue;
+            }
+            if (out.length() == 0) {
+                out.append(trimToBoundary(cleaned, maxLen));
+            }
+            break;
+        }
+        String summarized = out.toString().trim();
+        if (summarized.isBlank()) {
+            summarized = trimToBoundary(normalized, maxLen);
+        }
+        if (summarized.length() < normalized.length()) {
+            summarized = summarized + " ...";
+        }
+        return summarized.trim();
+    }
+
+    private List<String> splitSemanticSegments(String text) {
+        if (text == null || text.isBlank()) {
+            return List.of();
+        }
+        String[] parts = Pattern.compile("(?<=[。！？!?；;,.，])\\s+|\\n+").split(text);
+        List<String> out = new ArrayList<>();
+        for (String part : parts) {
+            String cleaned = safe(part);
+            if (!cleaned.isBlank()) {
+                out.add(cleaned);
+            }
+        }
+        if (out.isEmpty()) {
+            return List.of(text);
+        }
+        return out;
+    }
+
+    private String trimToBoundary(String text, int maxLen) {
         if (text == null || text.isBlank()) {
             return "";
         }
         if (text.length() <= maxLen) {
-            return text;
+            return text.trim();
         }
-        return text.substring(0, Math.max(0, maxLen)) + "...";
+        int safeLen = Math.max(12, maxLen);
+        int boundary = -1;
+        for (int i = Math.min(text.length() - 1, safeLen - 1); i >= 0; i--) {
+            char c = text.charAt(i);
+            if (Character.isWhitespace(c) || c == '。' || c == '，' || c == ',' || c == ';' || c == '；') {
+                boundary = i;
+                break;
+            }
+        }
+        if (boundary < 0 || boundary < safeLen / 2) {
+            boundary = safeLen;
+        }
+        return text.substring(0, Math.min(boundary, text.length())).trim();
     }
 
     private String safe(Object value) {

@@ -134,7 +134,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 contextNodeId(contextPackage),
                 "INPUT_RECONSTRUCTION",
                 "input reconstructed before RAG/MCP routing",
-                toJsonSafe(reconstructionResult)
+                toJsonSafe(buildInputReconstructionAuditPayload(userInput, reconstructionResult))
         );
         return TaskOrchestrationResult.builder()
                 .decision(decision)
@@ -205,7 +205,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 contextNodeId(contextPackage),
                 "INPUT_RECONSTRUCTION",
                 "input reconstructed in recovery branch",
-                toJsonSafe(reconstructionResult)
+                toJsonSafe(buildInputReconstructionAuditPayload(userInput, reconstructionResult))
         );
         return TaskOrchestrationResult.builder()
                 .decision(decision)
@@ -567,6 +567,94 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             base = "recovery refresh";
         }
         return base + " [recovery_refresh=" + source + "]";
+    }
+
+    private Map<String, Object> buildInputReconstructionAuditPayload(String rawInput, InputReconstructionResult reconstruction) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        String raw = nullSafe(rawInput).trim();
+        payload.put("rawInput", raw);
+        payload.put("rawInputLength", raw.length());
+        payload.put("reconstruction", reconstruction == null ? Map.of() : reconstruction);
+        payload.put("delta", buildReconstructionDelta(raw, reconstruction));
+        return payload;
+    }
+
+    private Map<String, Object> buildReconstructionDelta(String rawInput, InputReconstructionResult reconstruction) {
+        Map<String, Object> delta = new LinkedHashMap<>();
+        if (reconstruction == null) {
+            delta.put("status", "missing_reconstruction");
+            delta.put("addedItems", List.of());
+            delta.put("disambiguatedItems", List.of());
+            return delta;
+        }
+        String normalizedRaw = normalizeForCompare(rawInput);
+        List<String> addedItems = new ArrayList<>();
+        addIfNew(addedItems, "explicitTaskGoal", reconstruction.getExplicitTaskGoal(), normalizedRaw);
+        addIfNew(addedItems, "normalizedUserIntent", reconstruction.getNormalizedUserIntent(), normalizedRaw);
+        addIfNew(addedItems, "timeScope", reconstruction.getTimeScope(), normalizedRaw);
+        addIfNew(addedItems, "ragQuery", reconstruction.getReformulatedQueryForRag(), normalizedRaw);
+        addIfNew(addedItems, "mcpQuery", reconstruction.getReformulatedQueryForMcp(), normalizedRaw);
+        if (reconstruction.getBusinessConstraints() != null) {
+            for (String constraint : reconstruction.getBusinessConstraints()) {
+                addIfNew(addedItems, "constraint", constraint, normalizedRaw);
+            }
+        }
+        if (reconstruction.getMissingSlots() != null) {
+            for (String slot : reconstruction.getMissingSlots()) {
+                String cleaned = nullSafe(slot).trim();
+                if (!cleaned.isBlank()) {
+                    addedItems.add("missingSlot=" + cleaned);
+                }
+            }
+        }
+
+        List<String> disambiguatedItems = new ArrayList<>();
+        Map<String, String> entities = reconstruction.getClarifiedEntities();
+        if (entities != null) {
+            for (Map.Entry<String, String> entry : entities.entrySet()) {
+                String key = nullSafe(entry.getKey()).trim();
+                String value = nullSafe(entry.getValue()).trim();
+                if (key.isBlank() || value.isBlank()) {
+                    continue;
+                }
+                if (!containsNormalized(normalizedRaw, value)) {
+                    disambiguatedItems.add(key + "=" + value);
+                }
+            }
+        }
+
+        LinkedHashSet<String> dedupAdded = new LinkedHashSet<>(addedItems);
+        LinkedHashSet<String> dedupDisambiguated = new LinkedHashSet<>(disambiguatedItems);
+        delta.put("status", (dedupAdded.isEmpty() && dedupDisambiguated.isEmpty()) ? "no_explicit_delta" : "delta_detected");
+        delta.put("addedItems", new ArrayList<>(dedupAdded));
+        delta.put("disambiguatedItems", new ArrayList<>(dedupDisambiguated));
+        delta.put("intentConfidence", reconstruction.getIntentConfidence());
+        return delta;
+    }
+
+    private void addIfNew(List<String> sink, String label, String value, String normalizedRaw) {
+        String cleaned = nullSafe(value).trim();
+        if (cleaned.isBlank()) {
+            return;
+        }
+        if (!containsNormalized(normalizedRaw, cleaned)) {
+            sink.add(label + "=" + cleaned);
+        }
+    }
+
+    private boolean containsNormalized(String normalizedRaw, String value) {
+        if (normalizedRaw == null || normalizedRaw.isBlank()) {
+            return false;
+        }
+        String normalizedValue = normalizeForCompare(value);
+        return !normalizedValue.isBlank() && normalizedRaw.contains(normalizedValue);
+    }
+
+    private String normalizeForCompare(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").trim();
     }
 
     private String buildOrchestrationSignal(String rawInput, InputReconstructionResult reconstruction) {
