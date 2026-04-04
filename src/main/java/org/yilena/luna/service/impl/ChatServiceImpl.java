@@ -381,7 +381,7 @@ public class ChatServiceImpl implements ChatService {
                 toJsonSafe(Map.of("snapshotId", finalSnapshotId == null ? "" : finalSnapshotId))
         );
         String finalPrompt = assembledContext == null || assembledContext.getPrompt() == null || assembledContext.getPrompt().isBlank()
-                ? PromptTemplates.SYSTEM_PROMPT + "\n\n" + PromptTemplates.RUNTIME_PROMPT.formatted(input == null ? "" : input)
+                ? PromptTemplates.SYSTEM_PROMPT + "\n\n" + PromptTemplates.RUNTIME_PROMPT.formatted(runtimePromptSeed(input, reconstruction))
                 : assembledContext.getPrompt();
         SendToLuna result = getSendToLuna(finalPrompt, input, contextPackage);
         LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(result.raw());
@@ -602,13 +602,19 @@ public class ChatServiceImpl implements ChatService {
     private Long contextPlanId(StructuredContextPackage contextPackage) {
         try {
             if (contextPackage == null || contextPackage.getRuntime() == null) {
-                return null;
+                if (contextPackage == null || contextPackage.getTaskStateEntity() == null) {
+                    return null;
+                }
+                return toLong(contextPackage.getTaskStateEntity().getTaskId());
             }
             Object session = contextPackage.getRuntime().get("session");
             if (session instanceof Map<?, ?> row) {
-                return toLong(row.get("current_plan_id"));
+                Long runtimePlan = toLong(row.get("current_plan_id"));
+                if (runtimePlan != null) {
+                    return runtimePlan;
+                }
             }
-            return null;
+            return contextPackage.getTaskStateEntity() == null ? null : toLong(contextPackage.getTaskStateEntity().getTaskId());
         } catch (Exception ignore) {
             return null;
         }
@@ -617,13 +623,19 @@ public class ChatServiceImpl implements ChatService {
     private Long contextNodeId(StructuredContextPackage contextPackage) {
         try {
             if (contextPackage == null || contextPackage.getTaskContext() == null) {
-                return null;
+                if (contextPackage == null || contextPackage.getTaskStateEntity() == null) {
+                    return null;
+                }
+                return toLong(contextPackage.getTaskStateEntity().getCurrentNode());
             }
             Object working = contextPackage.getTaskContext().get("working_memory");
             if (working instanceof Map<?, ?> row) {
-                return toLong(row.get("active_node_id"));
+                Long runtimeNode = toLong(row.get("active_node_id"));
+                if (runtimeNode != null) {
+                    return runtimeNode;
+                }
             }
-            return null;
+            return contextPackage.getTaskStateEntity() == null ? null : toLong(contextPackage.getTaskStateEntity().getCurrentNode());
         } catch (Exception ignore) {
             return null;
         }
@@ -636,9 +648,21 @@ public class ChatServiceImpl implements ChatService {
         if (value == null) {
             return null;
         }
+        String text = String.valueOf(value).trim();
+        if (text.isBlank()) {
+            return null;
+        }
         try {
-            return Long.parseLong(String.valueOf(value));
+            return Long.parseLong(text);
         } catch (Exception ignore) {
+            java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(-?\\d+)").matcher(text);
+            if (matcher.find()) {
+                try {
+                    return Long.parseLong(matcher.group(1));
+                } catch (Exception nestedIgnore) {
+                    return null;
+                }
+            }
             return null;
         }
     }
@@ -921,6 +945,21 @@ public class ChatServiceImpl implements ChatService {
         } catch (Exception ignore) {
             return toolContext;
         }
+    }
+
+    private String runtimePromptSeed(String userInput, InputReconstructionResult reconstructionResult) {
+        if (reconstructionResult == null) {
+            return "raw_input_archived=true; use_reconstructed_intent_section_as_primary_input";
+        }
+        return "normalizedIntent=" + nullSafe(stringValue(reconstructionResult.getNormalizedUserIntent()))
+                + "; explicitTaskGoal=" + nullSafe(stringValue(reconstructionResult.getExplicitTaskGoal()))
+                + "; clarifiedEntities=" + nullSafe(stringValue(reconstructionResult.getClarifiedEntities()))
+                + "; businessConstraints=" + nullSafe(stringValue(reconstructionResult.getBusinessConstraints()))
+                + "; timeScope=" + nullSafe(stringValue(reconstructionResult.getTimeScope()))
+                + "; missingSlots=" + nullSafe(stringValue(reconstructionResult.getMissingSlots()))
+                + "; intentConfidence=" + reconstructionResult.getIntentConfidence()
+                + "; rawInputArchived=true"
+                + "; rawInputLength=" + (userInput == null ? 0 : userInput.trim().length());
     }
 
     private ToolTraceRefs persistToolExecutionTraces(String sessionId,

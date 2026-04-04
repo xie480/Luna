@@ -507,7 +507,7 @@ public class ApprovalServiceImpl implements ApprovalService {
                     assembledContext == null ? Map.of() : assembledContext.getSectionTokenRatios()
             );
             String prompt = assembledContext == null || assembledContext.getPrompt() == null || assembledContext.getPrompt().isBlank()
-                    ? PromptTemplates.SYSTEM_PROMPT + "\n\n" + PromptTemplates.RUNTIME_PROMPT.formatted(task.getUserInput())
+                    ? PromptTemplates.SYSTEM_PROMPT + "\n\n" + PromptTemplates.RUNTIME_PROMPT.formatted(runtimePromptSeed(task.getUserInput(), reconstructionResult))
                     : assembledContext.getPrompt();
             SendToLuna result = getSendToLuna(prompt, task.getUserInput());
             SummaryResult summaryResult = summaryAgent.summarize(
@@ -557,24 +557,36 @@ public class ApprovalServiceImpl implements ApprovalService {
 
     private Long contextPlanId(StructuredContextPackage contextPackage) {
         if (contextPackage == null || contextPackage.getRuntime() == null) {
-            return null;
+            if (contextPackage == null || contextPackage.getTaskStateEntity() == null) {
+                return null;
+            }
+            return parseLongValue(contextPackage.getTaskStateEntity().getTaskId());
         }
         Object session = contextPackage.getRuntime().get("session");
         if (session instanceof Map<?, ?> row) {
-            return parseLongValue(row.get("current_plan_id"));
+            Long runtimePlan = parseLongValue(row.get("current_plan_id"));
+            if (runtimePlan != null) {
+                return runtimePlan;
+            }
         }
-        return null;
+        return contextPackage.getTaskStateEntity() == null ? null : parseLongValue(contextPackage.getTaskStateEntity().getTaskId());
     }
 
     private Long contextNodeId(StructuredContextPackage contextPackage) {
         if (contextPackage == null || contextPackage.getTaskContext() == null) {
-            return null;
+            if (contextPackage == null || contextPackage.getTaskStateEntity() == null) {
+                return null;
+            }
+            return parseLongValue(contextPackage.getTaskStateEntity().getCurrentNode());
         }
         Object working = contextPackage.getTaskContext().get("working_memory");
         if (working instanceof Map<?, ?> row) {
-            return parseLongValue(row.get("active_node_id"));
+            Long runtimeNode = parseLongValue(row.get("active_node_id"));
+            if (runtimeNode != null) {
+                return runtimeNode;
+            }
         }
-        return null;
+        return contextPackage.getTaskStateEntity() == null ? null : parseLongValue(contextPackage.getTaskStateEntity().getCurrentNode());
     }
 
     private Long parseLongValue(Object value) {
@@ -584,9 +596,21 @@ public class ApprovalServiceImpl implements ApprovalService {
         if (value == null) {
             return null;
         }
+        String text = String.valueOf(value).trim();
+        if (text.isBlank()) {
+            return null;
+        }
         try {
-            return Long.parseLong(String.valueOf(value));
+            return Long.parseLong(text);
         } catch (Exception ignore) {
+            java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(-?\\d+)").matcher(text);
+            if (matcher.find()) {
+                try {
+                    return Long.parseLong(matcher.group(1));
+                } catch (Exception nestedIgnore) {
+                    return null;
+                }
+            }
             return null;
         }
     }
@@ -1066,6 +1090,21 @@ public class ApprovalServiceImpl implements ApprovalService {
             return first;
         }
         return second == null ? "" : second;
+    }
+
+    private String runtimePromptSeed(String userInput, InputReconstructionResult reconstructionResult) {
+        if (reconstructionResult == null) {
+            return "raw_input_archived=true; use_reconstructed_intent_section_as_primary_input";
+        }
+        return "normalizedIntent=" + safe(reconstructionResult.getNormalizedUserIntent())
+                + "; explicitTaskGoal=" + safe(reconstructionResult.getExplicitTaskGoal())
+                + "; clarifiedEntities=" + safe(reconstructionResult.getClarifiedEntities())
+                + "; businessConstraints=" + safe(reconstructionResult.getBusinessConstraints())
+                + "; timeScope=" + safe(reconstructionResult.getTimeScope())
+                + "; missingSlots=" + safe(reconstructionResult.getMissingSlots())
+                + "; intentConfidence=" + reconstructionResult.getIntentConfidence()
+                + "; rawInputArchived=true"
+                + "; rawInputLength=" + (userInput == null ? 0 : userInput.trim().length());
     }
 
     private record SendToLuna(String raw, String valid, String replyText) {

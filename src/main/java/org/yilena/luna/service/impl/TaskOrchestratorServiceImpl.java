@@ -242,9 +242,6 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 24
         );
         rawMcpCandidates = filterInvalidatedCapabilities(rawMcpCandidates, refreshPlan.invalidatedCapabilityNames);
-        if ((rawMcpCandidates == null || rawMcpCandidates.isEmpty()) && !refreshPlan.needReassembly) {
-            rawMcpCandidates = contextPackage == null ? List.of() : contextPackage.getCapabilityCandidates();
-        }
         rawMcpCandidates = filterInvalidatedCapabilities(rawMcpCandidates, refreshPlan.invalidatedCapabilityNames);
         List<Map<String, Object>> mcpPreRankedCandidates = mcpCandidatePreRank.preRank(
                 mcpDrivenInput,
@@ -760,11 +757,20 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
 
     private Long contextPlanId(StructuredContextPackage contextPackage) {
         if (contextPackage == null || contextPackage.getRuntime() == null) {
-            return null;
+            if (contextPackage == null || contextPackage.getTaskStateEntity() == null) {
+                return null;
+            }
+            return toLong(contextPackage.getTaskStateEntity().getTaskId());
         }
         Object session = contextPackage.getRuntime().get("session");
         if (session instanceof Map<?, ?> row) {
-            return toLong(row.get("current_plan_id"));
+            Long runtimePlan = toLong(row.get("current_plan_id"));
+            if (runtimePlan != null) {
+                return runtimePlan;
+            }
+        }
+        if (contextPackage.getTaskStateEntity() != null) {
+            return toLong(contextPackage.getTaskStateEntity().getTaskId());
         }
         return null;
     }
@@ -775,7 +781,13 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         }
         Object working = contextPackage.getTaskContext().get("working_memory");
         if (working instanceof Map<?, ?> row) {
-            return toLong(row.get("active_node_id"));
+            Long runtimeNode = toLong(row.get("active_node_id"));
+            if (runtimeNode != null) {
+                return runtimeNode;
+            }
+        }
+        if (contextPackage.getTaskStateEntity() != null) {
+            return toLong(contextPackage.getTaskStateEntity().getCurrentNode());
         }
         return null;
     }
@@ -787,9 +799,21 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         if (value == null) {
             return null;
         }
+        String text = String.valueOf(value).trim();
+        if (text.isBlank()) {
+            return null;
+        }
         try {
-            return Long.parseLong(String.valueOf(value));
+            return Long.parseLong(text);
         } catch (Exception ignore) {
+            java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(-?\\d+)").matcher(text);
+            if (matcher.find()) {
+                try {
+                    return Long.parseLong(matcher.group(1));
+                } catch (Exception nestedIgnore) {
+                    return null;
+                }
+            }
             return null;
         }
     }

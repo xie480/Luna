@@ -54,18 +54,34 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
                                         String rawResult,
                                         TaskRuntimeState taskState,
                                         String currentNodeGoal) {
-        ToolSemanticResult llmResult = tryModelTranslation(toolName, toolDescription, rawResult, taskState, currentNodeGoal);
-        if (llmResult != null) {
-            return llmResult;
+        List<String> errors = new ArrayList<>();
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            ToolSemanticResult llmResult = tryModelTranslation(
+                    toolName,
+                    toolDescription,
+                    rawResult,
+                    taskState,
+                    currentNodeGoal,
+                    attempt,
+                    errors
+            );
+            if (llmResult != null) {
+                return llmResult;
+            }
         }
-        return buildConservativeFallback(toolName, toolDescription, rawResult, taskState, currentNodeGoal);
+        throw new IllegalStateException("tool semantic translation failed after retries: tool="
+                + safe(toolName)
+                + ", errors="
+                + errors);
     }
 
     private ToolSemanticResult tryModelTranslation(String toolName,
                                                    String toolDescription,
                                                    String rawResult,
                                                    TaskRuntimeState taskState,
-                                                   String currentNodeGoal) {
+                                                   String currentNodeGoal,
+                                                   int attempt,
+                                                   List<String> errors) {
         try {
             String prompt = TOOL_SEMANTIC_PROMPT.formatted(
                     safe(toolName),
@@ -73,7 +89,7 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
                     taskState == null ? "UNKNOWN" : taskState.name(),
                     currentNodeGoal == null ? "" : currentNodeGoal,
                     rawResult == null ? "" : rawResult
-            );
+            ) + "\nretryAttempt=" + attempt + "\nOutput strict JSON only.";
             LlmRequest request = LlmRequest.builder()
                     .modelType(ModelType.OPENAI_COMPATIBLE)
                     .modelName(resolveSmallAgentModel())
@@ -84,16 +100,25 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
             LlmResponse response = llmClientUtil.generate(request);
             String content = response == null ? "" : response.getContent();
             if (content == null || content.isBlank()) {
+                errors.add("attempt_" + attempt + ":empty_content");
                 return null;
             }
             JsonNode node = parse(stripFence(content));
+            if (node == null || !node.isObject() || node.size() == 0) {
+                errors.add("attempt_" + attempt + ":invalid_json");
+                return null;
+            }
             String status = normalizeStatus(node.path("toolStatus").asText(node.path("status").asText("UNKNOWN")));
             List<String> keyFacts = readStringArray(node.path("keyFacts"));
             List<String> unresolved = readStringArray(node.path("unresolvedIssues"));
             String impact = node.path("businessImpact").asText("");
             String nextStepHint = node.path("nextStepHint").asText("");
             double confidence = node.path("confidence").asDouble(0.0);
-            confidence = confidence <= 0 ? computeConfidence(status, keyFacts, unresolved) : Math.max(0.15, Math.min(confidence, 0.99));
+            confidence = confidence <= 0 ? 0.20 : Math.max(0.15, Math.min(confidence, 0.99));
+            if (keyFacts.isEmpty() || impact.isBlank() || nextStepHint.isBlank()) {
+                errors.add("attempt_" + attempt + ":missing_required_fields");
+                return null;
+            }
 
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("status", status);
@@ -115,66 +140,20 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
                     .confidence(confidence)
                     .semanticPayload(payload)
                     .build();
-        } catch (Exception ignore) {
+        } catch (Exception ex) {
+            errors.add("attempt_" + attempt + ":" + ex.getClass().getSimpleName());
             return null;
         }
     }
 
-    private ToolSemanticResult buildConservativeFallback(String toolName,
-                                                         String toolDescription,
-                                                         String rawResult,
-                                                         TaskRuntimeState taskState,
-                                                         String currentNodeGoal) {
-        String status = "UNKNOWN";
-        List<String> keyFacts = new ArrayList<>();
-        if (rawResult == null || rawResult.isBlank()) {
-            keyFacts.add("raw_result_missing");
-        } else {
-            keyFacts.add("raw_result_available");
-            keyFacts.add("raw_result_digest=" + compactContent(rawResult, 180));
-        }
-        List<String> unresolved = List.of("tool_semantic_model_unavailable");
-        String businessImpact = "Tool semantic interpretation fallback engaged; keep downstream reasoning conservative.";
-        if (currentNodeGoal != null && !currentNodeGoal.isBlank()) {
-            businessImpact = businessImpact + " Current node goal=" + compactContent(currentNodeGoal, 120) + ".";
-        }
-        if (taskState != null) {
-            businessImpact = businessImpact + " Task stage=" + taskState.name() + ".";
-        }
-        String nextStepHint = "preserve raw tool output and continue with guarded decision path";
-        double confidence = 0.30;
-
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("status", status);
-        payload.put("keyFacts", keyFacts);
-        payload.put("businessImpact", businessImpact);
-        payload.put("unresolvedIssues", unresolved);
-        payload.put("nextStepHint", nextStepHint);
-        payload.put("confidence", confidence);
-        payload.put("fallback", "small_agent_unavailable");
-
-        return ToolSemanticResult.builder()
-                .toolName(safe(toolName))
-                .toolDescription(safe(toolDescription))
-                .rawResultDigest(compactContent(safe(rawResult), 800))
-                .toolStatus(status)
-                .keyFacts(keyFacts)
-                .businessImpact(businessImpact)
-                .unresolvedIssues(unresolved)
-                .nextStepHint(nextStepHint)
-                .confidence(confidence)
-                .semanticPayload(payload)
-                .build();
-    }
-
     private JsonNode parse(String text) {
         if (text == null || text.isBlank()) {
-            return objectMapper.createObjectNode();
+            return null;
         }
         try {
             return objectMapper.readTree(text);
-        } catch (Exception ignore) {
-            return objectMapper.createObjectNode();
+        } catch (Exception ex) {
+            return null;
         }
     }
 
@@ -228,23 +207,6 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
             }
         });
         return out;
-    }
-
-    private double computeConfidence(String status, List<String> keyFacts, List<String> unresolved) {
-        double confidence = 0.55;
-        if ("SUCCESS".equals(status)) {
-            confidence += 0.25;
-        } else if ("PENDING".equals(status)) {
-            confidence += 0.08;
-        } else if ("FAILED".equals(status)) {
-            confidence -= 0.20;
-        }
-        confidence += Math.min(0.12, keyFacts.size() * 0.03);
-        confidence -= Math.min(0.20, unresolved.size() * 0.06);
-        if (confidence < 0.15) {
-            return 0.15;
-        }
-        return Math.min(confidence, 0.98);
     }
 
     private String compactContent(String content, int maxLen) {

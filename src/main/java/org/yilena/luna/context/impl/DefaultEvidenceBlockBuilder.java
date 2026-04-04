@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @Service
 public class DefaultEvidenceBlockBuilder implements EvidenceBlockBuilder {
@@ -18,7 +19,7 @@ public class DefaultEvidenceBlockBuilder implements EvidenceBlockBuilder {
             return List.of();
         }
         List<EvidenceBlock> out = new ArrayList<>();
-        int index = 1;
+        Map<String, Integer> blockIdCounter = new LinkedHashMap<>();
         for (Evidence evidence : evidences) {
             if (evidence == null) {
                 continue;
@@ -34,16 +35,30 @@ public class DefaultEvidenceBlockBuilder implements EvidenceBlockBuilder {
             metadata.put("type", evidence.getType() == null ? "" : evidence.getType());
             metadata.put("role", evidence.getRole() == null ? "" : evidence.getRole().value());
             metadata.put("rawMetadata", evidence.getMetadata() == null ? Map.of() : evidence.getMetadata());
+            String baseBlockId = resolveStableBlockId(evidence, title, content);
+            int seen = blockIdCounter.getOrDefault(baseBlockId, 0);
+            blockIdCounter.put(baseBlockId, seen + 1);
+            String blockId = seen == 0 ? baseBlockId : baseBlockId + "#" + seen;
+            metadata.put("traceable_block_id", blockId);
             out.add(EvidenceBlock.builder()
-                    .blockId("evidence#" + index)
+                    .blockId(blockId)
                     .sourceType("knowledge")
                     .title(title)
                     .content(content)
                     .score(evidence.getScore())
                     .metadata(metadata)
                     .build());
-            index++;
         }
         return out;
+    }
+
+    private String resolveStableBlockId(Evidence evidence, String title, String content) {
+        if (evidence != null && evidence.getId() != null && !evidence.getId().isBlank()) {
+            return evidence.getId().trim();
+        }
+        String source = evidence == null || evidence.getSource() == null ? "" : evidence.getSource().value();
+        String role = evidence == null || evidence.getRole() == null ? "" : evidence.getRole().value();
+        int digest = Math.abs(Objects.hash(source, role, title == null ? "" : title, content == null ? "" : content));
+        return "evidence:auto:" + Integer.toHexString(digest);
     }
 }

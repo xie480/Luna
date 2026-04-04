@@ -139,13 +139,19 @@ public class ContextSummaryConsumer implements RocketMQListener<SummaryMessage> 
 
     private Long contextNodeId(StructuredContextPackage contextPackage) {
         if (contextPackage == null || contextPackage.getTaskContext() == null) {
-            return null;
+            if (contextPackage == null || contextPackage.getTaskStateEntity() == null) {
+                return null;
+            }
+            return parseLongValue(contextPackage.getTaskStateEntity().getCurrentNode());
         }
         Object working = contextPackage.getTaskContext().get("working_memory");
         if (working instanceof Map<?, ?> row) {
-            return parseLongValue(row.get("active_node_id"));
+            Long runtimeNode = parseLongValue(row.get("active_node_id"));
+            if (runtimeNode != null) {
+                return runtimeNode;
+            }
         }
-        return null;
+        return contextPackage.getTaskStateEntity() == null ? null : parseLongValue(contextPackage.getTaskStateEntity().getCurrentNode());
     }
 
     private Long parseLongValue(Object value) {
@@ -155,9 +161,21 @@ public class ContextSummaryConsumer implements RocketMQListener<SummaryMessage> 
         if (value == null) {
             return null;
         }
+        String text = String.valueOf(value).trim();
+        if (text.isBlank()) {
+            return null;
+        }
         try {
-            return Long.parseLong(String.valueOf(value));
+            return Long.parseLong(text);
         } catch (Exception ignore) {
+            java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(-?\\d+)").matcher(text);
+            if (matcher.find()) {
+                try {
+                    return Long.parseLong(matcher.group(1));
+                } catch (Exception nestedIgnore) {
+                    return null;
+                }
+            }
             return null;
         }
     }

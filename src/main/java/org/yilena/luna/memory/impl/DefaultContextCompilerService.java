@@ -8,14 +8,10 @@ import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.memory.ContextCompilerService;
 import org.yilena.luna.memory.MemoryHotLayerService;
 import org.yilena.luna.memory.ResponseSynthesizerService;
-import org.yilena.luna.memory.RelationalMemoryRetriever;
 import org.yilena.luna.memory.RuntimeRetriever;
 import org.yilena.luna.memory.SocialReasonerService;
-import org.yilena.luna.memory.TaskMemoryRetriever;
 import org.yilena.luna.memory.model.StructuredContextPackage;
-import org.yilena.luna.router.CapabilityPolicyRouterService;
 import org.yilena.luna.state.model.ContextState;
-import org.yilena.luna.state.model.RecoveryState;
 import org.yilena.luna.state.model.RetrievalState;
 import org.yilena.luna.state.model.TaskState;
 import org.yilena.luna.state.model.ToolState;
@@ -36,12 +32,9 @@ import java.util.Map;
 public class DefaultContextCompilerService implements ContextCompilerService {
 
     private final RuntimeRetriever runtimeRetriever;
-    private final TaskMemoryRetriever taskMemoryRetriever;
-    private final RelationalMemoryRetriever relationalMemoryRetriever;
     private final MemoryHotLayerService memoryHotLayerService;
     private final SocialReasonerService socialReasonerService;
     private final ResponseSynthesizerService responseSynthesizerService;
-    private final CapabilityPolicyRouterService capabilityPolicyRouterService;
     private final TaskStateStore taskStateStore;
     private final RetrievalStateStore retrievalStateStore;
     private final ToolStateStore toolStateStore;
@@ -59,20 +52,24 @@ public class DefaultContextCompilerService implements ContextCompilerService {
         }
 
         Map<String, Object> runtime = runtimeRetriever.retrieve(sessionId);
-        String contextualSignal = buildContextualSignal(runtime, taskStateStore.load(sessionId), retrievalStateStore.load(sessionId), toolStateStore.load(sessionId), contextStateStore.load(sessionId), taskState, relationalState);
+        TaskState storedTaskState = taskStateStore.load(sessionId);
         RetrievalState storedRetrievalState = retrievalStateStore.load(sessionId);
-        String capabilityQuery = resolveCapabilityQuery(storedRetrievalState, contextualSignal);
-        Map<String, Object> taskContext = taskMemoryRetriever.retrieve(sessionId, contextualSignal, taskState);
-        Map<String, Object> relationalContext = relationalMemoryRetriever.retrieve(sessionId, contextualSignal, relationalState);
+        ToolState storedToolState = toolStateStore.load(sessionId);
+        ContextState storedContextState = contextStateStore.load(sessionId);
+        String contextualSignal = buildContextualSignal(
+                runtime,
+                storedTaskState,
+                storedRetrievalState,
+                storedToolState,
+                storedContextState,
+                taskState,
+                relationalState
+        );
+        // Memory/capability retrieval is deferred to node-level orchestration and Context Assembler.
+        Map<String, Object> taskContext = Map.of();
+        Map<String, Object> relationalContext = Map.of();
 
         List<Map<String, Object>> recentMessages = safeList(runtime.get("recent_messages"));
-        List<Map<String, Object>> capabilities = capabilityPolicyRouterService.routeForContext(
-                sessionId,
-                capabilityQuery,
-                taskState,
-                relationalState,
-                24
-        );
         Map<String, Object> socialDraft = socialReasonerService.buildRelationalDraft(
                 sessionId,
                 contextualSignal,
@@ -88,6 +85,8 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                 socialDraft
         );
         Map<String, Object> promptPolicy = buildPromptPolicy(taskState, relationalState, sessionType, socialDraft, synthesisPolicy);
+        promptPolicy.put("memory_fetch_mode", "NODE_ON_DEMAND");
+        promptPolicy.put("capability_fetch_mode", "MCP_QUERY_ON_DEMAND");
         Map<String, Integer> budget = buildTokenBudget(taskState, relationalState, sessionType);
 
         StructuredContextPackage contextPackage = StructuredContextPackage.builder()
@@ -98,38 +97,17 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                 .taskContext(taskContext)
                 .relationalContext(relationalContext)
                 .recentMessages(recentMessages)
-                .capabilityCandidates(capabilities)
+                .capabilityCandidates(List.of())
                 .promptPolicy(promptPolicy)
                 .tokenBudgetPlan(budget)
                 .taskStateEntity(resolveTaskState(sessionId, taskState, taskContext, runtime))
-                .retrievalState(resolveRetrievalState(sessionId, taskContext))
+                .retrievalState(resolveRetrievalState(sessionId, taskContext, runtime))
                 .toolState(resolveToolState(sessionId, runtime))
-                .contextState(contextStateStore.load(sessionId))
+                .contextState(storedContextState)
                 .recoveryState(recoveryStateStore.load(sessionId))
                 .build();
         memoryHotLayerService.putCompiledContextCache(sessionId, userInput, taskState, relationalState, contextPackage);
         return contextPackage;
-    }
-
-    private String resolveCapabilityQuery(RetrievalState retrievalState, String fallback) {
-        if (retrievalState != null && retrievalState.getActiveQueries() != null && !retrievalState.getActiveQueries().isEmpty()) {
-            List<String> active = retrievalState.getActiveQueries().stream()
-                    .filter(item -> item != null && !item.isBlank())
-                    .toList();
-            String mcpQuery = active.stream()
-                    .filter(item -> item.toLowerCase().contains("task_goal=")
-                            || item.toLowerCase().contains("mcp")
-                            || item.toLowerCase().contains("capability"))
-                    .reduce((first, second) -> second)
-                    .orElse("");
-            if (!mcpQuery.isBlank()) {
-                return mcpQuery;
-            }
-            if (!active.isEmpty()) {
-                return active.get(active.size() - 1);
-            }
-        }
-        return fallback;
     }
 
     private String buildContextualSignal(Map<String, Object> runtime,
@@ -178,12 +156,14 @@ public class DefaultContextCompilerService implements ContextCompilerService {
         }
         Map<String, Object> working = mapOf(taskContext == null ? null : taskContext.get("working_memory"));
         Map<String, Object> session = mapOf(runtime == null ? null : runtime.get("session"));
+        List<Map<String, Object>> snapshots = safeList(runtime == null ? null : runtime.get("context_snapshots"));
+        String snapshotNodeId = snapshots.isEmpty() ? "" : str(snapshots.get(0).get("node_id"));
         return TaskState.builder()
-                .taskId(str(working.get("plan_id")))
+                .taskId(firstNonBlank(str(working.get("plan_id")), str(session.get("current_plan_id"))))
                 .sessionId(sessionId)
-                .objective(str(working.get("goal_refined")))
+                .objective(firstNonBlank(str(working.get("goal_refined")), str(session.get("current_goal"))))
                 .currentStage(taskRuntimeState == null ? "UNKNOWN" : taskRuntimeState.name())
-                .currentNode(str(working.get("active_node_id")))
+                .currentNode(firstNonBlank(str(working.get("active_node_id")), snapshotNodeId))
                 .confirmedSlots(mapOf(working.get("key_entities_json")))
                 .pendingQuestions(listOfStrings(working.get("unresolved_questions_json")))
                 .finishedSteps(List.of())
@@ -193,14 +173,15 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                 .build();
     }
 
-    private RetrievalState resolveRetrievalState(String sessionId, Map<String, Object> taskContext) {
+    private RetrievalState resolveRetrievalState(String sessionId, Map<String, Object> taskContext, Map<String, Object> runtime) {
         RetrievalState stored = retrievalStateStore.load(sessionId);
         if (stored != null) {
             return stored;
         }
         Map<String, Object> working = mapOf(taskContext == null ? null : taskContext.get("working_memory"));
+        Map<String, Object> session = mapOf(runtime == null ? null : runtime.get("session"));
         return RetrievalState.builder()
-                .reconstructedIntent(str(working.get("goal_refined")))
+                .reconstructedIntent(firstNonBlank(str(working.get("goal_refined")), str(session.get("current_goal"))))
                 .activeQueries(List.of())
                 .retrievalPlan(Map.of())
                 .selectedEvidenceRefs(List.of())
@@ -316,6 +297,13 @@ public class DefaultContextCompilerService implements ContextCompilerService {
 
     private String str(Object value) {
         return value == null ? "" : String.valueOf(value);
+    }
+
+    private String firstNonBlank(String first, String second) {
+        if (first != null && !first.isBlank()) {
+            return first;
+        }
+        return second == null ? "" : second;
     }
 
     private Integer intValue(Object value) {

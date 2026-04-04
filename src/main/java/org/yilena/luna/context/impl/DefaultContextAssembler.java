@@ -11,11 +11,15 @@ import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.context.model.SummaryResult;
 import org.yilena.luna.context.model.ToolSemanticResult;
 import org.yilena.luna.entity.Resource;
+import org.yilena.luna.memory.RelationalMemoryRetriever;
+import org.yilena.luna.memory.TaskMemoryRetriever;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.prompt.PromptTemplates;
+import org.yilena.luna.state.model.TaskState;
 import org.yilena.luna.state.store.ContextSnapshotStore;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,11 +29,17 @@ public class DefaultContextAssembler implements ContextAssembler {
 
     private final SemanticPreservingPruner semanticPreservingPruner;
     private final ContextSnapshotStore contextSnapshotStore;
+    private final TaskMemoryRetriever taskMemoryRetriever;
+    private final RelationalMemoryRetriever relationalMemoryRetriever;
 
     public DefaultContextAssembler(SemanticPreservingPruner semanticPreservingPruner,
-                                   ContextSnapshotStore contextSnapshotStore) {
+                                   ContextSnapshotStore contextSnapshotStore,
+                                   TaskMemoryRetriever taskMemoryRetriever,
+                                   RelationalMemoryRetriever relationalMemoryRetriever) {
         this.semanticPreservingPruner = semanticPreservingPruner;
         this.contextSnapshotStore = contextSnapshotStore;
+        this.taskMemoryRetriever = taskMemoryRetriever;
+        this.relationalMemoryRetriever = relationalMemoryRetriever;
     }
 
     @Override
@@ -50,19 +60,37 @@ public class DefaultContextAssembler implements ContextAssembler {
                                      String toolContext,
                                      ContextNodeTemplatePolicy nodeTemplatePolicy,
                                      SummaryResult roundSummaryInput,
-                                     String sessionId,
-                                     Long planId,
-                                     Long nodeId) {
+                                      String sessionId,
+                                      Long planId,
+                                      Long nodeId) {
         ContextNodeTemplatePolicy policy = nodeTemplatePolicy == null ? ContextNodeTemplatePolicy.defaultPolicy() : nodeTemplatePolicy;
-        Map<String, List<String>> candidatePool = buildCandidatePool(
-                rerankResult,
-                knowledgeEvidenceBlocks,
+        OnDemandMemoryPayload onDemandMemory = resolveOnDemandMemory(
+                sessionId,
+                contextPackage,
+                reconstructionResult,
+                userInput,
+                policy,
                 workingMemorySnippets,
-                runtimeMemorySnippets,
                 retrievedMemorySnippets,
                 knowledgeSnippets,
                 preferenceSnippets,
                 longTermMemorySnippets,
+                knowledgeEvidenceBlocks
+        );
+        List<String> effectiveWorkingMemorySnippets = mergeDistinct(workingMemorySnippets, onDemandMemory.workingMemorySnippets());
+        List<String> effectiveRetrievedMemorySnippets = mergeDistinct(retrievedMemorySnippets, onDemandMemory.retrievedMemorySnippets());
+        List<String> effectiveKnowledgeSnippets = mergeDistinct(knowledgeSnippets, onDemandMemory.knowledgeSnippets());
+        List<String> effectivePreferenceSnippets = mergeDistinct(preferenceSnippets, onDemandMemory.preferenceSnippets());
+        List<String> effectiveLongTermMemorySnippets = mergeDistinct(longTermMemorySnippets, onDemandMemory.longTermMemorySnippets());
+        Map<String, List<String>> candidatePool = buildCandidatePool(
+                rerankResult,
+                knowledgeEvidenceBlocks,
+                effectiveWorkingMemorySnippets,
+                runtimeMemorySnippets,
+                effectiveRetrievedMemorySnippets,
+                effectiveKnowledgeSnippets,
+                effectivePreferenceSnippets,
+                effectiveLongTermMemorySnippets,
                 executionCandidates,
                 mcpResourceHints,
                 toolSemanticResult,
@@ -98,7 +126,7 @@ public class DefaultContextAssembler implements ContextAssembler {
                     sectionBudget(contextPackage == null ? Map.of() : contextPackage.getTokenBudgetPlan(), policy)
             );
         }
-        String prompt = toPrompt(pruneResult.getSections(), userInput);
+        String prompt = toPrompt(pruneResult.getSections(), buildRuntimePromptInput(userInput, reconstructionResult));
         AssembledContext preSnapshotContext = AssembledContext.builder()
                 .prompt(prompt)
                 .sections(pruneResult.getSections())
@@ -255,7 +283,15 @@ public class DefaultContextAssembler implements ContextAssembler {
 
     private String buildReconstructedIntent(String userInput, InputReconstructionResult reconstructionResult) {
         if (reconstructionResult == null) {
-            return userInput == null ? "" : userInput;
+            return "normalizedIntent=reconstruction_unavailable"
+                    + "; explicitGoal="
+                    + "; entities={}"
+                    + "; constraints=[]"
+                    + "; timeScope=unspecified"
+                    + "; missingSlots=[reconstruction_unavailable]"
+                    + "; intentConfidence=0.0"
+                    + "; rawInputArchived=true"
+                    + "; rawInputLength=" + (userInput == null ? 0 : userInput.trim().length());
         }
         return "normalizedIntent=" + safe(reconstructionResult.getNormalizedUserIntent())
                 + "; explicitGoal=" + safe(reconstructionResult.getExplicitTaskGoal())
@@ -387,6 +423,201 @@ public class DefaultContextAssembler implements ContextAssembler {
         return constraints;
     }
 
+    private OnDemandMemoryPayload resolveOnDemandMemory(String sessionId,
+                                                        StructuredContextPackage contextPackage,
+                                                        InputReconstructionResult reconstructionResult,
+                                                        String userInput,
+                                                        ContextNodeTemplatePolicy policy,
+                                                        List<String> workingMemorySnippets,
+                                                        List<String> retrievedMemorySnippets,
+                                                        List<String> knowledgeSnippets,
+                                                        List<String> preferenceSnippets,
+                                                        List<String> longTermMemorySnippets,
+                                                        List<EvidenceBlock> knowledgeEvidenceBlocks) {
+        if (sessionId == null || sessionId.isBlank() || contextPackage == null) {
+            return OnDemandMemoryPayload.empty();
+        }
+        boolean needTaskMemory = shouldFetchTaskMemory(
+                policy,
+                workingMemorySnippets,
+                retrievedMemorySnippets,
+                knowledgeSnippets,
+                longTermMemorySnippets,
+                knowledgeEvidenceBlocks
+        );
+        boolean needRelationalMemory = shouldFetchRelationalMemory(policy, preferenceSnippets, longTermMemorySnippets);
+        if (!needTaskMemory && !needRelationalMemory) {
+            return OnDemandMemoryPayload.empty();
+        }
+
+        String semanticQuery = buildOnDemandSemanticQuery(reconstructionResult, userInput, contextPackage, policy);
+        Map<String, Object> taskContext = needTaskMemory
+                ? safeMap(taskMemoryRetriever.retrieve(sessionId, semanticQuery, contextPackage.getTaskState()))
+                : Map.of();
+        Map<String, Object> relationalContext = needRelationalMemory
+                ? safeMap(relationalMemoryRetriever.retrieve(sessionId, semanticQuery, contextPackage.getRelationalState()))
+                : Map.of();
+
+        List<String> working = extractWorkingMemorySnippets(taskContext);
+        List<String> retrieved = mergeDistinct(
+                extractPerceptualBufferSnippets(taskContext.get("task_perceptual_buffer"), "task_buffer"),
+                extractPerceptualBufferSnippets(relationalContext.get("relational_perceptual_buffer"), "relation_buffer")
+        );
+        List<String> knowledge = extractKnowledgeSnippets(taskContext);
+        List<String> preferences = extractRelationalPreferenceSnippets(relationalContext);
+        List<String> longTerm = mergeDistinct(
+                extractTaskLongTermSnippets(taskContext),
+                extractRelationalLongTermSnippets(relationalContext)
+        );
+        return new OnDemandMemoryPayload(working, retrieved, knowledge, preferences, longTerm);
+    }
+
+    private boolean shouldFetchTaskMemory(ContextNodeTemplatePolicy policy,
+                                          List<String> workingMemorySnippets,
+                                          List<String> retrievedMemorySnippets,
+                                          List<String> knowledgeSnippets,
+                                          List<String> longTermMemorySnippets,
+                                          List<EvidenceBlock> knowledgeEvidenceBlocks) {
+        if (policy == null) {
+            return isEmpty(workingMemorySnippets) || isEmpty(knowledgeSnippets);
+        }
+        if (policy.isIncludeWorkingMemory() && isEmpty(workingMemorySnippets)) {
+            return true;
+        }
+        if (policy.isIncludeRetrievedMemory() && isEmpty(retrievedMemorySnippets)) {
+            return true;
+        }
+        if (policy.isIncludeLongTermMemory() && isEmpty(longTermMemorySnippets)) {
+            return true;
+        }
+        return isEmpty(knowledgeEvidenceBlocks) && isEmpty(knowledgeSnippets);
+    }
+
+    private boolean shouldFetchRelationalMemory(ContextNodeTemplatePolicy policy,
+                                                List<String> preferenceSnippets,
+                                                List<String> longTermMemorySnippets) {
+        if (policy == null) {
+            return isEmpty(preferenceSnippets);
+        }
+        if (policy.isIncludeLongTermMemory() && isEmpty(preferenceSnippets)) {
+            return true;
+        }
+        return policy.isIncludeRetrievedMemory() && isEmpty(longTermMemorySnippets);
+    }
+
+    private String buildOnDemandSemanticQuery(InputReconstructionResult reconstructionResult,
+                                              String userInput,
+                                              StructuredContextPackage contextPackage,
+                                              ContextNodeTemplatePolicy policy) {
+        String explicitGoal = reconstructionResult == null ? "" : safe(reconstructionResult.getExplicitTaskGoal());
+        String normalizedIntent = reconstructionResult == null ? "" : safe(reconstructionResult.getNormalizedUserIntent());
+        TaskState taskStateEntity = contextPackage == null ? null : contextPackage.getTaskStateEntity();
+        String stateGoal = taskStateEntity == null ? "" : safe(taskStateEntity.getObjective());
+        String currentNode = taskStateEntity == null ? "" : safe(taskStateEntity.getCurrentNode());
+        String retrievalIntent = contextPackage == null || contextPackage.getRetrievalState() == null
+                ? ""
+                : safe(contextPackage.getRetrievalState().getReconstructedIntent());
+        return "goal=" + firstNonBlank(explicitGoal, firstNonBlank(normalizedIntent, firstNonBlank(stateGoal, safe(userInput))))
+                + " | node=" + firstNonBlank(currentNode, safe(policy == null ? null : policy.getNodeType()))
+                + " | retrieval_intent=" + retrievalIntent
+                + " | stage=" + safe(contextPackage == null || contextPackage.getTaskState() == null ? null : contextPackage.getTaskState().name());
+    }
+
+    private List<String> extractWorkingMemorySnippets(Map<String, Object> taskContext) {
+        Map<String, Object> working = mapOf(taskContext.get("working_memory"));
+        if (working.isEmpty()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        out.add("working.goal_raw: " + safe(working.get("goal_raw")));
+        out.add("working.goal_refined: " + safe(working.get("goal_refined")));
+        out.add("working.unresolved_questions: " + safe(working.get("unresolved_questions_json")));
+        out.add("working.risks: " + safe(working.get("risks_json")));
+        out.add("working.active_node_id: " + safe(working.get("active_node_id")));
+        return out.stream().filter(value -> value != null && !value.isBlank()).distinct().toList();
+    }
+
+    private List<String> extractTaskLongTermSnippets(Map<String, Object> taskContext) {
+        List<String> out = new ArrayList<>();
+        for (Map<String, Object> item : listOfMap(taskContext.get("task_facts"))) {
+            out.add("task_fact: " + safe(item.get("fact_key")) + "=" + safe(item.get("fact_value_text")));
+        }
+        for (Map<String, Object> item : listOfMap(taskContext.get("task_episodes"))) {
+            out.add("task_episode: " + safe(item.get("episode_type")) + " | " + safe(item.get("trajectory_summary")));
+        }
+        for (Map<String, Object> item : listOfMap(taskContext.get("task_procedures"))) {
+            out.add("task_procedure: " + safe(item.get("name")) + " | " + safe(item.get("description")));
+        }
+        return out.stream().filter(value -> value != null && !value.isBlank()).distinct().limit(20).toList();
+    }
+
+    private List<String> extractRelationalLongTermSnippets(Map<String, Object> relationalContext) {
+        List<String> out = new ArrayList<>();
+        for (Map<String, Object> item : listOfMap(relationalContext.get("episodes"))) {
+            out.add("relation_episode: " + safe(item.get("episode_type")) + " | " + safe(item.get("summary")));
+        }
+        for (Map<String, Object> item : listOfMap(relationalContext.get("procedures"))) {
+            out.add("relation_procedure: " + safe(item.get("name")) + " | " + safe(item.get("description")));
+        }
+        return out.stream().filter(value -> value != null && !value.isBlank()).distinct().limit(20).toList();
+    }
+
+    private List<String> extractRelationalPreferenceSnippets(Map<String, Object> relationalContext) {
+        List<String> out = new ArrayList<>();
+        for (Map<String, Object> item : listOfMap(relationalContext.get("semantic_facts"))) {
+            out.add("relation_pref: " + safe(item.get("fact_key")) + "=" + safe(item.get("fact_value_text")));
+        }
+        return out.stream().filter(value -> value != null && !value.isBlank()).distinct().limit(16).toList();
+    }
+
+    private List<String> extractKnowledgeSnippets(Map<String, Object> taskContext) {
+        List<String> out = new ArrayList<>();
+        for (Map<String, Object> item : listOfMap(taskContext.get("knowledge"))) {
+            out.add("title: " + safe(item.get("title")) + "\ncontent: " + safe(firstNonBlank(safe(item.get("chunk_text")), safe(item.get("content")))));
+        }
+        return out.stream().filter(value -> value != null && !value.isBlank()).distinct().limit(12).toList();
+    }
+
+    private List<String> extractPerceptualBufferSnippets(Object value, String prefix) {
+        List<String> out = new ArrayList<>();
+        for (Map<String, Object> item : listOfMap(value)) {
+            String main = firstNonBlank(safe(item.get("signal_json")), firstNonBlank(safe(item.get("emotion_signal_json")), safe(item.get("message_ref"))));
+            if (!main.isBlank()) {
+                out.add(prefix + ": " + main);
+            }
+        }
+        return out.stream().filter(item -> item != null && !item.isBlank()).distinct().limit(12).toList();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> safeMap(Map<String, Object> value) {
+        if (value == null || value.isEmpty()) {
+            return Map.of();
+        }
+        return value;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> mapOf(Object value) {
+        return value instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> listOfMap(Object value) {
+        return value instanceof List<?> list ? (List<Map<String, Object>>) list : Collections.emptyList();
+    }
+
+    private boolean isEmpty(List<?> value) {
+        return value == null || value.isEmpty();
+    }
+
+    private String firstNonBlank(String first, String second) {
+        if (first != null && !first.isBlank()) {
+            return first;
+        }
+        return second == null ? "" : second;
+    }
+
     private List<String> limit(List<String> input, int maxItems) {
         if (input == null || input.isEmpty() || maxItems <= 0) {
             return List.of();
@@ -408,7 +639,7 @@ public class DefaultContextAssembler implements ContextAssembler {
         return new ArrayList<>(merged);
     }
 
-    private String toPrompt(Map<String, List<String>> sections, String userInput) {
+    private String toPrompt(Map<String, List<String>> sections, String runtimePromptInput) {
         StringBuilder sb = new StringBuilder();
         for (Map.Entry<String, List<String>> entry : sections.entrySet()) {
             sb.append("## ").append(entry.getKey()).append("\n");
@@ -423,8 +654,23 @@ public class DefaultContextAssembler implements ContextAssembler {
             sb.append("\n");
         }
         sb.append("## Runtime Prompt\n");
-        sb.append(PromptTemplates.RUNTIME_PROMPT.formatted(userInput == null ? "" : userInput.trim()));
+        sb.append(PromptTemplates.RUNTIME_PROMPT.formatted(runtimePromptInput == null ? "" : runtimePromptInput.trim()));
         return sb.toString();
+    }
+
+    private String buildRuntimePromptInput(String userInput, InputReconstructionResult reconstructionResult) {
+        if (reconstructionResult == null) {
+            return "raw_input_archived=true; use_reconstructed_intent_section_as_primary_input";
+        }
+        return "normalizedIntent=" + safe(reconstructionResult.getNormalizedUserIntent())
+                + "; explicitTaskGoal=" + safe(reconstructionResult.getExplicitTaskGoal())
+                + "; clarifiedEntities=" + safe(reconstructionResult.getClarifiedEntities())
+                + "; businessConstraints=" + safe(reconstructionResult.getBusinessConstraints())
+                + "; timeScope=" + safe(reconstructionResult.getTimeScope())
+                + "; missingSlots=" + safe(reconstructionResult.getMissingSlots())
+                + "; intentConfidence=" + reconstructionResult.getIntentConfidence()
+                + "; rawInputArchived=true"
+                + "; rawInputLength=" + (userInput == null ? 0 : userInput.trim().length());
     }
 
     private List<String> lines(String text) {
@@ -457,5 +703,15 @@ public class DefaultContextAssembler implements ContextAssembler {
             }
         }
         return mapped;
+    }
+
+    private record OnDemandMemoryPayload(List<String> workingMemorySnippets,
+                                         List<String> retrievedMemorySnippets,
+                                         List<String> knowledgeSnippets,
+                                         List<String> preferenceSnippets,
+                                         List<String> longTermMemorySnippets) {
+        private static OnDemandMemoryPayload empty() {
+            return new OnDemandMemoryPayload(List.of(), List.of(), List.of(), List.of(), List.of());
+        }
     }
 }
