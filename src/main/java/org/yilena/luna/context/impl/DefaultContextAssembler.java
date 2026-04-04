@@ -68,7 +68,6 @@ public class DefaultContextAssembler implements ContextAssembler {
                 sessionId,
                 contextPackage,
                 reconstructionResult,
-                userInput,
                 policy,
                 workingMemorySnippets,
                 retrievedMemorySnippets,
@@ -426,7 +425,6 @@ public class DefaultContextAssembler implements ContextAssembler {
     private OnDemandMemoryPayload resolveOnDemandMemory(String sessionId,
                                                         StructuredContextPackage contextPackage,
                                                         InputReconstructionResult reconstructionResult,
-                                                        String userInput,
                                                         ContextNodeTemplatePolicy policy,
                                                         List<String> workingMemorySnippets,
                                                         List<String> retrievedMemorySnippets,
@@ -450,7 +448,7 @@ public class DefaultContextAssembler implements ContextAssembler {
             return OnDemandMemoryPayload.empty();
         }
 
-        String semanticQuery = buildOnDemandSemanticQuery(reconstructionResult, userInput, contextPackage, policy);
+        String semanticQuery = buildOnDemandSemanticQuery(reconstructionResult, contextPackage, policy);
         Map<String, Object> taskContext = needTaskMemory
                 ? safeMap(taskMemoryRetriever.retrieve(sessionId, semanticQuery, contextPackage.getTaskState()))
                 : Map.of();
@@ -506,7 +504,6 @@ public class DefaultContextAssembler implements ContextAssembler {
     }
 
     private String buildOnDemandSemanticQuery(InputReconstructionResult reconstructionResult,
-                                              String userInput,
                                               StructuredContextPackage contextPackage,
                                               ContextNodeTemplatePolicy policy) {
         String explicitGoal = reconstructionResult == null ? "" : safe(reconstructionResult.getExplicitTaskGoal());
@@ -517,10 +514,15 @@ public class DefaultContextAssembler implements ContextAssembler {
         String retrievalIntent = contextPackage == null || contextPackage.getRetrievalState() == null
                 ? ""
                 : safe(contextPackage.getRetrievalState().getReconstructedIntent());
-        return "goal=" + firstNonBlank(explicitGoal, firstNonBlank(normalizedIntent, firstNonBlank(stateGoal, safe(userInput))))
+        String goalSeed = firstNonBlank(explicitGoal, firstNonBlank(normalizedIntent, stateGoal));
+        if (goalSeed.isBlank()) {
+            goalSeed = "goal_unavailable";
+        }
+        return "goal=" + goalSeed
                 + " | node=" + firstNonBlank(currentNode, safe(policy == null ? null : policy.getNodeType()))
                 + " | retrieval_intent=" + retrievalIntent
-                + " | stage=" + safe(contextPackage == null || contextPackage.getTaskState() == null ? null : contextPackage.getTaskState().name());
+                + " | stage=" + safe(contextPackage == null || contextPackage.getTaskState() == null ? null : contextPackage.getTaskState().name())
+                + " | query_source=governed_structured_signal";
     }
 
     private List<String> extractWorkingMemorySnippets(Map<String, Object> taskContext) {

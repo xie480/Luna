@@ -13,6 +13,7 @@ import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.utils.AuthContextHolder;
 
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -163,8 +164,9 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
                                             String payloadJson,
                                             ExecutionSnapshot executionSnapshot) {
         String type = safeUpper(eventType);
-        String text = safeLower(signal);
         String payload = safeLower(payloadJson);
+        StructuredSignal structuredSignal = parseStructuredSignal(signal);
+        boolean allowRawKeywordFallback = !structuredSignal.structured() || structuredSignal.reconstructionIncomplete();
 
         TaskRuntimeState runtimeDriven = inferTaskStateFromExecution(executionSnapshot, previous);
 
@@ -211,16 +213,16 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
             return TaskRuntimeState.REPORTING;
         }
 
-        if (containsAny(text, "cancel", "stop", "abort", "取消", "终止", "停止")) {
+        if (containsSignal(structuredSignal, allowRawKeywordFallback, "cancel", "stop", "abort", "取消", "终止", "停止")) {
             return TaskRuntimeState.CANCELLED;
         }
 
         if (runtimeDriven != null) {
             if (runtimeDriven == TaskRuntimeState.WAITING_PLAN_CONFIRMATION) {
-                if (containsAny(text, "confirm", "approved", "yes", "go ahead", "execute plan", "确认", "同意", "按这个计划", "开始执行")) {
+                if (isPlanConfirmationSignal(structuredSignal, allowRawKeywordFallback)) {
                     return TaskRuntimeState.EXECUTING;
                 }
-                if (containsAny(text, "reject", "modify plan", "change plan", "replan", "不同意", "重做计划", "改方案", "调整计划")) {
+                if (isPlanRejectionSignal(structuredSignal, allowRawKeywordFallback)) {
                     return TaskRuntimeState.REPLANNING;
                 }
             }
@@ -228,43 +230,62 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
         }
 
         if (previous == TaskRuntimeState.WAITING_PLAN_CONFIRMATION) {
-            if (containsAny(text, "confirm", "approved", "yes", "go ahead", "execute plan", "确认", "同意", "按这个计划", "开始执行")) {
+            if (isPlanConfirmationSignal(structuredSignal, allowRawKeywordFallback)) {
                 return TaskRuntimeState.EXECUTING;
             }
-            if (containsAny(text, "reject", "modify plan", "change plan", "replan", "不同意", "重做计划", "改方案", "调整计划")) {
+            if (isPlanRejectionSignal(structuredSignal, allowRawKeywordFallback)) {
                 return TaskRuntimeState.REPLANNING;
             }
             return TaskRuntimeState.WAITING_PLAN_CONFIRMATION;
         }
 
-        if (containsAny(text, "done", "completed", "finish", "完成", "搞定", "结束")) {
+        TaskRuntimeState structuredDriven = inferTaskStateFromStructuredSignal(previous, structuredSignal);
+        if (structuredDriven != null) {
+            return structuredDriven;
+        }
+
+        if (structuredSignal.structured() && !allowRawKeywordFallback) {
+            if (previous == TaskRuntimeState.WAITING_USER
+                    || previous == TaskRuntimeState.WAITING_TOOL
+                    || previous == TaskRuntimeState.WAITING_APPROVAL) {
+                return TaskRuntimeState.CONTEXT_BUILDING;
+            }
+            if (previous == TaskRuntimeState.IDLE || previous == TaskRuntimeState.COMPLETED || previous == TaskRuntimeState.CANCELLED) {
+                return TaskRuntimeState.UNDERSTANDING;
+            }
+            return previous == null ? TaskRuntimeState.UNDERSTANDING : previous;
+        }
+
+        String keywordSignal = allowRawKeywordFallback ? structuredSignal.rawSignal() : structuredSignal.taskCorpus();
+
+        if (containsAny(keywordSignal, "done", "completed", "finish", "完成", "搞定", "结束")) {
             return TaskRuntimeState.COMPLETED;
         }
-        if (containsAny(text, "approval", "approve", "need approval", "审批", "批准", "确认权限")) {
+        if (containsAny(keywordSignal, "approval", "approve", "need approval", "审批", "批准", "确认权限")) {
             return TaskRuntimeState.WAITING_APPROVAL;
         }
-        if (containsAny(text, "pending", "wait tool", "tool result", "callback", "等待工具", "回调", "待返回")) {
+        if (containsAny(keywordSignal, "pending", "wait tool", "tool result", "callback", "等待工具", "回调", "待返回")) {
             return TaskRuntimeState.WAITING_TOOL;
         }
-        if (containsAny(text, "confirm plan", "approve plan", "confirm the plan", "确认计划", "确认方案", "计划确认")) {
+        if (containsAny(keywordSignal, "confirm plan", "approve plan", "confirm the plan", "确认计划", "确认方案", "计划确认")) {
             return TaskRuntimeState.WAITING_PLAN_CONFIRMATION;
         }
-        if (containsAny(text, "plan", "roadmap", "strategy", "规划", "计划", "方案")) {
+        if (containsAny(keywordSignal, "plan", "roadmap", "strategy", "规划", "计划", "方案")) {
             return TaskRuntimeState.PLANNING;
         }
-        if (containsAny(text, "execute", "implement", "fix", "run", "build", "coding", "执行", "实现", "修复", "开发")) {
+        if (containsAny(keywordSignal, "execute", "implement", "fix", "run", "build", "coding", "执行", "实现", "修复", "开发")) {
             return TaskRuntimeState.EXECUTING;
         }
-        if (containsAny(text, "report", "summary", "retrospective", "汇报", "总结", "报告", "复盘")) {
+        if (containsAny(keywordSignal, "report", "summary", "retrospective", "汇报", "总结", "报告", "复盘")) {
             return TaskRuntimeState.REPORTING;
         }
-        if (containsAny(text, "failed", "error", "retry", "replan", "失败", "报错", "重试", "反思")) {
+        if (containsAny(keywordSignal, "failed", "error", "retry", "replan", "失败", "报错", "重试", "反思")) {
             return previous == TaskRuntimeState.REFLECTING ? TaskRuntimeState.REPLANNING : TaskRuntimeState.REFLECTING;
         }
-        if (containsAny(text, "context", "supplement", "background", "补充", "上下文", "背景")) {
+        if (containsAny(keywordSignal, "context", "supplement", "background", "补充", "上下文", "背景")) {
             return TaskRuntimeState.CONTEXT_BUILDING;
         }
-        if (containsAny(text, "wait", "later", "hold on", "稍后", "先等等", "暂停")) {
+        if (containsAny(keywordSignal, "wait", "later", "hold on", "稍后", "先等等", "暂停")) {
             return TaskRuntimeState.WAITING_USER;
         }
         if (previous == TaskRuntimeState.WAITING_USER || previous == TaskRuntimeState.WAITING_TOOL || previous == TaskRuntimeState.WAITING_APPROVAL) {
@@ -319,8 +340,9 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
 
     private RelationalRuntimeState inferRelationalState(RelationalRuntimeState previous, String eventType, String signal, String payloadJson) {
         String type = safeUpper(eventType);
-        String text = safeLower(signal);
         String payload = safeLower(payloadJson);
+        StructuredSignal structuredSignal = parseStructuredSignal(signal);
+        boolean allowRawKeywordFallback = !structuredSignal.structured() || structuredSignal.reconstructionIncomplete();
 
         if ("APPROVAL".equals(type)) {
             if (containsAny(payload, "\"approved\":false", "\"approved\":0")) {
@@ -331,16 +353,16 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
         if ("TOOL_RESULT".equals(type) && containsAny(payload, "\"error\"", "\"failed\"")) {
             return RelationalRuntimeState.REPAIRING;
         }
-        if (containsAny(text, "anxious", "burnout", "tired", "sad", "stress", "焦虑", "崩溃", "很累", "难受", "低落")) {
+        if (containsSignal(structuredSignal, allowRawKeywordFallback, "anxious", "burnout", "tired", "sad", "stress", "焦虑", "崩溃", "很累", "难受", "低落")) {
             return RelationalRuntimeState.EMOTIONAL_SUPPORT;
         }
-        if (containsAny(text, "misunderstand", "offended", "uncomfortable", "误会", "冒犯", "不舒服")) {
+        if (containsSignal(structuredSignal, allowRawKeywordFallback, "misunderstand", "offended", "uncomfortable", "误会", "冒犯", "不舒服")) {
             return RelationalRuntimeState.REPAIRING;
         }
-        if (containsAny(text, "celebrate", "great", "awesome", "庆祝", "太好了", "成功了", "开心")) {
+        if (containsSignal(structuredSignal, allowRawKeywordFallback, "celebrate", "great", "awesome", "庆祝", "太好了", "成功了", "开心")) {
             return RelationalRuntimeState.CELEBRATING;
         }
-        if (containsAny(text, "deep talk", "share", "倾诉", "深聊", "聊聊心里话")) {
+        if (containsSignal(structuredSignal, allowRawKeywordFallback, "deep talk", "share", "倾诉", "深聊", "聊聊心里话")) {
             return RelationalRuntimeState.DEEP_TALK;
         }
         if (previous == RelationalRuntimeState.COLD_START) {
@@ -349,10 +371,135 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
         if (previous == RelationalRuntimeState.FAMILIARIZING) {
             return RelationalRuntimeState.TRUST_BUILDING;
         }
-        if (previous == RelationalRuntimeState.TRUST_BUILDING && containsAny(text, "together", "陪我", "长期", "一直")) {
+        if (previous == RelationalRuntimeState.TRUST_BUILDING
+                && containsSignal(structuredSignal, allowRawKeywordFallback, "together", "陪我", "长期", "一直")) {
             return RelationalRuntimeState.COMPANION_MODE;
         }
+        if (structuredSignal.structured() && structuredSignal.hasGoalOrIntent()) {
+            return previous == null ? RelationalRuntimeState.FAMILIARIZING : previous;
+        }
         return RelationalRuntimeState.LIGHT_CHAT;
+    }
+
+    private TaskRuntimeState inferTaskStateFromStructuredSignal(TaskRuntimeState previous, StructuredSignal signal) {
+        if (signal == null || !signal.structured()) {
+            return null;
+        }
+        if (signal.reconstructionIncomplete()) {
+            if (previous == TaskRuntimeState.WAITING_USER
+                    || previous == TaskRuntimeState.WAITING_TOOL
+                    || previous == TaskRuntimeState.WAITING_APPROVAL) {
+                return TaskRuntimeState.CONTEXT_BUILDING;
+            }
+            return previous == null ? TaskRuntimeState.UNDERSTANDING : previous;
+        }
+        if (containsAny(signal.taskCorpus(), "done", "completed", "finish", "完成", "搞定", "结束")) {
+            return TaskRuntimeState.COMPLETED;
+        }
+        if (signal.missingSlotCount() > 0) {
+            return TaskRuntimeState.PLANNING;
+        }
+        if (containsAny(signal.taskCorpus(), "approval", "approve", "need approval", "审批", "批准", "确认权限")) {
+            return TaskRuntimeState.WAITING_APPROVAL;
+        }
+        if (containsAny(signal.taskCorpus(), "wait", "later", "hold on", "稍后", "先等等", "暂停")) {
+            return TaskRuntimeState.WAITING_USER;
+        }
+        if (signal.hasGoalOrIntent()) {
+            if (previous == TaskRuntimeState.IDLE || previous == TaskRuntimeState.COMPLETED || previous == TaskRuntimeState.CANCELLED) {
+                return TaskRuntimeState.UNDERSTANDING;
+            }
+            if (previous == TaskRuntimeState.WAITING_USER
+                    || previous == TaskRuntimeState.WAITING_TOOL
+                    || previous == TaskRuntimeState.WAITING_APPROVAL) {
+                return TaskRuntimeState.CONTEXT_BUILDING;
+            }
+        }
+        return null;
+    }
+
+    private boolean isPlanConfirmationSignal(StructuredSignal signal, boolean allowRawKeywordFallback) {
+        return containsSignal(signal, allowRawKeywordFallback,
+                "confirm", "approved", "yes", "go ahead", "execute plan", "确认", "同意", "按这个计划", "开始执行");
+    }
+
+    private boolean isPlanRejectionSignal(StructuredSignal signal, boolean allowRawKeywordFallback) {
+        return containsSignal(signal, allowRawKeywordFallback,
+                "reject", "modify plan", "change plan", "replan", "不同意", "重做计划", "改方案", "调整计划");
+    }
+
+    private boolean containsSignal(StructuredSignal signal, boolean allowRawKeywordFallback, String... words) {
+        if (signal == null) {
+            return false;
+        }
+        String primary = signal.structured() ? signal.intent() : signal.taskCorpus();
+        if (containsAny(primary, words)) {
+            return true;
+        }
+        if (signal.structured() && signal.reconstructionIncomplete() && containsAny(signal.taskCorpus(), words)) {
+            return true;
+        }
+        return allowRawKeywordFallback && containsAny(signal.rawSignal(), words);
+    }
+
+    private StructuredSignal parseStructuredSignal(String signal) {
+        String raw = safeLower(signal);
+        if (raw.isBlank()) {
+            return StructuredSignal.empty(raw);
+        }
+        Map<String, String> fields = new LinkedHashMap<>();
+        String[] segments = signal.split(";");
+        for (String segment : segments) {
+            if (segment == null || segment.isBlank()) {
+                continue;
+            }
+            int separator = segment.indexOf('=');
+            if (separator <= 0) {
+                continue;
+            }
+            String key = segment.substring(0, separator).trim().toLowerCase(Locale.ROOT);
+            String value = segment.substring(separator + 1).trim();
+            if (!key.isBlank()) {
+                fields.put(key, value);
+            }
+        }
+        if (fields.isEmpty()) {
+            return StructuredSignal.empty(raw);
+        }
+        return new StructuredSignal(
+                true,
+                safeLower(fields.get("intent")),
+                safeLower(fields.get("goal")),
+                safeLower(fields.get("timescope")),
+                safeLower(fields.get("fallback")),
+                parseListLikeCount(fields.get("missingslots")),
+                parseListLikeCount(fields.get("constraints")),
+                raw
+        );
+    }
+
+    private int parseListLikeCount(String rawValue) {
+        if (rawValue == null) {
+            return 0;
+        }
+        String text = rawValue.trim();
+        if (text.isBlank() || "[]".equals(text)) {
+            return 0;
+        }
+        if (text.startsWith("[") && text.endsWith("]") && text.length() >= 2) {
+            text = text.substring(1, text.length() - 1).trim();
+        }
+        if (text.isBlank()) {
+            return 0;
+        }
+        int count = 0;
+        String[] items = text.split(",");
+        for (String item : items) {
+            if (item != null && !item.trim().isBlank()) {
+                count++;
+            }
+        }
+        return Math.max(1, count);
     }
 
     private ExecutionSnapshot resolveExecutionSnapshot(String sessionId) {
@@ -618,6 +765,40 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
             }
         }
         return false;
+    }
+
+    private record StructuredSignal(boolean structured,
+                                    String intent,
+                                    String goal,
+                                    String timeScope,
+                                    String fallback,
+                                    int missingSlotCount,
+                                    int constraintCount,
+                                    String rawSignal) {
+        private static StructuredSignal empty(String rawSignal) {
+            return new StructuredSignal(false, "", "", "", "", 0, 0, rawSignal == null ? "" : rawSignal);
+        }
+
+        private String taskCorpus() {
+            return (intent + " " + goal + " " + timeScope + " " + fallback).trim();
+        }
+
+        private boolean hasGoalOrIntent() {
+            boolean hasIntent = intent != null && !intent.isBlank() && !intent.contains("intent_unavailable");
+            boolean hasGoal = goal != null && !goal.isBlank() && !goal.contains("goal_unavailable");
+            return hasIntent || hasGoal;
+        }
+
+        private boolean reconstructionIncomplete() {
+            if (!structured) {
+                return true;
+            }
+            return (fallback != null && (
+                    fallback.contains("reconstruction_missing")
+                            || fallback.contains("reconstruction_partial")
+                            || fallback.contains("empty_orchestration_signal")
+            )) || !hasGoalOrIntent();
+        }
     }
 
     private record ExecutionSnapshot(PlanExecutionStatus planStatus, NodeExecutionStatus nodeStatus) {

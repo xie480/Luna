@@ -506,9 +506,16 @@ public class ApprovalServiceImpl implements ApprovalService {
                     assembledContext == null ? Map.of() : assembledContext.getSectionTokenCounts(),
                     assembledContext == null ? Map.of() : assembledContext.getSectionTokenRatios()
             );
-            String prompt = assembledContext == null || assembledContext.getPrompt() == null || assembledContext.getPrompt().isBlank()
-                    ? PromptTemplates.SYSTEM_PROMPT + "\n\n" + PromptTemplates.RUNTIME_PROMPT.formatted(runtimePromptSeed(task.getUserInput(), reconstructionResult))
-                    : assembledContext.getPrompt();
+            String prompt = governedPromptOrBlank(
+                    assembledContext,
+                    task.getSessionId(),
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    "APPROVAL_RECOVERY"
+            );
+            if (prompt.isBlank()) {
+                return errorJson("context governance blocked: final governed workset is empty");
+            }
             SendToLuna result = getSendToLuna(prompt, task.getUserInput());
             SummaryResult summaryResult = summaryAgent.summarize(
                     task.getUserInput(),
@@ -952,6 +959,38 @@ public class ApprovalServiceImpl implements ApprovalService {
         return List.of(value);
     }
 
+    private String governedPromptOrBlank(AssembledContext assembledContext,
+                                         String sessionId,
+                                         Long planId,
+                                         Long nodeId,
+                                         String stage) {
+        String prompt = assembledContext == null ? "" : safe(assembledContext.getPrompt());
+        if (!prompt.isBlank()) {
+            return prompt;
+        }
+        runtimeAuditService.persistDecisionRecord(
+                sessionId,
+                planId,
+                nodeId,
+                "CONTEXT_GOVERNANCE_BLOCKED",
+                "main model execution blocked because final governed workset is empty",
+                toJsonSafe(Map.of(
+                        "stage", safe(stage),
+                        "snapshotId", assembledContext == null ? "" : safe(assembledContext.getSnapshotId()),
+                        "assembledContextPresent", assembledContext != null
+                ))
+        );
+        return "";
+    }
+
+    private String toJsonSafe(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception ignore) {
+            return "{}";
+        }
+    }
+
     private SendToLuna getSendToLuna(String prompt, String originalUserInput) {
         LlmRequest request = LlmRequest.builder()
                 .modelType(ModelType.OPENAI_COMPATIBLE)
@@ -1090,21 +1129,6 @@ public class ApprovalServiceImpl implements ApprovalService {
             return first;
         }
         return second == null ? "" : second;
-    }
-
-    private String runtimePromptSeed(String userInput, InputReconstructionResult reconstructionResult) {
-        if (reconstructionResult == null) {
-            return "raw_input_archived=true; use_reconstructed_intent_section_as_primary_input";
-        }
-        return "normalizedIntent=" + safe(reconstructionResult.getNormalizedUserIntent())
-                + "; explicitTaskGoal=" + safe(reconstructionResult.getExplicitTaskGoal())
-                + "; clarifiedEntities=" + safe(reconstructionResult.getClarifiedEntities())
-                + "; businessConstraints=" + safe(reconstructionResult.getBusinessConstraints())
-                + "; timeScope=" + safe(reconstructionResult.getTimeScope())
-                + "; missingSlots=" + safe(reconstructionResult.getMissingSlots())
-                + "; intentConfidence=" + reconstructionResult.getIntentConfidence()
-                + "; rawInputArchived=true"
-                + "; rawInputLength=" + (userInput == null ? 0 : userInput.trim().length());
     }
 
     private record SendToLuna(String raw, String valid, String replyText) {

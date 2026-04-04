@@ -380,9 +380,17 @@ public class ChatServiceImpl implements ChatService {
                 "final model context snapshot persisted",
                 toJsonSafe(Map.of("snapshotId", finalSnapshotId == null ? "" : finalSnapshotId))
         );
-        String finalPrompt = assembledContext == null || assembledContext.getPrompt() == null || assembledContext.getPrompt().isBlank()
-                ? PromptTemplates.SYSTEM_PROMPT + "\n\n" + PromptTemplates.RUNTIME_PROMPT.formatted(runtimePromptSeed(input, reconstruction))
-                : assembledContext.getPrompt();
+        String finalPrompt = governedPromptOrBlank(
+                assembledContext,
+                runtimeSessionId,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage),
+                "CHAT_TURN"
+        );
+        if (finalPrompt.isBlank()) {
+            statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
+            return ResponseEntity.status(503).body(contextGovernanceBlockedPayload("chat turn aborted because final governed workset is empty"));
+        }
         SendToLuna result = getSendToLuna(finalPrompt, input, contextPackage);
         LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(result.raw());
         MemoryWriteGateDecision writeGate = evaluateMemoryWriteGate(input, result.replyText(), reconstruction, toolSemanticResult, false);
@@ -485,9 +493,11 @@ public class ChatServiceImpl implements ChatService {
                 null,
                 null
         );
-        String prompt = startupContext == null || startupContext.getPrompt() == null || startupContext.getPrompt().isBlank()
-                ? PromptTemplates.SYSTEM_PROMPT + "\n\n" + PromptTemplates.RUNTIME_PROMPT.formatted("startup")
-                : startupContext.getPrompt();
+        String prompt = governedPromptOrBlank(startupContext, keyPrefix, null, null, "STARTUP");
+        if (prompt.isBlank()) {
+            statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
+            return ResponseEntity.status(503).body(contextGovernanceBlockedPayload("startup aborted because final governed workset is empty"));
+        }
         SendToLuna result = getSendToLuna(prompt, "startup", null);
         LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(result.raw());
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.LUNA, result.replyText(), LocalTime.now()));
@@ -945,21 +955,6 @@ public class ChatServiceImpl implements ChatService {
         } catch (Exception ignore) {
             return toolContext;
         }
-    }
-
-    private String runtimePromptSeed(String userInput, InputReconstructionResult reconstructionResult) {
-        if (reconstructionResult == null) {
-            return "raw_input_archived=true; use_reconstructed_intent_section_as_primary_input";
-        }
-        return "normalizedIntent=" + nullSafe(stringValue(reconstructionResult.getNormalizedUserIntent()))
-                + "; explicitTaskGoal=" + nullSafe(stringValue(reconstructionResult.getExplicitTaskGoal()))
-                + "; clarifiedEntities=" + nullSafe(stringValue(reconstructionResult.getClarifiedEntities()))
-                + "; businessConstraints=" + nullSafe(stringValue(reconstructionResult.getBusinessConstraints()))
-                + "; timeScope=" + nullSafe(stringValue(reconstructionResult.getTimeScope()))
-                + "; missingSlots=" + nullSafe(stringValue(reconstructionResult.getMissingSlots()))
-                + "; intentConfidence=" + reconstructionResult.getIntentConfidence()
-                + "; rawInputArchived=true"
-                + "; rawInputLength=" + (userInput == null ? 0 : userInput.trim().length());
     }
 
     private ToolTraceRefs persistToolExecutionTraces(String sessionId,
@@ -1529,6 +1524,37 @@ public class ChatServiceImpl implements ChatService {
             return List.of();
         }
         return List.of(value);
+    }
+
+    private String governedPromptOrBlank(AssembledContext assembledContext,
+                                         String sessionId,
+                                         Long planId,
+                                         Long nodeId,
+                                         String stage) {
+        String prompt = assembledContext == null ? "" : stringValue(assembledContext.getPrompt());
+        if (!prompt.isBlank()) {
+            return prompt;
+        }
+        runtimeAuditService.persistDecisionRecord(
+                sessionId,
+                planId,
+                nodeId,
+                "CONTEXT_GOVERNANCE_BLOCKED",
+                "main model execution blocked because final governed workset is empty",
+                toJsonSafe(Map.of(
+                        "stage", nullSafe(stage),
+                        "snapshotId", assembledContext == null ? "" : stringValue(assembledContext.getSnapshotId()),
+                        "assembledContextPresent", assembledContext != null
+                ))
+        );
+        return "";
+    }
+
+    private Map<String, Object> contextGovernanceBlockedPayload(String message) {
+        return Map.of(
+                "status", "context_governance_blocked",
+                "message", nullSafe(message)
+        );
     }
 
     private String resolvePrimaryToolName(List<Resource> executionCandidates) {
