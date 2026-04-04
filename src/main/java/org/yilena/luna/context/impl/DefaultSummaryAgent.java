@@ -46,7 +46,7 @@ public class DefaultSummaryAgent implements SummaryAgent {
             taskState=%s
             relationalState=%s
             shortTermMemorySize=%s
-            shortTermMemoryDigest=%s
+            fullShortTermMemory=%s
             latestToolName=%s
             latestToolStatus=%s
             pendingQuestions=%s
@@ -201,20 +201,21 @@ public class DefaultSummaryAgent implements SummaryAgent {
             return "";
         }
         List<Map<String, Object>> recentMessages = contextPackage.getRecentMessages();
-        StringBuilder digest = new StringBuilder(2048);
-        final int maxChars = 3200;
+        StringBuilder digest = new StringBuilder(Math.max(4096, recentMessages.size() * 120));
+        int index = 0;
         for (Map<String, Object> row : recentMessages) {
             String role = safe(row.get("role"));
-            String content = compactContent(safe(row.get("content_text")), 180);
+            String content = safe(row.get("content_text")).replaceAll("\\s+", " ").trim();
             if (role.isBlank() && content.isBlank()) {
                 continue;
             }
-            String line = "[" + role + "] " + content;
-            if (digest.length() + line.length() + 3 > maxChars) {
-                digest.append(" ... [semantic_compacted_from_total=").append(recentMessages.size()).append("]");
-                break;
-            }
-            digest.append(line).append(" | ");
+            digest.append(index++)
+                    .append(":")
+                    .append("[")
+                    .append(role)
+                    .append("] ")
+                    .append(content)
+                    .append("\n");
         }
         return digest.toString().trim();
     }

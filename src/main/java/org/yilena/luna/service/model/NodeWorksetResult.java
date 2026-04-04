@@ -17,10 +17,17 @@ public class NodeWorksetResult {
     String memoryQuery;
     List<Map<String, Object>> mcpPreRankedCandidates;
     ContextRerankResult rerankResult;
+    Map<String, String> rerankRationaleByNode;
     List<EvidenceBlock> selectedKnowledgeEvidenceBlocks;
+    List<String> selectedKnowledgeEvidenceRefs;
     List<String> selectedKnowledgeSnippets;
     List<String> selectedMemorySnippets;
     List<String> selectedPreferenceSnippets;
+    List<String> selectedToolCandidateNames;
+    List<String> selectedPromptResourceNames;
+    List<String> invalidatedEvidenceRefs;
+    List<String> invalidatedCapabilityNames;
+    Map<String, String> invalidationReasonsByRef;
     List<Resource> executionCandidates;
     List<String> mcpResourceHints;
 }

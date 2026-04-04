@@ -41,9 +41,11 @@ import org.yilena.luna.state.store.RecoveryStateStore;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -239,9 +241,11 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 decision == null ? null : decision.getRelationalState(),
                 24
         );
+        rawMcpCandidates = filterInvalidatedCapabilities(rawMcpCandidates, refreshPlan.invalidatedCapabilityNames);
         if ((rawMcpCandidates == null || rawMcpCandidates.isEmpty()) && !refreshPlan.needReassembly) {
             rawMcpCandidates = contextPackage == null ? List.of() : contextPackage.getCapabilityCandidates();
         }
+        rawMcpCandidates = filterInvalidatedCapabilities(rawMcpCandidates, refreshPlan.invalidatedCapabilityNames);
         List<Map<String, Object>> mcpPreRankedCandidates = mcpCandidatePreRank.preRank(
                 mcpDrivenInput,
                 rawMcpCandidates,
@@ -315,6 +319,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     .build();
             RetrievalResponse memoryResponse = retrievalService.retrieve(memoryRequest);
             RetrievalResponse response = mergeRetrievalResponses(ragResponse, memoryResponse);
+            response = filterInvalidatedEvidences(response, refreshPlan.invalidatedEvidenceRefs);
             runtimeAuditService.persistDecisionRecord(
                     sessionId,
                     contextPlanId(contextPackage),
@@ -333,7 +338,10 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                             "recoveryRefreshPlan", Map.of(
                                     "needRagRefresh", refreshPlan.needRagRefresh,
                                     "needMcpRefresh", refreshPlan.needMcpRefresh,
-                                    "needReassembly", refreshPlan.needReassembly
+                                    "needReassembly", refreshPlan.needReassembly,
+                                    "invalidatedEvidenceRefs", refreshPlan.invalidatedEvidenceRefs,
+                                    "invalidatedCapabilityNames", refreshPlan.invalidatedCapabilityNames,
+                                    "invalidationReasonsByRef", refreshPlan.invalidationReasonsByRef
                             )
                     ))
             );
@@ -426,10 +434,17 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .memoryQuery(memoryQuery)
                 .mcpPreRankedCandidates(mcpPreRankedCandidates)
                 .rerankResult(rerankResult)
+                .rerankRationaleByNode(rerankResult == null ? Map.of() : safeStringMap(rerankResult.getRationaleByNode()))
                 .selectedKnowledgeEvidenceBlocks(selectedKnowledgeEvidenceBlocks)
+                .selectedKnowledgeEvidenceRefs(extractKnowledgeEvidenceRefs(selectedKnowledgeEvidenceBlocks))
                 .selectedKnowledgeSnippets(selectedKnowledge)
                 .selectedMemorySnippets(selectedMemory)
                 .selectedPreferenceSnippets(selectedPreference)
+                .selectedToolCandidateNames(extractCapabilityNames(rerankResult == null ? List.of() : rerankResult.getSelectedToolCandidates()))
+                .selectedPromptResourceNames(extractCapabilityNames(rerankResult == null ? List.of() : rerankResult.getSelectedPromptResources()))
+                .invalidatedEvidenceRefs(refreshPlan.invalidatedEvidenceRefs)
+                .invalidatedCapabilityNames(refreshPlan.invalidatedCapabilityNames)
+                .invalidationReasonsByRef(refreshPlan.invalidationReasonsByRef)
                 .executionCandidates(executionCandidates)
                 .mcpResourceHints(mcpResourceHints)
                 .build();
@@ -483,22 +498,31 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
 
     private RecoveryRefreshPlan consumeRecoveryRefreshPlan(StructuredContextPackage contextPackage) {
         if (contextPackage == null || contextPackage.getRetrievalState() == null) {
-            return new RecoveryRefreshPlan(false, false, false);
+            return RecoveryRefreshPlan.empty();
         }
         Map<String, Object> retrievalPlan = contextPackage.getRetrievalState().getRetrievalPlan();
         if (retrievalPlan == null || retrievalPlan.isEmpty()) {
-            return new RecoveryRefreshPlan(false, false, false);
+            return RecoveryRefreshPlan.empty();
         }
         boolean needRagRefresh = booleanValue(retrievalPlan.get("need_rag_refresh"));
         boolean needMcpRefresh = booleanValue(retrievalPlan.get("need_mcp_refresh"));
         boolean needReassembly = booleanValue(retrievalPlan.get("need_reassembly"));
+        List<String> invalidatedEvidenceRefs = toStringList(retrievalPlan.get("invalidated_evidence_refs"));
+        List<String> invalidatedCapabilityNames = toStringList(retrievalPlan.get("invalidated_capability_names"));
+        Map<String, String> invalidationReasonsByRef = safeStringMap(retrievalPlan.get("invalidation_reasons_by_ref"));
         if (!needRagRefresh && !needMcpRefresh && !needReassembly) {
-            return new RecoveryRefreshPlan(false, false, false);
+            if ((invalidatedEvidenceRefs == null || invalidatedEvidenceRefs.isEmpty())
+                    && (invalidatedCapabilityNames == null || invalidatedCapabilityNames.isEmpty())) {
+                return RecoveryRefreshPlan.empty();
+            }
         }
         Map<String, Object> consumed = new LinkedHashMap<>(retrievalPlan);
         consumed.put("need_rag_refresh", false);
         consumed.put("need_mcp_refresh", false);
         consumed.put("need_reassembly", false);
+        consumed.put("invalidated_evidence_refs", List.of());
+        consumed.put("invalidated_capability_names", List.of());
+        consumed.put("invalidation_reasons_by_ref", Map.of());
         contextPackage.setRetrievalState(org.yilena.luna.state.model.RetrievalState.builder()
                 .reconstructedIntent(contextPackage.getRetrievalState().getReconstructedIntent())
                 .activeQueries(contextPackage.getRetrievalState().getActiveQueries())
@@ -507,7 +531,14 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .rerankSummary(contextPackage.getRetrievalState().getRerankSummary())
                 .build());
         recoveryStateStore.clear(contextPackage.getSessionId());
-        return new RecoveryRefreshPlan(needRagRefresh, needMcpRefresh, needReassembly);
+        return new RecoveryRefreshPlan(
+                needRagRefresh,
+                needMcpRefresh,
+                needReassembly,
+                invalidatedEvidenceRefs == null ? List.of() : invalidatedEvidenceRefs,
+                invalidatedCapabilityNames == null ? List.of() : invalidatedCapabilityNames,
+                invalidationReasonsByRef == null ? Map.of() : invalidationReasonsByRef
+        );
     }
 
     private boolean booleanValue(Object value) {
@@ -771,9 +802,115 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         return value == null ? "" : String.valueOf(value);
     }
 
+    private RetrievalResponse filterInvalidatedEvidences(RetrievalResponse response, List<String> invalidatedRefs) {
+        if (response == null || invalidatedRefs == null || invalidatedRefs.isEmpty() || response.getEvidences() == null) {
+            return response;
+        }
+        Set<String> blocked = invalidatedRefs.stream()
+                .filter(item -> item != null && !item.isBlank())
+                .collect(java.util.stream.Collectors.toSet());
+        if (blocked.isEmpty()) {
+            return response;
+        }
+        Map<RetrievalSource, List<Evidence>> filtered = new LinkedHashMap<>();
+        for (RetrievalSource source : RetrievalSource.values()) {
+            List<Evidence> rows = response.getEvidences().getOrDefault(source, List.of());
+            filtered.put(source, rows.stream()
+                    .filter(item -> item != null)
+                    .filter(item -> !blocked.contains(stringValue(item.getId())))
+                    .toList());
+        }
+        return RetrievalResponse.builder()
+                .route(response.getRoute())
+                .rewrittenQuery(response.getRewrittenQuery())
+                .evidences(filtered)
+                .evidenceRoleGroups(response.getEvidenceRoleGroups() == null ? Map.of() : response.getEvidenceRoleGroups())
+                .meta(response.getMeta() == null ? Map.of() : response.getMeta())
+                .build();
+    }
+
+    private List<Map<String, Object>> filterInvalidatedCapabilities(List<Map<String, Object>> rows, List<String> invalidatedCapabilityNames) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        if (invalidatedCapabilityNames == null || invalidatedCapabilityNames.isEmpty()) {
+            return rows;
+        }
+        Set<String> blocked = invalidatedCapabilityNames.stream()
+                .filter(item -> item != null && !item.isBlank())
+                .collect(java.util.stream.Collectors.toSet());
+        if (blocked.isEmpty()) {
+            return rows;
+        }
+        return rows.stream()
+                .filter(row -> {
+                    String capabilityName = stringValue(row.get("capability_name"));
+                    return capabilityName.isBlank() || !blocked.contains(capabilityName);
+                })
+                .toList();
+    }
+
+    private List<String> extractKnowledgeEvidenceRefs(List<EvidenceBlock> selectedKnowledgeEvidenceBlocks) {
+        if (selectedKnowledgeEvidenceBlocks == null || selectedKnowledgeEvidenceBlocks.isEmpty()) {
+            return List.of();
+        }
+        return selectedKnowledgeEvidenceBlocks.stream()
+                .map(EvidenceBlock::getBlockId)
+                .filter(item -> item != null && !item.isBlank())
+                .distinct()
+                .toList();
+    }
+
+    private List<String> extractCapabilityNames(List<Map<String, Object>> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        return rows.stream()
+                .map(row -> stringValue(row.get("capability_name")))
+                .filter(item -> item != null && !item.isBlank())
+                .distinct()
+                .toList();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, String> safeStringMap(Object value) {
+        if (!(value instanceof Map<?, ?> map) || map.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> out = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : map.entrySet()) {
+            String key = entry.getKey() == null ? "" : String.valueOf(entry.getKey());
+            if (key.isBlank()) {
+                continue;
+            }
+            out.put(key, entry.getValue() == null ? "" : String.valueOf(entry.getValue()));
+        }
+        return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> toStringList(Object value) {
+        if (!(value instanceof List<?> list) || list.isEmpty()) {
+            return List.of();
+        }
+        return list.stream()
+                .map(item -> item == null ? "" : String.valueOf(item))
+                .filter(item -> !item.isBlank())
+                .distinct()
+                .toList();
+    }
+
     private record RecoveryTrigger(boolean shouldRecover, String recoveryEvent, String interruptReason) {
     }
 
-    private record RecoveryRefreshPlan(boolean needRagRefresh, boolean needMcpRefresh, boolean needReassembly) {
+    private record RecoveryRefreshPlan(boolean needRagRefresh,
+                                       boolean needMcpRefresh,
+                                       boolean needReassembly,
+                                       List<String> invalidatedEvidenceRefs,
+                                       List<String> invalidatedCapabilityNames,
+                                       Map<String, String> invalidationReasonsByRef) {
+        private static RecoveryRefreshPlan empty() {
+            return new RecoveryRefreshPlan(false, false, false, List.of(), List.of(), Map.of());
+        }
     }
 }

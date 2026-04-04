@@ -27,12 +27,16 @@ import org.yilena.luna.mapper.PlanNodeMapper;
 import org.yilena.luna.mapper.PlanPhaseMapper;
 import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.memory.ContextCompilerService;
+import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.service.BlueprintValidationService;
 import org.yilena.luna.service.ChatService;
 import org.yilena.luna.service.MasterPlanningService;
 import org.yilena.luna.service.PhaseExecutionService;
 import org.yilena.luna.service.PlanOrchestratorService;
+import org.yilena.luna.service.TaskOrchestratorService;
+import org.yilena.luna.service.model.NodeWorksetResult;
+import org.yilena.luna.service.model.TaskOrchestrationResult;
 import org.yilena.luna.tools.PlanBlueprintTools;
 import org.yilena.luna.tools.PlanEventTools;
 import org.yilena.luna.tools.PlanNodeTools;
@@ -80,6 +84,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
     private final ChatService chatService;
     private final ContextCompilerService contextCompilerService;
     private final InputReconstructionAgent inputReconstructionAgent;
+    private final TaskOrchestratorService taskOrchestratorService;
 
     private final MasterPlanningService masterPlanningService;
     private final BlueprintValidationService blueprintValidationService;
@@ -103,6 +108,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             PlanInputContext planInputContext = reconstructPlanInput(sessionId, userGoal);
             InputReconstructionResult reconstructionResult = planInputContext == null ? null : planInputContext.reconstructionResult();
             StructuredContextPackage planningContextPackage = planInputContext == null ? null : planInputContext.contextPackage();
+            NodeWorksetResult planningNodeWorkset = buildPlanningNodeWorkset(sessionId, userGoal, planInputContext);
             PlanningIntent planningIntent = parsePlanningIntent(userGoal);
             String effectiveGoal = resolveEffectiveGoal(reconstructionResult);
             if (effectiveGoal.isBlank()) {
@@ -145,8 +151,8 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     sessionId,
                     effectiveGoal,
                     reconstructionResult,
-                    extractPlanningKnowledgeEvidence(planningContextPackage),
-                    extractPlanningWorkflowHints(planningContextPackage)
+                    extractPlanningKnowledgeEvidence(planningContextPackage, planningNodeWorkset),
+                    extractPlanningWorkflowHints(planningContextPackage, planningNodeWorkset)
             );
 
             String validateErr = blueprintValidationService.validate(blueprint);
@@ -1063,6 +1069,16 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
     private PlanInputContext reconstructPlanInput(String sessionId, String userGoal) {
         try {
+            TaskOrchestrationResult orchestrationResult = taskOrchestratorService.orchestrateUserInput(sessionId, userGoal);
+            if (orchestrationResult != null
+                    && orchestrationResult.getContextPackage() != null
+                    && orchestrationResult.getReconstructionResult() != null) {
+                return new PlanInputContext(
+                        orchestrationResult.getContextPackage(),
+                        orchestrationResult.getReconstructionResult(),
+                        orchestrationResult.getDecision()
+                );
+            }
             StructuredContextPackage contextPackage = contextCompilerService.compile(sessionId, userGoal, null, null);
             InputReconstructionResult reconstructionResult = inputReconstructionAgent.reconstruct(
                     sessionId,
@@ -1071,16 +1087,37 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     contextPackage == null ? null : contextPackage.getTaskState(),
                     contextPackage == null ? null : contextPackage.getRelationalState()
             );
-            return new PlanInputContext(contextPackage, reconstructionResult);
+            return new PlanInputContext(contextPackage, reconstructionResult, null);
         } catch (Exception ex) {
             log.warn("[Plan] input reconstruction failed, fallback to raw userGoal, sessionId={}, err={}", sessionId, ex.getMessage());
-            return new PlanInputContext(null, null);
+            return new PlanInputContext(null, null, null);
         }
     }
 
-    private List<Map<String, Object>> extractPlanningKnowledgeEvidence(StructuredContextPackage contextPackage) {
+    private NodeWorksetResult buildPlanningNodeWorkset(String sessionId, String userGoal, PlanInputContext planInputContext) {
+        if (planInputContext == null
+                || planInputContext.reconstructionResult() == null
+                || planInputContext.contextPackage() == null) {
+            return null;
+        }
+        try {
+            return taskOrchestratorService.orchestrateNodeWorkset(
+                    sessionId,
+                    userGoal,
+                    planInputContext.decision(),
+                    planInputContext.contextPackage(),
+                    planInputContext.reconstructionResult()
+            );
+        } catch (Exception ex) {
+            log.warn("[Plan] planning node workset orchestration failed, sessionId={}, err={}", sessionId, ex.getMessage());
+            return null;
+        }
+    }
+
+    private List<Map<String, Object>> extractPlanningKnowledgeEvidence(StructuredContextPackage contextPackage,
+                                                                       NodeWorksetResult nodeWorksetResult) {
         if (contextPackage == null || contextPackage.getTaskContext() == null) {
-            return List.of();
+            return extractPlanningKnowledgeFromNodeWorkset(nodeWorksetResult);
         }
         List<Map<String, Object>> taskKnowledge = asListOfMap(contextPackage.getTaskContext().get("knowledge"));
         List<Map<String, Object>> out = new ArrayList<>();
@@ -1099,14 +1136,55 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 break;
             }
         }
-        return out;
+        if (nodeWorksetResult != null && nodeWorksetResult.getSelectedKnowledgeEvidenceBlocks() != null) {
+            for (var block : nodeWorksetResult.getSelectedKnowledgeEvidenceBlocks()) {
+                if (block == null) {
+                    continue;
+                }
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("id", firstNonBlank(text(block.getBlockId())));
+                row.put("title", firstNonBlank(text(block.getTitle())));
+                row.put("content", firstNonBlank(text(block.getContent())));
+                row.put("source", firstNonBlank(text(block.getSourceType()), "NODE_WORKSET"));
+                row.put("score", block.getScore() == null ? "" : String.valueOf(block.getScore()));
+                out.add(row);
+                if (out.size() >= 20) {
+                    break;
+                }
+            }
+        }
+        return out.stream().filter(row -> row != null && !row.isEmpty()).distinct().limit(20).toList();
     }
 
-    private List<Map<String, Object>> extractPlanningWorkflowHints(StructuredContextPackage contextPackage) {
-        if (contextPackage == null || contextPackage.getCapabilityCandidates() == null) {
+    private List<Map<String, Object>> extractPlanningKnowledgeFromNodeWorkset(NodeWorksetResult nodeWorksetResult) {
+        if (nodeWorksetResult == null || nodeWorksetResult.getSelectedKnowledgeEvidenceBlocks() == null) {
             return List.of();
         }
         List<Map<String, Object>> out = new ArrayList<>();
+        for (var block : nodeWorksetResult.getSelectedKnowledgeEvidenceBlocks()) {
+            if (block == null) {
+                continue;
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("id", firstNonBlank(text(block.getBlockId())));
+            row.put("title", firstNonBlank(text(block.getTitle())));
+            row.put("content", firstNonBlank(text(block.getContent())));
+            row.put("source", firstNonBlank(text(block.getSourceType()), "NODE_WORKSET"));
+            row.put("score", block.getScore() == null ? "" : String.valueOf(block.getScore()));
+            out.add(row);
+            if (out.size() >= 12) {
+                break;
+            }
+        }
+        return out;
+    }
+
+    private List<Map<String, Object>> extractPlanningWorkflowHints(StructuredContextPackage contextPackage,
+                                                                    NodeWorksetResult nodeWorksetResult) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        if (contextPackage == null || contextPackage.getCapabilityCandidates() == null) {
+            return extractPlanningWorkflowHintsFromNodeWorkset(nodeWorksetResult);
+        }
         for (Map<String, Object> item : contextPackage.getCapabilityCandidates()) {
             if (item == null || item.isEmpty()) {
                 continue;
@@ -1127,7 +1205,56 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 break;
             }
         }
-        return out;
+        out.addAll(extractPlanningWorkflowHintsFromNodeWorkset(nodeWorksetResult));
+        return out.stream().filter(item -> item != null && !item.isEmpty()).distinct().limit(24).toList();
+    }
+
+    private List<Map<String, Object>> extractPlanningWorkflowHintsFromNodeWorkset(NodeWorksetResult nodeWorksetResult) {
+        if (nodeWorksetResult == null) {
+            return List.of();
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        if (nodeWorksetResult.getRerankRationaleByNode() != null && !nodeWorksetResult.getRerankRationaleByNode().isEmpty()) {
+            out.add(Map.of(
+                    "capabilityName", "node_governance:rationale",
+                    "capabilityType", "WORKFLOW",
+                    "description", toJsonQuiet(nodeWorksetResult.getRerankRationaleByNode()),
+                    "serverCode", "node-workset",
+                    "requiresApproval", false,
+                    "sensitivity", "LOW"
+            ));
+        }
+        if (nodeWorksetResult.getSelectedToolCandidateNames() != null) {
+            for (String name : nodeWorksetResult.getSelectedToolCandidateNames()) {
+                if (name == null || name.isBlank()) {
+                    continue;
+                }
+                out.add(Map.of(
+                        "capabilityName", name,
+                        "capabilityType", "TOOL",
+                        "description", "selected by node workset global rerank",
+                        "serverCode", "node-workset",
+                        "requiresApproval", false,
+                        "sensitivity", "LOW"
+                ));
+            }
+        }
+        if (nodeWorksetResult.getSelectedPromptResourceNames() != null) {
+            for (String name : nodeWorksetResult.getSelectedPromptResourceNames()) {
+                if (name == null || name.isBlank()) {
+                    continue;
+                }
+                out.add(Map.of(
+                        "capabilityName", name,
+                        "capabilityType", "PROMPT",
+                        "description", "selected prompt/resource hint by node workset global rerank",
+                        "serverCode", "node-workset",
+                        "requiresApproval", false,
+                        "sensitivity", "LOW"
+                ));
+            }
+        }
+        return out.stream().limit(12).toList();
     }
 
     private String resolveEffectiveGoal(InputReconstructionResult reconstructionResult) {
@@ -1330,6 +1457,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
     }
 
     private record PlanInputContext(StructuredContextPackage contextPackage,
-                                    InputReconstructionResult reconstructionResult) {
+                                    InputReconstructionResult reconstructionResult,
+                                    OrchestrationDecision decision) {
     }
 }

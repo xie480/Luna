@@ -88,6 +88,16 @@ public class DefaultContextAssembler implements ContextAssembler {
                 sections,
                 sectionBudget(contextPackage == null ? Map.of() : contextPackage.getTokenBudgetPlan(), policy)
         );
+        if (pruneResult.getConsistencyViolations() != null && !pruneResult.getConsistencyViolations().isEmpty()) {
+            List<String> outputConstraints = new ArrayList<>(pruneResult.getSections().getOrDefault("Output Constraints", List.of()));
+            outputConstraints.add("semantic_consistency_guard=" + safe(pruneResult.getConsistencyViolations()));
+            Map<String, List<String>> patched = new LinkedHashMap<>(pruneResult.getSections());
+            patched.put("Output Constraints", outputConstraints.stream().distinct().toList());
+            pruneResult = semanticPreservingPruner.prune(
+                    patched,
+                    sectionBudget(contextPackage == null ? Map.of() : contextPackage.getTokenBudgetPlan(), policy)
+            );
+        }
         String prompt = toPrompt(pruneResult.getSections(), userInput);
         AssembledContext preSnapshotContext = AssembledContext.builder()
                 .prompt(prompt)

@@ -39,6 +39,8 @@ public class SemanticPreservingPruner {
             normalized.put(name, compact);
             tokenCounts.put(name, estimateTokens(compact));
         }
+        List<String> consistencyViolations = enforceConstraintConsistency(input, normalized);
+        recalculateTokenCounts(normalized, tokenCounts);
 
         int total = tokenCounts.values().stream().mapToInt(Integer::intValue).sum();
         Map<String, Double> ratios = new LinkedHashMap<>();
@@ -54,7 +56,63 @@ public class SemanticPreservingPruner {
                 .sections(normalized)
                 .sectionTokenCounts(tokenCounts)
                 .sectionTokenRatios(ratios)
+                .consistencyViolations(consistencyViolations)
                 .build();
+    }
+
+    private List<String> enforceConstraintConsistency(Map<String, List<String>> original,
+                                                      Map<String, List<String>> pruned) {
+        List<String> violations = new ArrayList<>();
+        for (String sectionName : MUST_KEEP) {
+            List<String> source = original.getOrDefault(sectionName, List.of());
+            if (source.isEmpty()) {
+                continue;
+            }
+            List<String> target = new ArrayList<>(pruned.getOrDefault(sectionName, List.of()));
+            String targetText = String.join(" ", target).toLowerCase();
+            List<String> criticalFacts = extractCriticalFacts(source);
+            for (String fact : criticalFacts) {
+                String normalizedFact = fact.toLowerCase();
+                if (normalizedFact.isBlank() || targetText.contains(normalizedFact)) {
+                    continue;
+                }
+                String rescue = preserveCriticalClauses(fact, 420);
+                if (!rescue.isBlank()) {
+                    target.add(rescue);
+                    targetText = (targetText + " " + rescue.toLowerCase()).trim();
+                    violations.add(sectionName + ":restored:" + fact);
+                } else {
+                    violations.add(sectionName + ":missing:" + fact);
+                }
+            }
+            pruned.put(sectionName, target.stream().distinct().toList());
+        }
+        return violations;
+    }
+
+    private List<String> extractCriticalFacts(List<String> sourceLines) {
+        if (sourceLines == null || sourceLines.isEmpty()) {
+            return List.of();
+        }
+        List<String> critical = new ArrayList<>();
+        for (String line : sourceLines) {
+            if (line == null || line.isBlank()) {
+                continue;
+            }
+            if (line.contains("=") || line.contains(":") || KEY_FACT_PATTERN.matcher(line).find()) {
+                critical.add(line.trim());
+            }
+        }
+        if (critical.isEmpty()) {
+            return sourceLines.stream().filter(item -> item != null && !item.isBlank()).limit(6).toList();
+        }
+        return critical.stream().distinct().toList();
+    }
+
+    private void recalculateTokenCounts(Map<String, List<String>> sections, Map<String, Integer> tokenCounts) {
+        for (Map.Entry<String, List<String>> entry : sections.entrySet()) {
+            tokenCounts.put(entry.getKey(), estimateTokens(entry.getValue()));
+        }
     }
 
     private List<String> dedupe(List<String> source) {
@@ -304,5 +362,6 @@ public class SemanticPreservingPruner {
         Map<String, List<String>> sections;
         Map<String, Integer> sectionTokenCounts;
         Map<String, Double> sectionTokenRatios;
+        List<String> consistencyViolations;
     }
 }

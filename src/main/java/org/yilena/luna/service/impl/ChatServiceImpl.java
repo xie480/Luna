@@ -434,6 +434,7 @@ public class ChatServiceImpl implements ChatService {
                 nodeWorkset == null ? "" : nodeWorkset.getMemoryQuery(),
                 nodeWorkset == null ? "" : nodeWorkset.getMcpDrivenInput()
         );
+        replaceHistoryWithSummaryInMainChain(runtimeSessionId, contextPackage, summaryResult);
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
         return ResponseEntity.ok(tryParseJsonNode(result.valid()));
     }
@@ -1437,6 +1438,51 @@ public class ChatServiceImpl implements ChatService {
             merged.addAll(right);
         }
         return new ArrayList<>(merged);
+    }
+
+    private void replaceHistoryWithSummaryInMainChain(String sessionId,
+                                                      StructuredContextPackage contextPackage,
+                                                      SummaryResult summaryResult) {
+        if (sessionId == null || sessionId.isBlank() || summaryResult == null) {
+            return;
+        }
+        String narrative = summaryResult.getNarrativeSummary();
+        if (narrative == null || narrative.isBlank()) {
+            return;
+        }
+        int shortTermMemorySize = contextPackage == null || contextPackage.getRecentMessages() == null
+                ? 0
+                : contextPackage.getRecentMessages().size();
+        if (shortTermMemorySize < 36) {
+            return;
+        }
+        String snapshotText = summaryResult.getStateSnapshot() == null || summaryResult.getStateSnapshot().isEmpty()
+                ? ""
+                : toJsonSafe(summaryResult.getStateSnapshot());
+        try {
+            sessionService.replaceHistoryWithSummary(sessionId, narrative, snapshotText);
+            runtimeAuditService.persistDecisionRecord(
+                    sessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    "HISTORY_REPLACEMENT_MAIN_CHAIN",
+                    "chat main chain replaced history with summary",
+                    toJsonSafe(Map.of(
+                            "shortTermMemorySize", shortTermMemorySize,
+                            "narrativeLength", narrative.length(),
+                            "snapshotPresent", snapshotText != null && !snapshotText.isBlank()
+                    ))
+            );
+        } catch (Exception ex) {
+            runtimeAuditService.persistDecisionRecord(
+                    sessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    "HISTORY_REPLACEMENT_MAIN_CHAIN_FAILED",
+                    "chat main chain summary replacement failed",
+                    toJsonSafe(Map.of("error", nullSafe(ex.getMessage())))
+            );
+        }
     }
 
     private List<String> nonBlankList(String value) {

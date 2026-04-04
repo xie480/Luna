@@ -9,6 +9,7 @@ import org.yilena.luna.llm.LlmRequest;
 import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.properties.GeminiProperty;
+import org.yilena.luna.state.model.ContextState;
 import org.yilena.luna.state.model.ContextSnapshot;
 import org.yilena.luna.state.model.RecoveryState;
 import org.yilena.luna.state.model.RetrievalState;
@@ -34,7 +35,10 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
               "needRagRefresh": true/false,
               "needMcpRefresh": true/false,
               "needReassembly": true/false,
-              "reason": "..."
+              "reason": "...",
+              "invalidatedEvidenceRefs": ["..."],
+              "invalidatedCapabilityNames": ["..."],
+              "invalidationReasonsByRef": {"ref":"reason"}
             }
             Rules:
             - Use the event + interruption reason + context/snapshot drift signals.
@@ -141,7 +145,18 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
             if (reason.isBlank()) {
                 reason = "llm_recovery_decision";
             }
-            return new RecoveryDecision(needRagRefresh, needMcpRefresh, needReassembly, reason);
+            List<String> invalidatedEvidenceRefs = jsonArrayToList(node.path("invalidatedEvidenceRefs"));
+            List<String> invalidatedCapabilityNames = jsonArrayToList(node.path("invalidatedCapabilityNames"));
+            Map<String, String> invalidationReasonsByRef = jsonObjectToStringMap(node.path("invalidationReasonsByRef"));
+            return new RecoveryDecision(
+                    needRagRefresh,
+                    needMcpRefresh,
+                    needReassembly,
+                    reason,
+                    invalidatedEvidenceRefs,
+                    invalidatedCapabilityNames,
+                    invalidationReasonsByRef
+            );
         } catch (Exception ignore) {
             return null;
         }
@@ -159,8 +174,27 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
         boolean needRagRefresh = staleByTimeout || staleByDataMutation;
         boolean needMcpRefresh = staleByFailure || staleByDataMutation;
         boolean needReassembly = needRagRefresh || needMcpRefresh || contextPackage == null || snapshot == null;
+        List<String> invalidatedEvidenceRefs = needRagRefresh
+                ? collectEvidenceRefs(contextPackage, snapshot)
+                : List.of();
+        List<String> invalidatedCapabilityNames = needMcpRefresh
+                ? collectCapabilityNames(contextPackage, snapshot)
+                : List.of();
+        Map<String, String> invalidationReasonsByRef = buildInvalidationReasonMap(
+                invalidatedEvidenceRefs,
+                invalidatedCapabilityNames,
+                reason.isBlank() ? "rule_based_recovery_fallback" : reason
+        );
         String mergedReason = reason.isBlank() ? "rule_based_recovery_fallback" : reason;
-        return new RecoveryDecision(needRagRefresh, needMcpRefresh, needReassembly, mergedReason);
+        return new RecoveryDecision(
+                needRagRefresh,
+                needMcpRefresh,
+                needReassembly,
+                mergedReason,
+                invalidatedEvidenceRefs,
+                invalidatedCapabilityNames,
+                invalidationReasonsByRef
+        );
     }
 
     private String resolveRecoverySnapshotId(StructuredContextPackage contextPackage) {
@@ -390,6 +424,9 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
         merged.put("recovery_need_rag_refresh", decision.needRagRefresh());
         merged.put("recovery_need_mcp_refresh", decision.needMcpRefresh());
         merged.put("recovery_reason", decision.reason());
+        merged.put("recovery_invalidated_evidence_refs", decision.invalidatedEvidenceRefs());
+        merged.put("recovery_invalidated_capability_names", decision.invalidatedCapabilityNames());
+        merged.put("recovery_invalidation_reasons_by_ref", decision.invalidationReasonsByRef());
         merged.put("recovery_snapshot_loaded", snapshot != null);
         merged.put("recovery_snapshot_id", snapshotId);
         merged.put("recovery_snapshot_type", snapshotType(snapshot));
@@ -439,6 +476,9 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
         retrievalPlan.put("need_rag_refresh", decision.needRagRefresh());
         retrievalPlan.put("need_mcp_refresh", decision.needMcpRefresh());
         retrievalPlan.put("need_reassembly", decision.needReassembly());
+        retrievalPlan.put("invalidated_evidence_refs", decision.invalidatedEvidenceRefs());
+        retrievalPlan.put("invalidated_capability_names", decision.invalidatedCapabilityNames());
+        retrievalPlan.put("invalidation_reasons_by_ref", decision.invalidationReasonsByRef());
 
         return RetrievalState.builder()
                 .reconstructedIntent(current.getReconstructedIntent())
@@ -519,6 +559,146 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
         return false;
     }
 
-    private record RecoveryDecision(boolean needRagRefresh, boolean needMcpRefresh, boolean needReassembly, String reason) {
+    private List<String> jsonArrayToList(com.fasterxml.jackson.databind.JsonNode node) {
+        if (node == null || !node.isArray()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        node.forEach(item -> {
+            String value = item == null ? "" : item.asText("");
+            if (!value.isBlank()) {
+                out.add(value);
+            }
+        });
+        return out.stream().distinct().toList();
+    }
+
+    private Map<String, String> jsonObjectToStringMap(com.fasterxml.jackson.databind.JsonNode node) {
+        if (node == null || !node.isObject()) {
+            return Map.of();
+        }
+        Map<String, String> out = new LinkedHashMap<>();
+        node.fields().forEachRemaining(entry -> {
+            String key = entry.getKey();
+            String value = entry.getValue() == null ? "" : entry.getValue().asText("");
+            if (key != null && !key.isBlank() && !value.isBlank()) {
+                out.put(key, value);
+            }
+        });
+        return out;
+    }
+
+    private List<String> collectEvidenceRefs(StructuredContextPackage contextPackage, ContextSnapshot snapshot) {
+        java.util.LinkedHashSet<String> refs = new java.util.LinkedHashSet<>();
+        if (contextPackage != null && contextPackage.getRetrievalState() != null && contextPackage.getRetrievalState().getSelectedEvidenceRefs() != null) {
+            refs.addAll(contextPackage.getRetrievalState().getSelectedEvidenceRefs().stream()
+                    .filter(item -> item != null && !item.isBlank())
+                    .toList());
+        }
+        if (contextPackage != null && contextPackage.getContextState() != null && contextPackage.getContextState().getActiveKnowledgeRefs() != null) {
+            refs.addAll(contextPackage.getContextState().getActiveKnowledgeRefs().stream()
+                    .filter(item -> item != null && !item.isBlank())
+                    .toList());
+        }
+        if (snapshot != null && snapshot.getPayload() != null) {
+            Object refsObj = snapshot.getPayload().get("activeKnowledgeRefs");
+            if (refsObj instanceof List<?> list) {
+                for (Object one : list) {
+                    String ref = one == null ? "" : String.valueOf(one).trim();
+                    if (!ref.isBlank()) {
+                        refs.add(ref);
+                    }
+                }
+            }
+        }
+        return refs.stream().limit(40).toList();
+    }
+
+    private List<String> collectCapabilityNames(StructuredContextPackage contextPackage, ContextSnapshot snapshot) {
+        java.util.LinkedHashSet<String> names = new java.util.LinkedHashSet<>();
+        if (contextPackage != null && contextPackage.getContextState() != null) {
+            ContextState contextState = contextPackage.getContextState();
+            addCapabilityNamesFromRefs(names, contextState.getActiveMcpResourceRefs());
+            addCapabilityNamesFromRefs(names, contextState.getActiveMcpPromptRefs());
+        }
+        if (snapshot != null && snapshot.getPayload() != null) {
+            addCapabilityNamesFromPayload(names, snapshot.getPayload().get("activeMcpResourceRefs"));
+            addCapabilityNamesFromPayload(names, snapshot.getPayload().get("activeMcpPromptRefs"));
+        }
+        return names.stream().limit(40).toList();
+    }
+
+    private void addCapabilityNamesFromPayload(java.util.LinkedHashSet<String> names, Object payloadValue) {
+        if (payloadValue instanceof List<?> list) {
+            addCapabilityNamesFromRefs(names, list.stream().map(item -> item == null ? "" : String.valueOf(item)).toList());
+        }
+    }
+
+    private void addCapabilityNamesFromRefs(java.util.LinkedHashSet<String> names, List<String> refs) {
+        if (refs == null || refs.isEmpty()) {
+            return;
+        }
+        for (String ref : refs) {
+            if (ref == null || ref.isBlank()) {
+                continue;
+            }
+            String capabilityName = extractCapabilityName(ref);
+            if (!capabilityName.isBlank()) {
+                names.add(capabilityName);
+            }
+        }
+    }
+
+    private String extractCapabilityName(String ref) {
+        String text = ref == null ? "" : ref.trim();
+        if (text.isBlank()) {
+            return "";
+        }
+        if (text.startsWith("{") && text.endsWith("}")) {
+            try {
+                var node = objectMapper.readTree(text);
+                String capabilityName = node.path("capability_name").asText("");
+                if (!capabilityName.isBlank()) {
+                    return capabilityName;
+                }
+                capabilityName = node.path("capabilityName").asText("");
+                if (!capabilityName.isBlank()) {
+                    return capabilityName;
+                }
+            } catch (Exception ignore) {
+                return "";
+            }
+        }
+        return text;
+    }
+
+    private Map<String, String> buildInvalidationReasonMap(List<String> evidenceRefs,
+                                                           List<String> capabilityNames,
+                                                           String reason) {
+        Map<String, String> out = new LinkedHashMap<>();
+        if (evidenceRefs != null) {
+            for (String ref : evidenceRefs) {
+                if (ref != null && !ref.isBlank()) {
+                    out.put(ref, reason + ":evidence_stale");
+                }
+            }
+        }
+        if (capabilityNames != null) {
+            for (String name : capabilityNames) {
+                if (name != null && !name.isBlank()) {
+                    out.put(name, reason + ":capability_stale");
+                }
+            }
+        }
+        return out;
+    }
+
+    private record RecoveryDecision(boolean needRagRefresh,
+                                    boolean needMcpRefresh,
+                                    boolean needReassembly,
+                                    String reason,
+                                    List<String> invalidatedEvidenceRefs,
+                                    List<String> invalidatedCapabilityNames,
+                                    Map<String, String> invalidationReasonsByRef) {
     }
 }
