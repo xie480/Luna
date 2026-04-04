@@ -11,7 +11,6 @@ import org.springframework.stereotype.Service;
 import org.yilena.luna.constants.ModelHintConstant;
 import org.yilena.luna.context.ContextAssembler;
 import org.yilena.luna.context.ContextTraceLogger;
-import org.yilena.luna.context.SummaryAgent;
 import org.yilena.luna.context.ToolSemanticAgent;
 import org.yilena.luna.context.ToolSemanticResultValidator;
 import org.yilena.luna.context.ToolSemanticTraceLogger;
@@ -45,6 +44,7 @@ import org.yilena.luna.service.McpService;
 import org.yilena.luna.service.SessionService;
 import org.yilena.luna.service.TaskOrchestratorService;
 import org.yilena.luna.service.model.NodeWorksetResult;
+import org.yilena.luna.service.model.SummaryOrchestrationResult;
 import org.yilena.luna.service.model.TaskOrchestrationResult;
 import org.yilena.luna.state.model.ContextState;
 import org.yilena.luna.state.model.ContextSnapshot;
@@ -97,7 +97,6 @@ public class ApprovalServiceImpl implements ApprovalService {
     private final ToolSemanticAgent toolSemanticAgent;
     private final ToolSemanticResultValidator toolSemanticResultValidator;
     private final ToolSemanticTraceLogger toolSemanticTraceLogger;
-    private final SummaryAgent summaryAgent;
     private final RuntimeAuditService runtimeAuditService;
     private final LlmClientUtil llmClientUtil;
     private final GeminiProperty geminiProperty;
@@ -451,14 +450,18 @@ public class ApprovalServiceImpl implements ApprovalService {
             }
             toolSemanticResult = semanticValidation.normalized() == null ? toolSemanticResult : semanticValidation.normalized();
             toolSemanticTraceLogger.log(task.getSessionId(), contextPlanId(contextPackage), contextNodeId(contextPackage), toolSemanticResult);
-            SummaryResult roundSummaryInput = summaryAgent.summarize(
+            SummaryOrchestrationResult preAssemblySummary = taskOrchestratorService.orchestrateSummary(
+                    task.getSessionId(),
                     task.getUserInput(),
                     "",
                     contextPackage,
                     selectedKnowledgeEvidenceBlocks,
                     mcpResourceHints,
-                    toolSemanticResult
+                    toolSemanticResult,
+                    false,
+                    "APPROVAL_PRE_ASSEMBLY"
             );
+            SummaryResult roundSummaryInput = preAssemblySummary == null ? null : preAssemblySummary.getSummaryResult();
             runtimeAuditService.persistDecisionRecord(
                     task.getSessionId(),
                     contextPlanId(contextPackage),
@@ -517,14 +520,18 @@ public class ApprovalServiceImpl implements ApprovalService {
                 return errorJson("context governance blocked: final governed workset is empty");
             }
             SendToLuna result = getSendToLuna(prompt, task.getUserInput());
-            SummaryResult summaryResult = summaryAgent.summarize(
+            SummaryOrchestrationResult recoveryTurnSummary = taskOrchestratorService.orchestrateSummary(
+                    task.getSessionId(),
                     task.getUserInput(),
                     result.replyText(),
                     contextPackage,
                     selectedKnowledgeEvidenceBlocks,
                     mcpResourceHints,
-                    toolSemanticResult
+                    toolSemanticResult,
+                    false,
+                    "APPROVAL_RECOVERY"
             );
+            SummaryResult summaryResult = recoveryTurnSummary == null ? null : recoveryTurnSummary.getSummaryResult();
             runtimeAuditService.persistDecisionRecord(
                     task.getSessionId(),
                     contextPlanId(contextPackage),

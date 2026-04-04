@@ -11,6 +11,7 @@ import java.util.stream.Collectors;
     prompt组装器
  */
 @Component
+@Deprecated(since = "2026.04", forRemoval = false)
 public final class PromptAssembler {
     // 总体prompt区块最大字符数
     private static final int MAX_PROMPT_CHARS = 60000;

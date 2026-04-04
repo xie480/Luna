@@ -1,0 +1,206 @@
+package org.yilena.luna.service.impl;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.yilena.luna.context.EvidenceBlockBuilder;
+import org.yilena.luna.context.GlobalContextRerankAgent;
+import org.yilena.luna.context.InputReconstructionAgent;
+import org.yilena.luna.context.MemoryQueryBuilder;
+import org.yilena.luna.context.McpCandidatePreRank;
+import org.yilena.luna.context.McpQueryBuilder;
+import org.yilena.luna.context.McpResourceHintExtractor;
+import org.yilena.luna.context.RagQueryBuilder;
+import org.yilena.luna.context.RecoveryContextAgent;
+import org.yilena.luna.context.RerankTraceLogger;
+import org.yilena.luna.context.SummaryAgent;
+import org.yilena.luna.context.SummaryTraceLogger;
+import org.yilena.luna.context.model.InputReconstructionResult;
+import org.yilena.luna.context.model.SummaryResult;
+import org.yilena.luna.enums.RelationalRuntimeState;
+import org.yilena.luna.enums.TaskRuntimeState;
+import org.yilena.luna.memory.ContextCompilerService;
+import org.yilena.luna.memory.EventIngressService;
+import org.yilena.luna.memory.RuntimeAuditService;
+import org.yilena.luna.memory.model.OrchestrationDecision;
+import org.yilena.luna.memory.model.StructuredContextPackage;
+import org.yilena.luna.rag.api.RetrievalService;
+import org.yilena.luna.rag.models.RetrievalResponse;
+import org.yilena.luna.rag.models.RetrievalRoute;
+import org.yilena.luna.router.CapabilityPolicyRouterService;
+import org.yilena.luna.router.ToolRouter;
+import org.yilena.luna.service.SessionService;
+import org.yilena.luna.service.model.NodeWorksetResult;
+import org.yilena.luna.service.model.SummaryOrchestrationResult;
+import org.yilena.luna.state.model.ContextState;
+import org.yilena.luna.state.model.RetrievalState;
+import org.yilena.luna.state.store.ContextStateStore;
+import org.yilena.luna.state.store.RecoveryStateStore;
+
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+class TaskOrchestratorStateRecoveryE2eTest {
+
+    @Test
+    void shouldConsumeRecoveryRefreshPlanAndClearRecoveryStateInNodeWorkset() {
+        TestFixture fixture = new TestFixture();
+        when(fixture.capabilityPolicyRouterService.routeForContext(anyString(), anyString(), any(), any(), anyInt())).thenReturn(List.of());
+        when(fixture.mcpCandidatePreRank.preRank(anyString(), anyList(), any(), any(), anyInt())).thenReturn(List.of());
+        when(fixture.retrievalService.retrieve(any())).thenReturn(
+                RetrievalResponse.builder().route(RetrievalRoute.SEARCH).rewrittenQuery("q").evidences(Map.of()).build()
+        );
+        when(fixture.globalContextRerankAgent.rerank(any(), any(), any(), anyList(), any())).thenReturn(null);
+        when(fixture.toolRouter.materializeCandidates(anyList(), anyInt())).thenReturn(List.of());
+        when(fixture.mcpResourceHintExtractor.extract(anyList(), anyInt())).thenReturn(List.of());
+
+        StructuredContextPackage contextPackage = StructuredContextPackage.builder()
+                .sessionId("s-1")
+                .taskState(TaskRuntimeState.EXECUTING)
+                .retrievalState(RetrievalState.builder()
+                        .reconstructedIntent("intent")
+                        .activeQueries(List.of("q1"))
+                        .retrievalPlan(Map.of(
+                                "need_rag_refresh", true,
+                                "need_mcp_refresh", true,
+                                "need_reassembly", true,
+                                "invalidated_evidence_refs", List.of("knowledge:1"),
+                                "invalidated_capability_names", List.of("search_knowledge"),
+                                "invalidation_reasons_by_ref", Map.of("knowledge:1", "stale")
+                        ))
+                        .selectedEvidenceRefs(List.of())
+                        .rerankSummary("")
+                        .build())
+                .build();
+        InputReconstructionResult reconstruction = InputReconstructionResult.builder()
+                .reformulatedQueryForMcp("mcp-query")
+                .reformulatedQueryForRag("rag-query")
+                .explicitTaskGoal("goal")
+                .build();
+        OrchestrationDecision decision = OrchestrationDecision.builder()
+                .sessionId("s-1")
+                .taskState(TaskRuntimeState.EXECUTING)
+                .relationalState(RelationalRuntimeState.LIGHT_CHAT)
+                .contextPackage(contextPackage)
+                .build();
+
+        NodeWorksetResult result = fixture.service.orchestrateNodeWorkset(
+                "s-1",
+                "继续执行",
+                decision,
+                contextPackage,
+                reconstruction
+        );
+
+        assertNotNull(result);
+        assertEquals(List.of("knowledge:1"), result.getInvalidatedEvidenceRefs());
+        assertEquals(List.of("search_knowledge"), result.getInvalidatedCapabilityNames());
+        verify(fixture.recoveryStateStore).clear("s-1");
+    }
+
+    @Test
+    void shouldPersistSummaryStateAndHistoryInOrchestrator() {
+        TestFixture fixture = new TestFixture();
+        StructuredContextPackage context = StructuredContextPackage.builder()
+                .sessionId("s-1")
+                .build();
+        when(fixture.contextCompilerService.compile(eq("s-1"), anyString(), any(), any())).thenReturn(context);
+        when(fixture.summaryAgent.summarize(anyString(), anyString(), any(), anyList(), anyList(), any()))
+                .thenReturn(SummaryResult.builder()
+                        .narrativeSummary("narrative")
+                        .stateSnapshot(Map.of("nextStep", "continue"))
+                        .build());
+        when(fixture.contextStateStore.load("s-1")).thenReturn(ContextState.builder()
+                .latestNarrativeSummary("")
+                .latestStateSnapshot(Map.of())
+                .activeKnowledgeRefs(List.of("k1"))
+                .activeMemoryRefs(List.of("m1"))
+                .activeToolEvidenceRefs(List.of("t1"))
+                .activeMcpPromptRefs(List.of("p1"))
+                .activeMcpResourceRefs(List.of("r1"))
+                .latestContextSnapshotId("snap-1")
+                .build());
+
+        SummaryOrchestrationResult result = fixture.service.orchestrateSummary(
+                "s-1",
+                "输入",
+                "回复",
+                null,
+                List.of(),
+                List.of(),
+                null,
+                true,
+                "TEST"
+        );
+
+        assertNotNull(result);
+        assertEquals("narrative", result.getSummaryResult().getNarrativeSummary());
+        ArgumentCaptor<ContextState> stateCaptor = ArgumentCaptor.forClass(ContextState.class);
+        verify(fixture.contextStateStore).save(eq("s-1"), stateCaptor.capture());
+        assertTrue(stateCaptor.getValue().getLatestStateSnapshot().containsKey("nextStep"));
+        verify(fixture.sessionService, times(1)).replaceHistoryWithSummary(eq("s-1"), eq("narrative"), anyString());
+    }
+
+    private static class TestFixture {
+        final ContextCompilerService contextCompilerService = mock(ContextCompilerService.class);
+        final InputReconstructionAgent inputReconstructionAgent = mock(InputReconstructionAgent.class);
+        final EventIngressService eventIngressService = mock(EventIngressService.class);
+        final RecoveryContextAgent recoveryContextAgent = mock(RecoveryContextAgent.class);
+        final RuntimeAuditService runtimeAuditService = mock(RuntimeAuditService.class);
+        final RagQueryBuilder ragQueryBuilder = new RagQueryBuilder();
+        final MemoryQueryBuilder memoryQueryBuilder = new MemoryQueryBuilder();
+        final McpQueryBuilder mcpQueryBuilder = new McpQueryBuilder();
+        final McpCandidatePreRank mcpCandidatePreRank = mock(McpCandidatePreRank.class);
+        final McpResourceHintExtractor mcpResourceHintExtractor = mock(McpResourceHintExtractor.class);
+        final GlobalContextRerankAgent globalContextRerankAgent = mock(GlobalContextRerankAgent.class);
+        final EvidenceBlockBuilder evidenceBlockBuilder = mock(EvidenceBlockBuilder.class);
+        final RetrievalService retrievalService = mock(RetrievalService.class);
+        final CapabilityPolicyRouterService capabilityPolicyRouterService = mock(CapabilityPolicyRouterService.class);
+        final ToolRouter toolRouter = mock(ToolRouter.class);
+        final RerankTraceLogger rerankTraceLogger = mock(RerankTraceLogger.class);
+        final RecoveryStateStore recoveryStateStore = mock(RecoveryStateStore.class);
+        final SummaryAgent summaryAgent = mock(SummaryAgent.class);
+        final SummaryTraceLogger summaryTraceLogger = mock(SummaryTraceLogger.class);
+        final ContextStateStore contextStateStore = mock(ContextStateStore.class);
+        final SessionService sessionService = mock(SessionService.class);
+
+        final TaskOrchestratorServiceImpl service = new TaskOrchestratorServiceImpl(
+                contextCompilerService,
+                inputReconstructionAgent,
+                eventIngressService,
+                recoveryContextAgent,
+                runtimeAuditService,
+                ragQueryBuilder,
+                memoryQueryBuilder,
+                mcpQueryBuilder,
+                mcpCandidatePreRank,
+                mcpResourceHintExtractor,
+                globalContextRerankAgent,
+                evidenceBlockBuilder,
+                retrievalService,
+                capabilityPolicyRouterService,
+                toolRouter,
+                rerankTraceLogger,
+                recoveryStateStore,
+                summaryAgent,
+                summaryTraceLogger,
+                contextStateStore,
+                sessionService,
+                new ObjectMapper()
+        );
+    }
+}

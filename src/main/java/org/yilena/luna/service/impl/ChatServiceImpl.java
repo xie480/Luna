@@ -18,8 +18,6 @@ import org.yilena.luna.constants.ModelHintConstant;
 import org.yilena.luna.constants.RedisKeyConstant;
 import org.yilena.luna.context.ContextAssembler;
 import org.yilena.luna.context.ContextTraceLogger;
-import org.yilena.luna.context.SummaryAgent;
-import org.yilena.luna.context.SummaryTraceLogger;
 import org.yilena.luna.context.ToolSemanticAgent;
 import org.yilena.luna.context.ToolSemanticResultValidator;
 import org.yilena.luna.context.ToolSemanticTraceLogger;
@@ -58,6 +56,7 @@ import org.yilena.luna.service.ChatService;
 import org.yilena.luna.service.SessionService;
 import org.yilena.luna.service.TaskOrchestratorService;
 import org.yilena.luna.service.model.NodeWorksetResult;
+import org.yilena.luna.service.model.SummaryOrchestrationResult;
 import org.yilena.luna.service.model.TaskOrchestrationResult;
 import org.yilena.luna.state.model.ContextState;
 import org.yilena.luna.state.model.RetrievalState;
@@ -106,10 +105,8 @@ public class ChatServiceImpl implements ChatService {
     private final TaskOrchestratorService taskOrchestratorService;
     private final ToolSemanticAgent toolSemanticAgent;
     private final ToolSemanticResultValidator toolSemanticResultValidator;
-    private final SummaryAgent summaryAgent;
     private final ContextAssembler contextAssembler;
     private final ContextTraceLogger contextTraceLogger;
-    private final SummaryTraceLogger summaryTraceLogger;
     private final ToolSemanticTraceLogger toolSemanticTraceLogger;
     private final TaskStateStore taskStateStore;
     private final RetrievalStateStore retrievalStateStore;
@@ -330,24 +327,18 @@ public class ChatServiceImpl implements ChatService {
         }
 
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_THINKING, LunaStateConstant.VALUE_THINKING_ORGANIZE);
-        SummaryResult roundSummaryInput = summaryAgent.summarize(
+        SummaryOrchestrationResult preAssemblySummary = taskOrchestratorService.orchestrateSummary(
+                runtimeSessionId,
                 input,
                 "",
                 contextPackage,
                 knowledgeEvidenceBlocks,
                 mcpResourceHints,
-                toolSemanticResult
-        );
-        summaryTraceLogger.log(
-                runtimeSessionId,
-                contextPlanId(contextPackage),
-                contextNodeId(contextPackage),
-                input,
-                "",
-                contextPackage,
-                roundSummaryInput,
+                toolSemanticResult,
+                false,
                 "PRE_ASSEMBLY_INPUT"
         );
+        SummaryResult roundSummaryInput = preAssemblySummary == null ? null : preAssemblySummary.getSummaryResult();
         AssembledContext assembledContext = contextAssembler.assemble(
                 contextPackage,
                 reconstruction,
@@ -410,24 +401,18 @@ public class ChatServiceImpl implements ChatService {
         if (writeGate.allowWrite()) {
             memoryWritePipelineService.writeAfterTurn(runtimeSessionId, input, result.replyText(), contextPackage);
         }
-        SummaryResult summaryResult = summaryAgent.summarize(
+        SummaryOrchestrationResult turnSummary = taskOrchestratorService.orchestrateSummary(
+                runtimeSessionId,
                 input,
                 result.replyText(),
                 contextPackage,
                 knowledgeEvidenceBlocks,
                 mcpResourceHints,
-                toolSemanticResult
-        );
-        summaryTraceLogger.log(
-                runtimeSessionId,
-                contextPlanId(contextPackage),
-                contextNodeId(contextPackage),
-                input,
-                result.replyText(),
-                contextPackage,
-                summaryResult,
+                toolSemanticResult,
+                false,
                 "CHAT_TURN"
         );
+        SummaryResult summaryResult = turnSummary == null ? null : turnSummary.getSummaryResult();
         writeStateStores(
                 runtimeSessionId,
                 decision,

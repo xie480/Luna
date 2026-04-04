@@ -13,9 +13,13 @@ import org.yilena.luna.context.McpResourceHintExtractor;
 import org.yilena.luna.context.RagQueryBuilder;
 import org.yilena.luna.context.RecoveryContextAgent;
 import org.yilena.luna.context.RerankTraceLogger;
+import org.yilena.luna.context.SummaryAgent;
+import org.yilena.luna.context.SummaryTraceLogger;
 import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.EvidenceBlock;
 import org.yilena.luna.context.model.InputReconstructionResult;
+import org.yilena.luna.context.model.SummaryResult;
+import org.yilena.luna.context.model.ToolSemanticResult;
 import org.yilena.luna.entity.Resource;
 import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.memory.ContextCompilerService;
@@ -34,8 +38,13 @@ import org.yilena.luna.rag.models.RetrievalSource;
 import org.yilena.luna.router.CapabilityPolicyRouterService;
 import org.yilena.luna.router.ToolRouter;
 import org.yilena.luna.service.TaskOrchestratorService;
+import org.yilena.luna.service.SessionService;
+import org.yilena.luna.service.model.BlueprintOrchestrationResult;
 import org.yilena.luna.service.model.NodeWorksetResult;
+import org.yilena.luna.service.model.SummaryOrchestrationResult;
 import org.yilena.luna.service.model.TaskOrchestrationResult;
+import org.yilena.luna.state.model.ContextState;
+import org.yilena.luna.state.store.ContextStateStore;
 import org.yilena.luna.state.store.RecoveryStateStore;
 
 import java.util.ArrayList;
@@ -68,6 +77,10 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
     private final ToolRouter toolRouter;
     private final RerankTraceLogger rerankTraceLogger;
     private final RecoveryStateStore recoveryStateStore;
+    private final SummaryAgent summaryAgent;
+    private final SummaryTraceLogger summaryTraceLogger;
+    private final ContextStateStore contextStateStore;
+    private final SessionService sessionService;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -443,6 +456,83 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .build();
     }
 
+    @Override
+    public BlueprintOrchestrationResult orchestrateBlueprintInput(String sessionId, String userGoal) {
+        TaskOrchestrationResult orchestrationResult = orchestrateUserInput(sessionId, userGoal);
+        StructuredContextPackage contextPackage = orchestrationResult == null ? null : orchestrationResult.getContextPackage();
+        InputReconstructionResult reconstructionResult = orchestrationResult == null ? null : orchestrationResult.getReconstructionResult();
+        OrchestrationDecision decision = orchestrationResult == null ? null : orchestrationResult.getDecision();
+        NodeWorksetResult nodeWorksetResult = null;
+        if (contextPackage != null && reconstructionResult != null) {
+            nodeWorksetResult = orchestrateNodeWorkset(
+                    sessionId,
+                    userGoal,
+                    decision,
+                    contextPackage,
+                    reconstructionResult
+            );
+        }
+        return BlueprintOrchestrationResult.builder()
+                .contextPackage(contextPackage)
+                .reconstructionResult(reconstructionResult)
+                .decision(decision)
+                .nodeWorksetResult(nodeWorksetResult)
+                .build();
+    }
+
+    @Override
+    public SummaryOrchestrationResult orchestrateSummary(String sessionId,
+                                                         String userInput,
+                                                         String assistantReply,
+                                                         StructuredContextPackage contextPackage,
+                                                         List<EvidenceBlock> activeEvidenceBlocks,
+                                                         List<String> activeMcpResourceHints,
+                                                         ToolSemanticResult latestToolSemanticResult,
+                                                         boolean replaceHistory,
+                                                         String triggerSource) {
+        StructuredContextPackage effectiveContext = contextPackage;
+        if (effectiveContext == null && sessionId != null && !sessionId.isBlank()) {
+            effectiveContext = contextCompilerService.compile(sessionId, userInput, null, null);
+        }
+        SummaryResult summaryResult = summaryAgent.summarize(
+                userInput,
+                assistantReply,
+                effectiveContext,
+                activeEvidenceBlocks == null ? List.of() : activeEvidenceBlocks,
+                activeMcpResourceHints == null ? List.of() : activeMcpResourceHints,
+                latestToolSemanticResult
+        );
+        if (sessionId != null && !sessionId.isBlank()) {
+            summaryTraceLogger.log(
+                    sessionId,
+                    contextPlanId(effectiveContext),
+                    contextNodeId(effectiveContext),
+                    userInput,
+                    assistantReply,
+                    effectiveContext,
+                    summaryResult,
+                    triggerSource == null || triggerSource.isBlank() ? "TASK_ORCHESTRATOR" : triggerSource
+            );
+        }
+        ContextState previous = sessionId == null || sessionId.isBlank() ? null : contextStateStore.load(sessionId);
+        ContextState contextState = buildContextStateFromSummary(previous, summaryResult);
+        if (sessionId != null && !sessionId.isBlank()) {
+            contextStateStore.save(sessionId, contextState);
+            if (replaceHistory && summaryResult != null && summaryResult.getNarrativeSummary() != null
+                    && !summaryResult.getNarrativeSummary().isBlank()) {
+                String snapshotText = summaryResult.getStateSnapshot() == null || summaryResult.getStateSnapshot().isEmpty()
+                        ? ""
+                        : toJsonSafe(summaryResult.getStateSnapshot());
+                sessionService.replaceHistoryWithSummary(sessionId, summaryResult.getNarrativeSummary(), snapshotText);
+            }
+        }
+        return SummaryOrchestrationResult.builder()
+                .contextPackage(effectiveContext)
+                .summaryResult(summaryResult)
+                .contextState(contextState)
+                .build();
+    }
+
     private RetrievalResponse mergeRetrievalResponses(RetrievalResponse primary, RetrievalResponse memoryOnly) {
         if (primary == null && memoryOnly == null) {
             return RetrievalResponse.builder().route(RetrievalRoute.SEARCH).rewrittenQuery("").evidences(Map.of()).meta(Map.of()).build();
@@ -803,6 +893,21 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             merged.addAll(right);
         }
         return new ArrayList<>(merged);
+    }
+
+    private ContextState buildContextStateFromSummary(ContextState previous, SummaryResult summaryResult) {
+        return ContextState.builder()
+                .latestNarrativeSummary(summaryResult == null ? "" : nullSafe(summaryResult.getNarrativeSummary()))
+                .latestStateSnapshot(summaryResult == null || summaryResult.getStateSnapshot() == null
+                        ? Map.of()
+                        : summaryResult.getStateSnapshot())
+                .activeKnowledgeRefs(previous == null || previous.getActiveKnowledgeRefs() == null ? List.of() : previous.getActiveKnowledgeRefs())
+                .activeMemoryRefs(previous == null || previous.getActiveMemoryRefs() == null ? List.of() : previous.getActiveMemoryRefs())
+                .activeToolEvidenceRefs(previous == null || previous.getActiveToolEvidenceRefs() == null ? List.of() : previous.getActiveToolEvidenceRefs())
+                .activeMcpPromptRefs(previous == null || previous.getActiveMcpPromptRefs() == null ? List.of() : previous.getActiveMcpPromptRefs())
+                .activeMcpResourceRefs(previous == null || previous.getActiveMcpResourceRefs() == null ? List.of() : previous.getActiveMcpResourceRefs())
+                .latestContextSnapshotId(previous == null ? "" : nullSafe(previous.getLatestContextSnapshotId()))
+                .build();
     }
 
     private List<Resource> resolveExecutionCandidates(ContextRerankResult rerankResult, List<Map<String, Object>> mcpPreRankedCandidates) {

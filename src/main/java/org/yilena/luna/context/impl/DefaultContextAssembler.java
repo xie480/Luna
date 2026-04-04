@@ -3,6 +3,8 @@ package org.yilena.luna.context.impl;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.context.ContextAssembler;
 import org.yilena.luna.context.SemanticPreservingPruner;
+import org.yilena.luna.context.SummaryAgent;
+import org.yilena.luna.context.ToolSemanticAgent;
 import org.yilena.luna.context.model.AssembledContext;
 import org.yilena.luna.context.model.ContextNodeTemplatePolicy;
 import org.yilena.luna.context.model.ContextRerankResult;
@@ -31,15 +33,21 @@ public class DefaultContextAssembler implements ContextAssembler {
     private final ContextSnapshotStore contextSnapshotStore;
     private final TaskMemoryRetriever taskMemoryRetriever;
     private final RelationalMemoryRetriever relationalMemoryRetriever;
+    private final SummaryAgent summaryAgent;
+    private final ToolSemanticAgent toolSemanticAgent;
 
     public DefaultContextAssembler(SemanticPreservingPruner semanticPreservingPruner,
                                    ContextSnapshotStore contextSnapshotStore,
                                    TaskMemoryRetriever taskMemoryRetriever,
-                                   RelationalMemoryRetriever relationalMemoryRetriever) {
+                                   RelationalMemoryRetriever relationalMemoryRetriever,
+                                   SummaryAgent summaryAgent,
+                                   ToolSemanticAgent toolSemanticAgent) {
         this.semanticPreservingPruner = semanticPreservingPruner;
         this.contextSnapshotStore = contextSnapshotStore;
         this.taskMemoryRetriever = taskMemoryRetriever;
         this.relationalMemoryRetriever = relationalMemoryRetriever;
+        this.summaryAgent = summaryAgent;
+        this.toolSemanticAgent = toolSemanticAgent;
     }
 
     @Override
@@ -64,6 +72,18 @@ public class DefaultContextAssembler implements ContextAssembler {
                                       Long planId,
                                       Long nodeId) {
         ContextNodeTemplatePolicy policy = nodeTemplatePolicy == null ? ContextNodeTemplatePolicy.defaultPolicy() : nodeTemplatePolicy;
+        ToolSemanticResult effectiveToolSemanticResult = toolSemanticResult == null
+                ? resolveOnDemandToolSemantic(executionCandidates, toolContext, contextPackage, reconstructionResult)
+                : toolSemanticResult;
+        SummaryResult effectiveRoundSummaryInput = roundSummaryInput == null
+                ? resolveOnDemandRoundSummary(
+                userInput,
+                contextPackage,
+                knowledgeEvidenceBlocks,
+                mcpResourceHints,
+                effectiveToolSemanticResult
+        )
+                : roundSummaryInput;
         OnDemandMemoryPayload onDemandMemory = resolveOnDemandMemory(
                 sessionId,
                 contextPackage,
@@ -92,9 +112,9 @@ public class DefaultContextAssembler implements ContextAssembler {
                 effectiveLongTermMemorySnippets,
                 executionCandidates,
                 mcpResourceHints,
-                toolSemanticResult,
+                effectiveToolSemanticResult,
                 toolContext,
-                roundSummaryInput,
+                effectiveRoundSummaryInput,
                 policy
         );
         Map<String, List<String>> sections = new LinkedHashMap<>();
@@ -109,7 +129,7 @@ public class DefaultContextAssembler implements ContextAssembler {
                 candidatePool.getOrDefault("memory", List.of()),
                 candidatePool.getOrDefault("summary", List.of())
         ));
-        sections.put("Output Constraints", buildOutputConstraints(policy, contextPackage, reconstructionResult, toolSemanticResult, roundSummaryInput));
+        sections.put("Output Constraints", buildOutputConstraints(policy, contextPackage, reconstructionResult, effectiveToolSemanticResult, effectiveRoundSummaryInput));
 
         SemanticPreservingPruner.PruneResult pruneResult = semanticPreservingPruner.prune(
                 sections,
@@ -304,6 +324,62 @@ public class DefaultContextAssembler implements ContextAssembler {
     private String buildToolEvidence(String toolContext, ToolSemanticResult toolSemanticResult) {
         String semantic = toolSemanticResult == null ? "" : safe(toolSemanticResult.getSemanticPayload());
         return "rawToolContext=" + safe(toolContext) + "\nsemanticToolContext=" + semantic;
+    }
+
+    private ToolSemanticResult resolveOnDemandToolSemantic(List<Resource> executionCandidates,
+                                                           String toolContext,
+                                                           StructuredContextPackage contextPackage,
+                                                           InputReconstructionResult reconstructionResult) {
+        if (toolContext == null || toolContext.isBlank()) {
+            return null;
+        }
+        String toolName = resolvePrimaryToolName(executionCandidates);
+        String toolDescription = resolvePrimaryToolDescription(executionCandidates);
+        return toolSemanticAgent.translate(
+                toolName,
+                toolDescription,
+                toolContext,
+                contextPackage == null ? null : contextPackage.getTaskState(),
+                reconstructionResult == null ? "" : safe(reconstructionResult.getExplicitTaskGoal())
+        );
+    }
+
+    private SummaryResult resolveOnDemandRoundSummary(String userInput,
+                                                      StructuredContextPackage contextPackage,
+                                                      List<EvidenceBlock> activeEvidenceBlocks,
+                                                      List<String> activeMcpResourceHints,
+                                                      ToolSemanticResult toolSemanticResult) {
+        return summaryAgent.summarize(
+                userInput,
+                "",
+                contextPackage,
+                activeEvidenceBlocks == null ? List.of() : activeEvidenceBlocks,
+                activeMcpResourceHints == null ? List.of() : activeMcpResourceHints,
+                toolSemanticResult
+        );
+    }
+
+    private String resolvePrimaryToolName(List<Resource> executionCandidates) {
+        if (executionCandidates == null || executionCandidates.isEmpty()) {
+            return "agent_tool_chain";
+        }
+        Resource first = executionCandidates.get(0);
+        return first == null || first.getName() == null || first.getName().isBlank()
+                ? "agent_tool_chain"
+                : first.getName();
+    }
+
+    private String resolvePrimaryToolDescription(List<Resource> executionCandidates) {
+        if (executionCandidates == null || executionCandidates.isEmpty()) {
+            return "";
+        }
+        Resource first = executionCandidates.get(0);
+        if (first == null) {
+            return "";
+        }
+        return "type=" + (first.getType() == null ? "" : first.getType().name())
+                + ", server=" + safe(first.getServerCode())
+                + ", resourceUri=" + safe(first.getResourceUri());
     }
 
     private String buildRecentInteraction(StructuredContextPackage contextPackage,

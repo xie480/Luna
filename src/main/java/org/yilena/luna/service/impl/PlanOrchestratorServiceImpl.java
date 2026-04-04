@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.yilena.luna.context.InputReconstructionAgent;
 import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.entity.ChatRequest;
 import org.yilena.luna.entity.PlanEdge;
@@ -26,8 +25,6 @@ import org.yilena.luna.mapper.PlanInstanceMapper;
 import org.yilena.luna.mapper.PlanNodeMapper;
 import org.yilena.luna.mapper.PlanPhaseMapper;
 import org.yilena.luna.prompt.PromptTemplates;
-import org.yilena.luna.memory.ContextCompilerService;
-import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.service.BlueprintValidationService;
 import org.yilena.luna.service.ChatService;
@@ -35,8 +32,8 @@ import org.yilena.luna.service.MasterPlanningService;
 import org.yilena.luna.service.PhaseExecutionService;
 import org.yilena.luna.service.PlanOrchestratorService;
 import org.yilena.luna.service.TaskOrchestratorService;
+import org.yilena.luna.service.model.BlueprintOrchestrationResult;
 import org.yilena.luna.service.model.NodeWorksetResult;
-import org.yilena.luna.service.model.TaskOrchestrationResult;
 import org.yilena.luna.tools.PlanBlueprintTools;
 import org.yilena.luna.tools.PlanEventTools;
 import org.yilena.luna.tools.PlanNodeTools;
@@ -82,8 +79,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
     private final PlanEventTools planEventTools;
     private final PlanReportTools planReportTools;
     private final ChatService chatService;
-    private final ContextCompilerService contextCompilerService;
-    private final InputReconstructionAgent inputReconstructionAgent;
     private final TaskOrchestratorService taskOrchestratorService;
 
     private final MasterPlanningService masterPlanningService;
@@ -105,10 +100,10 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             if (userGoal == null || userGoal.isBlank()) {
                 return error("PLAN_INVALID_INPUT", "userGoal 不能為空");
             }
-            PlanInputContext planInputContext = reconstructPlanInput(sessionId, userGoal);
-            InputReconstructionResult reconstructionResult = planInputContext == null ? null : planInputContext.reconstructionResult();
-            StructuredContextPackage planningContextPackage = planInputContext == null ? null : planInputContext.contextPackage();
-            NodeWorksetResult planningNodeWorkset = buildPlanningNodeWorkset(sessionId, userGoal, planInputContext);
+            BlueprintOrchestrationResult planInputContext = taskOrchestratorService.orchestrateBlueprintInput(sessionId, userGoal);
+            InputReconstructionResult reconstructionResult = planInputContext == null ? null : planInputContext.getReconstructionResult();
+            StructuredContextPackage planningContextPackage = planInputContext == null ? null : planInputContext.getContextPackage();
+            NodeWorksetResult planningNodeWorkset = planInputContext == null ? null : planInputContext.getNodeWorksetResult();
             PlanningIntent planningIntent = parsePlanningIntent(userGoal);
             String effectiveGoal = resolveEffectiveGoal(reconstructionResult);
             if (effectiveGoal.isBlank()) {
@@ -1067,52 +1062,6 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         };
     }
 
-    private PlanInputContext reconstructPlanInput(String sessionId, String userGoal) {
-        try {
-            TaskOrchestrationResult orchestrationResult = taskOrchestratorService.orchestrateUserInput(sessionId, userGoal);
-            if (orchestrationResult != null
-                    && orchestrationResult.getContextPackage() != null
-                    && orchestrationResult.getReconstructionResult() != null) {
-                return new PlanInputContext(
-                        orchestrationResult.getContextPackage(),
-                        orchestrationResult.getReconstructionResult(),
-                        orchestrationResult.getDecision()
-                );
-            }
-            StructuredContextPackage contextPackage = contextCompilerService.compile(sessionId, userGoal, null, null);
-            InputReconstructionResult reconstructionResult = inputReconstructionAgent.reconstruct(
-                    sessionId,
-                    userGoal,
-                    contextPackage,
-                    contextPackage == null ? null : contextPackage.getTaskState(),
-                    contextPackage == null ? null : contextPackage.getRelationalState()
-            );
-            return new PlanInputContext(contextPackage, reconstructionResult, null);
-        } catch (Exception ex) {
-            log.warn("[Plan] input reconstruction failed, fallback to raw userGoal, sessionId={}, err={}", sessionId, ex.getMessage());
-            return new PlanInputContext(null, null, null);
-        }
-    }
-
-    private NodeWorksetResult buildPlanningNodeWorkset(String sessionId, String userGoal, PlanInputContext planInputContext) {
-        if (planInputContext == null
-                || planInputContext.reconstructionResult() == null
-                || planInputContext.contextPackage() == null) {
-            return null;
-        }
-        try {
-            return taskOrchestratorService.orchestrateNodeWorkset(
-                    sessionId,
-                    userGoal,
-                    planInputContext.decision(),
-                    planInputContext.contextPackage(),
-                    planInputContext.reconstructionResult()
-            );
-        } catch (Exception ex) {
-            log.warn("[Plan] planning node workset orchestration failed, sessionId={}, err={}", sessionId, ex.getMessage());
-            return null;
-        }
-    }
 
     private List<Map<String, Object>> extractPlanningKnowledgeEvidence(StructuredContextPackage contextPackage,
                                                                        NodeWorksetResult nodeWorksetResult) {
@@ -1456,8 +1405,4 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
     private record PlanningIntent(String goal, Map<String, String> meta) {
     }
 
-    private record PlanInputContext(StructuredContextPackage contextPackage,
-                                    InputReconstructionResult reconstructionResult,
-                                    OrchestrationDecision decision) {
-    }
 }

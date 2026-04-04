@@ -36,7 +36,9 @@ class DefaultContextAssemblerGovernanceTest {
                 pruner,
                 snapshotStore,
                 taskMemoryRetriever,
-                relationalMemoryRetriever
+                relationalMemoryRetriever,
+                mock(org.yilena.luna.context.SummaryAgent.class),
+                mock(org.yilena.luna.context.ToolSemanticAgent.class)
         );
         when(taskMemoryRetriever.retrieve(anyString(), anyString(), any())).thenReturn(Map.of());
         when(snapshotStore.saveFinalSnapshot(anyString(), any(), any(), any(), anyString(), any(), any())).thenReturn("snapshot-1");
