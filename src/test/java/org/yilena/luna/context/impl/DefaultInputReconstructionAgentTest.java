@@ -13,6 +13,7 @@ import org.yilena.luna.utils.LlmClientUtil;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -21,23 +22,29 @@ import static org.mockito.Mockito.mock;
 class DefaultInputReconstructionAgentTest {
 
     @Test
-    void shouldUseStateAndRecentMemoryForReconstruction() {
+    void shouldUseStateAndFullShortTermMemoryForReconstruction() {
         DefaultInputReconstructionAgent agent = new DefaultInputReconstructionAgent(
                 mock(LlmClientUtil.class),
                 new GeminiProperty(),
                 new ObjectMapper()
         );
+        List<Map<String, Object>> shortTermMemory = IntStream.range(0, 25)
+                .mapToObj(i -> Map.<String, Object>of(
+                        "role", i % 2 == 0 ? "USER" : "ASSISTANT",
+                        "content_text", "msg-" + i
+                ))
+                .toList();
         StructuredContextPackage contextPackage = StructuredContextPackage.builder()
                 .taskState(TaskRuntimeState.PLANNING)
                 .relationalState(RelationalRuntimeState.LIGHT_CHAT)
                 .taskStateEntity(TaskState.builder()
                         .taskId("p-1")
                         .sessionId("s-1")
-                        .objective("完成Q2经营复盘")
+                        .objective("complete Q2 operation review")
                         .currentStage("PLANNING")
                         .currentNode("node-2")
                         .confirmedSlots(Map.of())
-                        .pendingQuestions(List.of("是否包含预算偏差"))
+                        .pendingQuestions(List.of("whether include budget variance"))
                         .finishedSteps(List.of())
                         .failedSteps(List.of())
                         .retryCount(0)
@@ -48,27 +55,26 @@ class DefaultInputReconstructionAgentTest {
                         .lastToolInput("")
                         .lastToolStatus("SUCCESS")
                         .lastToolRawResultRef("ref-1")
-                        .lastToolSemanticSummary("已找到Q2预算数据")
+                        .lastToolSemanticSummary("budget data found")
                         .toolCallHistoryRefs(List.of("ref-1"))
                         .build())
-                .recentMessages(List.of(
-                        Map.of("role", "USER", "content_text", "继续上次季度复盘"),
-                        Map.of("role", "ASSISTANT", "content_text", "我先收敛核心目标")
-                ))
-                .taskContext(Map.of("working_memory", Map.of("goal_refined", "完成Q2经营复盘")))
+                .recentMessages(shortTermMemory)
+                .taskContext(Map.of("working_memory", Map.of("goal_refined", "complete Q2 operation review")))
                 .build();
 
         InputReconstructionResult result = agent.reconstruct(
                 "s-1",
-                "明天前给我一个可执行版本",
+                "give me an executable version before tomorrow",
                 contextPackage,
                 TaskRuntimeState.PLANNING,
                 RelationalRuntimeState.LIGHT_CHAT
         );
 
-        assertEquals("完成Q2经营复盘", result.getExplicitTaskGoal());
+        assertEquals("complete Q2 operation review", result.getExplicitTaskGoal());
         assertEquals("tomorrow", result.getTimeScope());
         assertTrue(result.getNormalizedUserIntent().contains("recentDialog="));
-        assertTrue(result.getReformulatedQueryForRag().contains("goal=完成Q2经营复盘"));
+        assertTrue(result.getNormalizedUserIntent().contains("msg-0"));
+        assertTrue(result.getNormalizedUserIntent().contains("msg-24"));
+        assertTrue(result.getReformulatedQueryForRag().contains("goal=complete Q2 operation review"));
     }
 }

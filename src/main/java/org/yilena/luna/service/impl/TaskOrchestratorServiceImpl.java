@@ -83,6 +83,9 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
 
+    private static final int ACTIVE_REF_MAX_PER_CHANNEL = 24;
+    private static final int ACTIVE_TOOL_REF_MAX = 12;
+
     private final ContextCompilerService contextCompilerService;
     private final InputReconstructionAgent inputReconstructionAgent;
     private final EventIngressService eventIngressService;
@@ -763,6 +766,11 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .nextActionHint(summaryResult == null || summaryResult.getStateSnapshot() == null ? "continue" : String.valueOf(summaryResult.getStateSnapshot().getOrDefault("nextStep", "continue")))
                 .build();
         taskStateStore.save(sessionId, taskState);
+        boolean stageChanged = previousTaskState != null
+                && previousTaskState.getCurrentStage() != null
+                && !previousTaskState.getCurrentStage().equals(taskState.getCurrentStage());
+        boolean finishedStepsAdvanced = previousTaskState != null
+                && safeSize(finishedSteps) > safeSize(previousTaskState.getFinishedSteps());
 
         Map<String, Object> retrievalPlan = new LinkedHashMap<>();
         if (request.getRetrievalPlanOverrides() != null && !request.getRetrievalPlanOverrides().isEmpty()) {
@@ -798,8 +806,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         );
         List<String> activeToolRefs = resolveActiveToolEvidenceRefs(
                 request.getLatestToolHistoryRefs(),
-                toolRows,
-                previousContextState
+                toolRows
         );
         ToolState toolState = ToolState.builder()
                 .lastToolName(resolveLastToolName(toolRows, toolSemanticResult))
@@ -828,11 +835,11 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         ContextState contextState = ContextState.builder()
                 .latestNarrativeSummary(summaryResult == null ? "" : nullSafe(summaryResult.getNarrativeSummary()))
                 .latestStateSnapshot(summaryResult == null || summaryResult.getStateSnapshot() == null ? Map.of() : summaryResult.getStateSnapshot())
-                .activeKnowledgeRefs(knowledgeRefs.isEmpty() ? previousOrEmpty(previousContextState == null ? null : previousContextState.getActiveKnowledgeRefs()) : knowledgeRefs)
-                .activeMemoryRefs(memoryRefs.isEmpty() ? previousOrEmpty(previousContextState == null ? null : previousContextState.getActiveMemoryRefs()) : memoryRefs)
-                .activeToolEvidenceRefs(activeToolRefs)
-                .activeMcpPromptRefs(mcpPromptRefs.isEmpty() ? previousOrEmpty(previousContextState == null ? null : previousContextState.getActiveMcpPromptRefs()) : mcpPromptRefs)
-                .activeMcpResourceRefs(mcpResourceRefs.isEmpty() ? previousOrEmpty(previousContextState == null ? null : previousContextState.getActiveMcpResourceRefs()) : mcpResourceRefs)
+                .activeKnowledgeRefs(governActiveRefs(knowledgeRefs, stageChanged, finishedStepsAdvanced, ACTIVE_REF_MAX_PER_CHANNEL))
+                .activeMemoryRefs(governActiveRefs(memoryRefs, stageChanged, finishedStepsAdvanced, ACTIVE_REF_MAX_PER_CHANNEL))
+                .activeToolEvidenceRefs(governActiveRefs(activeToolRefs, stageChanged, finishedStepsAdvanced, ACTIVE_TOOL_REF_MAX))
+                .activeMcpPromptRefs(governActiveRefs(mcpPromptRefs, stageChanged, finishedStepsAdvanced, ACTIVE_REF_MAX_PER_CHANNEL))
+                .activeMcpResourceRefs(governActiveRefs(mcpResourceRefs, stageChanged, finishedStepsAdvanced, ACTIVE_REF_MAX_PER_CHANNEL))
                 .latestContextSnapshotId(firstNonBlank(
                         request.getLatestSnapshotId(),
                         previousContextState == null ? "" : previousContextState.getLatestContextSnapshotId()
@@ -1335,16 +1342,22 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .distinct()
                 .toList();
         List<String> derivedMcpResourceRefs = derivedMcpPromptRefs;
+        boolean stageChanged = contextPackage != null
+                && contextPackage.getTaskStateEntity() != null
+                && previous != null
+                && previous.getLatestStateSnapshot() != null
+                && !nullSafe(contextPackage.getTaskStateEntity().getCurrentStage())
+                .equalsIgnoreCase(stringValue(previous.getLatestStateSnapshot().get("currentStage")));
         return ContextState.builder()
                 .latestNarrativeSummary(summaryResult == null ? "" : nullSafe(summaryResult.getNarrativeSummary()))
                 .latestStateSnapshot(summaryResult == null || summaryResult.getStateSnapshot() == null
                         ? Map.of()
                         : summaryResult.getStateSnapshot())
-                .activeKnowledgeRefs(derivedKnowledgeRefs.isEmpty() ? previousOrEmpty(previous == null ? null : previous.getActiveKnowledgeRefs()) : derivedKnowledgeRefs)
-                .activeMemoryRefs(derivedMemoryRefs.isEmpty() ? previousOrEmpty(previous == null ? null : previous.getActiveMemoryRefs()) : derivedMemoryRefs)
-                .activeToolEvidenceRefs(derivedToolRefs.isEmpty() ? previousOrEmpty(previous == null ? null : previous.getActiveToolEvidenceRefs()) : derivedToolRefs)
-                .activeMcpPromptRefs(derivedMcpPromptRefs.isEmpty() ? previousOrEmpty(previous == null ? null : previous.getActiveMcpPromptRefs()) : derivedMcpPromptRefs)
-                .activeMcpResourceRefs(derivedMcpResourceRefs.isEmpty() ? previousOrEmpty(previous == null ? null : previous.getActiveMcpResourceRefs()) : derivedMcpResourceRefs)
+                .activeKnowledgeRefs(governActiveRefs(derivedKnowledgeRefs, stageChanged, false, ACTIVE_REF_MAX_PER_CHANNEL))
+                .activeMemoryRefs(governActiveRefs(derivedMemoryRefs, stageChanged, false, ACTIVE_REF_MAX_PER_CHANNEL))
+                .activeToolEvidenceRefs(governActiveRefs(derivedToolRefs, stageChanged, false, ACTIVE_TOOL_REF_MAX))
+                .activeMcpPromptRefs(governActiveRefs(derivedMcpPromptRefs, stageChanged, false, ACTIVE_REF_MAX_PER_CHANNEL))
+                .activeMcpResourceRefs(governActiveRefs(derivedMcpResourceRefs, stageChanged, false, ACTIVE_REF_MAX_PER_CHANNEL))
                 .latestContextSnapshotId(previous == null ? "" : nullSafe(previous.getLatestContextSnapshotId()))
                 .build();
     }
@@ -1453,8 +1466,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
     }
 
     private List<String> resolveActiveToolEvidenceRefs(List<String> explicitHistoryRefs,
-                                                       List<Map<String, Object>> toolRows,
-                                                       ContextState previousContextState) {
+                                                       List<Map<String, Object>> toolRows) {
         List<String> refs = new ArrayList<>();
         if (explicitHistoryRefs != null && !explicitHistoryRefs.isEmpty()) {
             refs.addAll(explicitHistoryRefs);
@@ -1462,13 +1474,33 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         if (refs.isEmpty() && toolRows != null) {
             refs.addAll(extractToolHistoryRefs(toolRows));
         }
-        if (refs.isEmpty() && previousContextState != null && previousContextState.getActiveToolEvidenceRefs() != null) {
-            refs.addAll(previousContextState.getActiveToolEvidenceRefs());
-        }
-        if (refs.isEmpty()) {
-            refs.add("tool_execution_trace:latest");
-        }
         return refs.stream().filter(ref -> ref != null && !ref.isBlank()).distinct().toList();
+    }
+
+    private List<String> governActiveRefs(List<String> currentRefs,
+                                          boolean stageChanged,
+                                          boolean finishedStepsAdvanced,
+                                          int maxSize) {
+        if (currentRefs == null || currentRefs.isEmpty()) {
+            // Hard rule: no new evidence in current round means evidence exits active context.
+            return List.of();
+        }
+        if (stageChanged || finishedStepsAdvanced) {
+            return currentRefs.stream()
+                    .filter(ref -> ref != null && !ref.isBlank())
+                    .distinct()
+                    .limit(maxSize)
+                    .toList();
+        }
+        return currentRefs.stream()
+                .filter(ref -> ref != null && !ref.isBlank())
+                .distinct()
+                .limit(maxSize)
+                .toList();
+    }
+
+    private int safeSize(List<String> values) {
+        return values == null ? 0 : values.size();
     }
 
     private String resolveLastToolName(List<Map<String, Object>> toolRows, ToolSemanticResult toolSemanticResult) {

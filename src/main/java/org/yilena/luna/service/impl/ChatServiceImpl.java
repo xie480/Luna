@@ -74,6 +74,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class ChatServiceImpl implements ChatService {
 
     private static final DateTimeFormatter SESSION_KEY_FORMATTER = DateTimeFormatter.ofPattern("yyyy:MM:dd");
+    private static final int CONTINUOUS_SUMMARY_MIN_TURNS = 8;
 
     private final SessionService sessionService;
     private final LunaStatusPublisher statusPublisher;
@@ -1233,7 +1234,8 @@ public class ChatServiceImpl implements ChatService {
         int shortTermMemorySize = contextPackage == null || contextPackage.getRecentMessages() == null
                 ? 0
                 : contextPackage.getRecentMessages().size();
-        if (shortTermMemorySize < 36) {
+        boolean hasStateSnapshot = summaryResult.getStateSnapshot() != null && !summaryResult.getStateSnapshot().isEmpty();
+        if (shortTermMemorySize < CONTINUOUS_SUMMARY_MIN_TURNS && !hasStateSnapshot) {
             return;
         }
         String snapshotText = summaryResult.getStateSnapshot() == null || summaryResult.getStateSnapshot().isEmpty()
@@ -1250,6 +1252,7 @@ public class ChatServiceImpl implements ChatService {
                     toJsonSafe(Map.of(
                             "shortTermMemorySize", shortTermMemorySize,
                             "narrativeLength", narrative.length(),
+                            "continuousSummaryMinTurns", CONTINUOUS_SUMMARY_MIN_TURNS,
                             "snapshotPresent", snapshotText != null && !snapshotText.isBlank()
                     ))
             );

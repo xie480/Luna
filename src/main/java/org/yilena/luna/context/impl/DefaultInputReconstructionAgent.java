@@ -492,9 +492,8 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
         String recentDialog = "";
         if (contextPackage.getRecentMessages() != null && !contextPackage.getRecentMessages().isEmpty()) {
             List<Map<String, Object>> messages = contextPackage.getRecentMessages();
-            int from = Math.max(0, messages.size() - 20);
             StringBuilder buffer = new StringBuilder();
-            for (Map<String, Object> message : messages.subList(from, messages.size())) {
+            for (Map<String, Object> message : messages) {
                 buffer.append(asText(message.get("role"))).append(':').append(asText(message.get("content_text"))).append('|');
             }
             recentDialog = buffer.toString();
