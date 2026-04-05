@@ -42,6 +42,7 @@ import org.yilena.luna.service.AgentService;
 import org.yilena.luna.service.ChatService;
 import org.yilena.luna.service.RoundPipelineOrchestrator;
 import org.yilena.luna.service.SessionService;
+import org.yilena.luna.service.StateDrivenContextPipeline;
 import org.yilena.luna.service.TaskOrchestratorService;
 import org.yilena.luna.service.model.MainModelExecutionRequest;
 import org.yilena.luna.service.model.MainModelOrchestrationResult;
@@ -49,6 +50,7 @@ import org.yilena.luna.service.model.NodeWorksetResult;
 import org.yilena.luna.service.model.RoundPipelineRequest;
 import org.yilena.luna.service.model.RoundPipelineResult;
 import org.yilena.luna.service.model.RoundToolSemanticRequest;
+import org.yilena.luna.service.model.StateDrivenContextPipelineRequest;
 import org.yilena.luna.service.model.SummaryOrchestrationResult;
 import org.yilena.luna.service.model.TaskOrchestrationResult;
 import org.yilena.luna.state.model.ContextState;
@@ -76,8 +78,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class ChatServiceImpl implements ChatService {
 
     private static final DateTimeFormatter SESSION_KEY_FORMATTER = DateTimeFormatter.ofPattern("yyyy:MM:dd");
-    private static final int CONTINUOUS_SUMMARY_MIN_TURNS = 8;
-
     private final SessionService sessionService;
     private final LunaStatusPublisher statusPublisher;
     private final AgentService agentService;
@@ -89,6 +89,7 @@ public class ChatServiceImpl implements ChatService {
     private final SessionRuntimeMapper sessionRuntimeMapper;
     private final TaskOrchestratorService taskOrchestratorService;
     private final RoundPipelineOrchestrator roundPipelineOrchestrator;
+    private final StateDrivenContextPipeline stateDrivenContextPipeline;
     private final ContextAssembler contextAssembler;
     private final ContextSnapshotStore contextSnapshotStore;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -341,8 +342,7 @@ public class ChatServiceImpl implements ChatService {
 
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_THINKING, LunaStateConstant.VALUE_THINKING_ORGANIZE);
         ContextState previousContextState = contextPackage == null ? null : contextPackage.getContextState();
-        RoundPipelineResult roundPipelineResult = roundPipelineOrchestrator.executeRound(
-                RoundPipelineRequest.builder()
+        RoundPipelineRequest roundPipelineRequest = RoundPipelineRequest.builder()
                         .sessionId(runtimeSessionId)
                         .userInput(input)
                         .decision(decision)
@@ -366,6 +366,7 @@ public class ChatServiceImpl implements ChatService {
                         .assistantReplyOverride("")
                         .preAssemblyTriggerSource("PRE_ASSEMBLY_INPUT")
                         .postSummaryTriggerSource("CHAT_TURN")
+                        .replaceHistoryWithSummary(true)
                         .writeRoundState(true)
                         .latestToolRawRef(toolTraceRefs == null ? "" : toolTraceRefs.latestRawRef())
                         .latestToolHistoryRefs(toolTraceRefs == null ? List.of() : toolTraceRefs.historyRefs())
@@ -375,6 +376,12 @@ public class ChatServiceImpl implements ChatService {
                                 toolTraceRefs == null ? "" : toolTraceRefs.latestRawRef(),
                                 toolTraceRefs == null ? List.of() : toolTraceRefs.historyRefs()
                         ))
+                        .build();
+        RoundPipelineResult roundPipelineResult = stateDrivenContextPipeline.run(
+                StateDrivenContextPipelineRequest.builder()
+                        .sessionId(runtimeSessionId)
+                        .triggerSource("CHAT_TURN")
+                        .roundPipelineRequest(roundPipelineRequest)
                         .build()
         );
         MainModelOrchestrationResult modelResult = roundPipelineResult == null ? null : roundPipelineResult.getMainModelResult();
@@ -413,7 +420,6 @@ public class ChatServiceImpl implements ChatService {
                 toolSemanticResult,
                 reconstruction
         );
-        replaceHistoryWithSummaryInMainChain(runtimeSessionId, contextPackage, summaryResult);
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
         return ResponseEntity.ok(tryParseJsonNode(modelResult.getValidResponse()));
     }
@@ -1286,53 +1292,6 @@ public class ChatServiceImpl implements ChatService {
             merged.addAll(right);
         }
         return new ArrayList<>(merged);
-    }
-
-    private void replaceHistoryWithSummaryInMainChain(String sessionId,
-                                                      StructuredContextPackage contextPackage,
-                                                      SummaryResult summaryResult) {
-        if (sessionId == null || sessionId.isBlank() || summaryResult == null) {
-            return;
-        }
-        String narrative = summaryResult.getNarrativeSummary();
-        if (narrative == null || narrative.isBlank()) {
-            return;
-        }
-        int shortTermMemorySize = contextPackage == null || contextPackage.getRecentMessages() == null
-                ? 0
-                : contextPackage.getRecentMessages().size();
-        boolean hasStateSnapshot = summaryResult.getStateSnapshot() != null && !summaryResult.getStateSnapshot().isEmpty();
-        if (shortTermMemorySize < CONTINUOUS_SUMMARY_MIN_TURNS && !hasStateSnapshot) {
-            return;
-        }
-        String snapshotText = summaryResult.getStateSnapshot() == null || summaryResult.getStateSnapshot().isEmpty()
-                ? ""
-                : toJsonSafe(summaryResult.getStateSnapshot());
-        try {
-            sessionService.replaceHistoryWithSummary(sessionId, narrative, snapshotText);
-            runtimeAuditService.persistDecisionRecord(
-                    sessionId,
-                    contextPlanId(contextPackage),
-                    contextNodeId(contextPackage),
-                    "HISTORY_REPLACEMENT_MAIN_CHAIN",
-                    "chat main chain replaced history with summary",
-                    toJsonSafe(Map.of(
-                            "shortTermMemorySize", shortTermMemorySize,
-                            "narrativeLength", narrative.length(),
-                            "continuousSummaryMinTurns", CONTINUOUS_SUMMARY_MIN_TURNS,
-                            "snapshotPresent", snapshotText != null && !snapshotText.isBlank()
-                    ))
-            );
-        } catch (Exception ex) {
-            runtimeAuditService.persistDecisionRecord(
-                    sessionId,
-                    contextPlanId(contextPackage),
-                    contextNodeId(contextPackage),
-                    "HISTORY_REPLACEMENT_MAIN_CHAIN_FAILED",
-                    "chat main chain summary replacement failed",
-                    toJsonSafe(Map.of("error", nullSafe(ex.getMessage())))
-            );
-        }
     }
 
     private List<String> nonBlankList(String value) {

@@ -12,6 +12,8 @@ public class ToolState {
     String lastToolInput;
     String lastToolStatus;
     String lastToolRawResultRef;
+    String lastToolRawPayloadRef;
+    String lastToolRawResult;
     String lastToolRawResultDigest;
     String lastToolRawResultPreview;
     String lastToolSemanticSummary;

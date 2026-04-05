@@ -27,13 +27,14 @@ import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.mapper.SessionRuntimeMapper;
 import org.yilena.luna.service.ApprovalService;
 import org.yilena.luna.service.McpService;
-import org.yilena.luna.service.RoundPipelineOrchestrator;
 import org.yilena.luna.service.SessionService;
+import org.yilena.luna.service.StateDrivenContextPipeline;
 import org.yilena.luna.service.TaskOrchestratorService;
 import org.yilena.luna.service.model.MainModelOrchestrationResult;
 import org.yilena.luna.service.model.NodeWorksetResult;
 import org.yilena.luna.service.model.RoundPipelineRequest;
 import org.yilena.luna.service.model.RoundPipelineResult;
+import org.yilena.luna.service.model.StateDrivenContextPipelineRequest;
 import org.yilena.luna.service.model.TaskOrchestrationResult;
 import org.yilena.luna.state.model.ContextState;
 import org.yilena.luna.state.model.ContextSnapshot;
@@ -75,12 +76,12 @@ public class ApprovalServiceImpl implements ApprovalService {
     private final SseSessionManager sseSessionManager;
     private final LunaStatusPublisher statusPublisher;
 
-    private final RoundPipelineOrchestrator roundPipelineOrchestrator;
     private final RuntimeAuditService runtimeAuditService;
     private final SessionService sessionService;
     private final EventIngressService eventIngressService;
     private final MemoryWritePipelineService memoryWritePipelineService;
     private final TaskOrchestratorService taskOrchestratorService;
+    private final StateDrivenContextPipeline stateDrivenContextPipeline;
     private final ContextSnapshotStore contextSnapshotStore;
     private final RecoveryStateStore recoveryStateStore;
     private final SessionRuntimeMapper sessionRuntimeMapper;
@@ -395,8 +396,7 @@ public class ApprovalServiceImpl implements ApprovalService {
             List<String> runtimeMemorySnippets = extractRuntimeMessageSnippets(contextPackage);
             List<String> retrievedMemorySnippets = selectedMemorySnippets;
             ContextNodeTemplatePolicy nodeTemplatePolicy = resolveNodeTemplatePolicy(recoveryDecision, contextPackage);
-            RoundPipelineResult roundPipelineResult = roundPipelineOrchestrator.executeRound(
-                    RoundPipelineRequest.builder()
+            RoundPipelineRequest roundPipelineRequest = RoundPipelineRequest.builder()
                             .sessionId(task.getSessionId())
                             .userInput(task.getUserInput())
                             .decision(recoveryDecision)
@@ -425,6 +425,7 @@ public class ApprovalServiceImpl implements ApprovalService {
                             .assistantReplyOverride("")
                             .preAssemblyTriggerSource("APPROVAL_PRE_ASSEMBLY")
                             .postSummaryTriggerSource("APPROVAL_RECOVERY")
+                            .replaceHistoryWithSummary(true)
                             .writeRoundState(true)
                             .rawToolResultChannel(buildRawToolResultChannel(
                                     approved ? toolContext : "",
@@ -433,6 +434,12 @@ public class ApprovalServiceImpl implements ApprovalService {
                                     List.of()
                             ))
                             .retrievalPlanOverrides(Map.of("approvalRecovery", true))
+                            .build();
+            RoundPipelineResult roundPipelineResult = stateDrivenContextPipeline.run(
+                    StateDrivenContextPipelineRequest.builder()
+                            .sessionId(task.getSessionId())
+                            .triggerSource("APPROVAL_RECOVERY")
+                            .roundPipelineRequest(roundPipelineRequest)
                             .build()
             );
             MainModelOrchestrationResult modelResult = roundPipelineResult == null ? null : roundPipelineResult.getMainModelResult();

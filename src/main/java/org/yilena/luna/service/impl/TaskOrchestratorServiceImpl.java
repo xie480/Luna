@@ -98,6 +98,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
     private static final int MCP_RESOURCE_REF_TTL = 4;
     private static final int MCP_WORKFLOW_REF_TTL = 4;
     private static final int MCP_TOOL_REF_TTL = 4;
+    private static final int SUMMARY_REPLACE_HISTORY_MIN_TURNS = 8;
 
     private final ContextCompilerService contextCompilerService;
     private final InputReconstructionAgent inputReconstructionAgent;
@@ -676,12 +677,52 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         );
         if (sessionId != null && !sessionId.isBlank()) {
             contextStateStore.save(sessionId, contextState);
-            if (replaceHistory && summaryResult != null && summaryResult.getNarrativeSummary() != null
+            int shortTermMemorySize = effectiveContext == null || effectiveContext.getRecentMessages() == null
+                    ? 0
+                    : effectiveContext.getRecentMessages().size();
+            boolean hasStateSnapshot = summaryResult != null
+                    && summaryResult.getStateSnapshot() != null
+                    && !summaryResult.getStateSnapshot().isEmpty();
+            boolean meetsThreshold = shortTermMemorySize >= SUMMARY_REPLACE_HISTORY_MIN_TURNS || hasStateSnapshot;
+            if (replaceHistory
+                    && meetsThreshold
+                    && summaryResult != null
+                    && summaryResult.getNarrativeSummary() != null
                     && !summaryResult.getNarrativeSummary().isBlank()) {
                 String snapshotText = summaryResult.getStateSnapshot() == null || summaryResult.getStateSnapshot().isEmpty()
                         ? ""
                         : toJsonSafe(summaryResult.getStateSnapshot());
                 sessionService.replaceHistoryWithSummary(sessionId, summaryResult.getNarrativeSummary(), snapshotText);
+                runtimeAuditService.persistDecisionRecord(
+                        sessionId,
+                        contextPlanId(effectiveContext),
+                        contextNodeId(effectiveContext),
+                        "HISTORY_REPLACEMENT_BY_SUMMARY",
+                        "history replaced under orchestrator unified summary policy",
+                        toJsonSafe(Map.of(
+                                "triggerSource", triggerSource == null ? "" : triggerSource,
+                                "shortTermMemorySize", shortTermMemorySize,
+                                "replaceMinTurns", SUMMARY_REPLACE_HISTORY_MIN_TURNS,
+                                "hasStateSnapshot", hasStateSnapshot
+                        ))
+                );
+            } else if (replaceHistory) {
+                runtimeAuditService.persistDecisionRecord(
+                        sessionId,
+                        contextPlanId(effectiveContext),
+                        contextNodeId(effectiveContext),
+                        "HISTORY_REPLACEMENT_SKIPPED",
+                        "summary replacement skipped by unified threshold policy",
+                        toJsonSafe(Map.of(
+                                "triggerSource", triggerSource == null ? "" : triggerSource,
+                                "shortTermMemorySize", shortTermMemorySize,
+                                "replaceMinTurns", SUMMARY_REPLACE_HISTORY_MIN_TURNS,
+                                "hasStateSnapshot", hasStateSnapshot,
+                                "narrativePresent", summaryResult != null
+                                        && summaryResult.getNarrativeSummary() != null
+                                        && !summaryResult.getNarrativeSummary().isBlank()
+                        ))
+                );
             }
         }
         return SummaryOrchestrationResult.builder()
@@ -732,6 +773,18 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 rawToolResultChannel,
                 buildFinalSnapshotActiveRefs(request, contextPackage)
         );
+        Map<String, List<String>> activeRefs = buildFinalSnapshotActiveRefs(request, contextPackage);
+        String finalSnapshotId = runtimeAuditService.persistFinalContextSnapshot(
+                sessionId,
+                planId,
+                nodeId,
+                assembledContext,
+                assembledContext == null ? "" : nullSafe(assembledContext.getPrompt()),
+                assembledContext == null || assembledContext.getSectionTokenCounts() == null ? Map.of() : assembledContext.getSectionTokenCounts(),
+                assembledContext == null || assembledContext.getSectionTokenRatios() == null ? Map.of() : assembledContext.getSectionTokenRatios(),
+                rawToolResultChannel,
+                activeRefs
+        );
         Map<String, Object> contextTraceMeta = buildTraceMeta(
                 contextPackage,
                 nodeId,
@@ -740,14 +793,14 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         );
         contextTraceLogger.log(sessionId, planId, nodeId, assembledContext, contextTraceMeta);
 
-        String finalSnapshotId = assembledContext == null ? "" : nullSafe(assembledContext.getSnapshotId());
+        finalSnapshotId = firstNonBlank(finalSnapshotId, assembledContext == null ? "" : nullSafe(assembledContext.getSnapshotId()));
         if (!sessionId.isBlank()) {
             runtimeAuditService.persistDecisionRecord(
                     sessionId,
                     planId,
                     nodeId,
                     "CONTEXT_SNAPSHOT_FINAL",
-                    "final model context snapshot persisted by context assembler",
+                    "final model context snapshot persisted by runtime audit service",
                     toJsonSafe(Map.of("snapshotId", finalSnapshotId))
             );
         }
@@ -921,6 +974,11 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 toolRows,
                 previousToolState
         );
+        if (latestToolRawResultJson == null || latestToolRawResultJson.isBlank()) {
+            latestToolRawResultJson = request.getRawToolResultChannel() == null || request.getRawToolResultChannel().isEmpty()
+                    ? ""
+                    : toJsonSafe(request.getRawToolResultChannel());
+        }
         String latestToolRawResultDigest = sha256Hex(latestToolRawResultJson);
         String latestToolRawResultPreview = truncate(latestToolRawResultJson, 512);
         List<String> activeToolRefs = resolveActiveToolEvidenceRefs(
@@ -932,6 +990,14 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .lastToolInput(reconstruction == null ? "" : reconstruction.getReformulatedQueryForMcp())
                 .lastToolStatus(toolSemanticResult == null ? "" : toolSemanticResult.getToolStatus())
                 .lastToolRawResultRef(latestToolRawRef)
+                .lastToolRawPayloadRef(firstNonBlank(
+                        request.getLatestSnapshotId(),
+                        previousToolState == null ? "" : previousToolState.getLastToolRawPayloadRef()
+                ))
+                .lastToolRawResult(firstNonBlank(
+                        latestToolRawResultJson,
+                        previousToolState == null ? "" : previousToolState.getLastToolRawResult()
+                ))
                 .lastToolRawResultDigest(firstNonBlank(latestToolRawResultDigest, previousToolState == null ? "" : previousToolState.getLastToolRawResultDigest()))
                 .lastToolRawResultPreview(firstNonBlank(latestToolRawResultPreview, previousToolState == null ? "" : previousToolState.getLastToolRawResultPreview()))
                 .lastToolSemanticSummary(toolSemanticResult == null ? "" : toolSemanticResult.getBusinessImpact())

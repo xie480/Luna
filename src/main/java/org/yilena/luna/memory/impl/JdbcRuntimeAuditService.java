@@ -36,21 +36,25 @@ public class JdbcRuntimeAuditService implements RuntimeAuditService {
     }
 
     @Override
-    public void persistFinalContextSnapshot(String sessionId,
-                                            Long planId,
-                                            Long nodeId,
-                                            AssembledContext assembledContext,
-                                            String prompt,
-                                            Map<String, Integer> sectionTokenCounts,
-                                            Map<String, Double> sectionTokenRatios) {
-        contextSnapshotStore.saveFinalSnapshot(
+    public String persistFinalContextSnapshot(String sessionId,
+                                              Long planId,
+                                              Long nodeId,
+                                              AssembledContext assembledContext,
+                                              String prompt,
+                                              Map<String, Integer> sectionTokenCounts,
+                                              Map<String, Double> sectionTokenRatios,
+                                              Map<String, Object> rawToolResultChannel,
+                                              Map<String, java.util.List<String>> activeRefs) {
+        return contextSnapshotStore.saveFinalSnapshot(
                 sessionId,
                 coalescePlanId(sessionId, planId),
                 coalesceNodeId(sessionId, nodeId),
                 assembledContext,
                 prompt,
                 sectionTokenCounts,
-                sectionTokenRatios
+                sectionTokenRatios,
+                rawToolResultChannel,
+                activeRefs
         );
     }
 

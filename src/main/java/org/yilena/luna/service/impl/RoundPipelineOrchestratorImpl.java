@@ -197,7 +197,7 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                 knowledgeEvidenceBlocks,
                 mcpResourceHints,
                 effectiveToolSemantic,
-                false,
+                request.isReplaceHistoryWithSummary(),
                 firstNonBlank(request.getPostSummaryTriggerSource(), "ROUND")
         );
         SummaryResult summaryResult = postSummary == null ? null : postSummary.getSummaryResult();

@@ -38,6 +38,7 @@ public class RoundPipelineRequest {
     String assistantReplyOverride;
     String preAssemblyTriggerSource;
     String postSummaryTriggerSource;
+    boolean replaceHistoryWithSummary;
     boolean writeRoundState;
     String latestSnapshotId;
     String latestToolRawRef;
@@ -45,4 +46,3 @@ public class RoundPipelineRequest {
     Map<String, Object> rawToolResultChannel;
     Map<String, Object> retrievalPlanOverrides;
 }
-
