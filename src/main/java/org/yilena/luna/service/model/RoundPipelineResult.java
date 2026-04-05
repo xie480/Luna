@@ -2,8 +2,11 @@ package org.yilena.luna.service.model;
 
 import lombok.Builder;
 import lombok.Value;
+import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.context.model.SummaryResult;
 import org.yilena.luna.context.model.ToolSemanticResult;
+import org.yilena.luna.memory.model.OrchestrationDecision;
+import org.yilena.luna.memory.model.StructuredContextPackage;
 
 @Value
 @Builder
@@ -15,5 +18,8 @@ public class RoundPipelineResult {
     MainModelOrchestrationResult mainModelResult;
     SummaryResult summaryResult;
     String finalSnapshotId;
+    OrchestrationDecision decision;
+    StructuredContextPackage contextPackage;
+    InputReconstructionResult reconstructionResult;
+    NodeWorksetResult nodeWorksetResult;
 }
-

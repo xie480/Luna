@@ -99,6 +99,10 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                     .mainModelResult(null)
                     .summaryResult(null)
                     .finalSnapshotId("")
+                    .decision(null)
+                    .contextPackage(null)
+                    .reconstructionResult(null)
+                    .nodeWorksetResult(null)
                     .build();
         }
         String sessionId = nullSafe(request.getSessionId());
@@ -183,6 +187,10 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                         .mainModelResult(modelResult)
                         .summaryResult(null)
                         .finalSnapshotId(modelResult == null ? finalSnapshotId : firstNonBlank(modelResult.getFinalSnapshotId(), finalSnapshotId))
+                        .decision(request.getDecision())
+                        .contextPackage(contextPackage)
+                        .reconstructionResult(request.getReconstructionResult())
+                        .nodeWorksetResult(nodeWorksetResult)
                         .build();
             }
             assistantReply = nullSafe(modelResult.getReplyText());
@@ -230,6 +238,10 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                 .mainModelResult(modelResult)
                 .summaryResult(summaryResult)
                 .finalSnapshotId(finalSnapshotId)
+                .decision(request.getDecision())
+                .contextPackage(contextPackage)
+                .reconstructionResult(request.getReconstructionResult())
+                .nodeWorksetResult(nodeWorksetResult)
                 .build();
     }
 

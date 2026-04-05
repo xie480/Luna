@@ -111,10 +111,37 @@ public class ChatServiceImpl implements ChatService {
                 .filter(s -> !s.isBlank())
                 .orElse(SESSION_KEY_FORMATTER.format(LocalDateTime.now()));
 
-        TaskOrchestrationResult orchestration = taskOrchestratorService.orchestrateUserInput(runtimeSessionId, input);
-        OrchestrationDecision decision = orchestration == null ? null : orchestration.getDecision();
-        StructuredContextPackage contextPackage = orchestration == null ? null : orchestration.getContextPackage();
-        InputReconstructionResult reconstruction = orchestration == null ? null : orchestration.getReconstructionResult();
+        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_RETRIEVING, LunaStateConstant.VALUE_RETRIEVING);
+        RoundPipelineResult preToolPipelineResult = stateDrivenContextPipeline.run(
+                StateDrivenContextPipelineRequest.builder()
+                        .sessionId(runtimeSessionId)
+                        .triggerSource("CHAT_PRE_TOOL")
+                        .roundPipelineRequest(RoundPipelineRequest.builder()
+                                .sessionId(runtimeSessionId)
+                                .userInput(input)
+                                .stage("CHAT_PRE_TOOL")
+                                .repairSeed(input)
+                                .runMainModel(false)
+                                .assistantReplyOverride("")
+                                .preAssemblyTriggerSource("PRE_ASSEMBLY_INPUT")
+                                .postSummaryTriggerSource("CHAT_PRE_TOOL")
+                                .replaceHistoryWithSummary(false)
+                                .writeRoundState(false)
+                                .build())
+                        .build()
+        );
+        if (preToolPipelineResult == null || preToolPipelineResult.isBlocked()) {
+            statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
+            return ResponseEntity.status(503).body(contextGovernanceBlockedPayload("chat pre-tool pipeline blocked"));
+        }
+        OrchestrationDecision decision = preToolPipelineResult.getDecision();
+        StructuredContextPackage contextPackage = preToolPipelineResult.getContextPackage();
+        InputReconstructionResult reconstruction = preToolPipelineResult.getReconstructionResult();
+        NodeWorksetResult nodeWorkset = preToolPipelineResult.getNodeWorksetResult();
+        if (contextPackage == null || decision == null || reconstruction == null || nodeWorkset == null) {
+            statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
+            return ResponseEntity.status(503).body(contextGovernanceBlockedPayload("chat pre-tool pipeline artifacts missing"));
+        }
 
         List<String> knowledgeSnippets = extractTaskKnowledgeSnippets(contextPackage);
         List<String> preferenceSnippets = extractRelationalPreferenceSnippets(contextPackage);
@@ -122,14 +149,6 @@ public class ChatServiceImpl implements ChatService {
         List<String> workingMemorySnippets = extractWorkingMemorySnippets(contextPackage);
         List<String> runtimeMemorySnippets = extractRuntimeMessageSnippets(contextPackage);
         ContextNodeTemplatePolicy nodeTemplatePolicy = resolveNodeTemplatePolicy(decision, contextPackage);
-        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_RETRIEVING, LunaStateConstant.VALUE_RETRIEVING);
-        NodeWorksetResult nodeWorkset = taskOrchestratorService.orchestrateNodeWorkset(
-                runtimeSessionId,
-                input,
-                decision,
-                contextPackage,
-                reconstruction
-        );
         ContextRerankResult rerankResult = nodeWorkset == null ? null : nodeWorkset.getRerankResult();
         String mcpDrivenInput = nodeWorkset == null ? "" : stringValue(nodeWorkset.getMcpDrivenInput());
         List<Resource> executionCandidates = nodeWorkset == null || nodeWorkset.getExecutionCandidates() == null
@@ -338,6 +357,53 @@ public class ChatServiceImpl implements ChatService {
             if (pendingGate.allowWrite()) {
                 memoryWritePipelineService.writeAfterTurn(runtimeSessionId, input, pendingReply, contextPackage);
             }
+            stateDrivenContextPipeline.run(
+                    StateDrivenContextPipelineRequest.builder()
+                            .sessionId(runtimeSessionId)
+                            .triggerSource("CHAT_TURN_PENDING")
+                            .roundPipelineRequest(RoundPipelineRequest.builder()
+                                    .sessionId(runtimeSessionId)
+                                    .userInput(input)
+                                    .decision(decision)
+                                    .contextPackage(contextPackage)
+                                    .reconstructionResult(reconstruction)
+                                    .nodeWorksetResult(nodeWorkset)
+                                    .toolSemanticResult(toolSemanticResult)
+                                    .workingMemorySnippets(workingMemorySnippets)
+                                    .runtimeMemorySnippets(runtimeMemorySnippets)
+                                    .retrievedMemorySnippets(ragMemorySnippets)
+                                    .knowledgeSnippets(knowledgeSnippets)
+                                    .preferenceSnippets(preferenceSnippets)
+                                    .longTermMemorySnippets(longTermMemorySnippets)
+                                    .executionCandidates(executionCandidates)
+                                    .mcpResourceHints(mcpResourceHints)
+                                    .nodeTemplatePolicy(nodeTemplatePolicy)
+                                    .toolContext(mergedToolContext)
+                                    .stage("CHAT_TURN_PENDING")
+                                    .repairSeed(input)
+                                    .runMainModel(false)
+                                    .assistantReplyOverride(pendingReply)
+                                    .preAssemblyTriggerSource("PRE_ASSEMBLY_INPUT")
+                                    .postSummaryTriggerSource("CHAT_TURN_PENDING")
+                                    .replaceHistoryWithSummary(false)
+                                    .writeRoundState(true)
+                                    .latestSnapshotId(toolDecisionSnapshotId)
+                                    .latestToolRawRef(toolTraceRefs == null ? "" : toolTraceRefs.latestRawRef())
+                                    .latestToolHistoryRefs(toolTraceRefs == null ? List.of() : toolTraceRefs.historyRefs())
+                                    .rawToolResultChannel(buildRawToolResultChannel(
+                                            mergedToolContext,
+                                            latestToolExecutionTraces,
+                                            toolTraceRefs == null ? "" : toolTraceRefs.latestRawRef(),
+                                            toolTraceRefs == null ? List.of() : toolTraceRefs.historyRefs()
+                                    ))
+                                    .retrievalPlanOverrides(Map.of(
+                                            "pending", true,
+                                            "nextActionHint", "await_tool_callback",
+                                            "pendingRecoveryAnchor", toolDecisionSnapshotId == null ? "" : toolDecisionSnapshotId
+                                    ))
+                                    .build())
+                            .build()
+            );
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
             return ResponseEntity.ok(tryParseJsonNode(pendingReply));
         }
@@ -432,103 +498,31 @@ public class ChatServiceImpl implements ChatService {
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_STARTING, LunaStateConstant.VALUE_STARTING);
         LocalDateTime today = LocalDateTime.now();
         String keyPrefix = SESSION_KEY_FORMATTER.format(today);
-
-        List<ChatMessage> recent = sessionService.getRecentMessages(keyPrefix, false);
-        if (recent == null) {
-            recent = Collections.emptyList();
-        }
-        int index = 1;
-        while (index <= 30 && recent.isEmpty()) {
-            recent = sessionService.getRecentMessages(SESSION_KEY_FORMATTER.format(today.minusDays(index++)), true);
-            if (recent == null) {
-                recent = Collections.emptyList();
-            }
-        }
-
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.STARTUP, "startup", LocalTime.now()));
-        String startupInput = "startup";
-        TaskOrchestrationResult orchestration = taskOrchestratorService.orchestrateUserInput(keyPrefix, startupInput);
-        OrchestrationDecision decision = orchestration == null ? null : orchestration.getDecision();
-        StructuredContextPackage contextPackage = orchestration == null ? null : orchestration.getContextPackage();
-        InputReconstructionResult reconstruction = orchestration == null ? null : orchestration.getReconstructionResult();
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_RETRIEVING, LunaStateConstant.VALUE_RETRIEVING);
-        NodeWorksetResult nodeWorkset = taskOrchestratorService.orchestrateNodeWorkset(
-                keyPrefix,
-                startupInput,
-                decision,
-                contextPackage,
-                reconstruction
-        );
-        ContextRerankResult rerankResult = nodeWorkset == null ? null : nodeWorkset.getRerankResult();
-        List<Resource> executionCandidates = nodeWorkset == null || nodeWorkset.getExecutionCandidates() == null
-                ? List.of()
-                : nodeWorkset.getExecutionCandidates();
-        List<String> mcpResourceHints = nodeWorkset == null || nodeWorkset.getMcpResourceHints() == null
-                ? List.of()
-                : nodeWorkset.getMcpResourceHints();
-        List<String> ragMemorySnippets = nodeWorkset == null || nodeWorkset.getSelectedMemorySnippets() == null
-                ? List.of()
-                : nodeWorkset.getSelectedMemorySnippets();
-        List<EvidenceBlock> knowledgeEvidenceBlocks = nodeWorkset == null || nodeWorkset.getSelectedKnowledgeEvidenceBlocks() == null
-                ? List.of()
-                : nodeWorkset.getSelectedKnowledgeEvidenceBlocks();
-        List<String> knowledgeSnippets = extractTaskKnowledgeSnippets(contextPackage);
-        if (nodeWorkset != null && nodeWorkset.getSelectedKnowledgeSnippets() != null && !nodeWorkset.getSelectedKnowledgeSnippets().isEmpty()) {
-            knowledgeSnippets = nodeWorkset.getSelectedKnowledgeSnippets();
-        }
-        List<String> preferenceSnippets = mergeDistinct(
-                extractRelationalPreferenceSnippets(contextPackage),
-                nodeWorkset == null || nodeWorkset.getSelectedPreferenceSnippets() == null
-                        ? List.of()
-                        : nodeWorkset.getSelectedPreferenceSnippets()
-        );
-        List<String> longTermMemorySnippets = extractTaskLongTermSnippets(contextPackage);
-        List<String> workingMemorySnippets = extractWorkingMemorySnippets(contextPackage);
-        List<String> runtimeMemorySnippets = mergeDistinct(
-                extractRuntimeMessageSnippets(contextPackage),
-                recent.stream().map(m -> m.getRole().name() + ": " + m.getContent() + ": " + m.getTime()).toList()
-        );
-        ContextNodeTemplatePolicy startupPolicy = ContextNodeTemplatePolicy.defaultPolicy();
-        SummaryOrchestrationResult preAssemblySummary = taskOrchestratorService.orchestrateSummary(
-                keyPrefix,
-                startupInput,
-                "",
-                contextPackage,
-                knowledgeEvidenceBlocks,
-                mcpResourceHints,
-                null,
-                false,
-                "STARTUP_PRE_ASSEMBLY_INPUT"
-        );
-        SummaryResult roundSummaryInput = preAssemblySummary == null ? null : preAssemblySummary.getSummaryResult();
-        MainModelOrchestrationResult startupResult = taskOrchestratorService.orchestrateMainModel(
-                MainModelExecutionRequest.builder()
+        String startupInput = "startup";
+        RoundPipelineResult startupRound = stateDrivenContextPipeline.run(
+                StateDrivenContextPipelineRequest.builder()
                         .sessionId(keyPrefix)
-                        .userInput(startupInput)
-                        .contextPackage(contextPackage)
-                        .reconstructionResult(reconstruction)
-                        .rerankResult(rerankResult)
-                        .toolSemanticResult(null)
-                        .knowledgeEvidenceBlocks(knowledgeEvidenceBlocks)
-                        .workingMemorySnippets(workingMemorySnippets)
-                        .runtimeMemorySnippets(runtimeMemorySnippets)
-                        .retrievedMemorySnippets(ragMemorySnippets)
-                        .knowledgeSnippets(knowledgeSnippets)
-                        .preferenceSnippets(preferenceSnippets)
-                        .longTermMemorySnippets(longTermMemorySnippets)
-                        .executionCandidates(executionCandidates)
-                        .mcpResourceHints(mcpResourceHints)
-                        .toolContext("")
-                        .nodeTemplatePolicy(startupPolicy)
-                        .roundSummaryInput(roundSummaryInput)
-                        .planId(contextPlanId(contextPackage))
-                        .nodeId(contextNodeId(contextPackage))
-                        .stage("STARTUP")
-                        .repairSeed(startupInput)
-                        .rawToolResultChannel(Map.of())
+                        .triggerSource("STARTUP")
+                        .roundPipelineRequest(RoundPipelineRequest.builder()
+                                .sessionId(keyPrefix)
+                                .userInput(startupInput)
+                                .stage("STARTUP")
+                                .repairSeed(startupInput)
+                                .toolContext("")
+                                .runMainModel(true)
+                                .assistantReplyOverride("")
+                                .preAssemblyTriggerSource("STARTUP_PRE_ASSEMBLY_INPUT")
+                                .postSummaryTriggerSource("STARTUP")
+                                .replaceHistoryWithSummary(false)
+                                .writeRoundState(true)
+                                .rawToolResultChannel(Map.of())
+                                .build())
                         .build()
         );
-        if (startupResult == null || startupResult.isBlocked()) {
+        MainModelOrchestrationResult startupResult = startupRound == null ? null : startupRound.getMainModelResult();
+        if (startupRound == null || startupRound.isBlocked() || startupResult == null || startupResult.isBlocked()) {
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
             return ResponseEntity.status(503).body(contextGovernanceBlockedPayload("startup aborted because final governed workset is empty"));
         }

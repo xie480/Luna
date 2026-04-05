@@ -82,7 +82,7 @@ class DefaultSessionOrchestratorServiceTest {
                 "intent=intent_unavailable;goal=goal_unavailable;timeScope=unspecified;constraints=[];missingSlots=[];fallback=reconstruction_partial"
         );
 
-        assertEquals(TaskRuntimeState.EXECUTING, decision.getTaskState());
+        assertEquals(TaskRuntimeState.CONTEXT_BUILDING, decision.getTaskState());
     }
 
     private DefaultSessionOrchestratorService createService(TaskRuntimeState previousTaskState,

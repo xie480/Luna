@@ -38,7 +38,7 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
     @Value("${memory.session-type.enabled:true}")
     private boolean sessionTypeEnabled;
 
-    @Value("${strict_governed_signal_mode:${memory.strict_governed_signal_mode:false}}")
+    @Value("${strict_governed_signal_mode:${memory.strict_governed_signal_mode:true}}")
     private boolean strictGovernedSignalMode;
 
     @Override
@@ -395,12 +395,7 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
             return TaskRuntimeState.CONTEXT_BUILDING;
         }
         if (signal.reconstructionIncomplete()) {
-            if (previous == TaskRuntimeState.WAITING_USER
-                    || previous == TaskRuntimeState.WAITING_TOOL
-                    || previous == TaskRuntimeState.WAITING_APPROVAL) {
-                return TaskRuntimeState.CONTEXT_BUILDING;
-            }
-            return previous == null ? TaskRuntimeState.UNDERSTANDING : previous;
+            return TaskRuntimeState.CONTEXT_BUILDING;
         }
         if (containsAny(signal.taskCorpus(), "done", "completed", "finish", "完成", "搞定", "结束")) {
             return TaskRuntimeState.COMPLETED;
@@ -707,21 +702,12 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
         return text == null ? "" : text.toLowerCase(Locale.ROOT);
     }
 
-    private String payloadOf(String key, String value) {
-        String safeKey = key == null || key.isBlank() ? "text" : key.trim();
-        String safeValue = value == null ? "" : value;
-        return "{\"" + safeKey + "\":\"" + escapeJson(safeValue) + "\"}";
-    }
-
     private String buildUserInputPayload(String userInput, GovernedSignal governedSignal) {
         String raw = userInput == null ? "" : userInput;
-        if (!strictGovernedSignalMode) {
-            return payloadOf("text", raw);
-        }
         Map<String, Object> audit = new LinkedHashMap<>();
         audit.put("raw_input_length", raw.length());
         audit.put("raw_input_sha256", sha256Hex(raw));
-        audit.put("strict_governed_signal_mode", true);
+        audit.put("strict_governed_signal_mode", strictGovernedSignalMode);
         audit.put("fallback", governedSignal == null ? "reconstruct_retry_required" : normalizeSignalText(governedSignal.getFallback(), "reconstruct_retry_required"));
         audit.put("missing_slots_count", governedSignal == null ? 0 : governedSignal.safeMissingSlots().size());
         audit.put("warning_code", governedSignal == null || governedSignal.safeMissingSlots().isEmpty()
@@ -911,14 +897,6 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
             }
         }
         return out.stream().distinct().toList();
-    }
-
-    private String escapeJson(String text) {
-        return text
-                .replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r");
     }
 
     private String sha256Hex(String value) {

@@ -3,13 +3,26 @@ package org.yilena.luna.service.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.context.model.ContextNodeTemplatePolicy;
+import org.yilena.luna.context.model.InputReconstructionResult;
+import org.yilena.luna.entity.Resource;
+import org.yilena.luna.enums.TaskRuntimeState;
+import org.yilena.luna.mapper.SessionRuntimeMapper;
 import org.yilena.luna.memory.RuntimeAuditService;
+import org.yilena.luna.memory.model.OrchestrationDecision;
+import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.service.RoundPipelineOrchestrator;
 import org.yilena.luna.service.StateDrivenContextPipeline;
+import org.yilena.luna.service.TaskOrchestratorService;
+import org.yilena.luna.service.model.NodeWorksetResult;
 import org.yilena.luna.service.model.RoundPipelineRequest;
 import org.yilena.luna.service.model.RoundPipelineResult;
 import org.yilena.luna.service.model.StateDrivenContextPipelineRequest;
+import org.yilena.luna.service.model.TaskOrchestrationResult;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -18,39 +31,44 @@ public class StateDrivenContextPipelineImpl implements StateDrivenContextPipelin
 
     private final RoundPipelineOrchestrator roundPipelineOrchestrator;
     private final RuntimeAuditService runtimeAuditService;
+    private final TaskOrchestratorService taskOrchestratorService;
+    private final SessionRuntimeMapper sessionRuntimeMapper;
     private final ObjectMapper objectMapper;
 
     @Override
     public RoundPipelineResult run(StateDrivenContextPipelineRequest request) {
         if (request == null || request.getRoundPipelineRequest() == null) {
-            return RoundPipelineResult.builder()
-                    .blocked(true)
-                    .blockedReason("state_driven_context_pipeline_request_missing")
-                    .build();
+            return blocked("state_driven_context_pipeline_request_missing");
         }
-        RoundPipelineRequest roundRequest = request.getRoundPipelineRequest();
-        String sessionId = firstNonBlank(request.getSessionId(), roundRequest.getSessionId());
+        RoundPipelineRequest hydratedRoundRequest = hydrateRoundRequest(request);
+        if (hydratedRoundRequest == null) {
+            return blocked("state_driven_context_pipeline_hydration_failed");
+        }
+
+        String sessionId = firstNonBlank(request.getSessionId(), hydratedRoundRequest.getSessionId());
         String triggerSource = firstNonBlank(request.getTriggerSource(), "STATE_DRIVEN_CONTEXT_PIPELINE");
-        Long planId = contextPlanId(roundRequest);
-        Long nodeId = contextNodeId(roundRequest);
+        Long planId = contextPlanId(hydratedRoundRequest);
+        Long nodeId = contextNodeId(hydratedRoundRequest);
+
         auditHook(sessionId, planId, nodeId, "reconstruct", triggerSource, Map.of(
-                "hasReconstruction", roundRequest.getReconstructionResult() != null,
-                "stage", safe(roundRequest.getStage())
+                "hasReconstruction", hydratedRoundRequest.getReconstructionResult() != null,
+                "stage", safe(hydratedRoundRequest.getStage())
         ));
         auditHook(sessionId, planId, nodeId, "recall", triggerSource, Map.of(
-                "hasNodeWorkset", roundRequest.getNodeWorksetResult() != null,
-                "hasExecutionCandidates", roundRequest.getExecutionCandidates() != null && !roundRequest.getExecutionCandidates().isEmpty(),
-                "hasMcpHints", roundRequest.getMcpResourceHints() != null && !roundRequest.getMcpResourceHints().isEmpty()
+                "hasNodeWorkset", hydratedRoundRequest.getNodeWorksetResult() != null,
+                "hasExecutionCandidates", hydratedRoundRequest.getExecutionCandidates() != null && !hydratedRoundRequest.getExecutionCandidates().isEmpty(),
+                "hasMcpHints", hydratedRoundRequest.getMcpResourceHints() != null && !hydratedRoundRequest.getMcpResourceHints().isEmpty()
         ));
         auditHook(sessionId, planId, nodeId, "rerank", triggerSource, Map.of(
-                "hasRerankResult", roundRequest.getNodeWorksetResult() != null
-                        && roundRequest.getNodeWorksetResult().getRerankResult() != null
+                "hasRerankResult", hydratedRoundRequest.getNodeWorksetResult() != null
+                        && hydratedRoundRequest.getNodeWorksetResult().getRerankResult() != null
         ));
         auditHook(sessionId, planId, nodeId, "assemble", triggerSource, Map.of(
-                "runMainModel", roundRequest.isRunMainModel(),
-                "writeRoundState", roundRequest.isWriteRoundState()
+                "runMainModel", hydratedRoundRequest.isRunMainModel(),
+                "writeRoundState", hydratedRoundRequest.isWriteRoundState()
         ));
-        RoundPipelineResult result = roundPipelineOrchestrator.executeRound(roundRequest);
+
+        RoundPipelineResult result = roundPipelineOrchestrator.executeRound(hydratedRoundRequest);
         auditHook(sessionId, planId, nodeId, "execute", triggerSource, Map.of(
                 "blocked", result != null && result.isBlocked(),
                 "blockedReason", result == null ? "round_result_missing" : safe(result.getBlockedReason())
@@ -59,7 +77,152 @@ public class StateDrivenContextPipelineImpl implements StateDrivenContextPipelin
                 "finalSnapshotId", result == null ? "" : safe(result.getFinalSnapshotId()),
                 "summaryPresent", result != null && result.getSummaryResult() != null
         ));
-        return result;
+        if (result == null) {
+            return blocked("round_result_missing");
+        }
+        return RoundPipelineResult.builder()
+                .blocked(result.isBlocked())
+                .blockedReason(result.getBlockedReason())
+                .toolSemanticResult(result.getToolSemanticResult())
+                .preAssemblySummary(result.getPreAssemblySummary())
+                .mainModelResult(result.getMainModelResult())
+                .summaryResult(result.getSummaryResult())
+                .finalSnapshotId(result.getFinalSnapshotId())
+                .decision(result.getDecision() == null ? hydratedRoundRequest.getDecision() : result.getDecision())
+                .contextPackage(result.getContextPackage() == null ? hydratedRoundRequest.getContextPackage() : result.getContextPackage())
+                .reconstructionResult(result.getReconstructionResult() == null ? hydratedRoundRequest.getReconstructionResult() : result.getReconstructionResult())
+                .nodeWorksetResult(result.getNodeWorksetResult() == null ? hydratedRoundRequest.getNodeWorksetResult() : result.getNodeWorksetResult())
+                .build();
+    }
+
+    private RoundPipelineResult blocked(String reason) {
+        return RoundPipelineResult.builder()
+                .blocked(true)
+                .blockedReason(reason)
+                .toolSemanticResult(null)
+                .preAssemblySummary(null)
+                .mainModelResult(null)
+                .summaryResult(null)
+                .finalSnapshotId("")
+                .decision(null)
+                .contextPackage(null)
+                .reconstructionResult(null)
+                .nodeWorksetResult(null)
+                .build();
+    }
+
+    private RoundPipelineRequest hydrateRoundRequest(StateDrivenContextPipelineRequest request) {
+        RoundPipelineRequest input = request.getRoundPipelineRequest();
+        if (input == null) {
+            return null;
+        }
+        String sessionId = firstNonBlank(request.getSessionId(), input.getSessionId());
+        String userInput = safe(input.getUserInput());
+
+        OrchestrationDecision decision = input.getDecision();
+        StructuredContextPackage contextPackage = input.getContextPackage();
+        InputReconstructionResult reconstructionResult = input.getReconstructionResult();
+
+        if ((decision == null || contextPackage == null || reconstructionResult == null) && !userInput.isBlank()) {
+            TaskOrchestrationResult orchestration = taskOrchestratorService.orchestrateUserInput(sessionId, userInput);
+            if (decision == null) {
+                decision = orchestration == null ? null : orchestration.getDecision();
+            }
+            if (contextPackage == null) {
+                contextPackage = orchestration == null ? null : orchestration.getContextPackage();
+            }
+            if (reconstructionResult == null) {
+                reconstructionResult = orchestration == null ? null : orchestration.getReconstructionResult();
+            }
+        }
+
+        NodeWorksetResult nodeWorksetResult = input.getNodeWorksetResult();
+        if (nodeWorksetResult == null
+                && !userInput.isBlank()
+                && decision != null
+                && contextPackage != null
+                && reconstructionResult != null) {
+            nodeWorksetResult = taskOrchestratorService.orchestrateNodeWorkset(
+                    sessionId,
+                    userInput,
+                    decision,
+                    contextPackage,
+                    reconstructionResult
+            );
+        }
+
+        List<Resource> executionCandidates = nonEmpty(input.getExecutionCandidates())
+                ? input.getExecutionCandidates()
+                : (nodeWorksetResult == null || nodeWorksetResult.getExecutionCandidates() == null ? List.of() : nodeWorksetResult.getExecutionCandidates());
+        List<String> mcpResourceHints = nonEmpty(input.getMcpResourceHints())
+                ? input.getMcpResourceHints()
+                : (nodeWorksetResult == null || nodeWorksetResult.getMcpResourceHints() == null ? List.of() : nodeWorksetResult.getMcpResourceHints());
+
+        List<String> knowledgeSnippets = extractTaskKnowledgeSnippets(contextPackage);
+        if (nodeWorksetResult != null && nonEmpty(nodeWorksetResult.getSelectedKnowledgeSnippets())) {
+            knowledgeSnippets = nodeWorksetResult.getSelectedKnowledgeSnippets();
+        }
+        if (nonEmpty(input.getKnowledgeSnippets())) {
+            knowledgeSnippets = input.getKnowledgeSnippets();
+        }
+
+        List<String> preferenceSnippets = mergeDistinct(
+                extractRelationalPreferenceSnippets(contextPackage),
+                nodeWorksetResult == null ? List.of() : nodeWorksetResult.getSelectedPreferenceSnippets()
+        );
+        if (nonEmpty(input.getPreferenceSnippets())) {
+            preferenceSnippets = input.getPreferenceSnippets();
+        }
+
+        List<String> longTermMemorySnippets = nonEmpty(input.getLongTermMemorySnippets())
+                ? input.getLongTermMemorySnippets()
+                : extractTaskLongTermSnippets(contextPackage);
+        List<String> workingMemorySnippets = nonEmpty(input.getWorkingMemorySnippets())
+                ? input.getWorkingMemorySnippets()
+                : extractWorkingMemorySnippets(contextPackage);
+        List<String> runtimeMemorySnippets = nonEmpty(input.getRuntimeMemorySnippets())
+                ? input.getRuntimeMemorySnippets()
+                : extractRuntimeMessageSnippets(contextPackage);
+        List<String> retrievedMemorySnippets = nonEmpty(input.getRetrievedMemorySnippets())
+                ? input.getRetrievedMemorySnippets()
+                : (nodeWorksetResult == null || nodeWorksetResult.getSelectedMemorySnippets() == null ? List.of() : nodeWorksetResult.getSelectedMemorySnippets());
+
+        ContextNodeTemplatePolicy nodeTemplatePolicy = input.getNodeTemplatePolicy() == null
+                ? resolveNodeTemplatePolicy(decision, contextPackage)
+                : input.getNodeTemplatePolicy();
+
+        return RoundPipelineRequest.builder()
+                .sessionId(sessionId)
+                .userInput(userInput)
+                .decision(decision)
+                .contextPackage(contextPackage)
+                .reconstructionResult(reconstructionResult)
+                .nodeWorksetResult(nodeWorksetResult)
+                .toolSemanticResult(input.getToolSemanticResult())
+                .workingMemorySnippets(workingMemorySnippets)
+                .runtimeMemorySnippets(runtimeMemorySnippets)
+                .retrievedMemorySnippets(retrievedMemorySnippets)
+                .knowledgeSnippets(knowledgeSnippets)
+                .preferenceSnippets(preferenceSnippets)
+                .longTermMemorySnippets(longTermMemorySnippets)
+                .executionCandidates(executionCandidates)
+                .mcpResourceHints(mcpResourceHints)
+                .nodeTemplatePolicy(nodeTemplatePolicy)
+                .toolContext(safe(input.getToolContext()))
+                .stage(firstNonBlank(input.getStage(), firstNonBlank(request.getTriggerSource(), "ROUND")))
+                .repairSeed(firstNonBlank(input.getRepairSeed(), userInput))
+                .runMainModel(input.isRunMainModel())
+                .assistantReplyOverride(safe(input.getAssistantReplyOverride()))
+                .preAssemblyTriggerSource(firstNonBlank(input.getPreAssemblyTriggerSource(), "PRE_ASSEMBLY_INPUT"))
+                .postSummaryTriggerSource(firstNonBlank(input.getPostSummaryTriggerSource(), firstNonBlank(request.getTriggerSource(), "ROUND")))
+                .replaceHistoryWithSummary(input.isReplaceHistoryWithSummary())
+                .writeRoundState(input.isWriteRoundState())
+                .latestSnapshotId(safe(input.getLatestSnapshotId()))
+                .latestToolRawRef(safe(input.getLatestToolRawRef()))
+                .latestToolHistoryRefs(input.getLatestToolHistoryRefs() == null ? List.of() : input.getLatestToolHistoryRefs())
+                .rawToolResultChannel(input.getRawToolResultChannel() == null ? Map.of() : input.getRawToolResultChannel())
+                .retrievalPlanOverrides(input.getRetrievalPlanOverrides() == null ? Map.of() : input.getRetrievalPlanOverrides())
+                .build();
     }
 
     private void auditHook(String sessionId,
@@ -82,31 +245,178 @@ public class StateDrivenContextPipelineImpl implements StateDrivenContextPipelin
         );
     }
 
-    private Long contextPlanId(RoundPipelineRequest request) {
+    private ContextNodeTemplatePolicy resolveNodeTemplatePolicy(OrchestrationDecision decision, StructuredContextPackage contextPackage) {
+        TaskRuntimeState taskState = decision == null ? null : decision.getTaskState();
+        if (taskState == null && contextPackage != null) {
+            taskState = contextPackage.getTaskState();
+        }
+        String currentNode = "";
+        if (contextPackage != null && contextPackage.getTaskStateEntity() != null && contextPackage.getTaskStateEntity().getCurrentNode() != null) {
+            currentNode = contextPackage.getTaskStateEntity().getCurrentNode();
+        }
+        String nodeKind = resolveCurrentNodeKind(contextPackage);
+        return ContextNodeTemplatePolicy.forTaskNode(taskState, currentNode, nodeKind);
+    }
+
+    private String resolveCurrentNodeKind(StructuredContextPackage contextPackage) {
+        Long planId = contextPlanId(contextPackage);
+        Long nodeId = contextNodeId(contextPackage);
+        if (planId == null || nodeId == null) {
+            return "";
+        }
         try {
-            if (request == null || request.getContextPackage() == null || request.getContextPackage().getRuntime() == null) {
-                return null;
+            String nodeType = sessionRuntimeMapper.selectNodeTypeByPlanAndNode(planId, nodeId);
+            return nodeType == null ? "" : nodeType.trim();
+        } catch (Exception ignore) {
+            return "";
+        }
+    }
+
+    private List<String> extractTaskKnowledgeSnippets(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getTaskContext() == null) {
+            return Collections.emptyList();
+        }
+        Object raw = contextPackage.getTaskContext().get("knowledge");
+        if (!(raw instanceof List<?> list)) {
+            return Collections.emptyList();
+        }
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) list;
+        return rows.stream()
+                .map(item -> "title: " + safe(stringValue(item.get("title"))) + "\ncontent: " + safe(stringValue(item.get("chunk_text"))))
+                .toList();
+    }
+
+    private List<String> extractTaskLongTermSnippets(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getTaskContext() == null) {
+            return Collections.emptyList();
+        }
+        List<String> snippets = new ArrayList<>();
+        Object factsRaw = contextPackage.getTaskContext().get("task_facts");
+        if (factsRaw instanceof List<?> facts) {
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> rows = (List<Map<String, Object>>) facts;
+            snippets.addAll(rows.stream()
+                    .map(item -> "task_fact: " + safe(stringValue(item.get("fact_key"))) + "=" + safe(stringValue(item.get("fact_value_text"))))
+                    .toList());
+        }
+        Object episodesRaw = contextPackage.getTaskContext().get("task_episodes");
+        if (episodesRaw instanceof List<?> episodes) {
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> rows = (List<Map<String, Object>>) episodes;
+            snippets.addAll(rows.stream()
+                    .map(item -> "task_episode: " + safe(stringValue(item.get("episode_type"))) + " | " + safe(stringValue(item.get("trajectory_summary"))))
+                    .toList());
+        }
+        return snippets;
+    }
+
+    private List<String> extractWorkingMemorySnippets(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getTaskContext() == null) {
+            return Collections.emptyList();
+        }
+        Object raw = contextPackage.getTaskContext().get("working_memory");
+        if (!(raw instanceof Map<?, ?> map) || map.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<String> out = new ArrayList<>();
+        out.add("working.goal_raw: " + safe(stringValue(map.get("goal_raw"))));
+        out.add("working.goal_refined: " + safe(stringValue(map.get("goal_refined"))));
+        out.add("working.unresolved_questions: " + safe(stringValue(map.get("unresolved_questions_json"))));
+        out.add("working.risks: " + safe(stringValue(map.get("risks_json"))));
+        return out;
+    }
+
+    private List<String> extractRelationalPreferenceSnippets(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getRelationalContext() == null) {
+            return Collections.emptyList();
+        }
+        Object raw = contextPackage.getRelationalContext().get("semantic_facts");
+        if (!(raw instanceof List<?> list)) {
+            return Collections.emptyList();
+        }
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) list;
+        return rows.stream()
+                .map(item -> "relation_pref: " + safe(stringValue(item.get("fact_key"))) + "=" + safe(stringValue(item.get("fact_value_text"))))
+                .toList();
+    }
+
+    private List<String> extractRuntimeMessageSnippets(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getRuntime() == null) {
+            return Collections.emptyList();
+        }
+        Object raw = contextPackage.getRuntime().get("recent_messages");
+        if (!(raw instanceof List<?> list)) {
+            return Collections.emptyList();
+        }
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) list;
+        return rows.stream()
+                .map(item -> safe(stringValue(item.get("role"))) + ": " + safe(stringValue(item.get("content_text"))))
+                .toList();
+    }
+
+    private List<String> mergeDistinct(List<String> left, List<String> right) {
+        List<String> merged = new ArrayList<>();
+        if (left != null) {
+            merged.addAll(left);
+        }
+        if (right != null) {
+            merged.addAll(right);
+        }
+        return merged.stream().filter(item -> item != null && !item.isBlank()).distinct().toList();
+    }
+
+    private boolean nonEmpty(List<?> list) {
+        return list != null && !list.isEmpty();
+    }
+
+    private Long contextPlanId(RoundPipelineRequest request) {
+        return contextPlanId(request == null ? null : request.getContextPackage());
+    }
+
+    private Long contextPlanId(StructuredContextPackage contextPackage) {
+        try {
+            if (contextPackage == null || contextPackage.getRuntime() == null) {
+                if (contextPackage == null || contextPackage.getTaskStateEntity() == null) {
+                    return null;
+                }
+                return toLong(contextPackage.getTaskStateEntity().getTaskId());
             }
-            Object session = request.getContextPackage().getRuntime().get("session");
+            Object session = contextPackage.getRuntime().get("session");
             if (session instanceof Map<?, ?> row) {
-                return toLong(row.get("current_plan_id"));
+                Long runtimePlan = toLong(row.get("current_plan_id"));
+                if (runtimePlan != null) {
+                    return runtimePlan;
+                }
             }
-            return null;
+            return contextPackage.getTaskStateEntity() == null ? null : toLong(contextPackage.getTaskStateEntity().getTaskId());
         } catch (Exception ignore) {
             return null;
         }
     }
 
     private Long contextNodeId(RoundPipelineRequest request) {
+        return contextNodeId(request == null ? null : request.getContextPackage());
+    }
+
+    private Long contextNodeId(StructuredContextPackage contextPackage) {
         try {
-            if (request == null || request.getContextPackage() == null || request.getContextPackage().getTaskContext() == null) {
-                return null;
+            if (contextPackage == null || contextPackage.getTaskContext() == null) {
+                if (contextPackage == null || contextPackage.getTaskStateEntity() == null) {
+                    return null;
+                }
+                return toLong(contextPackage.getTaskStateEntity().getCurrentNode());
             }
-            Object working = request.getContextPackage().getTaskContext().get("working_memory");
+            Object working = contextPackage.getTaskContext().get("working_memory");
             if (working instanceof Map<?, ?> row) {
-                return toLong(row.get("active_node_id"));
+                Long runtimeNode = toLong(row.get("active_node_id"));
+                if (runtimeNode != null) {
+                    return runtimeNode;
+                }
             }
-            return null;
+            return contextPackage.getTaskStateEntity() == null ? null : toLong(contextPackage.getTaskStateEntity().getCurrentNode());
         } catch (Exception ignore) {
             return null;
         }
@@ -124,6 +434,10 @@ public class StateDrivenContextPipelineImpl implements StateDrivenContextPipelin
         } catch (Exception ignore) {
             return null;
         }
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? "" : String.valueOf(value);
     }
 
     private String toJsonSafe(Object value) {
