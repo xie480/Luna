@@ -7,6 +7,9 @@ import org.yilena.luna.context.RerankTraceLogger;
 import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.memory.RuntimeAuditService;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 @Service
 @RequiredArgsConstructor
 public class RuntimeRerankTraceLogger implements RerankTraceLogger {
@@ -16,9 +19,18 @@ public class RuntimeRerankTraceLogger implements RerankTraceLogger {
 
     @Override
     public void log(String sessionId, Long planId, Long nodeId, ContextRerankResult rerankResult) {
+        log(sessionId, planId, nodeId, rerankResult, Map.of());
+    }
+
+    @Override
+    public void log(String sessionId, Long planId, Long nodeId, ContextRerankResult rerankResult, Map<String, Object> traceMeta) {
         try {
-            java.util.Map<String, Object> payload = new java.util.LinkedHashMap<>();
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("traceId", traceMeta == null ? "" : String.valueOf(traceMeta.getOrDefault("traceId", "")));
             payload.put("traceLayer", "GLOBAL_RERANK");
+            payload.put("nodeId", nodeId);
+            payload.put("snapshotId", traceMeta == null ? "" : String.valueOf(traceMeta.getOrDefault("snapshotId", "")));
+            payload.put("recoveryEvent", traceMeta == null ? "" : String.valueOf(traceMeta.getOrDefault("recoveryEvent", "")));
             payload.put("selectedKnowledgeEvidenceBlocks", rerankResult == null ? java.util.List.of() : rerankResult.getSelectedKnowledgeEvidenceBlocks());
             payload.put("selectedKnowledgeBlocks", rerankResult == null ? java.util.List.of() : rerankResult.getSelectedKnowledgeBlocks());
             payload.put("selectedToolCandidates", rerankResult == null ? java.util.List.of() : rerankResult.getSelectedToolCandidates());

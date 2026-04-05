@@ -1,6 +1,7 @@
 package org.yilena.luna.memory.impl;
 
 import org.junit.jupiter.api.Test;
+import org.yilena.luna.context.InputReconstructionAgent;
 import org.yilena.luna.enums.RelationalRuntimeState;
 import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.mapper.SessionRuntimeMapper;
@@ -72,6 +73,7 @@ class DefaultSessionOrchestratorServiceTest {
         SessionRuntimeMapper sessionRuntimeMapper = mock(SessionRuntimeMapper.class);
         ContextCompilerService contextCompilerService = mock(ContextCompilerService.class);
         SessionTypeResolver sessionTypeResolver = mock(SessionTypeResolver.class);
+        InputReconstructionAgent inputReconstructionAgent = mock(InputReconstructionAgent.class);
 
         String sessionId = "s-1";
         when(sessionRuntimeMapper.selectTaskState(eq(sessionId))).thenReturn(previousTaskState.name());
@@ -86,6 +88,6 @@ class DefaultSessionOrchestratorServiceTest {
                         .relationalState(invocation.getArgument(3, RelationalRuntimeState.class))
                         .build());
 
-        return new DefaultSessionOrchestratorService(sessionRuntimeMapper, contextCompilerService, sessionTypeResolver);
+        return new DefaultSessionOrchestratorService(sessionRuntimeMapper, contextCompilerService, inputReconstructionAgent, sessionTypeResolver);
     }
 }

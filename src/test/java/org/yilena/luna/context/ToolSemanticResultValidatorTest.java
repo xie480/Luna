@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ToolSemanticResultValidatorTest {
@@ -29,8 +30,7 @@ class ToolSemanticResultValidatorTest {
 
         ToolSemanticResultValidator.ValidationResult validation = validator.validate(result);
         assertFalse(validation.valid());
-        assertTrue(validation.issues().contains("invalid_status"));
-        assertTrue(validation.issues().contains("missing_key_facts"));
+        assertTrue(validation.issues().contains("schema_invalid"));
     }
 
     @Test
@@ -91,5 +91,34 @@ class ToolSemanticResultValidatorTest {
         assertTrue(validation.issues().contains("budget_conflict_with_current_state"));
         assertTrue(validation.issues().contains("status_conflict_waiting_approval"));
         assertTrue(Boolean.TRUE.equals(validation.normalized().getSemanticPayload().get("budgetTrimmed")));
+    }
+
+    @Test
+    void shouldDowngradeToMinimalResultWhenSchemaInvalid() {
+        ToolSemanticResultValidator validator = new ToolSemanticResultValidator();
+        ToolSemanticResult result = ToolSemanticResult.builder()
+                .toolStatus("SUCCESS")
+                .keyFacts(List.of("k1"))
+                .businessImpact("ok")
+                .unresolvedIssues(List.of())
+                .nextStepHint("continue")
+                .confidence(0.6)
+                .semanticPayload(Map.of())
+                .build();
+        ToolSemanticResult broken = ToolSemanticResult.builder()
+                .toolStatus(result.getToolStatus())
+                .keyFacts(result.getKeyFacts())
+                .businessImpact(result.getBusinessImpact())
+                .unresolvedIssues(result.getUnresolvedIssues())
+                .nextStepHint(result.getNextStepHint())
+                .confidence(2.0)
+                .semanticPayload(result.getSemanticPayload())
+                .build();
+
+        ToolSemanticResultValidator.ValidationResult validation = validator.validate(broken);
+        assertFalse(validation.valid());
+        assertTrue(validation.issues().contains("schema_invalid"));
+        assertNotNull(validation.normalized());
+        assertTrue(Boolean.TRUE.equals(validation.normalized().getSemanticPayload().get("schema_invalid")));
     }
 }

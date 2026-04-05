@@ -18,6 +18,7 @@ import org.yilena.luna.context.SummaryAgent;
 import org.yilena.luna.context.SummaryTraceLogger;
 import org.yilena.luna.context.ContextAssembler;
 import org.yilena.luna.context.ContextTraceLogger;
+import org.yilena.luna.context.ToolSemanticResultValidator;
 import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.context.model.SummaryResult;
 import org.yilena.luna.enums.RelationalRuntimeState;
@@ -36,6 +37,7 @@ import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.service.SessionService;
 import org.yilena.luna.service.model.NodeWorksetResult;
 import org.yilena.luna.service.model.SummaryOrchestrationResult;
+import org.yilena.luna.service.model.TaskOrchestrationResult;
 import org.yilena.luna.state.model.ContextState;
 import org.yilena.luna.state.model.RetrievalState;
 import org.yilena.luna.state.store.ContextStateStore;
@@ -164,6 +166,69 @@ class TaskOrchestratorStateRecoveryE2eTest {
         verify(fixture.sessionService, times(1)).replaceHistoryWithSummary(eq("s-1"), eq("narrative"), anyString());
     }
 
+    @Test
+    void shouldRunImmediateRecoveryRefreshInSameRound() {
+        TestFixture fixture = new TestFixture();
+        when(fixture.contextCompilerService.compile(eq("s-1"), anyString(), any(), any())).thenReturn(StructuredContextPackage.builder().sessionId("s-1").build());
+        InputReconstructionResult reconstruction = InputReconstructionResult.builder()
+                .normalizedUserIntent("intent")
+                .explicitTaskGoal("goal")
+                .reformulatedQueryForRag("rag-q")
+                .reformulatedQueryForMcp("mcp-q")
+                .build();
+        when(fixture.inputReconstructionAgent.reconstruct(eq("s-1"), anyString(), any(), any(), any())).thenReturn(reconstruction);
+        StructuredContextPackage recoveredContext = StructuredContextPackage.builder()
+                .sessionId("s-1")
+                .taskState(TaskRuntimeState.WAITING_TOOL)
+                .retrievalState(RetrievalState.builder()
+                        .reconstructedIntent("intent")
+                        .activeQueries(List.of("q1"))
+                        .retrievalPlan(Map.of(
+                                "refresh_rag_now", true,
+                                "refresh_mcp_now", true,
+                                "reassemble_now", true
+                        ))
+                        .selectedEvidenceRefs(List.of())
+                        .rerankSummary("")
+                        .build())
+                .contextState(ContextState.builder()
+                        .latestNarrativeSummary("")
+                        .latestStateSnapshot(Map.of())
+                        .activeKnowledgeRefs(List.of())
+                        .activeMemoryRefs(List.of())
+                        .activeToolEvidenceRefs(List.of())
+                        .activeMcpPromptRefs(List.of())
+                        .activeMcpResourceRefs(List.of())
+                        .latestContextSnapshotId("snap-1")
+                        .build())
+                .build();
+        OrchestrationDecision decision = OrchestrationDecision.builder()
+                .sessionId("s-1")
+                .taskState(TaskRuntimeState.WAITING_TOOL)
+                .relationalState(RelationalRuntimeState.LIGHT_CHAT)
+                .contextPackage(recoveredContext)
+                .build();
+        when(fixture.eventIngressService.ingestUserInput(eq("s-1"), anyString(), any())).thenReturn(decision);
+        when(fixture.recoveryContextAgent.recover(eq("s-1"), any(), anyString(), anyString())).thenReturn(recoveredContext);
+        when(fixture.capabilityPolicyRouterService.routeForContext(anyString(), anyString(), any(), any(), anyInt())).thenReturn(List.of());
+        when(fixture.mcpCandidatePreRank.preRank(anyString(), anyList(), any(), any(), anyInt())).thenReturn(List.of());
+        when(fixture.retrievalService.retrieve(any())).thenReturn(
+                RetrievalResponse.builder().route(RetrievalRoute.SEARCH).rewrittenQuery("q").evidences(Map.of()).build()
+        );
+        when(fixture.globalContextRerankAgent.rerank(any(), any(), any(), anyList(), any())).thenReturn(null);
+        when(fixture.evidenceBlockBuilder.buildKnowledgeBlocks(anyList())).thenReturn(List.of());
+        when(fixture.toolRouter.materializeCandidates(anyList(), anyInt())).thenReturn(List.of());
+        when(fixture.mcpResourceHintExtractor.extract(anyList(), anyInt())).thenReturn(List.of());
+
+        TaskOrchestrationResult result = fixture.service.orchestrateUserInput("s-1", "resume execution");
+        assertNotNull(result);
+        assertNotNull(result.getContextPackage());
+        assertNotNull(result.getContextPackage().getRetrievalState());
+        assertTrue(Boolean.TRUE.equals(result.getContextPackage().getRetrievalState().getRetrievalPlan().get("immediate_refresh_executed")));
+        verify(fixture.retrievalStateStore, times(1)).save(eq("s-1"), any());
+        verify(fixture.contextStateStore, times(1)).save(eq("s-1"), any());
+    }
+
     private static class TestFixture {
         final ContextCompilerService contextCompilerService = mock(ContextCompilerService.class);
         final InputReconstructionAgent inputReconstructionAgent = mock(InputReconstructionAgent.class);
@@ -192,6 +257,7 @@ class TaskOrchestratorStateRecoveryE2eTest {
         final RetrievalStateStore retrievalStateStore = mock(RetrievalStateStore.class);
         final ToolStateStore toolStateStore = mock(ToolStateStore.class);
         final ContextSnapshotStore contextSnapshotStore = mock(ContextSnapshotStore.class);
+        final ToolSemanticResultValidator toolSemanticResultValidator = mock(ToolSemanticResultValidator.class);
         final LlmClientUtil llmClientUtil = mock(LlmClientUtil.class);
         final GeminiProperty geminiProperty = new GeminiProperty();
         final SessionService sessionService = mock(SessionService.class);
@@ -224,6 +290,7 @@ class TaskOrchestratorStateRecoveryE2eTest {
                 retrievalStateStore,
                 toolStateStore,
                 contextSnapshotStore,
+                toolSemanticResultValidator,
                 llmClientUtil,
                 geminiProperty,
                 sessionService,

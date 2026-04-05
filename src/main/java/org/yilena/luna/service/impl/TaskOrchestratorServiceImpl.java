@@ -21,6 +21,7 @@ import org.yilena.luna.context.RerankTraceLogger;
 import org.yilena.luna.context.SummaryAgent;
 import org.yilena.luna.context.SummaryStateSnapshotValidator;
 import org.yilena.luna.context.SummaryTraceLogger;
+import org.yilena.luna.context.ToolSemanticResultValidator;
 import org.yilena.luna.context.model.AssembledContext;
 import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.EvidenceBlock;
@@ -121,6 +122,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
     private final RetrievalStateStore retrievalStateStore;
     private final ToolStateStore toolStateStore;
     private final ContextSnapshotStore contextSnapshotStore;
+    private final ToolSemanticResultValidator toolSemanticResultValidator;
     private final LlmClientUtil llmClientUtil;
     private final GeminiProperty geminiProperty;
     private final SessionService sessionService;
@@ -150,6 +152,30 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     recoveryTrigger.recoveryEvent,
                     recoveryTrigger.interruptReason
             );
+            if (shouldRunImmediateRecoveryRefresh(contextPackage, reconstructionResult)) {
+                NodeWorksetResult refreshedWorkset = orchestrateNodeWorkset(
+                        sessionId,
+                        userInput,
+                        decision,
+                        contextPackage,
+                        reconstructionResult
+                );
+                contextPackage = applyImmediateRecoveryRefreshResult(contextPackage, reconstructionResult, refreshedWorkset);
+                runtimeAuditService.persistDecisionRecord(
+                        sessionId,
+                        contextPlanId(contextPackage),
+                        contextNodeId(contextPackage),
+                        "RECOVERY_IMMEDIATE_REFRESH_EXECUTED",
+                        "recovery branch executed immediate reretrieve/rerank subflow in current round",
+                        toJsonSafe(Map.of(
+                                "refreshRagNow", refreshedWorkset != null && nonBlank(refreshedWorkset.getRagQuery()),
+                                "refreshMcpNow", refreshedWorkset != null && nonBlank(refreshedWorkset.getMcpDrivenInput()),
+                                "reassembleNow", refreshedWorkset != null,
+                                "invalidatedEvidenceRefs", refreshedWorkset == null ? List.of() : refreshedWorkset.getInvalidatedEvidenceRefs(),
+                                "invalidatedCapabilityNames", refreshedWorkset == null ? List.of() : refreshedWorkset.getInvalidatedCapabilityNames()
+                        ))
+                );
+            }
             runtimeAuditService.persistDecisionRecord(
                     sessionId,
                     contextPlanId(contextPackage),
@@ -279,15 +305,17 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                                                     OrchestrationDecision decision,
                                                     StructuredContextPackage contextPackage,
                                                     InputReconstructionResult reconstructionResult) {
+        String worksetTraceId = buildTraceId("NODE_WORKSET", sessionId, contextPlanId(contextPackage), contextNodeId(contextPackage));
+        Map<String, Object> traceMeta = buildTraceMeta(contextPackage, contextNodeId(contextPackage), worksetTraceId, "NODE_WORKSET");
         RecoveryRefreshPlan refreshPlan = consumeRecoveryRefreshPlan(contextPackage);
         String mcpDrivenInput = mcpQueryBuilder.build(
                 reconstructionResult,
                 decision == null ? null : decision.getTaskState()
         );
-        if (refreshPlan.needReassembly) {
+        if (refreshPlan.reassembleNow) {
             mcpDrivenInput = appendRefreshFlag(mcpDrivenInput, "reassembly");
         }
-        if (refreshPlan.needMcpRefresh) {
+        if (refreshPlan.refreshMcpNow) {
             mcpDrivenInput = appendRefreshFlag(mcpDrivenInput, "mcp");
         }
         List<Map<String, Object>> rawMcpCandidates = capabilityPolicyRouterService.routeForContext(
@@ -314,12 +342,12 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 contextNodeId(contextPackage),
                 "MCP_PRE_RANK",
                 "system-level pre-rank before global semantic rerank",
-                toJsonSafe(Map.of(
+                toJsonSafe(withTraceMeta(new LinkedHashMap<>(Map.of(
                         "query", mcpDrivenInput,
                         "rawCandidateCount", rawMcpCandidates.size(),
                         "candidateCount", mcpPreRankedCandidates.size(),
                         "candidates", mcpPreRankedCandidates
-                ))
+                )), traceMeta, "MCP_PRE_RANK", contextNodeId(contextPackage)))
         );
 
         String ragQuery = ragQueryBuilder.build(
@@ -330,7 +358,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 reconstructionResult,
                 decision == null ? null : decision.getTaskState()
         );
-        if (refreshPlan.needRagRefresh || refreshPlan.needReassembly) {
+        if (refreshPlan.refreshRagNow || refreshPlan.reassembleNow) {
             ragQuery = appendRefreshFlag(ragQuery, "rag");
             memoryQuery = appendRefreshFlag(memoryQuery, "memory");
         }
@@ -342,11 +370,11 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         try {
             List<ConversationMessage> conversationContext = buildRetrievalConversationContext(contextPackage);
             List<RetrievalRoute> allowedRoutes = resolveAllowedRoutes(decision);
-            if (refreshPlan.needRagRefresh || refreshPlan.needReassembly) {
+            if (refreshPlan.refreshRagNow || refreshPlan.reassembleNow) {
                 allowedRoutes = RetrievalRoute.all();
             }
             RetrievalOptions options = resolveRetrievalOptions(userInput, decision);
-            if (refreshPlan.needRagRefresh || refreshPlan.needReassembly) {
+            if (refreshPlan.refreshRagNow || refreshPlan.reassembleNow) {
                 options = RetrievalOptions.builder()
                         .debug(options.isDebug())
                         .maxLatencyMs(Math.max(options.getMaxLatencyMs(), 1800L))
@@ -372,30 +400,30 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             RetrievalResponse memoryResponse = retrievalService.retrieve(memoryRequest);
             RetrievalResponse response = mergeRetrievalResponses(ragResponse, memoryResponse);
             response = filterInvalidatedEvidences(response, refreshPlan.invalidatedEvidenceRefs);
+            Map<String, Object> recallTracePayload = new LinkedHashMap<>();
+            recallTracePayload.put("ragQuery", ragQuery);
+            recallTracePayload.put("memoryQuery", memoryQuery);
+            recallTracePayload.put("mcpQuery", mcpDrivenInput);
+            recallTracePayload.put("allowedRoutes", allowedRoutes);
+            recallTracePayload.put("knowledgeCandidates", getEvidences(ragResponse, RetrievalSource.KNOWLEDGE));
+            recallTracePayload.put("memoryCandidates", getEvidences(memoryResponse, RetrievalSource.MEMORY));
+            recallTracePayload.put("preferenceCandidates", getEvidences(ragResponse, RetrievalSource.PREFERENCE));
+            recallTracePayload.put("mcpPreRankCandidates", mcpPreRankedCandidates);
+            recallTracePayload.put("recoveryRefreshPlan", Map.of(
+                    "needRagRefresh", refreshPlan.refreshRagNow,
+                    "needMcpRefresh", refreshPlan.refreshMcpNow,
+                    "needReassembly", refreshPlan.reassembleNow,
+                    "invalidatedEvidenceRefs", refreshPlan.invalidatedEvidenceRefs,
+                    "invalidatedCapabilityNames", refreshPlan.invalidatedCapabilityNames,
+                    "invalidationReasonsByRef", refreshPlan.invalidationReasonsByRef
+            ));
             runtimeAuditService.persistDecisionRecord(
                     sessionId,
                     contextPlanId(contextPackage),
                     contextNodeId(contextPackage),
                     "MULTI_ROUTE_RECALL_TRACE",
                     "raw multi-route retrieval candidates before global rerank",
-                    toJsonSafe(Map.of(
-                            "ragQuery", ragQuery,
-                            "memoryQuery", memoryQuery,
-                            "mcpQuery", mcpDrivenInput,
-                            "allowedRoutes", allowedRoutes,
-                            "knowledgeCandidates", getEvidences(ragResponse, RetrievalSource.KNOWLEDGE),
-                            "memoryCandidates", getEvidences(memoryResponse, RetrievalSource.MEMORY),
-                            "preferenceCandidates", getEvidences(ragResponse, RetrievalSource.PREFERENCE),
-                            "mcpPreRankCandidates", mcpPreRankedCandidates,
-                            "recoveryRefreshPlan", Map.of(
-                                    "needRagRefresh", refreshPlan.needRagRefresh,
-                                    "needMcpRefresh", refreshPlan.needMcpRefresh,
-                                    "needReassembly", refreshPlan.needReassembly,
-                                    "invalidatedEvidenceRefs", refreshPlan.invalidatedEvidenceRefs,
-                                    "invalidatedCapabilityNames", refreshPlan.invalidatedCapabilityNames,
-                                    "invalidationReasonsByRef", refreshPlan.invalidationReasonsByRef
-                            )
-                    ))
+                    toJsonSafe(withTraceMeta(recallTracePayload, traceMeta, "MULTI_ROUTE_RECALL", contextNodeId(contextPackage)))
             );
             rerankResult = globalContextRerankAgent.rerank(
                     reconstructionResult,
@@ -424,9 +452,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     contextNodeId(contextPackage),
                     "GLOBAL_CONTEXT_RERANK",
                     "cross-source rerank after retrieval",
-                    toJsonSafe(rerankResult)
+                    toJsonSafe(withTraceMeta(new LinkedHashMap<>(Map.of("result", rerankResult == null ? Map.of() : rerankResult)), traceMeta, "GLOBAL_RERANK", contextNodeId(contextPackage)))
             );
-            rerankTraceLogger.log(sessionId, contextPlanId(contextPackage), contextNodeId(contextPackage), rerankResult);
+            rerankTraceLogger.log(sessionId, contextPlanId(contextPackage), contextNodeId(contextPackage), rerankResult, traceMeta);
 
             if (rerankResult != null && rerankResult.getSelectedKnowledgeEvidenceBlocks() != null
                     && !rerankResult.getSelectedKnowledgeEvidenceBlocks().isEmpty()) {
@@ -472,7 +500,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
 
         List<Resource> executionCandidates = resolveExecutionCandidates(
                 rerankResult,
-                refreshPlan.needReassembly ? List.of() : mcpPreRankedCandidates
+                refreshPlan.reassembleNow ? List.of() : mcpPreRankedCandidates
         );
         List<String> mcpResourceHints = mcpResourceHintExtractor.extract(
                 rerankResult == null ? List.of() : rerankResult.getSelectedPromptResources(),
@@ -596,6 +624,12 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             );
         }
         if (sessionId != null && !sessionId.isBlank()) {
+            Map<String, Object> summaryTraceMeta = buildTraceMeta(
+                    effectiveContext,
+                    contextNodeId(effectiveContext),
+                    buildTraceId("SUMMARY", sessionId, contextPlanId(effectiveContext), contextNodeId(effectiveContext)),
+                    "SUMMARY"
+            );
             summaryTraceLogger.log(
                     sessionId,
                     contextPlanId(effectiveContext),
@@ -604,7 +638,8 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     assistantReply,
                     effectiveContext,
                     summaryResult,
-                    triggerSource == null || triggerSource.isBlank() ? "TASK_ORCHESTRATOR" : triggerSource
+                    triggerSource == null || triggerSource.isBlank() ? "TASK_ORCHESTRATOR" : triggerSource,
+                    summaryTraceMeta
             );
         }
         ContextState previous = sessionId == null || sessionId.isBlank() ? null : contextStateStore.load(sessionId);
@@ -671,7 +706,13 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 planId,
                 nodeId
         );
-        contextTraceLogger.log(sessionId, planId, nodeId, assembledContext);
+        Map<String, Object> contextTraceMeta = buildTraceMeta(
+                contextPackage,
+                nodeId,
+                buildTraceId("MAIN_MODEL_CONTEXT", sessionId, planId, nodeId),
+                "CONTEXT_ASSEMBLY"
+        );
+        contextTraceLogger.log(sessionId, planId, nodeId, assembledContext, contextTraceMeta);
 
         String finalSnapshotId = assembledContext == null ? "" : nullSafe(assembledContext.getSnapshotId());
         Map<String, Object> rawToolResultChannel = request.getRawToolResultChannel() == null ? Map.of() : request.getRawToolResultChannel();
@@ -791,6 +832,22 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         SummaryResult summaryResult = request.getSummaryResult();
         ContextRerankResult rerankResult = request.getRerankResult();
         ToolSemanticResult toolSemanticResult = request.getToolSemanticResult();
+        if (toolSemanticResult != null) {
+            ToolSemanticResultValidator.ValidationResult toolSemanticValidation = toolSemanticResultValidator.validate(toolSemanticResult, contextPackage);
+            if (!toolSemanticValidation.valid()) {
+                runtimeAuditService.persistDecisionRecord(
+                        sessionId,
+                        contextPlanId(contextPackage),
+                        contextNodeId(contextPackage),
+                        "TOOL_SEMANTIC_SCHEMA_INVALID",
+                        "tool semantic rejected by schema/state checks during round state write",
+                        toJsonSafe(Map.of("issues", toolSemanticValidation.issues()))
+                );
+            }
+            if (toolSemanticValidation.normalized() != null) {
+                toolSemanticResult = toolSemanticValidation.normalized();
+            }
+        }
 
         Map<String, Object> confirmedSlots = mergeMaps(
                 previousTaskState == null ? Map.of() : previousTaskState.getConfirmedSlots(),
@@ -1110,19 +1167,31 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         if (retrievalPlan == null || retrievalPlan.isEmpty()) {
             return RecoveryRefreshPlan.empty();
         }
-        boolean needRagRefresh = booleanValue(retrievalPlan.get("need_rag_refresh"));
-        boolean needMcpRefresh = booleanValue(retrievalPlan.get("need_mcp_refresh"));
-        boolean needReassembly = booleanValue(retrievalPlan.get("need_reassembly"));
+        boolean refreshRagNow = booleanValue(retrievalPlan.get("refresh_rag_now"))
+                || booleanValue(retrievalPlan.get("refreshRagNow"))
+                || booleanValue(retrievalPlan.get("need_rag_refresh"));
+        boolean refreshMcpNow = booleanValue(retrievalPlan.get("refresh_mcp_now"))
+                || booleanValue(retrievalPlan.get("refreshMcpNow"))
+                || booleanValue(retrievalPlan.get("need_mcp_refresh"));
+        boolean reassembleNow = booleanValue(retrievalPlan.get("reassemble_now"))
+                || booleanValue(retrievalPlan.get("reassembleNow"))
+                || booleanValue(retrievalPlan.get("need_reassembly"));
         List<String> invalidatedEvidenceRefs = toStringList(retrievalPlan.get("invalidated_evidence_refs"));
         List<String> invalidatedCapabilityNames = toStringList(retrievalPlan.get("invalidated_capability_names"));
         Map<String, String> invalidationReasonsByRef = safeStringMap(retrievalPlan.get("invalidation_reasons_by_ref"));
-        if (!needRagRefresh && !needMcpRefresh && !needReassembly) {
+        if (!refreshRagNow && !refreshMcpNow && !reassembleNow) {
             if ((invalidatedEvidenceRefs == null || invalidatedEvidenceRefs.isEmpty())
                     && (invalidatedCapabilityNames == null || invalidatedCapabilityNames.isEmpty())) {
                 return RecoveryRefreshPlan.empty();
             }
         }
         Map<String, Object> consumed = new LinkedHashMap<>(retrievalPlan);
+        consumed.put("refresh_rag_now", false);
+        consumed.put("refresh_mcp_now", false);
+        consumed.put("reassemble_now", false);
+        consumed.put("refreshRagNow", false);
+        consumed.put("refreshMcpNow", false);
+        consumed.put("reassembleNow", false);
         consumed.put("need_rag_refresh", false);
         consumed.put("need_mcp_refresh", false);
         consumed.put("need_reassembly", false);
@@ -1138,13 +1207,88 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .build());
         recoveryStateStore.clear(contextPackage.getSessionId());
         return new RecoveryRefreshPlan(
-                needRagRefresh,
-                needMcpRefresh,
-                needReassembly,
+                refreshRagNow,
+                refreshMcpNow,
+                reassembleNow,
                 invalidatedEvidenceRefs == null ? List.of() : invalidatedEvidenceRefs,
                 invalidatedCapabilityNames == null ? List.of() : invalidatedCapabilityNames,
                 invalidationReasonsByRef == null ? Map.of() : invalidationReasonsByRef
         );
+    }
+
+    private boolean shouldRunImmediateRecoveryRefresh(StructuredContextPackage contextPackage,
+                                                      InputReconstructionResult reconstructionResult) {
+        if (contextPackage == null || contextPackage.getRetrievalState() == null) {
+            return false;
+        }
+        Map<String, Object> plan = contextPackage.getRetrievalState().getRetrievalPlan();
+        if (plan == null || plan.isEmpty()) {
+            return false;
+        }
+        boolean refreshRagNow = booleanValue(plan.get("refresh_rag_now"))
+                || booleanValue(plan.get("refreshRagNow"))
+                || booleanValue(plan.get("need_rag_refresh"));
+        boolean refreshMcpNow = booleanValue(plan.get("refresh_mcp_now"))
+                || booleanValue(plan.get("refreshMcpNow"))
+                || booleanValue(plan.get("need_mcp_refresh"));
+        boolean reassembleNow = booleanValue(plan.get("reassemble_now"))
+                || booleanValue(plan.get("reassembleNow"))
+                || booleanValue(plan.get("need_reassembly"));
+        if (!(refreshRagNow || refreshMcpNow || reassembleNow)) {
+            return false;
+        }
+        return reconstructionResult != null;
+    }
+
+    private StructuredContextPackage applyImmediateRecoveryRefreshResult(StructuredContextPackage contextPackage,
+                                                                         InputReconstructionResult reconstructionResult,
+                                                                         NodeWorksetResult nodeWorksetResult) {
+        if (contextPackage == null || nodeWorksetResult == null) {
+            return contextPackage;
+        }
+        RetrievalState baseRetrieval = contextPackage.getRetrievalState();
+        Map<String, Object> basePlan = baseRetrieval == null || baseRetrieval.getRetrievalPlan() == null
+                ? new LinkedHashMap<>()
+                : new LinkedHashMap<>(baseRetrieval.getRetrievalPlan());
+        basePlan.put("immediate_refresh_executed", true);
+        basePlan.put("immediate_refresh_at", System.currentTimeMillis());
+        basePlan.put("invalidated_evidence_refs", nodeWorksetResult.getInvalidatedEvidenceRefs() == null ? List.of() : nodeWorksetResult.getInvalidatedEvidenceRefs());
+        basePlan.put("invalidated_capability_names", nodeWorksetResult.getInvalidatedCapabilityNames() == null ? List.of() : nodeWorksetResult.getInvalidatedCapabilityNames());
+
+        RetrievalState refreshedRetrievalState = RetrievalState.builder()
+                .reconstructedIntent(reconstructionResult == null ? nullSafe(baseRetrieval == null ? "" : baseRetrieval.getReconstructedIntent()) : reconstructionResult.getNormalizedUserIntent())
+                .activeQueries(mergeDistinctList(
+                        baseRetrieval == null ? List.of() : baseRetrieval.getActiveQueries(),
+                        mergeDistinct(
+                                mergeDistinct(nonBlankList(nodeWorksetResult.getRagQuery()), nonBlankList(nodeWorksetResult.getMemoryQuery())),
+                                nonBlankList(nodeWorksetResult.getMcpDrivenInput())
+                        )
+                ))
+                .retrievalPlan(basePlan)
+                .selectedEvidenceRefs(nodeWorksetResult.getSelectedKnowledgeEvidenceRefs() == null ? List.of() : nodeWorksetResult.getSelectedKnowledgeEvidenceRefs())
+                .rerankSummary(toJsonSafe(nodeWorksetResult.getRerankRationaleByNode() == null ? Map.of() : nodeWorksetResult.getRerankRationaleByNode()))
+                .build();
+        retrievalStateStore.save(contextPackage.getSessionId(), refreshedRetrievalState);
+
+        ContextState baseContextState = contextPackage.getContextState();
+        ContextRerankResult rerankResult = nodeWorksetResult.getRerankResult();
+        ContextState refreshedContextState = ContextState.builder()
+                .latestNarrativeSummary(baseContextState == null ? "" : nullSafe(baseContextState.getLatestNarrativeSummary()))
+                .latestStateSnapshot(baseContextState == null ? Map.of() : safeMap(baseContextState.getLatestStateSnapshot()))
+                .activeKnowledgeRefs(nodeWorksetResult.getSelectedKnowledgeEvidenceRefs() == null ? List.of() : nodeWorksetResult.getSelectedKnowledgeEvidenceRefs())
+                .activeMemoryRefs(rerankResult == null || rerankResult.getSelectedMemoryHints() == null
+                        ? (baseContextState == null ? List.of() : toStringList(baseContextState.getActiveMemoryRefs()))
+                        : rerankResult.getSelectedMemoryHints())
+                .activeToolEvidenceRefs(baseContextState == null ? List.of() : toStringList(baseContextState.getActiveToolEvidenceRefs()))
+                .activeMcpPromptRefs(nodeWorksetResult.getSelectedPromptResourceNames() == null ? List.of() : nodeWorksetResult.getSelectedPromptResourceNames())
+                .activeMcpResourceRefs(nodeWorksetResult.getSelectedToolCandidateNames() == null ? List.of() : nodeWorksetResult.getSelectedToolCandidateNames())
+                .latestContextSnapshotId(baseContextState == null ? "" : nullSafe(baseContextState.getLatestContextSnapshotId()))
+                .build();
+        contextStateStore.save(contextPackage.getSessionId(), refreshedContextState);
+
+        contextPackage.setRetrievalState(refreshedRetrievalState);
+        contextPackage.setContextState(refreshedContextState);
+        return contextPackage;
     }
 
     private boolean booleanValue(Object value) {
@@ -1171,7 +1315,13 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         Map<String, Object> retrievalPlan = contextPackage.getRetrievalState().getRetrievalPlan();
         return booleanValue(retrievalPlan.get("need_rag_refresh"))
                 || booleanValue(retrievalPlan.get("need_mcp_refresh"))
-                || booleanValue(retrievalPlan.get("need_reassembly"));
+                || booleanValue(retrievalPlan.get("need_reassembly"))
+                || booleanValue(retrievalPlan.get("refresh_rag_now"))
+                || booleanValue(retrievalPlan.get("refresh_mcp_now"))
+                || booleanValue(retrievalPlan.get("reassemble_now"))
+                || booleanValue(retrievalPlan.get("refreshRagNow"))
+                || booleanValue(retrievalPlan.get("refreshMcpNow"))
+                || booleanValue(retrievalPlan.get("reassembleNow"));
     }
 
     private String appendRefreshFlag(String query, String source) {
@@ -1180,6 +1330,52 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             base = "recovery refresh";
         }
         return base + " [recovery_refresh=" + source + "]";
+    }
+
+    private String buildTraceId(String traceLayer, String sessionId, Long planId, Long nodeId) {
+        return (traceLayer == null ? "TRACE" : traceLayer)
+                + ":" + nullSafe(sessionId)
+                + ":" + (planId == null ? "0" : planId)
+                + ":" + (nodeId == null ? "0" : nodeId)
+                + ":" + System.currentTimeMillis();
+    }
+
+    private Map<String, Object> buildTraceMeta(StructuredContextPackage contextPackage,
+                                               Long nodeId,
+                                               String traceId,
+                                               String traceLayer) {
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("traceId", nullSafe(traceId));
+        meta.put("traceLayer", nullSafe(traceLayer));
+        meta.put("nodeId", nodeId == null ? "" : String.valueOf(nodeId));
+        String snapshotId = "";
+        if (contextPackage != null && contextPackage.getContextState() != null) {
+            snapshotId = nullSafe(contextPackage.getContextState().getLatestContextSnapshotId());
+        }
+        meta.put("snapshotId", snapshotId);
+        String recoveryEvent = "";
+        if (contextPackage != null && contextPackage.getRecoveryState() != null) {
+            recoveryEvent = nullSafe(contextPackage.getRecoveryState().getRecoveryEvent());
+        }
+        meta.put("recoveryEvent", recoveryEvent);
+        return meta;
+    }
+
+    private Map<String, Object> withTraceMeta(Map<String, Object> payload,
+                                              Map<String, Object> traceMeta,
+                                              String traceLayer,
+                                              Long nodeId) {
+        Map<String, Object> merged = payload == null ? new LinkedHashMap<>() : new LinkedHashMap<>(payload);
+        merged.put("traceId", traceMeta == null ? "" : String.valueOf(traceMeta.getOrDefault("traceId", "")));
+        merged.put("traceLayer", nullSafe(traceLayer));
+        merged.put("nodeId", nodeId == null ? "" : String.valueOf(nodeId));
+        merged.put("snapshotId", traceMeta == null ? "" : String.valueOf(traceMeta.getOrDefault("snapshotId", "")));
+        merged.put("recoveryEvent", traceMeta == null ? "" : String.valueOf(traceMeta.getOrDefault("recoveryEvent", "")));
+        return merged;
+    }
+
+    private boolean nonBlank(String value) {
+        return value != null && !value.isBlank();
     }
 
     private Map<String, Object> buildInputReconstructionAuditPayload(String rawInput, InputReconstructionResult reconstruction) {
@@ -2228,9 +2424,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
     private record RecoveryTrigger(boolean shouldRecover, String recoveryEvent, String interruptReason) {
     }
 
-    private record RecoveryRefreshPlan(boolean needRagRefresh,
-                                       boolean needMcpRefresh,
-                                       boolean needReassembly,
+    private record RecoveryRefreshPlan(boolean refreshRagNow,
+                                       boolean refreshMcpNow,
+                                       boolean reassembleNow,
                                        List<String> invalidatedEvidenceRefs,
                                        List<String> invalidatedCapabilityNames,
                                        Map<String, String> invalidationReasonsByRef) {

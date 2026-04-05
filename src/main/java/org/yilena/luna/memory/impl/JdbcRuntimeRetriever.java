@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 import org.yilena.luna.mapper.RuntimeReadMapper;
 import org.yilena.luna.memory.MemoryHotLayerService;
 import org.yilena.luna.memory.RuntimeRetriever;
+import org.yilena.luna.properties.RuntimeAuditReplayProperty;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -17,6 +18,7 @@ public class JdbcRuntimeRetriever implements RuntimeRetriever {
 
     private final RuntimeReadMapper runtimeReadMapper;
     private final MemoryHotLayerService memoryHotLayerService;
+    private final RuntimeAuditReplayProperty runtimeAuditReplayProperty;
 
     @Override
     public Map<String, Object> retrieve(String sessionId) {
@@ -30,11 +32,31 @@ public class JdbcRuntimeRetriever implements RuntimeRetriever {
         Map<String, Object> result = new HashMap<>();
         result.put("session", queryOne(() -> runtimeReadMapper.selectRuntimeSession(sessionId)));
         result.put("recent_messages", queryList(() -> runtimeReadMapper.selectRuntimeRecentMessages(sessionId)));
-        result.put("active_tool_results", queryList(() -> runtimeReadMapper.selectRuntimeToolResults(sessionId)));
-        result.put("context_snapshots", queryList(() -> runtimeReadMapper.selectRuntimeContextSnapshots(sessionId)));
+        result.put("active_tool_results", queryList(() -> queryToolResults(sessionId)));
+        result.put("context_snapshots", queryList(() -> queryContextSnapshots(sessionId)));
         result.put("pending_tool_call", memoryHotLayerService.getLatestPendingToolCall(sessionId));
         memoryHotLayerService.putSessionCache(sessionId, result);
         return result;
+    }
+
+    private List<Map<String, Object>> queryToolResults(String sessionId) {
+        if (runtimeAuditReplayProperty.fullReplayMode()) {
+            return runtimeReadMapper.selectRuntimeToolResultsFull(sessionId);
+        }
+        return runtimeReadMapper.selectRuntimeToolResultsWindow(
+                sessionId,
+                runtimeAuditReplayProperty.safeToolResultsWindowLimit()
+        );
+    }
+
+    private List<Map<String, Object>> queryContextSnapshots(String sessionId) {
+        if (runtimeAuditReplayProperty.fullReplayMode()) {
+            return runtimeReadMapper.selectRuntimeContextSnapshotsFull(sessionId);
+        }
+        return runtimeReadMapper.selectRuntimeContextSnapshotsWindow(
+                sessionId,
+                runtimeAuditReplayProperty.safeContextSnapshotsWindowLimit()
+        );
     }
 
     private Map<String, Object> queryOne(SqlOneSupplier supplier) {

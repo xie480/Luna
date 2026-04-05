@@ -1,11 +1,14 @@
 package org.yilena.luna.context;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.yilena.luna.common.utils.JsonSchemaValidator;
 import org.yilena.luna.context.model.ToolSemanticResult;
 import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 
 import java.util.ArrayList;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -16,6 +19,17 @@ public class ToolSemanticResultValidator {
 
     private static final List<String> ALLOWED_STATUS = List.of("SUCCESS", "PENDING", "FAILED", "UNKNOWN");
     private static final int DEFAULT_SEMANTIC_TOKEN_BUDGET = 1200;
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private final ToolSemanticSchemaProvider schemaProvider;
+
+    public ToolSemanticResultValidator() {
+        this(new ToolSemanticSchemaProvider());
+    }
+
+    @Autowired
+    public ToolSemanticResultValidator(ToolSemanticSchemaProvider schemaProvider) {
+        this.schemaProvider = schemaProvider;
+    }
 
     public ValidationResult validate(ToolSemanticResult result) {
         return validate(result, null);
@@ -26,6 +40,10 @@ public class ToolSemanticResultValidator {
         if (result == null) {
             issues.add("semantic_result_missing");
             return new ValidationResult(false, issues, null);
+        }
+        if (!schemaValid(result)) {
+            issues.add("schema_invalid");
+            return new ValidationResult(false, issues, minimalFallback(result, issues));
         }
 
         String status = normalize(result.getToolStatus());
@@ -72,6 +90,39 @@ public class ToolSemanticResultValidator {
                 .confidence(confidence)
                 .semanticPayload(payload)
                 .build();
+    }
+
+    private ToolSemanticResult minimalFallback(ToolSemanticResult result, List<String> issues) {
+        String status = normalize(result == null ? null : result.getToolStatus());
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("status", status);
+        payload.put("schema_invalid", true);
+        payload.put("validationIssues", issues == null ? List.of("schema_invalid") : issues);
+        payload.put("rawResultDigest", result == null ? "" : stringValue(result.getRawResultDigest()));
+        return ToolSemanticResult.builder()
+                .toolName(result == null ? "" : stringValue(result.getToolName()))
+                .toolDescription(result == null ? "" : stringValue(result.getToolDescription()))
+                .rawResultDigest(result == null ? "" : stringValue(result.getRawResultDigest()))
+                .toolStatus(status)
+                .keyFacts(List.of("schema_invalid"))
+                .businessImpact("Tool semantic result schema invalid, downgraded to minimal semantic channel.")
+                .unresolvedIssues(List.of("schema_invalid"))
+                .nextStepHint("fallback_to_raw_channel")
+                .confidence(0.0)
+                .semanticPayload(payload)
+                .build();
+    }
+
+    private boolean schemaValid(ToolSemanticResult result) {
+        if (result == null) {
+            return false;
+        }
+        try {
+            String json = OBJECT_MAPPER.writeValueAsString(result);
+            return JsonSchemaValidator.validate(schemaProvider.toolSemanticSchema(), json);
+        } catch (Exception ignore) {
+            return false;
+        }
     }
 
     private List<String> validatePayloadConsistency(ToolSemanticResult result, String status) {

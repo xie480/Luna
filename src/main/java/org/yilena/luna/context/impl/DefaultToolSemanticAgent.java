@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.context.ToolSemanticAgent;
+import org.yilena.luna.context.ToolSemanticSchemaProvider;
 import org.yilena.luna.context.model.ToolSemanticResult;
 import org.yilena.luna.enums.ModelType;
 import org.yilena.luna.enums.TaskRuntimeState;
@@ -47,6 +48,7 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
     private final ObjectMapper objectMapper;
     private final LlmClientUtil llmClientUtil;
     private final GeminiProperty geminiProperty;
+    private final ToolSemanticSchemaProvider schemaProvider;
 
     @Override
     public ToolSemanticResult translate(String toolName,
@@ -89,7 +91,9 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
                     taskState == null ? "UNKNOWN" : taskState.name(),
                     currentNodeGoal == null ? "" : currentNodeGoal,
                     rawResult == null ? "" : rawResult
-            ) + "\nretryAttempt=" + attempt + "\nOutput strict JSON only.";
+            ) + "\nretryAttempt=" + attempt
+                    + "\njsonSchema=" + schemaProvider.toolSemanticSchema()
+                    + "\nOutput strict JSON only.";
             LlmRequest request = LlmRequest.builder()
                     .modelType(ModelType.OPENAI_COMPATIBLE)
                     .modelName(resolveSmallAgentModel())

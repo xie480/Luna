@@ -27,8 +27,30 @@ public class RuntimeSummaryTraceLogger implements SummaryTraceLogger {
                     StructuredContextPackage contextPackage,
                     SummaryResult summaryResult,
                     String triggerSource) {
+        log(sessionId, planId, nodeId, userInput, assistantReply, contextPackage, summaryResult, triggerSource, Map.of());
+    }
+
+    @Override
+    public void log(String sessionId,
+                    Long planId,
+                    Long nodeId,
+                    String userInput,
+                    String assistantReply,
+                    StructuredContextPackage contextPackage,
+                    SummaryResult summaryResult,
+                    String triggerSource,
+                    Map<String, Object> traceMeta) {
         try {
             Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("traceId", traceMeta == null ? "" : String.valueOf(traceMeta.getOrDefault("traceId", "")));
+            payload.put("traceLayer", "SUMMARY");
+            payload.put("nodeId", nodeId);
+            payload.put("snapshotId", contextPackage == null || contextPackage.getContextState() == null
+                    ? ""
+                    : String.valueOf(contextPackage.getContextState().getLatestContextSnapshotId()));
+            payload.put("recoveryEvent", contextPackage == null || contextPackage.getRecoveryState() == null
+                    ? ""
+                    : String.valueOf(contextPackage.getRecoveryState().getRecoveryEvent()));
             payload.put("triggerSource", triggerSource == null ? "UNKNOWN" : triggerSource);
             payload.put("userInput", userInput == null ? "" : userInput);
             payload.put("assistantReply", assistantReply == null ? "" : assistantReply);

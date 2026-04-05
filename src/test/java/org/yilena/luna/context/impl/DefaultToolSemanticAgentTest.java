@@ -2,6 +2,7 @@ package org.yilena.luna.context.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.yilena.luna.context.ToolSemanticSchemaProvider;
 import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.properties.GeminiProperty;
@@ -25,7 +26,8 @@ class DefaultToolSemanticAgentTest {
         DefaultToolSemanticAgent agent = new DefaultToolSemanticAgent(
                 new ObjectMapper(),
                 llmClientUtil,
-                geminiProperty("gpt-small")
+                geminiProperty("gpt-small"),
+                new ToolSemanticSchemaProvider()
         );
 
         assertThrows(IllegalStateException.class, () -> agent.translate(
@@ -57,7 +59,8 @@ class DefaultToolSemanticAgentTest {
         DefaultToolSemanticAgent agent = new DefaultToolSemanticAgent(
                 new ObjectMapper(),
                 llmClientUtil,
-                geminiProperty("gpt-small")
+                geminiProperty("gpt-small"),
+                new ToolSemanticSchemaProvider()
         );
 
         var result = agent.translate(

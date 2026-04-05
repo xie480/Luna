@@ -141,6 +141,11 @@ memory:
   legacy-readonly:
     enabled: true
 
+audit:
+  replay-mode: window
+  tool-results-window-limit: 8
+  context-snapshots-window-limit: 3
+
 serper:
   api-key: fe2bc5deb3372b8fc2823c2031e06a209e20bd75
 

@@ -242,6 +242,19 @@ public class ChatServiceImpl implements ChatService {
         );
         ToolSemanticResultValidator.ValidationResult semanticValidation = toolSemanticResultValidator.validate(toolSemanticResult, contextPackage);
         if (!semanticValidation.valid()) {
+            if (semanticValidation.issues() != null && semanticValidation.issues().contains("schema_invalid")) {
+                runtimeAuditService.persistDecisionRecord(
+                        runtimeSessionId,
+                        contextPlanId(contextPackage),
+                        contextNodeId(contextPackage),
+                        "TOOL_SEMANTIC_SCHEMA_INVALID",
+                        "semantic result rejected by json schema, fallback applied",
+                        toJsonSafe(Map.of(
+                                "issues", semanticValidation.issues(),
+                                "schemaInvalid", true
+                        ))
+                );
+            }
             runtimeAuditService.persistDecisionRecord(
                     runtimeSessionId,
                     contextPlanId(contextPackage),

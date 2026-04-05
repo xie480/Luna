@@ -74,6 +74,8 @@ class DefaultRecoveryContextAgentTest {
         assertEquals("APPROVAL_RESUME", recovered.getRecoveryState().getRecoveryEvent());
         assertTrue(Boolean.TRUE.equals(recovered.getRetrievalState().getRetrievalPlan().get("need_mcp_refresh")));
         assertTrue(Boolean.TRUE.equals(recovered.getRetrievalState().getRetrievalPlan().get("need_reassembly")));
+        assertTrue(Boolean.TRUE.equals(recovered.getRetrievalState().getRetrievalPlan().get("refresh_mcp_now")));
+        assertTrue(Boolean.TRUE.equals(recovered.getRetrievalState().getRetrievalPlan().get("reassemble_now")));
         ArgumentCaptor<RecoveryState> stateCaptor = ArgumentCaptor.forClass(RecoveryState.class);
         verify(recoveryStateStore).save(org.mockito.ArgumentMatchers.eq("s-1"), stateCaptor.capture());
         assertEquals("APPROVAL_RESUME", stateCaptor.getValue().getRecoveryEvent());
@@ -135,6 +137,8 @@ class DefaultRecoveryContextAgentTest {
         assertNotNull(recovered);
         assertTrue(Boolean.TRUE.equals(recovered.getRetrievalState().getRetrievalPlan().get("need_rag_refresh")));
         assertTrue(Boolean.TRUE.equals(recovered.getRetrievalState().getRetrievalPlan().get("need_mcp_refresh")));
+        assertTrue(Boolean.TRUE.equals(recovered.getRetrievalState().getRetrievalPlan().get("refresh_rag_now")));
+        assertTrue(Boolean.TRUE.equals(recovered.getRetrievalState().getRetrievalPlan().get("refresh_mcp_now")));
         @SuppressWarnings("unchecked")
         List<String> invalidatedEvidenceRefs = (List<String>) recovered.getRetrievalState().getRetrievalPlan().get("invalidated_evidence_refs");
         @SuppressWarnings("unchecked")

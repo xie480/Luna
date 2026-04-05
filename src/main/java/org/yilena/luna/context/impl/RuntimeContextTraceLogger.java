@@ -7,6 +7,9 @@ import org.yilena.luna.context.ContextTraceLogger;
 import org.yilena.luna.context.model.AssembledContext;
 import org.yilena.luna.memory.RuntimeAuditService;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 @Service
 @RequiredArgsConstructor
 public class RuntimeContextTraceLogger implements ContextTraceLogger {
@@ -16,11 +19,20 @@ public class RuntimeContextTraceLogger implements ContextTraceLogger {
 
     @Override
     public void log(String sessionId, Long planId, Long nodeId, AssembledContext assembledContext) {
+        log(sessionId, planId, nodeId, assembledContext, Map.of());
+    }
+
+    @Override
+    public void log(String sessionId, Long planId, Long nodeId, AssembledContext assembledContext, Map<String, Object> traceMeta) {
         try {
-            java.util.Map<String, Object> payload = new java.util.LinkedHashMap<>();
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("traceId", traceMeta == null ? "" : String.valueOf(traceMeta.getOrDefault("traceId", "")));
+            payload.put("traceLayer", "CONTEXT_ASSEMBLY");
+            payload.put("nodeId", nodeId);
             payload.put("sections", assembledContext == null ? java.util.Map.of() : assembledContext.getSections());
             payload.put("candidatePool", assembledContext == null ? java.util.Map.of() : assembledContext.getCandidatePool());
             payload.put("snapshotId", assembledContext == null ? "" : assembledContext.getSnapshotId());
+            payload.put("recoveryEvent", traceMeta == null ? "" : String.valueOf(traceMeta.getOrDefault("recoveryEvent", "")));
             runtimeAuditService.persistDecisionRecord(
                     sessionId,
                     planId,

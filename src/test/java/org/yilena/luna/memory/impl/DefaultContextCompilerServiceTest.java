@@ -4,9 +4,11 @@ import org.junit.jupiter.api.Test;
 import org.yilena.luna.enums.RelationalRuntimeState;
 import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.memory.MemoryHotLayerService;
+import org.yilena.luna.memory.RelationalMemoryRetriever;
 import org.yilena.luna.memory.ResponseSynthesizerService;
 import org.yilena.luna.memory.RuntimeRetriever;
 import org.yilena.luna.memory.SocialReasonerService;
+import org.yilena.luna.memory.TaskMemoryRetriever;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.state.store.ContextStateStore;
 import org.yilena.luna.state.store.RecoveryStateStore;
@@ -32,6 +34,8 @@ class DefaultContextCompilerServiceTest {
         MemoryHotLayerService hotLayerService = mock(MemoryHotLayerService.class);
         SocialReasonerService socialReasonerService = mock(SocialReasonerService.class);
         ResponseSynthesizerService responseSynthesizerService = mock(ResponseSynthesizerService.class);
+        TaskMemoryRetriever taskMemoryRetriever = mock(TaskMemoryRetriever.class);
+        RelationalMemoryRetriever relationalMemoryRetriever = mock(RelationalMemoryRetriever.class);
         TaskStateStore taskStateStore = mock(TaskStateStore.class);
         RetrievalStateStore retrievalStateStore = mock(RetrievalStateStore.class);
         ToolStateStore toolStateStore = mock(ToolStateStore.class);
@@ -49,6 +53,8 @@ class DefaultContextCompilerServiceTest {
         DefaultContextCompilerService service = new DefaultContextCompilerService(
                 runtimeRetriever,
                 hotLayerService,
+                taskMemoryRetriever,
+                relationalMemoryRetriever,
                 socialReasonerService,
                 responseSynthesizerService,
                 taskStateStore,
@@ -69,7 +75,7 @@ class DefaultContextCompilerServiceTest {
         assertTrue(contextPackage.getTaskContext().isEmpty());
         assertTrue(contextPackage.getRelationalContext().isEmpty());
         assertTrue(contextPackage.getCapabilityCandidates().isEmpty());
-        assertEquals("NODE_ON_DEMAND", contextPackage.getPromptPolicy().get("memory_fetch_mode"));
+        assertEquals("ENTRY_PRELOADED_PLUS_NODE_ON_DEMAND", contextPackage.getPromptPolicy().get("memory_fetch_mode"));
         assertEquals("MCP_QUERY_ON_DEMAND", contextPackage.getPromptPolicy().get("capability_fetch_mode"));
         assertEquals("输出季度复盘报告", contextPackage.getTaskStateEntity().getObjective());
     }

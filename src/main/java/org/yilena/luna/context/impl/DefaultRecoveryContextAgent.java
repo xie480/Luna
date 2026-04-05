@@ -32,9 +32,9 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
             Decide whether recovery should refresh RAG/MCP evidence after an interrupt event.
             Return strict JSON only:
             {
-              "needRagRefresh": true/false,
-              "needMcpRefresh": true/false,
-              "needReassembly": true/false,
+              "refreshRagNow": true/false,
+              "refreshMcpNow": true/false,
+              "reassembleNow": true/false,
               "reason": "...",
               "invalidatedEvidenceRefs": ["..."],
               "invalidatedCapabilityNames": ["..."],
@@ -136,11 +136,11 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
             }
             String normalized = stripFence(content);
             var node = objectMapper.readTree(normalized);
-            boolean needRagRefresh = node.path("needRagRefresh").asBoolean(false);
-            boolean needMcpRefresh = node.path("needMcpRefresh").asBoolean(false);
-            boolean needReassembly = node.path("needReassembly").asBoolean(
+            boolean needRagRefresh = node.path("refreshRagNow").asBoolean(node.path("needRagRefresh").asBoolean(false));
+            boolean needMcpRefresh = node.path("refreshMcpNow").asBoolean(node.path("needMcpRefresh").asBoolean(false));
+            boolean needReassembly = node.path("reassembleNow").asBoolean(node.path("needReassembly").asBoolean(
                     needRagRefresh || needMcpRefresh || contextPackage == null || snapshot == null
-            );
+            ));
             String reason = node.path("reason").asText("");
             if (reason.isBlank()) {
                 reason = "llm_recovery_decision";
@@ -432,6 +432,9 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
             merged.putAll(current);
         }
         merged.put("recovery_required", decision.needReassembly());
+        merged.put("refreshRagNow", decision.needRagRefresh());
+        merged.put("refreshMcpNow", decision.needMcpRefresh());
+        merged.put("reassembleNow", decision.needReassembly());
         merged.put("recovery_need_rag_refresh", decision.needRagRefresh());
         merged.put("recovery_need_mcp_refresh", decision.needMcpRefresh());
         merged.put("recovery_reason", decision.reason());
@@ -484,6 +487,12 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
             retrievalPlan.putAll(current.getRetrievalPlan());
         }
         retrievalPlan.put("recovery_mode", true);
+        retrievalPlan.put("refresh_rag_now", decision.needRagRefresh());
+        retrievalPlan.put("refresh_mcp_now", decision.needMcpRefresh());
+        retrievalPlan.put("reassemble_now", decision.needReassembly());
+        retrievalPlan.put("refreshRagNow", decision.needRagRefresh());
+        retrievalPlan.put("refreshMcpNow", decision.needMcpRefresh());
+        retrievalPlan.put("reassembleNow", decision.needReassembly());
         retrievalPlan.put("need_rag_refresh", decision.needRagRefresh());
         retrievalPlan.put("need_mcp_refresh", decision.needMcpRefresh());
         retrievalPlan.put("need_reassembly", decision.needReassembly());

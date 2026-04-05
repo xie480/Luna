@@ -32,18 +32,34 @@ public interface RuntimeReadMapper {
             from tool_execution_trace
             where session_id = #{sessionId}
             order by created_at desc
-            limit 8
+            limit #{limit}
             """)
-    List<Map<String, Object>> selectRuntimeToolResults(@Param("sessionId") String sessionId);
+    List<Map<String, Object>> selectRuntimeToolResultsWindow(@Param("sessionId") String sessionId, @Param("limit") int limit);
+
+    @Select("""
+            select id as trace_id, tool_name, call_status, normalized_output, error_message, created_at
+            from tool_execution_trace
+            where session_id = #{sessionId}
+            order by created_at desc
+            """)
+    List<Map<String, Object>> selectRuntimeToolResultsFull(@Param("sessionId") String sessionId);
 
     @Select("""
             select id, plan_id, node_id, created_at
             from plan_context_snapshot
             where session_id = #{sessionId}
             order by created_at desc
-            limit 3
+            limit #{limit}
             """)
-    List<Map<String, Object>> selectRuntimeContextSnapshots(@Param("sessionId") String sessionId);
+    List<Map<String, Object>> selectRuntimeContextSnapshotsWindow(@Param("sessionId") String sessionId, @Param("limit") int limit);
+
+    @Select("""
+            select id, plan_id, node_id, created_at
+            from plan_context_snapshot
+            where session_id = #{sessionId}
+            order by created_at desc
+            """)
+    List<Map<String, Object>> selectRuntimeContextSnapshotsFull(@Param("sessionId") String sessionId);
 
     @Select("select * from task_working_memory where session_id = #{sessionId} limit 1")
     Map<String, Object> selectTaskWorkingMemory(@Param("sessionId") String sessionId);
