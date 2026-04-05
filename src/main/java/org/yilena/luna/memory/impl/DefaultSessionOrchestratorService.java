@@ -1,21 +1,23 @@
 package org.yilena.luna.memory.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.yilena.luna.context.InputReconstructionAgent;
-import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.enums.RelationalRuntimeState;
 import org.yilena.luna.enums.SessionType;
 import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.mapper.SessionRuntimeMapper;
 import org.yilena.luna.memory.ContextCompilerService;
 import org.yilena.luna.memory.SessionOrchestratorService;
+import org.yilena.luna.memory.model.GovernedSignal;
 import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.utils.AuthContextHolder;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -29,8 +31,8 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
 
     private final SessionRuntimeMapper sessionRuntimeMapper;
     private final ContextCompilerService contextCompilerService;
-    private final InputReconstructionAgent inputReconstructionAgent;
     private final SessionTypeResolver sessionTypeResolver;
+    private final ObjectMapper objectMapper;
 
     @Value("${memory.session-type.enabled:true}")
     private boolean sessionTypeEnabled;
@@ -38,20 +40,16 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
     @Override
     public OrchestrationDecision onUserInput(String sessionId, String userInput) {
         String normalizedSessionId = sessionId == null || sessionId.isBlank() ? "default-session" : sessionId;
-        String signal = buildGovernedUserSignal(normalizedSessionId, userInput);
+        GovernedSignal governedSignal = GovernedSignal.fromRawInput(userInput);
+        String signal = toSignalPayload(governedSignal);
         return orchestrate(normalizedSessionId, "USER_INPUT", signal, payloadOf("text", userInput));
     }
 
     @Override
     public OrchestrationDecision onUserInput(String sessionId, String userInput, String orchestrationSignal) {
         String normalizedSessionId = sessionId == null || sessionId.isBlank() ? "default-session" : sessionId;
-        String signal = orchestrationSignal == null ? "" : orchestrationSignal.trim();
-        if (signal.isBlank()) {
-            signal = buildGovernedUserSignal(normalizedSessionId, userInput);
-            if (signal.isBlank()) {
-                signal = "intent=intent_unavailable;goal=goal_unavailable;timeScope=unspecified;constraints=[];missingSlots=[];fallback=empty_orchestration_signal";
-            }
-        }
+        GovernedSignal governedSignal = parseGovernedSignal(orchestrationSignal, userInput);
+        String signal = toSignalPayload(governedSignal);
         return orchestrate(normalizedSessionId, "USER_INPUT", signal, payloadOf("text", userInput));
     }
 
@@ -391,6 +389,9 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
         if (signal == null || !signal.structured()) {
             return null;
         }
+        if (signal.reconstructionRetryRequired()) {
+            return TaskRuntimeState.CONTEXT_BUILDING;
+        }
         if (signal.reconstructionIncomplete()) {
             if (previous == TaskRuntimeState.WAITING_USER
                     || previous == TaskRuntimeState.WAITING_TOOL
@@ -439,73 +440,30 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
             return false;
         }
         String primary = signal.structured() ? signal.intent() : signal.taskCorpus();
-        if (containsAny(primary, words)) {
-            return true;
-        }
-        if (signal.structured() && signal.reconstructionIncomplete() && containsAny(signal.taskCorpus(), words)) {
-            return true;
-        }
-        return false;
+        return containsAny(primary, words);
     }
 
     private StructuredSignal parseStructuredSignal(String signal) {
-        String raw = safeLower(signal);
-        if (raw.isBlank()) {
+        String rawSignal = signal == null ? "" : signal;
+        String raw = safeLower(rawSignal);
+        GovernedSignal governedSignal = parseGovernedSignal(rawSignal, "");
+        if (governedSignal == null) {
             return StructuredSignal.empty(raw);
         }
-        Map<String, String> fields = new LinkedHashMap<>();
-        String[] segments = signal.split(";");
-        for (String segment : segments) {
-            if (segment == null || segment.isBlank()) {
-                continue;
-            }
-            int separator = segment.indexOf('=');
-            if (separator <= 0) {
-                continue;
-            }
-            String key = segment.substring(0, separator).trim().toLowerCase(Locale.ROOT);
-            String value = segment.substring(separator + 1).trim();
-            if (!key.isBlank()) {
-                fields.put(key, value);
-            }
-        }
-        if (fields.isEmpty()) {
-            return StructuredSignal.empty(raw);
-        }
+        String intent = safeLower(governedSignal.getIntent());
+        String goal = safeLower(governedSignal.getGoal());
+        String timeScope = safeLower(governedSignal.getTimeScope());
+        String fallback = safeLower(governedSignal.getFallback());
         return new StructuredSignal(
                 true,
-                safeLower(fields.get("intent")),
-                safeLower(fields.get("goal")),
-                safeLower(fields.get("timescope")),
-                safeLower(fields.get("fallback")),
-                parseListLikeCount(fields.get("missingslots")),
-                parseListLikeCount(fields.get("constraints")),
+                intent,
+                goal,
+                timeScope,
+                fallback,
+                governedSignal.safeMissingSlots().size(),
+                governedSignal.safeConstraints().size(),
                 raw
         );
-    }
-
-    private int parseListLikeCount(String rawValue) {
-        if (rawValue == null) {
-            return 0;
-        }
-        String text = rawValue.trim();
-        if (text.isBlank() || "[]".equals(text)) {
-            return 0;
-        }
-        if (text.startsWith("[") && text.endsWith("]") && text.length() >= 2) {
-            text = text.substring(1, text.length() - 1).trim();
-        }
-        if (text.isBlank()) {
-            return 0;
-        }
-        int count = 0;
-        String[] items = text.split(",");
-        for (String item : items) {
-            if (item != null && !item.trim().isBlank()) {
-                count++;
-            }
-        }
-        return Math.max(1, count);
     }
 
     private ExecutionSnapshot resolveExecutionSnapshot(String sessionId) {
@@ -753,44 +711,169 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
         return "{\"" + safeKey + "\":\"" + escapeJson(safeValue) + "\"}";
     }
 
-    private String buildGovernedUserSignal(String sessionId, String userInput) {
-        StructuredContextPackage preContext = contextCompilerService.compile(sessionId, userInput, null, null);
-        InputReconstructionResult reconstruction = inputReconstructionAgent.reconstruct(
-                sessionId,
-                userInput,
-                preContext,
-                preContext == null ? null : preContext.getTaskState(),
-                preContext == null ? null : preContext.getRelationalState()
-        );
-        return buildOrchestrationSignal(userInput, reconstruction);
+    private GovernedSignal parseGovernedSignal(String signalPayload, String rawInput) {
+        if (signalPayload != null && !signalPayload.isBlank()) {
+            GovernedSignal fromJson = tryParseSignalJson(signalPayload);
+            if (fromJson != null) {
+                return sanitizeSignal(fromJson, rawInput);
+            }
+            GovernedSignal fromLegacy = tryParseLegacySignal(signalPayload, rawInput);
+            if (fromLegacy != null) {
+                return sanitizeSignal(fromLegacy, rawInput);
+            }
+        }
+        return GovernedSignal.fromRawInput(rawInput);
     }
 
-    private String buildOrchestrationSignal(String rawInput, InputReconstructionResult reconstruction) {
-        String normalizedIntent = reconstruction == null ? "" : safeLower(reconstruction.getNormalizedUserIntent());
-        String explicitGoal = reconstruction == null ? "" : safeLower(reconstruction.getExplicitTaskGoal());
-        String timeScope = reconstruction == null ? "" : safeLower(reconstruction.getTimeScope());
-        java.util.List<String> constraints = reconstruction == null || reconstruction.getBusinessConstraints() == null
-                ? java.util.List.of()
-                : reconstruction.getBusinessConstraints();
-        java.util.List<String> missingSlots = reconstruction == null || reconstruction.getMissingSlots() == null
-                ? java.util.List.of()
-                : reconstruction.getMissingSlots();
-        StringBuilder signal = new StringBuilder();
-        signal.append("intent=").append(normalizedIntent.isBlank() ? "intent_unavailable" : normalizedIntent);
-        signal.append(";goal=").append(explicitGoal.isBlank() ? "goal_unavailable" : explicitGoal);
-        signal.append(";timeScope=").append(timeScope.isBlank() ? "unspecified" : timeScope);
-        signal.append(";constraints=").append(constraints);
-        signal.append(";missingSlots=").append(missingSlots);
-        if (reconstruction == null) {
-            signal.append(";fallback=reconstruction_missing");
-            signal.append(";rawInputPresent=").append(rawInput != null && !rawInput.isBlank());
-            signal.append(";rawInputLength=").append(rawInput == null ? 0 : rawInput.trim().length());
-        } else if (normalizedIntent.isBlank() || explicitGoal.isBlank()) {
-            signal.append(";fallback=reconstruction_partial");
-        } else {
-            signal.append(";fallback=none");
+    private GovernedSignal tryParseSignalJson(String payload) {
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = objectMapper.readValue(payload, Map.class);
+            return fromSignalMap(map);
+        } catch (Exception ignore) {
+            return null;
         }
-        return signal.toString();
+    }
+
+    private GovernedSignal tryParseLegacySignal(String payload, String rawInput) {
+        Map<String, String> fields = new LinkedHashMap<>();
+        String[] segments = payload.split(";");
+        for (String segment : segments) {
+            if (segment == null || segment.isBlank()) {
+                continue;
+            }
+            int separator = segment.indexOf('=');
+            if (separator <= 0) {
+                continue;
+            }
+            String key = segment.substring(0, separator).trim().toLowerCase(Locale.ROOT);
+            String value = segment.substring(separator + 1).trim();
+            if (!key.isBlank()) {
+                fields.put(key, value);
+            }
+        }
+        if (fields.isEmpty()) {
+            return null;
+        }
+        List<String> constraints = parseLegacyList(fields.get("constraints"));
+        List<String> missingSlots = parseLegacyList(fields.get("missingslots"));
+        return GovernedSignal.builder()
+                .debugFlag(GovernedSignal.fromRawInput(rawInput).isDebugFlag())
+                .intent(normalizeSignalText(fields.get("intent"), "intent_unavailable"))
+                .goal(normalizeSignalText(fields.get("goal"), "goal_unavailable"))
+                .constraints(constraints)
+                .timeScope(normalizeSignalText(fields.get("timescope"), "unspecified"))
+                .missingSlots(missingSlots)
+                .fallback(normalizeSignalText(fields.get("fallback"), "reconstruct_retry_required"))
+                .build();
+    }
+
+    private GovernedSignal fromSignalMap(Map<String, Object> map) {
+        if (map == null || map.isEmpty()) {
+            return null;
+        }
+        boolean debugFlag = boolValue(map.get("debugFlag"));
+        String intent = normalizeSignalText(stringValue(map.get("intent")), "intent_unavailable");
+        String goal = normalizeSignalText(stringValue(map.get("goal")), "goal_unavailable");
+        String timeScope = normalizeSignalText(stringValue(map.get("timeScope")), "unspecified");
+        String fallback = normalizeSignalText(stringValue(map.get("fallback")), "reconstruct_retry_required");
+        List<String> constraints = normalizeSignalList(map.get("constraints"));
+        List<String> missingSlots = normalizeSignalList(map.get("missingSlots"));
+        return GovernedSignal.builder()
+                .debugFlag(debugFlag)
+                .intent(intent)
+                .goal(goal)
+                .constraints(constraints)
+                .timeScope(timeScope)
+                .missingSlots(missingSlots)
+                .fallback(fallback)
+                .build();
+    }
+
+    private GovernedSignal sanitizeSignal(GovernedSignal signal, String rawInput) {
+        if (signal == null) {
+            return GovernedSignal.fromRawInput(rawInput);
+        }
+        boolean debugFlag = signal.isDebugFlag() || GovernedSignal.fromRawInput(rawInput).isDebugFlag();
+        return GovernedSignal.builder()
+                .debugFlag(debugFlag)
+                .intent(normalizeSignalText(signal.getIntent(), "intent_unavailable"))
+                .goal(normalizeSignalText(signal.getGoal(), "goal_unavailable"))
+                .constraints(signal.safeConstraints())
+                .timeScope(normalizeSignalText(signal.getTimeScope(), "unspecified"))
+                .missingSlots(signal.safeMissingSlots())
+                .fallback(normalizeSignalText(signal.getFallback(), "reconstruct_retry_required"))
+                .build();
+    }
+
+    private String toSignalPayload(GovernedSignal signal) {
+        GovernedSignal safeSignal = sanitizeSignal(signal, "");
+        try {
+            return objectMapper.writeValueAsString(safeSignal);
+        } catch (Exception ignore) {
+            return "{\"debugFlag\":false,\"intent\":\"intent_unavailable\",\"goal\":\"goal_unavailable\",\"constraints\":[],\"timeScope\":\"unspecified\",\"missingSlots\":[\"reconstruction_missing\"],\"fallback\":\"reconstruct_retry_required\"}";
+        }
+    }
+
+    private String normalizeSignalText(String value, String fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        String cleaned = value.trim();
+        return cleaned.isBlank() ? fallback : cleaned;
+    }
+
+    private boolean boolValue(Object value) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        if (value == null) {
+            return false;
+        }
+        String text = String.valueOf(value).trim().toLowerCase(Locale.ROOT);
+        return "true".equals(text) || "1".equals(text) || "yes".equals(text);
+    }
+
+    private List<String> normalizeSignalList(Object value) {
+        if (!(value instanceof List<?> list) || list.isEmpty()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        for (Object item : list) {
+            if (item == null) {
+                continue;
+            }
+            String text = String.valueOf(item).trim();
+            if (!text.isBlank()) {
+                out.add(text);
+            }
+        }
+        return out.stream().distinct().toList();
+    }
+
+    private List<String> parseLegacyList(String rawValue) {
+        if (rawValue == null || rawValue.isBlank()) {
+            return List.of();
+        }
+        String text = rawValue.trim();
+        if (text.startsWith("[") && text.endsWith("]") && text.length() > 1) {
+            text = text.substring(1, text.length() - 1);
+        }
+        if (text.isBlank()) {
+            return List.of();
+        }
+        String[] chunks = text.split(",");
+        List<String> out = new ArrayList<>();
+        for (String chunk : chunks) {
+            if (chunk == null) {
+                continue;
+            }
+            String item = chunk.trim();
+            if (!item.isBlank()) {
+                out.add(item);
+            }
+        }
+        return out.stream().distinct().toList();
     }
 
     private String escapeJson(String text) {
@@ -840,10 +923,18 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
                 return true;
             }
             return (fallback != null && (
-                    fallback.contains("reconstruction_missing")
+                    fallback.contains("reconstruct_retry_required")
+                            || fallback.contains("reconstruction_missing")
                             || fallback.contains("reconstruction_partial")
                             || fallback.contains("empty_orchestration_signal")
             )) || !hasGoalOrIntent();
+        }
+
+        private boolean reconstructionRetryRequired() {
+            if (!structured || fallback == null || fallback.isBlank()) {
+                return false;
+            }
+            return fallback.contains("reconstruct_retry_required");
         }
     }
 

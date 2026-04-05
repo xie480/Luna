@@ -1,5 +1,6 @@
 package org.yilena.luna.memory.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.enums.RelationalRuntimeState;
@@ -12,6 +13,7 @@ import org.yilena.luna.memory.ResponseSynthesizerService;
 import org.yilena.luna.memory.RuntimeRetriever;
 import org.yilena.luna.memory.SocialReasonerService;
 import org.yilena.luna.memory.TaskMemoryRetriever;
+import org.yilena.luna.memory.model.GovernedSignal;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.state.model.ContextState;
 import org.yilena.luna.state.model.RetrievalState;
@@ -44,6 +46,7 @@ public class DefaultContextCompilerService implements ContextCompilerService {
     private final ToolStateStore toolStateStore;
     private final ContextStateStore contextStateStore;
     private final RecoveryStateStore recoveryStateStore;
+    private final ObjectMapper objectMapper;
 
     @Override
     public StructuredContextPackage compile(String sessionId,
@@ -69,9 +72,10 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                 taskState,
                 relationalState
         );
+        GovernedSignal governedSignal = extractGovernedSignal(userInput);
         Map<String, Object> taskContext = preloadTaskContext(
                 sessionId,
-                userInput,
+                governedSignal,
                 taskState,
                 storedTaskState,
                 storedRetrievalState,
@@ -79,7 +83,7 @@ public class DefaultContextCompilerService implements ContextCompilerService {
         );
         Map<String, Object> relationalContext = preloadRelationalContext(
                 sessionId,
-                userInput,
+                governedSignal,
                 relationalState,
                 storedContextState,
                 runtime
@@ -127,7 +131,7 @@ public class DefaultContextCompilerService implements ContextCompilerService {
     }
 
     private Map<String, Object> preloadTaskContext(String sessionId,
-                                                   String userInput,
+                                                   GovernedSignal governedSignal,
                                                    TaskRuntimeState taskState,
                                                    TaskState storedTaskState,
                                                    RetrievalState storedRetrievalState,
@@ -135,7 +139,7 @@ public class DefaultContextCompilerService implements ContextCompilerService {
         if (isBlank(sessionId)) {
             return Map.of();
         }
-        String semanticQuery = buildTaskSemanticQuery(userInput, storedTaskState, storedRetrievalState, runtime);
+        String semanticQuery = buildTaskSemanticQuery(governedSignal, storedTaskState, storedRetrievalState, runtime);
         Map<String, Object> retrieved = mapOf(taskMemoryRetriever.retrieve(sessionId, semanticQuery, taskState));
         if (retrieved.isEmpty()) {
             return Map.of();
@@ -147,14 +151,14 @@ public class DefaultContextCompilerService implements ContextCompilerService {
     }
 
     private Map<String, Object> preloadRelationalContext(String sessionId,
-                                                         String userInput,
+                                                         GovernedSignal governedSignal,
                                                          RelationalRuntimeState relationalState,
                                                          ContextState storedContextState,
                                                          Map<String, Object> runtime) {
         if (isBlank(sessionId)) {
             return Map.of();
         }
-        String semanticQuery = buildRelationalSemanticQuery(userInput, storedContextState, runtime);
+        String semanticQuery = buildRelationalSemanticQuery(governedSignal, storedContextState, runtime);
         Map<String, Object> retrieved = mapOf(relationalMemoryRetriever.retrieve(sessionId, semanticQuery, relationalState));
         if (retrieved.isEmpty()) {
             return Map.of();
@@ -165,28 +169,32 @@ public class DefaultContextCompilerService implements ContextCompilerService {
         return merged;
     }
 
-    private String buildTaskSemanticQuery(String userInput,
+    private String buildTaskSemanticQuery(GovernedSignal governedSignal,
                                           TaskState storedTaskState,
                                           RetrievalState storedRetrievalState,
                                           Map<String, Object> runtime) {
-        String user = str(userInput);
+        String intent = governedSignal == null ? "" : str(governedSignal.getIntent());
+        String goalFromSignal = governedSignal == null ? "" : str(governedSignal.getGoal());
+        String timeScope = governedSignal == null ? "" : str(governedSignal.getTimeScope());
         String objective = storedTaskState == null ? "" : str(storedTaskState.getObjective());
         String node = storedTaskState == null ? "" : str(storedTaskState.getCurrentNode());
         String retrievalIntent = storedRetrievalState == null ? "" : str(storedRetrievalState.getReconstructedIntent());
         Map<String, Object> session = mapOf(runtime == null ? null : runtime.get("session"));
         String currentGoal = str(session.get("current_goal"));
         return String.join(" | ",
-                "user_input=" + firstNonBlank(user, "none"),
-                "objective=" + firstNonBlank(objective, currentGoal),
+                "explicit_task_goal=" + firstNonBlank(goalFromSignal, firstNonBlank(objective, currentGoal)),
+                "normalized_intent=" + firstNonBlank(intent, "intent_unavailable"),
+                "time_scope=" + firstNonBlank(timeScope, "unspecified"),
                 "node=" + firstNonBlank(node, "unknown"),
                 "retrieval_intent=" + firstNonBlank(retrievalIntent, "none"),
                 "query_source=context_compiler_preload");
     }
 
-    private String buildRelationalSemanticQuery(String userInput,
+    private String buildRelationalSemanticQuery(GovernedSignal governedSignal,
                                                 ContextState storedContextState,
                                                 Map<String, Object> runtime) {
-        String user = str(userInput);
+        String intent = governedSignal == null ? "" : str(governedSignal.getIntent());
+        String goal = governedSignal == null ? "" : str(governedSignal.getGoal());
         String narrative = storedContextState == null ? "" : str(storedContextState.getLatestNarrativeSummary());
         List<Map<String, Object>> messages = safeList(runtime == null ? null : runtime.get("recent_messages"));
         String recentSignal = "";
@@ -195,10 +203,43 @@ public class DefaultContextCompilerService implements ContextCompilerService {
             recentSignal = str(latest.get("content_text"));
         }
         return String.join(" | ",
-                "user_input=" + firstNonBlank(user, "none"),
+                "normalized_intent=" + firstNonBlank(intent, "intent_unavailable"),
+                "explicit_task_goal=" + firstNonBlank(goal, "goal_unavailable"),
                 "recent_signal=" + firstNonBlank(recentSignal, "none"),
                 "narrative_summary=" + firstNonBlank(narrative, "none"),
                 "query_source=context_compiler_preload");
+    }
+
+    private GovernedSignal extractGovernedSignal(String signalPayload) {
+        if (isBlank(signalPayload)) {
+            return GovernedSignal.fromRawInput("");
+        }
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = mapOf(objectMapper.readValue(signalPayload, Map.class));
+            return GovernedSignal.builder()
+                    .debugFlag(boolValue(map.get("debugFlag")))
+                    .intent(firstNonBlank(str(map.get("intent")), "intent_unavailable"))
+                    .goal(firstNonBlank(str(map.get("goal")), "goal_unavailable"))
+                    .constraints(listOfStrings(map.get("constraints")))
+                    .timeScope(firstNonBlank(str(map.get("timeScope")), "unspecified"))
+                    .missingSlots(listOfStrings(map.get("missingSlots")))
+                    .fallback(firstNonBlank(str(map.get("fallback")), "reconstruct_retry_required"))
+                    .build();
+        } catch (Exception ignore) {
+            return GovernedSignal.fromRawInput(signalPayload);
+        }
+    }
+
+    private boolean boolValue(Object value) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        if (value == null) {
+            return false;
+        }
+        String text = String.valueOf(value).trim().toLowerCase();
+        return "true".equals(text) || "1".equals(text) || "yes".equals(text);
     }
 
     private String buildContextualSignal(Map<String, Object> runtime,

@@ -11,6 +11,7 @@ import org.yilena.luna.entity.Resource;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 
 import java.util.List;
+import java.util.Map;
 
 public interface ContextAssembler {
     AssembledContext assemble(StructuredContextPackage contextPackage,
@@ -33,4 +34,50 @@ public interface ContextAssembler {
                               String sessionId,
                               Long planId,
                               Long nodeId);
+
+    default AssembledContext assembleAndSnapshot(StructuredContextPackage contextPackage,
+                                                 InputReconstructionResult reconstructionResult,
+                                                 ContextRerankResult rerankResult,
+                                                 ToolSemanticResult toolSemanticResult,
+                                                 String userInput,
+                                                 List<EvidenceBlock> knowledgeEvidenceBlocks,
+                                                 List<String> workingMemorySnippets,
+                                                 List<String> runtimeMemorySnippets,
+                                                 List<String> retrievedMemorySnippets,
+                                                 List<String> knowledgeSnippets,
+                                                 List<String> preferenceSnippets,
+                                                 List<String> longTermMemorySnippets,
+                                                 List<Resource> executionCandidates,
+                                                 List<String> mcpResourceHints,
+                                                 String toolContext,
+                                                 ContextNodeTemplatePolicy nodeTemplatePolicy,
+                                                 SummaryResult roundSummaryInput,
+                                                 String sessionId,
+                                                 Long planId,
+                                                 Long nodeId,
+                                                 Map<String, Object> rawToolResultChannel,
+                                                 Map<String, List<String>> activeRefs) {
+        return assemble(
+                contextPackage,
+                reconstructionResult,
+                rerankResult,
+                toolSemanticResult,
+                userInput,
+                knowledgeEvidenceBlocks,
+                workingMemorySnippets,
+                runtimeMemorySnippets,
+                retrievedMemorySnippets,
+                knowledgeSnippets,
+                preferenceSnippets,
+                longTermMemorySnippets,
+                executionCandidates,
+                mcpResourceHints,
+                toolContext,
+                nodeTemplatePolicy,
+                roundSummaryInput,
+                sessionId,
+                planId,
+                nodeId
+        );
+    }
 }

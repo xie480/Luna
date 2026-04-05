@@ -6,7 +6,7 @@ public interface SessionOrchestratorService {
     OrchestrationDecision onUserInput(String sessionId, String userInput);
 
     default OrchestrationDecision onUserInput(String sessionId, String userInput, String orchestrationSignal) {
-        return onUserInput(sessionId, orchestrationSignal == null || orchestrationSignal.isBlank() ? userInput : orchestrationSignal);
+        return onUserInput(sessionId, userInput);
     }
 
     OrchestrationDecision onToolResult(String sessionId, String payloadJson);

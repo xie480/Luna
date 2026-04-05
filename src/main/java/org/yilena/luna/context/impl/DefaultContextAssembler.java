@@ -18,6 +18,7 @@ import org.yilena.luna.memory.TaskMemoryRetriever;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.state.model.TaskState;
+import org.yilena.luna.state.store.ContextSnapshotStore;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -33,17 +34,20 @@ public class DefaultContextAssembler implements ContextAssembler {
     private final RelationalMemoryRetriever relationalMemoryRetriever;
     private final SummaryAgent summaryAgent;
     private final ToolSemanticAgent toolSemanticAgent;
+    private final ContextSnapshotStore contextSnapshotStore;
 
     public DefaultContextAssembler(SemanticPreservingPruner semanticPreservingPruner,
                                    TaskMemoryRetriever taskMemoryRetriever,
                                    RelationalMemoryRetriever relationalMemoryRetriever,
                                    SummaryAgent summaryAgent,
-                                   ToolSemanticAgent toolSemanticAgent) {
+                                   ToolSemanticAgent toolSemanticAgent,
+                                   ContextSnapshotStore contextSnapshotStore) {
         this.semanticPreservingPruner = semanticPreservingPruner;
         this.taskMemoryRetriever = taskMemoryRetriever;
         this.relationalMemoryRetriever = relationalMemoryRetriever;
         this.summaryAgent = summaryAgent;
         this.toolSemanticAgent = toolSemanticAgent;
+        this.contextSnapshotStore = contextSnapshotStore;
     }
 
     @Override
@@ -161,6 +165,75 @@ public class DefaultContextAssembler implements ContextAssembler {
                 .sectionTokenCounts(preSnapshotContext.getSectionTokenCounts())
                 .sectionTokenRatios(preSnapshotContext.getSectionTokenRatios())
                 .snapshotId("")
+                .build();
+    }
+
+    @Override
+    public AssembledContext assembleAndSnapshot(StructuredContextPackage contextPackage,
+                                                InputReconstructionResult reconstructionResult,
+                                                ContextRerankResult rerankResult,
+                                                ToolSemanticResult toolSemanticResult,
+                                                String userInput,
+                                                List<EvidenceBlock> knowledgeEvidenceBlocks,
+                                                List<String> workingMemorySnippets,
+                                                List<String> runtimeMemorySnippets,
+                                                List<String> retrievedMemorySnippets,
+                                                List<String> knowledgeSnippets,
+                                                List<String> preferenceSnippets,
+                                                List<String> longTermMemorySnippets,
+                                                List<Resource> executionCandidates,
+                                                List<String> mcpResourceHints,
+                                                String toolContext,
+                                                ContextNodeTemplatePolicy nodeTemplatePolicy,
+                                                SummaryResult roundSummaryInput,
+                                                String sessionId,
+                                                Long planId,
+                                                Long nodeId,
+                                                Map<String, Object> rawToolResultChannel,
+                                                Map<String, List<String>> activeRefs) {
+        AssembledContext assembled = assemble(
+                contextPackage,
+                reconstructionResult,
+                rerankResult,
+                toolSemanticResult,
+                userInput,
+                knowledgeEvidenceBlocks,
+                workingMemorySnippets,
+                runtimeMemorySnippets,
+                retrievedMemorySnippets,
+                knowledgeSnippets,
+                preferenceSnippets,
+                longTermMemorySnippets,
+                executionCandidates,
+                mcpResourceHints,
+                toolContext,
+                nodeTemplatePolicy,
+                roundSummaryInput,
+                sessionId,
+                planId,
+                nodeId
+        );
+        if (assembled == null || sessionId == null || sessionId.isBlank()) {
+            return assembled;
+        }
+        String snapshotId = contextSnapshotStore.saveFinalSnapshot(
+                sessionId,
+                planId,
+                nodeId,
+                assembled,
+                safe(assembled.getPrompt()),
+                assembled.getSectionTokenCounts() == null ? Map.of() : assembled.getSectionTokenCounts(),
+                assembled.getSectionTokenRatios() == null ? Map.of() : assembled.getSectionTokenRatios(),
+                rawToolResultChannel == null ? Map.of() : rawToolResultChannel,
+                activeRefs == null ? Map.of() : activeRefs
+        );
+        return AssembledContext.builder()
+                .prompt(assembled.getPrompt())
+                .sections(assembled.getSections())
+                .candidatePool(assembled.getCandidatePool())
+                .sectionTokenCounts(assembled.getSectionTokenCounts())
+                .sectionTokenRatios(assembled.getSectionTokenRatios())
+                .snapshotId(snapshotId == null ? "" : snapshotId)
                 .build();
     }
 

@@ -38,6 +38,7 @@ import org.yilena.luna.llm.LlmRequest;
 import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
+import org.yilena.luna.memory.model.GovernedSignal;
 import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.rag.api.RetrievalService;
@@ -68,7 +69,6 @@ import org.yilena.luna.state.store.RecoveryStateStore;
 import org.yilena.luna.state.store.RetrievalStateStore;
 import org.yilena.luna.state.store.TaskStateStore;
 import org.yilena.luna.state.store.ToolStateStore;
-import org.yilena.luna.state.store.ContextSnapshotStore;
 import org.yilena.luna.utils.LlmClientUtil;
 
 import java.util.ArrayList;
@@ -121,7 +121,6 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
     private final TaskStateStore taskStateStore;
     private final RetrievalStateStore retrievalStateStore;
     private final ToolStateStore toolStateStore;
-    private final ContextSnapshotStore contextSnapshotStore;
     private final ToolSemanticResultValidator toolSemanticResultValidator;
     private final LlmClientUtil llmClientUtil;
     private final GeminiProperty geminiProperty;
@@ -138,10 +137,11 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 preContextPackage == null ? null : preContextPackage.getTaskState(),
                 preContextPackage == null ? null : preContextPackage.getRelationalState()
         );
+        GovernedSignal governedSignal = buildGovernedSignal(userInput, reconstructionResult);
         OrchestrationDecision decision = eventIngressService.ingestUserInput(
                 sessionId,
                 userInput,
-                buildOrchestrationSignal(userInput, reconstructionResult)
+                toJsonSafe(governedSignal)
         );
         StructuredContextPackage contextPackage = decision == null ? preContextPackage : decision.getContextPackage();
         RecoveryTrigger recoveryTrigger = resolveRecoveryTrigger(userInput, decision, contextPackage);
@@ -373,7 +373,8 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             if (refreshPlan.refreshRagNow || refreshPlan.reassembleNow) {
                 allowedRoutes = RetrievalRoute.all();
             }
-            RetrievalOptions options = resolveRetrievalOptions(userInput, decision);
+            GovernedSignal governedSignal = buildGovernedSignal(userInput, reconstructionResult);
+            RetrievalOptions options = resolveRetrievalOptions(governedSignal, decision);
             if (refreshPlan.refreshRagNow || refreshPlan.reassembleNow) {
                 options = RetrievalOptions.builder()
                         .debug(options.isDebug())
@@ -684,7 +685,8 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         StructuredContextPackage contextPackage = request.getContextPackage();
         Long planId = request.getPlanId() == null ? contextPlanId(contextPackage) : request.getPlanId();
         Long nodeId = request.getNodeId() == null ? contextNodeId(contextPackage) : request.getNodeId();
-        AssembledContext assembledContext = contextAssembler.assemble(
+        Map<String, Object> rawToolResultChannel = request.getRawToolResultChannel() == null ? Map.of() : request.getRawToolResultChannel();
+        AssembledContext assembledContext = contextAssembler.assembleAndSnapshot(
                 contextPackage,
                 request.getReconstructionResult(),
                 request.getRerankResult(),
@@ -704,7 +706,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 request.getRoundSummaryInput(),
                 sessionId,
                 planId,
-                nodeId
+                nodeId,
+                rawToolResultChannel,
+                buildFinalSnapshotActiveRefs(request, contextPackage)
         );
         Map<String, Object> contextTraceMeta = buildTraceMeta(
                 contextPackage,
@@ -715,26 +719,13 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         contextTraceLogger.log(sessionId, planId, nodeId, assembledContext, contextTraceMeta);
 
         String finalSnapshotId = assembledContext == null ? "" : nullSafe(assembledContext.getSnapshotId());
-        Map<String, Object> rawToolResultChannel = request.getRawToolResultChannel() == null ? Map.of() : request.getRawToolResultChannel();
-        Map<String, List<String>> finalActiveRefs = buildFinalSnapshotActiveRefs(request, contextPackage);
         if (!sessionId.isBlank()) {
-            finalSnapshotId = nullSafe(contextSnapshotStore.saveFinalSnapshot(
-                    sessionId,
-                    planId,
-                    nodeId,
-                    assembledContext,
-                    assembledContext == null ? "" : nullSafe(assembledContext.getPrompt()),
-                    assembledContext == null || assembledContext.getSectionTokenCounts() == null ? Map.of() : assembledContext.getSectionTokenCounts(),
-                    assembledContext == null || assembledContext.getSectionTokenRatios() == null ? Map.of() : assembledContext.getSectionTokenRatios(),
-                    rawToolResultChannel,
-                    finalActiveRefs
-            ));
             runtimeAuditService.persistDecisionRecord(
                     sessionId,
                     planId,
                     nodeId,
                     "CONTEXT_SNAPSHOT_FINAL",
-                    "final model context snapshot persisted by task orchestrator",
+                    "final model context snapshot persisted by context assembler",
                     toJsonSafe(Map.of("snapshotId", finalSnapshotId))
             );
         }
@@ -871,7 +862,10 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             retrievalPlan.putAll(request.getRetrievalPlanOverrides());
         } else {
             retrievalPlan.put("allowedRoutes", resolveAllowedRoutes(request.getDecision()));
-            retrievalPlan.put("maxLatencyMs", resolveRetrievalOptions("", request.getDecision()).getMaxLatencyMs());
+            retrievalPlan.put("maxLatencyMs", resolveRetrievalOptions(
+                    buildGovernedSignal("", request.getReconstruction()),
+                    request.getDecision()
+            ).getMaxLatencyMs());
         }
         RetrievalState retrievalState = RetrievalState.builder()
                 .reconstructedIntent(reconstruction == null ? "" : reconstruction.getNormalizedUserIntent())
@@ -1455,32 +1449,8 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         return value.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").trim();
     }
 
-    private String buildOrchestrationSignal(String rawInput, InputReconstructionResult reconstruction) {
-        String normalizedIntent = reconstruction == null ? "" : nullSafe(reconstruction.getNormalizedUserIntent());
-        String explicitGoal = reconstruction == null ? "" : nullSafe(reconstruction.getExplicitTaskGoal());
-        String timeScope = reconstruction == null ? "" : nullSafe(reconstruction.getTimeScope());
-        List<String> constraints = reconstruction == null || reconstruction.getBusinessConstraints() == null
-                ? List.of()
-                : reconstruction.getBusinessConstraints();
-        List<String> missingSlots = reconstruction == null || reconstruction.getMissingSlots() == null
-                ? List.of()
-                : reconstruction.getMissingSlots();
-        StringBuilder signal = new StringBuilder();
-        signal.append("intent=").append(normalizedIntent.isBlank() ? "intent_unavailable" : normalizedIntent);
-        signal.append(";goal=").append(explicitGoal.isBlank() ? "goal_unavailable" : explicitGoal);
-        signal.append(";timeScope=").append(timeScope.isBlank() ? "unspecified" : timeScope);
-        signal.append(";constraints=").append(constraints);
-        signal.append(";missingSlots=").append(missingSlots);
-        if (reconstruction == null) {
-            signal.append(";fallback=reconstruction_missing");
-            signal.append(";rawInputPresent=").append(rawInput != null && !rawInput.isBlank());
-            signal.append(";rawInputLength=").append(rawInput == null ? 0 : rawInput.trim().length());
-        } else if (normalizedIntent.isBlank() || explicitGoal.isBlank()) {
-            signal.append(";fallback=reconstruction_partial");
-        } else {
-            signal.append(";fallback=none");
-        }
-        return signal.toString();
+    private GovernedSignal buildGovernedSignal(String rawInput, InputReconstructionResult reconstruction) {
+        return GovernedSignal.fromReconstruction(rawInput, reconstruction);
     }
 
     private RecoveryTrigger resolveRecoveryTrigger(String input,
@@ -1557,8 +1527,8 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         return List.of(RetrievalRoute.SEARCH, RetrievalRoute.NATIVE, RetrievalRoute.MODULAR);
     }
 
-    private RetrievalOptions resolveRetrievalOptions(String input, OrchestrationDecision decision) {
-        boolean debug = input != null && (input.contains("#rag_debug") || input.contains("/rag_debug"));
+    private RetrievalOptions resolveRetrievalOptions(GovernedSignal governedSignal, OrchestrationDecision decision) {
+        boolean debug = governedSignal != null && governedSignal.isDebugFlag();
         TaskRuntimeState taskState = decision == null ? null : decision.getTaskState();
         long maxLatencyMs = 1200L;
         if (taskState == TaskRuntimeState.PLANNING
