@@ -14,7 +14,6 @@ public class ToolState {
     String lastToolRawResultRef;
     String lastToolRawResultDigest;
     String lastToolRawResultPreview;
-    String lastToolRawResultJson;
     String lastToolSemanticSummary;
     List<String> toolCallHistoryRefs;
 }

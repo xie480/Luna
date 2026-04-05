@@ -20,6 +20,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.security.MessageDigest;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -37,12 +38,15 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
     @Value("${memory.session-type.enabled:true}")
     private boolean sessionTypeEnabled;
 
+    @Value("${strict_governed_signal_mode:${memory.strict_governed_signal_mode:false}}")
+    private boolean strictGovernedSignalMode;
+
     @Override
     public OrchestrationDecision onUserInput(String sessionId, String userInput) {
         String normalizedSessionId = sessionId == null || sessionId.isBlank() ? "default-session" : sessionId;
         GovernedSignal governedSignal = GovernedSignal.fromRawInput(userInput);
         String signal = toSignalPayload(governedSignal);
-        return orchestrate(normalizedSessionId, "USER_INPUT", signal, payloadOf("text", userInput));
+        return orchestrate(normalizedSessionId, "USER_INPUT", signal, buildUserInputPayload(userInput, governedSignal));
     }
 
     @Override
@@ -50,7 +54,7 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
         String normalizedSessionId = sessionId == null || sessionId.isBlank() ? "default-session" : sessionId;
         GovernedSignal governedSignal = parseGovernedSignal(orchestrationSignal, userInput);
         String signal = toSignalPayload(governedSignal);
-        return orchestrate(normalizedSessionId, "USER_INPUT", signal, payloadOf("text", userInput));
+        return orchestrate(normalizedSessionId, "USER_INPUT", signal, buildUserInputPayload(userInput, governedSignal));
     }
 
     @Override
@@ -262,6 +266,10 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
             return previous == null ? TaskRuntimeState.UNDERSTANDING : previous;
         }
 
+        if (strictGovernedSignalMode) {
+            return fallbackFromPreviousTaskState(previous);
+        }
+
         String keywordSignal = structuredSignal.taskCorpus();
 
         if (containsAny(keywordSignal, "done", "completed", "finish", "完成", "搞定", "结束")) {
@@ -294,13 +302,7 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
         if (containsAny(keywordSignal, "wait", "later", "hold on", "稍后", "先等等", "暂停")) {
             return TaskRuntimeState.WAITING_USER;
         }
-        if (previous == TaskRuntimeState.WAITING_USER || previous == TaskRuntimeState.WAITING_TOOL || previous == TaskRuntimeState.WAITING_APPROVAL) {
-            return TaskRuntimeState.CONTEXT_BUILDING;
-        }
-        if (previous == TaskRuntimeState.IDLE || previous == TaskRuntimeState.COMPLETED || previous == TaskRuntimeState.CANCELLED) {
-            return TaskRuntimeState.UNDERSTANDING;
-        }
-        return previous == null ? TaskRuntimeState.UNDERSTANDING : previous;
+        return fallbackFromPreviousTaskState(previous);
     }
 
     private TaskRuntimeState inferTaskStateFromExecution(ExecutionSnapshot snapshot, TaskRuntimeState previous) {
@@ -711,6 +713,41 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
         return "{\"" + safeKey + "\":\"" + escapeJson(safeValue) + "\"}";
     }
 
+    private String buildUserInputPayload(String userInput, GovernedSignal governedSignal) {
+        String raw = userInput == null ? "" : userInput;
+        if (!strictGovernedSignalMode) {
+            return payloadOf("text", raw);
+        }
+        Map<String, Object> audit = new LinkedHashMap<>();
+        audit.put("raw_input_length", raw.length());
+        audit.put("raw_input_sha256", sha256Hex(raw));
+        audit.put("strict_governed_signal_mode", true);
+        audit.put("fallback", governedSignal == null ? "reconstruct_retry_required" : normalizeSignalText(governedSignal.getFallback(), "reconstruct_retry_required"));
+        audit.put("missing_slots_count", governedSignal == null ? 0 : governedSignal.safeMissingSlots().size());
+        audit.put("warning_code", governedSignal == null || governedSignal.safeMissingSlots().isEmpty()
+                ? ""
+                : "GOVERNED_SIGNAL_INCOMPLETE_FALLBACK_ALERT");
+        try {
+            return objectMapper.writeValueAsString(audit);
+        } catch (Exception ignore) {
+            return "{}";
+        }
+    }
+
+    private TaskRuntimeState fallbackFromPreviousTaskState(TaskRuntimeState previous) {
+        if (previous == TaskRuntimeState.WAITING_USER
+                || previous == TaskRuntimeState.WAITING_TOOL
+                || previous == TaskRuntimeState.WAITING_APPROVAL) {
+            return TaskRuntimeState.CONTEXT_BUILDING;
+        }
+        if (previous == TaskRuntimeState.IDLE
+                || previous == TaskRuntimeState.COMPLETED
+                || previous == TaskRuntimeState.CANCELLED) {
+            return TaskRuntimeState.UNDERSTANDING;
+        }
+        return previous == null ? TaskRuntimeState.UNDERSTANDING : previous;
+    }
+
     private GovernedSignal parseGovernedSignal(String signalPayload, String rawInput) {
         if (signalPayload != null && !signalPayload.isBlank()) {
             GovernedSignal fromJson = tryParseSignalJson(signalPayload);
@@ -882,6 +919,23 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
                 .replace("\"", "\\\"")
                 .replace("\n", "\\n")
                 .replace("\r", "\\r");
+    }
+
+    private String sha256Hex(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = digest.digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(bytes.length * 2);
+            for (byte b : bytes) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (Exception ignore) {
+            return "";
+        }
     }
 
     private boolean containsAny(String text, String... words) {

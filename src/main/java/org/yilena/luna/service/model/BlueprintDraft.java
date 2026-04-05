@@ -9,7 +9,11 @@ import java.util.Map;
 @Value
 @Builder
 public class BlueprintDraft {
+    String normalizedUserIntent;
     String explicitTaskGoal;
+    String timeScope;
+    List<String> missingSlots;
+    List<String> businessConstraints;
     String currentStage;
     String currentNode;
     Map<String, Object> taskStateSnapshot;
@@ -17,4 +21,3 @@ public class BlueprintDraft {
     List<Map<String, Object>> evidenceBlocks;
     Map<String, Object> rationaleByNode;
 }
-

@@ -17,6 +17,7 @@ import org.yilena.luna.memory.TaskMemoryRetriever;
 import org.yilena.luna.memory.model.ContextCompileOptions;
 import org.yilena.luna.memory.model.GovernedSignal;
 import org.yilena.luna.memory.model.StructuredContextPackage;
+import org.yilena.luna.memory.support.ToolRawRefResolver;
 import org.yilena.luna.state.model.ContextState;
 import org.yilena.luna.state.model.RetrievalState;
 import org.yilena.luna.state.model.TaskState;
@@ -368,19 +369,21 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                     .lastToolRawResultRef("")
                     .lastToolRawResultDigest("")
                     .lastToolRawResultPreview("")
-                    .lastToolRawResultJson("")
                     .lastToolSemanticSummary("")
                     .toolCallHistoryRefs(List.of())
                     .build();
         }
         Map<String, Object> latest = toolRows.get(0);
-        String rawJson = normalizeJsonString(latest.get("normalized_output"));
         String traceId = str(latest.get("trace_id"));
         String toolName = str(latest.get("tool_name"));
         String callStatus = str(latest.get("call_status")).toUpperCase(Locale.ROOT);
         String rawRef = traceId.isBlank()
                 ? (toolName.isBlank() ? "tool_execution_trace:latest" : "tool_execution_trace:" + toolName + ":" + (callStatus.isBlank() ? "UNKNOWN" : callStatus))
                 : "tool_execution_trace:id=" + traceId;
+        String rawJson = ToolRawRefResolver.resolveRawJson(rawRef, toolRows, objectMapper);
+        if (rawJson.isBlank()) {
+            rawJson = normalizeJsonString(latest.get("normalized_output"));
+        }
         return ToolState.builder()
                 .lastToolName(toolName)
                 .lastToolInput("")
@@ -388,7 +391,6 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                 .lastToolRawResultRef(rawRef)
                 .lastToolRawResultDigest(sha256Hex(rawJson))
                 .lastToolRawResultPreview(truncate(rawJson, 320))
-                .lastToolRawResultJson(limitRawJson(rawJson, 4096))
                 .lastToolSemanticSummary("")
                 .toolCallHistoryRefs(toolRows.stream().map(row -> str(row.get("tool_name"))).filter(name -> !name.isBlank()).toList())
                 .build();
@@ -489,14 +491,6 @@ public class DefaultContextCompilerService implements ContextCompilerService {
         } catch (Exception ignore) {
             return String.valueOf(value);
         }
-    }
-
-    private String limitRawJson(String raw, int maxLen) {
-        String normalized = raw == null ? "" : raw;
-        if (normalized.length() <= maxLen) {
-            return normalized;
-        }
-        return normalized.substring(0, Math.max(0, maxLen));
     }
 
     private String truncate(String text, int maxLen) {

@@ -39,6 +39,7 @@ import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.memory.model.GovernedSignal;
+import org.yilena.luna.memory.support.ToolRawRefResolver;
 import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.rag.api.RetrievalService;
@@ -916,6 +917,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         );
         String latestToolRawResultJson = resolveLatestToolRawResultJson(
                 request.getRawToolResultChannel(),
+                latestToolRawRef,
                 toolRows,
                 previousToolState
         );
@@ -932,7 +934,6 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .lastToolRawResultRef(latestToolRawRef)
                 .lastToolRawResultDigest(firstNonBlank(latestToolRawResultDigest, previousToolState == null ? "" : previousToolState.getLastToolRawResultDigest()))
                 .lastToolRawResultPreview(firstNonBlank(latestToolRawResultPreview, previousToolState == null ? "" : previousToolState.getLastToolRawResultPreview()))
-                .lastToolRawResultJson(firstNonBlank(limitRawJson(latestToolRawResultJson, 4096), previousToolState == null ? "" : previousToolState.getLastToolRawResultJson()))
                 .lastToolSemanticSummary(toolSemanticResult == null ? "" : toolSemanticResult.getBusinessImpact())
                 .toolCallHistoryRefs(mergeDistinctList(
                         previousToolState == null ? List.of() : previousToolState.getToolCallHistoryRefs(),
@@ -2010,27 +2011,33 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
     }
 
     private String resolveLatestToolRawResultJson(Map<String, Object> rawToolResultChannel,
+                                                  String latestToolRawRef,
                                                   List<Map<String, Object>> toolRows,
                                                   ToolState previousToolState) {
-        String fromChannel = extractLatestRawResultFromChannel(rawToolResultChannel);
+        String fromChannel = extractRawResultFromChannelByRef(rawToolResultChannel, latestToolRawRef);
         if (!fromChannel.isBlank()) {
             return fromChannel;
         }
-        if (toolRows != null && !toolRows.isEmpty()) {
-            String normalizedOutput = stringValue(toolRows.get(0).get("normalized_output"));
-            if (!normalizedOutput.isBlank()) {
-                return normalizedOutput;
-            }
+        String fromRuntimeRows = ToolRawRefResolver.resolveRawJson(latestToolRawRef, toolRows, objectMapper);
+        if (!fromRuntimeRows.isBlank()) {
+            return fromRuntimeRows;
         }
-        if (previousToolState != null && previousToolState.getLastToolRawResultJson() != null
-                && !previousToolState.getLastToolRawResultJson().isBlank()) {
-            return previousToolState.getLastToolRawResultJson();
+        if (previousToolState != null && previousToolState.getLastToolRawResultRef() != null
+                && !previousToolState.getLastToolRawResultRef().isBlank()) {
+            String fromPreviousRef = ToolRawRefResolver.resolveRawJson(
+                    previousToolState.getLastToolRawResultRef(),
+                    toolRows,
+                    objectMapper
+            );
+            if (!fromPreviousRef.isBlank()) {
+                return fromPreviousRef;
+            }
         }
         return "";
     }
 
     @SuppressWarnings("unchecked")
-    private String extractLatestRawResultFromChannel(Map<String, Object> rawToolResultChannel) {
+    private String extractRawResultFromChannelByRef(Map<String, Object> rawToolResultChannel, String rawRef) {
         if (rawToolResultChannel == null || rawToolResultChannel.isEmpty()) {
             return "";
         }
@@ -2038,27 +2045,29 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         if (!(tracesObj instanceof List<?> traces) || traces.isEmpty()) {
             return "";
         }
-        Object latest = traces.get(0);
-        if (!(latest instanceof Map<?, ?> latestMap)) {
-            return "";
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Object trace : traces) {
+            if (!(trace instanceof Map<?, ?> traceMap)) {
+                continue;
+            }
+            Object normalizedOutput = traceMap.get("normalized_output");
+            if (normalizedOutput == null) {
+                normalizedOutput = traceMap.get("normalizedOutput");
+            }
+            if (normalizedOutput == null) {
+                normalizedOutput = traceMap.get("raw_output");
+            }
+            if (normalizedOutput == null) {
+                normalizedOutput = traceMap.get("rawOutput");
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("trace_id", traceMap.get("trace_id") == null ? traceMap.get("traceId") : traceMap.get("trace_id"));
+            row.put("tool_name", traceMap.get("tool_name") == null ? traceMap.get("toolName") : traceMap.get("tool_name"));
+            row.put("call_status", traceMap.get("call_status") == null ? traceMap.get("callStatus") : traceMap.get("call_status"));
+            row.put("normalized_output", normalizedOutput);
+            rows.add(row);
         }
-        Object rawOutput = latestMap.get("normalized_output");
-        if (rawOutput == null) {
-            return "";
-        }
-        try {
-            return objectMapper.writeValueAsString(rawOutput);
-        } catch (Exception ignore) {
-            return String.valueOf(rawOutput);
-        }
-    }
-
-    private String limitRawJson(String raw, int maxLen) {
-        String normalized = raw == null ? "" : raw;
-        if (normalized.length() <= maxLen) {
-            return normalized;
-        }
-        return normalized.substring(0, Math.max(0, maxLen));
+        return ToolRawRefResolver.resolveRawJson(rawRef, rows, objectMapper);
     }
 
     private String truncate(String text, int maxLen) {
@@ -2529,7 +2538,11 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             }
         }
         return BlueprintDraft.builder()
+                .normalizedUserIntent(nullSafe(reconstructionResult.getNormalizedUserIntent()))
                 .explicitTaskGoal(nullSafe(reconstructionResult.getExplicitTaskGoal()))
+                .timeScope(nullSafe(reconstructionResult.getTimeScope()))
+                .missingSlots(reconstructionResult.getMissingSlots() == null ? List.of() : reconstructionResult.getMissingSlots())
+                .businessConstraints(reconstructionResult.getBusinessConstraints() == null ? List.of() : reconstructionResult.getBusinessConstraints())
                 .currentStage(decision == null || decision.getTaskState() == null ? "UNKNOWN" : decision.getTaskState().name())
                 .currentNode(String.valueOf(contextNodeId(contextPackage)))
                 .taskStateSnapshot(taskStateSnapshot)
@@ -2546,6 +2559,11 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         overrides.put("blueprintEntry", true);
         overrides.put("blueprintDraftReady", draft != null);
         if (draft != null) {
+            overrides.put("normalizedUserIntent", nullSafe(draft.getNormalizedUserIntent()));
+            overrides.put("explicitTaskGoal", nullSafe(draft.getExplicitTaskGoal()));
+            overrides.put("timeScope", nullSafe(draft.getTimeScope()));
+            overrides.put("missingSlots", draft.getMissingSlots() == null ? List.of() : draft.getMissingSlots());
+            overrides.put("businessConstraints", draft.getBusinessConstraints() == null ? List.of() : draft.getBusinessConstraints());
             overrides.put("blueprintDraft", objectMapper.convertValue(draft, Map.class));
         }
         return overrides;

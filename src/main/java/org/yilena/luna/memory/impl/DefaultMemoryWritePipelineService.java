@@ -7,6 +7,7 @@ import org.yilena.luna.enums.RelationalRuntimeState;
 import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.mapper.MemoryWriteMapper;
 import org.yilena.luna.memory.MemoryWritePipelineService;
+import org.yilena.luna.memory.RuntimeAuditService;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 
 import java.util.ArrayList;
@@ -22,6 +23,8 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
 
     private final MemoryWriteMapper memoryWriteMapper;
     private final ObjectMapper objectMapper;
+    private final MemoryWritePolicyGate memoryWritePolicyGate;
+    private final RuntimeAuditService runtimeAuditService;
 
     @Override
     public void writeAfterTurn(String sessionId, String userInput, String assistantReply, StructuredContextPackage contextPackage) {
@@ -34,12 +37,13 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
         upsertTaskWorkingMemory(sessionId, userInput, assistantReply, contextPackage);
         RelationalWorkingSnapshot relationalSnapshot = resolveRelationalWorkingSnapshot(userInput, contextPackage);
         upsertRelationalWorkingMemory(sessionId, contextPackage, relationalSnapshot);
-        extractAndPersistSemanticFacts(sessionId, userInput, assistantReply, contextPackage, relationalSnapshot);
-        upsertRelationalLongTermMemory(sessionId, userInput, contextPackage, relationalSnapshot);
-        buildEpisodes(sessionId, userInput, assistantReply, contextPackage);
-        reflectAndMineProcedures(sessionId, userInput, assistantReply, contextPackage);
+        MemoryWritePolicyGate.GateContext gateContext = memoryWritePolicyGate.buildContext(sessionId, contextPackage);
+        extractAndPersistSemanticFacts(sessionId, userInput, assistantReply, contextPackage, relationalSnapshot, gateContext);
+        upsertRelationalLongTermMemory(sessionId, userInput, contextPackage, relationalSnapshot, gateContext);
+        buildEpisodes(sessionId, userInput, assistantReply, contextPackage, gateContext);
+        reflectAndMineProcedures(sessionId, userInput, assistantReply, contextPackage, gateContext);
         updateProcedureStatistics(userInput, contextPackage);
-        refreshWorkingMemoryRegistry(sessionId);
+        refreshWorkingMemoryRegistry(sessionId, contextPackage, gateContext);
     }
 
     private void insertMessage(String sessionId, String role, String content) {
@@ -293,7 +297,8 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
                                                 String userInput,
                                                 String assistantReply,
                                                 StructuredContextPackage contextPackage,
-                                                RelationalWorkingSnapshot relationalSnapshot) {
+                                                RelationalWorkingSnapshot relationalSnapshot,
+                                                MemoryWritePolicyGate.GateContext gateContext) {
         List<SemanticFactCandidate> candidates = new ArrayList<>();
         candidates.addAll(extractStructuredTaskSemanticFacts(userInput, assistantReply, contextPackage));
         candidates.addAll(extractStructuredRelationalFacts(userInput, contextPackage, relationalSnapshot));
@@ -326,7 +331,9 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
                         candidate.factValue(),
                         candidate.sourceType(),
                         candidate.confidence(),
-                        candidate.stability()
+                        candidate.stability(),
+                        gateContext,
+                        contextPackage
                 );
             } else {
                 insertRelationalSemanticFact(
@@ -336,7 +343,9 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
                         candidate.factValue(),
                         candidate.sourceType(),
                         candidate.confidence(),
-                        candidate.stability()
+                        candidate.stability(),
+                        gateContext,
+                        contextPackage
                 );
             }
         }
@@ -475,7 +484,18 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
     private void upsertRelationalLongTermMemory(String sessionId,
                                                 String userInput,
                                                 StructuredContextPackage contextPackage,
-                                                RelationalWorkingSnapshot snapshot) {
+                                                RelationalWorkingSnapshot snapshot,
+                                                MemoryWritePolicyGate.GateContext gateContext) {
+        MemoryWritePolicyGate.GateDecision profileDecision = memoryWritePolicyGate.evaluateLongTermWrite(
+                gateContext,
+                "RELATIONAL_PROFILE",
+                "SOCIAL_DRAFT",
+                snapshot == null ? 0.0 : snapshot.emotionConfidence()
+        );
+        if (!profileDecision.allow()) {
+            auditGateRejection(sessionId, contextPackage, "RELATIONAL_PROFILE", "SOCIAL_DRAFT", profileDecision);
+            return;
+        }
         String lower = userInput == null ? "" : userInput.toLowerCase(Locale.ROOT);
         Map<String, Object> relationalContext = contextPackage == null ? Map.of() : asMap(contextPackage.getRelationalContext());
         Map<String, Object> profile = asMap(relationalContext.get("profile"));
@@ -528,7 +548,19 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
                                         String factValue,
                                         String sourceType,
                                         double confidence,
-                                        double stability) {
+                                        double stability,
+                                        MemoryWritePolicyGate.GateContext gateContext,
+                                        StructuredContextPackage contextPackage) {
+        MemoryWritePolicyGate.GateDecision decision = memoryWritePolicyGate.evaluateLongTermWrite(
+                gateContext,
+                "TASK_SEMANTIC",
+                sourceType,
+                confidence
+        );
+        if (!decision.allow()) {
+            auditGateRejection(sessionId, contextPackage, "TASK_SEMANTIC", sourceType, decision);
+            return;
+        }
         try {
             double boundedConfidence = bounded(confidence, 0.20, 0.99);
             double boundedStability = bounded(stability, 0.20, 0.99);
@@ -564,7 +596,19 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
                                               String factValue,
                                               String sourceType,
                                               double confidence,
-                                              double stability) {
+                                              double stability,
+                                              MemoryWritePolicyGate.GateContext gateContext,
+                                              StructuredContextPackage contextPackage) {
+        MemoryWritePolicyGate.GateDecision decision = memoryWritePolicyGate.evaluateLongTermWrite(
+                gateContext,
+                "RELATIONAL_SEMANTIC",
+                sourceType,
+                confidence
+        );
+        if (!decision.allow()) {
+            auditGateRejection(sessionId, contextPackage, "RELATIONAL_SEMANTIC", sourceType, decision);
+            return;
+        }
         try {
             double boundedConfidence = bounded(confidence, 0.20, 0.99);
             double boundedStability = bounded(stability, 0.20, 0.99);
@@ -594,12 +638,26 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
         }
     }
 
-    private void buildEpisodes(String sessionId, String userInput, String assistantReply, StructuredContextPackage contextPackage) {
+    private void buildEpisodes(String sessionId,
+                               String userInput,
+                               String assistantReply,
+                               StructuredContextPackage contextPackage,
+                               MemoryWritePolicyGate.GateContext gateContext) {
         if (contextPackage == null) {
             return;
         }
         TaskRuntimeState taskState = contextPackage.getTaskState();
         RelationalRuntimeState relationState = contextPackage.getRelationalState();
+        MemoryWritePolicyGate.GateDecision episodeDecision = memoryWritePolicyGate.evaluateLongTermWrite(
+                gateContext,
+                "EPISODE",
+                "SUMMARY_SNAPSHOT",
+                0.70
+        );
+        if (!episodeDecision.allow()) {
+            auditGateRejection(sessionId, contextPackage, "EPISODE", "SUMMARY_SNAPSHOT", episodeDecision);
+            return;
+        }
 
         if (taskState == TaskRuntimeState.COMPLETED || taskState == TaskRuntimeState.FAILED || taskState == TaskRuntimeState.REPORTING) {
             try {
@@ -664,8 +722,22 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
         }
     }
 
-    private void reflectAndMineProcedures(String sessionId, String userInput, String assistantReply, StructuredContextPackage contextPackage) {
+    private void reflectAndMineProcedures(String sessionId,
+                                          String userInput,
+                                          String assistantReply,
+                                          StructuredContextPackage contextPackage,
+                                          MemoryWritePolicyGate.GateContext gateContext) {
         if (contextPackage == null) {
+            return;
+        }
+        MemoryWritePolicyGate.GateDecision procedureDecision = memoryWritePolicyGate.evaluateLongTermWrite(
+                gateContext,
+                "PROCEDURE",
+                "SUMMARY_SNAPSHOT",
+                0.66
+        );
+        if (!procedureDecision.allow()) {
+            auditGateRejection(sessionId, contextPackage, "PROCEDURE", "SUMMARY_SNAPSHOT", procedureDecision);
             return;
         }
         LearningSignal signal = deriveLearningSignal(contextPackage, userInput, assistantReply);
@@ -793,10 +865,22 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
         }
     }
 
-    private void refreshWorkingMemoryRegistry(String sessionId) {
+    private void refreshWorkingMemoryRegistry(String sessionId,
+                                              StructuredContextPackage contextPackage,
+                                              MemoryWritePolicyGate.GateContext gateContext) {
         try {
             memoryWriteMapper.refreshTaskWorkingRegistry(sessionId);
             memoryWriteMapper.refreshRelationalWorkingRegistry(sessionId);
+            if (memoryWritePolicyGate.shouldWriteOnlyShortTerm(gateContext == null ? null : gateContext.taskState())) {
+                auditGateRejection(
+                        sessionId,
+                        contextPackage,
+                        "LONG_TERM_REGISTRY",
+                        "SUMMARY_SNAPSHOT",
+                        new MemoryWritePolicyGate.GateDecision(false, "TASK_STATE_SHORT_TERM_ONLY", 0.0)
+                );
+                return;
+            }
             memoryWriteMapper.refreshTaskSemanticRegistry(sessionId);
             memoryWriteMapper.refreshRelationalSemanticRegistry(sessionId);
             memoryWriteMapper.refreshTaskEpisodeRegistry(sessionId);
@@ -919,6 +1003,29 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
         return extractSignals(text == null ? "" : text.toLowerCase(Locale.ROOT), words);
     }
 
+    private void auditGateRejection(String sessionId,
+                                    StructuredContextPackage contextPackage,
+                                    String targetType,
+                                    String sourceType,
+                                    MemoryWritePolicyGate.GateDecision decision) {
+        try {
+            runtimeAuditService.persistDecisionRecord(
+                    sessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    "MEMORY_WRITE_POLICY_GATE_REJECT",
+                    decision == null ? "UNKNOWN" : decision.reasonCode(),
+                    toJson(Map.of(
+                            "targetType", targetType == null ? "" : targetType,
+                            "sourceType", sourceType == null ? "" : sourceType,
+                            "reasonCode", decision == null ? "UNKNOWN" : decision.reasonCode(),
+                            "confidence", decision == null ? 0.0 : decision.confidence()
+                    ))
+            );
+        } catch (Exception ignore) {
+        }
+    }
+
     private boolean isSupportedByCurrentTurn(String factValue, String userInput, String assistantReply) {
         String fact = asText(factValue).toLowerCase(Locale.ROOT);
         if (fact.isBlank()) {
@@ -975,6 +1082,42 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
                 .map(String::trim)
                 .filter(s -> !s.isBlank())
                 .toArray(String[]::new);
+    }
+
+    private Long contextPlanId(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getRuntime() == null) {
+            return null;
+        }
+        Object session = contextPackage.getRuntime().get("session");
+        if (!(session instanceof Map<?, ?> row)) {
+            return null;
+        }
+        return toLong(row.get("current_plan_id"));
+    }
+
+    private Long contextNodeId(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getTaskContext() == null) {
+            return null;
+        }
+        Object working = contextPackage.getTaskContext().get("working_memory");
+        if (!(working instanceof Map<?, ?> row)) {
+            return null;
+        }
+        return toLong(row.get("active_node_id"));
+    }
+
+    private Long toLong(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Long.parseLong(String.valueOf(value).trim());
+        } catch (Exception ignore) {
+            return null;
+        }
     }
 
     private record SemanticFactCandidate(String domain,

@@ -68,6 +68,23 @@ class DefaultSessionOrchestratorServiceTest {
         assertEquals(RelationalRuntimeState.TRUST_BUILDING, decision.getRelationalState());
     }
 
+    @Test
+    void strictGovernedSignalModeShouldIgnoreRawKeywordStateDrift() throws Exception {
+        DefaultSessionOrchestratorService service = createService(
+                TaskRuntimeState.EXECUTING,
+                RelationalRuntimeState.TRUST_BUILDING
+        );
+        setBooleanField(service, "strictGovernedSignalMode", true);
+
+        OrchestrationDecision decision = service.onUserInput(
+                "s-1",
+                "done finish completed",
+                "intent=intent_unavailable;goal=goal_unavailable;timeScope=unspecified;constraints=[];missingSlots=[];fallback=reconstruction_partial"
+        );
+
+        assertEquals(TaskRuntimeState.EXECUTING, decision.getTaskState());
+    }
+
     private DefaultSessionOrchestratorService createService(TaskRuntimeState previousTaskState,
                                                             RelationalRuntimeState previousRelationalState) {
         SessionRuntimeMapper sessionRuntimeMapper = mock(SessionRuntimeMapper.class);
@@ -88,5 +105,11 @@ class DefaultSessionOrchestratorServiceTest {
                         .build());
 
         return new DefaultSessionOrchestratorService(sessionRuntimeMapper, contextCompilerService, sessionTypeResolver, new ObjectMapper());
+    }
+
+    private void setBooleanField(Object target, String fieldName, boolean value) throws Exception {
+        java.lang.reflect.Field field = target.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.setBoolean(target, value);
     }
 }
