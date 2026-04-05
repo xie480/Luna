@@ -1,11 +1,12 @@
 package org.yilena.luna.service.impl;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.yilena.luna.adapter.LlmAdapter;
 import org.yilena.luna.entity.Resource;
-import org.yilena.luna.entity.ToolCallingContext;
+import org.yilena.luna.enums.ResourceType;
 import org.yilena.luna.gate.ExecutionGate;
 import org.yilena.luna.gate.ToolExecutionGateway;
 import org.yilena.luna.memory.RuntimeAuditService;
@@ -14,14 +15,16 @@ import org.yilena.luna.router.ToolRouter;
 import org.yilena.luna.service.McpService;
 import org.yilena.luna.service.PlanOrchestratorService;
 import org.yilena.luna.service.SessionService;
+import org.yilena.luna.service.model.ToolDecisionCommand;
 import org.yilena.luna.executor.WorkflowExecutor;
-import org.yilena.luna.utils.ToolCallingContextHolder;
 import org.yilena.luna.utils.ToolDecisionInputSignatureUtil;
 
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -32,75 +35,101 @@ import static org.mockito.Mockito.when;
 
 class AgentServiceImplGovernanceTest {
 
-    @AfterEach
-    void tearDown() {
-        ToolCallingContextHolder.clear();
-    }
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     @Test
-    void shouldRejectDecisionInputWhenMissingGovernedContext() {
+    void shouldRejectWhenAssembledDecisionContextMissingAndAudit() throws Exception {
         RuntimeAuditService runtimeAuditService = mock(RuntimeAuditService.class);
-        AgentServiceImpl service = newService(runtimeAuditService);
+        AgentServiceImpl service = newService(runtimeAuditService, mock(ToolRouter.class), mock(LlmAdapter.class));
+        String sessionId = "s-1";
+        String decisionInput = "goal=run";
 
-        String result = service.processToolCalling("s-1", "task_stage=PLANNING");
+        ToolDecisionCommand command = ToolDecisionCommand.builder()
+                .sessionId(sessionId)
+                .rawUserInput("raw")
+                .toolDecisionInput(decisionInput)
+                .governedInputSignature("")
+                .assembledDecisionContext("")
+                .executionCandidates(List.of())
+                .build();
+
+        String result = service.processToolCallingWithGovernance(command);
 
         assertNull(result);
+        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
         verify(runtimeAuditService).persistDecisionRecord(
-                eq("s-1"),
+                eq(sessionId),
                 eq(null),
                 eq(null),
                 eq("UNGOVERNED_TOOL_DECISION_REJECTED"),
-                eq("missing_tool_calling_context"),
+                eq("missing_assembled_decision_context"),
+                payloadCaptor.capture()
+        );
+        JsonNode payload = OBJECT_MAPPER.readTree(payloadCaptor.getValue());
+        assertFalse(payload.path("hasAssembledContext").asBoolean(true));
+        assertEquals(0, payload.path("assembledContextLength").asInt(-1));
+        assertFalse(payload.path("hasSignature").asBoolean(true));
+    }
+
+    @Test
+    void shouldStillRejectWhenSignatureValidButAssembledDecisionContextMissing() {
+        RuntimeAuditService runtimeAuditService = mock(RuntimeAuditService.class);
+        AgentServiceImpl service = newService(runtimeAuditService, mock(ToolRouter.class), mock(LlmAdapter.class));
+        String sessionId = "s-2";
+        String decisionInput = "goal=run";
+        String signature = ToolDecisionInputSignatureUtil.sign(sessionId, decisionInput, "");
+
+        ToolDecisionCommand command = ToolDecisionCommand.builder()
+                .sessionId(sessionId)
+                .rawUserInput("raw")
+                .toolDecisionInput(decisionInput)
+                .governedInputSignature(signature)
+                .assembledDecisionContext("")
+                .executionCandidates(List.of())
+                .build();
+
+        String result = service.processToolCallingWithGovernance(command);
+
+        assertNull(result);
+        verify(runtimeAuditService).persistDecisionRecord(
+                eq(sessionId),
+                eq(null),
+                eq(null),
+                eq("UNGOVERNED_TOOL_DECISION_REJECTED"),
+                eq("missing_assembled_decision_context"),
                 anyString()
         );
     }
 
     @Test
-    void shouldRejectDecisionInputWhenSignatureInvalid() {
-        RuntimeAuditService runtimeAuditService = mock(RuntimeAuditService.class);
-        AgentServiceImpl service = newService(runtimeAuditService);
-        ToolCallingContextHolder.set(ToolCallingContext.builder()
-                .chatSessionKey("s-2")
-                .toolDecisionInput("goal=run")
-                .governedInputSignature("invalid-signature")
-                .assembledDecisionContext("assembled")
-                .executionCandidates(List.<Resource>of())
-                .toolExecutionTraces(new CopyOnWriteArrayList<>())
-                .build());
-
-        String result = service.processToolCalling("s-2", "goal=run");
-
-        assertNull(result);
-        verify(runtimeAuditService).persistDecisionRecord(
-                eq("s-2"),
-                eq(null),
-                eq(null),
-                eq("UNGOVERNED_TOOL_DECISION_REJECTED"),
-                eq("invalid_governed_input_signature"),
-                anyString()
-        );
-    }
-
-    @Test
-    void shouldAcceptDecisionInputOnlyFromSignedGovernedContext() {
+    void shouldProceedToolDecisionWhenAssembledDecisionContextPresent() {
         RuntimeAuditService runtimeAuditService = mock(RuntimeAuditService.class);
         ToolRouter toolRouter = mock(ToolRouter.class);
-        when(toolRouter.findCandidates(anyString(), any(), any())).thenReturn(List.of());
-        AgentServiceImpl service = newService(runtimeAuditService, toolRouter);
+        LlmAdapter llmAdapter = mock(LlmAdapter.class);
+        when(llmAdapter.generate(anyString())).thenReturn("{\"action_type\":\"none\",\"target_name\":\"none\"}");
+        AgentServiceImpl service = newService(runtimeAuditService, toolRouter, llmAdapter);
 
         String sessionId = "s-3";
         String decisionInput = "goal=do_work|task_stage=executing";
         String assembled = "governed workset";
-        ToolCallingContextHolder.set(ToolCallingContext.builder()
-                .chatSessionKey(sessionId)
-                .toolDecisionInput(decisionInput)
-                .governedInputSignature(ToolDecisionInputSignatureUtil.sign(sessionId, decisionInput, assembled))
-                .assembledDecisionContext(assembled)
-                .executionCandidates(List.<Resource>of())
-                .toolExecutionTraces(new CopyOnWriteArrayList<>())
-                .build());
+        String signature = ToolDecisionInputSignatureUtil.sign(sessionId, decisionInput, assembled);
+        Resource candidate = Resource.builder()
+                .type(ResourceType.TOOL)
+                .name("tool.demo")
+                .description("demo")
+                .inputSchema("{\"type\":\"object\"}")
+                .build();
 
-        String result = service.processToolCalling(sessionId, "raw_input_should_not_be_used");
+        ToolDecisionCommand command = ToolDecisionCommand.builder()
+                .sessionId(sessionId)
+                .rawUserInput("raw_input_should_not_be_used")
+                .toolDecisionInput(decisionInput)
+                .governedInputSignature(signature)
+                .assembledDecisionContext(assembled)
+                .executionCandidates(List.of(candidate))
+                .build();
+
+        String result = service.processToolCallingWithGovernance(command);
 
         assertNull(result);
         verify(runtimeAuditService, never()).persistDecisionRecord(
@@ -111,16 +140,16 @@ class AgentServiceImplGovernanceTest {
                 anyString(),
                 anyString()
         );
+        ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
+        verify(llmAdapter).generate(promptCaptor.capture());
+        assertTrue(promptCaptor.getValue().contains("Assembled Decision Workset"));
+        assertTrue(promptCaptor.getValue().contains(assembled));
     }
 
-    private AgentServiceImpl newService(RuntimeAuditService runtimeAuditService) {
-        return newService(runtimeAuditService, mock(ToolRouter.class));
-    }
-
-    private AgentServiceImpl newService(RuntimeAuditService runtimeAuditService, ToolRouter toolRouter) {
+    private AgentServiceImpl newService(RuntimeAuditService runtimeAuditService, ToolRouter toolRouter, LlmAdapter llmAdapter) {
         return new AgentServiceImpl(
                 toolRouter,
-                mock(LlmAdapter.class),
+                llmAdapter,
                 mock(ExecutionGate.class),
                 mock(ToolExecutionGateway.class),
                 mock(WorkflowExecutor.class),

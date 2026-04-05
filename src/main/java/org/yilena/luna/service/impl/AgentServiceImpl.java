@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.adapter.LlmAdapter;
 import org.yilena.luna.common.utils.JsonSchemaValidator;
@@ -53,15 +54,16 @@ public class AgentServiceImpl implements AgentService {
     private final CapabilityPolicyRouterService capabilityPolicyRouterService;
     private final PlanOrchestratorService planOrchestratorService;
     private final RuntimeAuditService runtimeAuditService;
+    @Value("${luna.governance.strict-tool-decision:true}")
+    private boolean strictToolDecision = true;
     private static final String WORKFLOW_ARGS_PROMPT_TEMPLATE = PromptTemplates.SKILL_ARGS_PROMPT;
 
     @Override
     public String processToolCallingWithGovernance(ToolDecisionCommand command) {
-        if (command == null) {
-            auditUngovernedDecisionRejected("agent-default", "missing_tool_decision_command", "");
+        String sessionId = resolveStableSessionId(command == null ? null : command.getSessionId());
+        if (!validateGovernedDecisionContext(sessionId, command, true)) {
             return null;
         }
-        String sessionId = resolveStableSessionId(command.getSessionId());
         String input = command.getRawUserInput();
         String assembledDecisionContext = command.getAssembledDecisionContext();
         TaskRuntimeState taskState = command.getTaskState();
@@ -86,7 +88,7 @@ public class AgentServiceImpl implements AgentService {
         }
 
         List<String> history = loadRecentHistory(sessionId);
-        String decisionJson = llmAdapter.generate(buildDecisionPrompt(decisionInput, history, candidates, assembledDecisionContext));
+        String decisionJson = llmAdapter.generate(buildDecisionPrompt(assembledDecisionContext));
         DecisionAction decision = parseDecisionAction(decisionJson);
         if (decision == null || "none".equalsIgnoreCase(decision.targetName()) || "null".equalsIgnoreCase(decision.targetName())) {
             return null;
@@ -180,22 +182,10 @@ public class AgentServiceImpl implements AgentService {
     }
 
     private String resolveDecisionInput(String sessionId, ToolDecisionCommand command) {
-        String decisionInput = command.getToolDecisionInput() == null ? "" : command.getToolDecisionInput().trim();
-        if (decisionInput.isBlank()) {
-            auditUngovernedDecisionRejected(sessionId, "empty_governed_decision_input", command.getRawUserInput());
+        if (!validateGovernedDecisionContext(sessionId, command, false)) {
             return "";
         }
-        String assembledDecisionContext = command.getAssembledDecisionContext() == null ? "" : command.getAssembledDecisionContext();
-        boolean signatureValid = ToolDecisionInputSignatureUtil.verify(
-                command.getGovernedInputSignature(),
-                sessionId,
-                decisionInput,
-                assembledDecisionContext
-        );
-        if (!signatureValid) {
-            auditUngovernedDecisionRejected(sessionId, "invalid_governed_input_signature", command.getRawUserInput());
-            return "";
-        }
+        String decisionInput = command.getToolDecisionInput().trim();
         ToolCallingContext holderContext = ToolCallingContextHolder.get();
         if (holderContext != null && holderContext.getExecutionCandidates() == null) {
             holderContext.setExecutionCandidates(command.getExecutionCandidates());
@@ -203,70 +193,84 @@ public class AgentServiceImpl implements AgentService {
         return decisionInput;
     }
 
-    private void auditUngovernedDecisionRejected(String sessionId, String reason, String rawInput) {
-        log.warn("tool decision input blocked: {}", reason);
+    private boolean validateGovernedDecisionContext(String sessionId, ToolDecisionCommand command, boolean auditOnFailure) {
+        GovernedDecisionRejectReason rejectReason = resolveRejectReason(sessionId, command);
+        if (rejectReason == null) {
+            return true;
+        }
+        if (auditOnFailure) {
+            auditUngovernedDecisionRejected(sessionId, rejectReason, command);
+        }
+        return false;
+    }
+
+    private GovernedDecisionRejectReason resolveRejectReason(String sessionId, ToolDecisionCommand command) {
+        if (command == null) {
+            return GovernedDecisionRejectReason.EMPTY_GOVERNED_DECISION_INPUT;
+        }
+        if (!strictToolDecision) {
+            return null;
+        }
+        String assembledDecisionContext = command.getAssembledDecisionContext();
+        if (assembledDecisionContext == null || assembledDecisionContext.isBlank()) {
+            return GovernedDecisionRejectReason.MISSING_ASSEMBLED_DECISION_CONTEXT;
+        }
+        String decisionInput = command.getToolDecisionInput() == null ? "" : command.getToolDecisionInput().trim();
+        if (decisionInput.isBlank()) {
+            return GovernedDecisionRejectReason.EMPTY_GOVERNED_DECISION_INPUT;
+        }
+        boolean signatureValid = ToolDecisionInputSignatureUtil.verify(
+                command.getGovernedInputSignature(),
+                sessionId,
+                decisionInput,
+                assembledDecisionContext
+        );
+        if (!signatureValid) {
+            return GovernedDecisionRejectReason.INVALID_GOVERNED_INPUT_SIGNATURE;
+        }
+        return null;
+    }
+
+    private void auditUngovernedDecisionRejected(String sessionId, GovernedDecisionRejectReason reason, ToolDecisionCommand command) {
+        String rawInput = command == null ? "" : command.getRawUserInput();
+        String assembledDecisionContext = command == null || command.getAssembledDecisionContext() == null
+                ? ""
+                : command.getAssembledDecisionContext();
+        boolean hasSignature = command != null
+                && command.getGovernedInputSignature() != null
+                && !command.getGovernedInputSignature().isBlank();
+        log.warn("tool decision input blocked: {}", reason.code());
         runtimeAuditService.persistDecisionRecord(
                 sessionId,
                 null,
                 null,
                 "UNGOVERNED_TOOL_DECISION_REJECTED",
-                reason,
+                reason.code(),
                 toJson(Map.of(
-                        "reason", reason,
+                        "reason", reason.code(),
+                        "hasAssembledContext", !assembledDecisionContext.isBlank(),
+                        "assembledContextLength", assembledDecisionContext.length(),
+                        "hasSignature", hasSignature,
                         "rawInputPreview", rawInput == null ? "" : rawInput.substring(0, Math.min(rawInput.length(), 240))
                 ))
         );
     }
 
-    private String buildDecisionPrompt(String input, List<String> history, List<Resource> tools, String assembledDecisionContext) {
-        if (assembledDecisionContext != null && !assembledDecisionContext.isBlank()) {
-            return """
-                    You are a tool decision agent. Decide the next action strictly from the assembled decision workset.
-                    The workset already contains node state, MCP hints, constraints and recent tool semantics.
-                    Return exactly one JSON object, no markdown.
+    private String buildDecisionPrompt(String assembledDecisionContext) {
+        return """
+                You are a tool decision agent. Decide the next action strictly from the assembled decision workset.
+                The workset already contains node state, MCP hints, constraints and recent tool semantics.
+                Return exactly one JSON object, no markdown.
 
-                    Action JSON:
-                    {"action_type":"tool_call|prompt_get|resource_read|workflow_start|direct_answer","target_name":"...","arguments":{...}}
-                    or
-                    {"action_type":"direct_answer","answer":"..."}
-                    or
-                    {"action_type":"none","target_name":"none"}
+                Action JSON:
+                {"action_type":"tool_call|prompt_get|resource_read|workflow_start|direct_answer","target_name":"...","arguments":{...}}
+                or
+                {"action_type":"direct_answer","answer":"..."}
+                or
+                {"action_type":"none","target_name":"none"}
 
-                    Assembled Decision Workset:
-                    """ + assembledDecisionContext;
-        }
-        String toolDesc = tools.stream()
-                .map(this::formatCandidateForDecisionPrompt)
-                .collect(Collectors.joining("\n"));
-        String historyText = (history == null || history.isEmpty()) ? "(empty)" : String.join("\n", history);
-        String base = String.format(PromptTemplates.TOOL_DECISION_PROMPT, input, historyText, toolDesc);
-        return base + """
-
-                动作协议输出要求（严格）：
-                1) 返回单个 JSON，不要 markdown；
-                2) 优先输出：
-                   {"action_type":"tool_call|prompt_get|resource_read|workflow_start|direct_answer","target_name":"...","arguments":{...}}
-                3) direct_answer 时输出：
-                   {"action_type":"direct_answer","answer":"..."}
-                4) 兼容旧格式可返回 {"tool_name":"..."}，系统会自动视为 tool_call。
-                """;
-    }
-
-    private String formatCandidateForDecisionPrompt(Resource resource) {
-        String type = resource == null || resource.getType() == null ? "TOOL" : resource.getType().name();
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("name", resource == null ? "" : resource.getName());
-        payload.put("type", type);
-        payload.put("description", resource == null ? "" : resource.getDescription());
-        payload.put("server_code", resource == null ? "" : resource.getServerCode());
-        payload.put("execution_mode", resource == null ? "MCP" : resource.getExecutionMode());
-        payload.put("input_schema", parseJsonOrText(resource == null ? null : resource.getInputSchema()));
-        payload.put("arguments_schema", parseJsonOrText(resource == null ? null : resource.getArgumentsSchema()));
-        payload.put("approval_required", resource != null && Boolean.TRUE.equals(resource.getRequiresApproval()));
-        payload.put("sensitivity", resource == null || resource.getSensitivity() == null ? "LOW" : resource.getSensitivity().name());
-        payload.put("resource_uri", resource == null ? null : resource.getResourceUri());
-        payload.put("mime_type", resource == null ? null : resource.getMimeType());
-        return "- " + toJson(payload);
+                Assembled Decision Workset:
+                """ + assembledDecisionContext;
     }
 
     private String buildArgsPrompt(String input, List<String> history, Resource resource) {
@@ -512,4 +516,21 @@ public class AgentServiceImpl implements AgentService {
 
     private record DecisionAction(String actionType, String targetName, String argumentsJson, String directAnswer) {
     }
+
+    private enum GovernedDecisionRejectReason {
+        EMPTY_GOVERNED_DECISION_INPUT("empty_governed_decision_input"),
+        INVALID_GOVERNED_INPUT_SIGNATURE("invalid_governed_input_signature"),
+        MISSING_ASSEMBLED_DECISION_CONTEXT("missing_assembled_decision_context");
+
+        private final String code;
+
+        GovernedDecisionRejectReason(String code) {
+            this.code = code;
+        }
+
+        private String code() {
+            return code;
+        }
+    }
 }
+
