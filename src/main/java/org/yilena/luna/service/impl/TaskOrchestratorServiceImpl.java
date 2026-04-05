@@ -112,6 +112,12 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
     private static final int MCP_WORKFLOW_REF_TTL = 4;
     private static final int MCP_TOOL_REF_TTL = 4;
     private static final int SUMMARY_REPLACE_HISTORY_MIN_TURNS = 8;
+    private static final double RECALL_MIN_CONFIDENCE_LIGHT = 0.35d;
+    private static final double RECALL_MIN_CONFIDENCE_PLANNING = 0.50d;
+    private static final double RECALL_MIN_CONFIDENCE_EXECUTION = 0.60d;
+    private static final int RECALL_MAX_MISSING_SLOTS_LIGHT = 5;
+    private static final int RECALL_MAX_MISSING_SLOTS_PLANNING = 3;
+    private static final int RECALL_MAX_MISSING_SLOTS_EXECUTION = 2;
 
     private final ContextCompilerService contextCompilerService;
     private final InputReconstructionAgent inputReconstructionAgent;
@@ -365,10 +371,12 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                                                     OrchestrationDecision decision,
                                                     StructuredContextPackage contextPackage,
                                                     InputReconstructionResult reconstructionResult) {
-        if (!isReconstructionReadyForRecall(reconstructionResult)) {
-            String reason = reconstructionResult == null
-                    ? "input_reconstruction_missing"
-                    : "input_reconstruction_goal_missing";
+        ReconstructionRecallGate recallGate = evaluateReconstructionRecallGate(
+                reconstructionResult,
+                decision == null ? null : decision.getTaskState()
+        );
+        if (!recallGate.ready()) {
+            String reason = recallGate.blockedReason();
             persistReconstructionBlockedState(sessionId, decision, contextPackage, reconstructionResult, reason);
             runtimeAuditService.persistDecisionRecord(
                     sessionId,
@@ -379,7 +387,13 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     toJsonSafe(Map.of(
                             "reason", reason,
                             "hasReconstruction", reconstructionResult != null,
-                            "explicitTaskGoal", reconstructionResult == null ? "" : nullSafe(reconstructionResult.getExplicitTaskGoal())
+                            "explicitTaskGoal", reconstructionResult == null ? "" : nullSafe(reconstructionResult.getExplicitTaskGoal()),
+                            "intentConfidence", recallGate.intentConfidence(),
+                            "intentConfidenceMin", recallGate.minIntentConfidence(),
+                            "missingSlots", recallGate.missingSlots(),
+                            "missingSlotsMax", recallGate.maxMissingSlots(),
+                            "requiredEntities", recallGate.requiredEntities(),
+                            "entityCount", recallGate.entityCount()
                     ))
             );
             return blockedNodeWorksetResult(reason);
@@ -2033,8 +2047,128 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         return value != null && !value.isBlank();
     }
 
-    private boolean isReconstructionReadyForRecall(InputReconstructionResult reconstructionResult) {
-        return reconstructionResult != null && nonBlank(reconstructionResult.getExplicitTaskGoal());
+    private ReconstructionRecallGate evaluateReconstructionRecallGate(InputReconstructionResult reconstructionResult,
+                                                                      TaskRuntimeState runtimeState) {
+        if (reconstructionResult == null) {
+            return new ReconstructionRecallGate(
+                    false,
+                    "input_reconstruction_missing",
+                    0.0d,
+                    RECALL_MIN_CONFIDENCE_LIGHT,
+                    0,
+                    RECALL_MAX_MISSING_SLOTS_LIGHT,
+                    0,
+                    0
+            );
+        }
+        if (!nonBlank(reconstructionResult.getExplicitTaskGoal())) {
+            return new ReconstructionRecallGate(
+                    false,
+                    "input_reconstruction_goal_missing",
+                    reconstructionResult.getIntentConfidence(),
+                    RECALL_MIN_CONFIDENCE_LIGHT,
+                    countMissingSlots(reconstructionResult),
+                    RECALL_MAX_MISSING_SLOTS_LIGHT,
+                    0,
+                    countRequiredEntities(reconstructionResult)
+            );
+        }
+
+        RecallThreshold threshold = resolveRecallThreshold(runtimeState);
+        double confidence = reconstructionResult.getIntentConfidence();
+        int missingSlots = countMissingSlots(reconstructionResult);
+        int entityCount = countRequiredEntities(reconstructionResult);
+
+        if (confidence < threshold.minIntentConfidence()) {
+            return new ReconstructionRecallGate(
+                    false,
+                    "input_reconstruction_confidence_low",
+                    confidence,
+                    threshold.minIntentConfidence(),
+                    missingSlots,
+                    threshold.maxMissingSlots(),
+                    threshold.requiredEntities(),
+                    entityCount
+            );
+        }
+        if (missingSlots > threshold.maxMissingSlots()) {
+            return new ReconstructionRecallGate(
+                    false,
+                    "input_reconstruction_missing_slots_exceeded",
+                    confidence,
+                    threshold.minIntentConfidence(),
+                    missingSlots,
+                    threshold.maxMissingSlots(),
+                    threshold.requiredEntities(),
+                    entityCount
+            );
+        }
+        if (entityCount < threshold.requiredEntities()) {
+            return new ReconstructionRecallGate(
+                    false,
+                    "input_reconstruction_required_entities_missing",
+                    confidence,
+                    threshold.minIntentConfidence(),
+                    missingSlots,
+                    threshold.maxMissingSlots(),
+                    threshold.requiredEntities(),
+                    entityCount
+            );
+        }
+        return new ReconstructionRecallGate(
+                true,
+                "",
+                confidence,
+                threshold.minIntentConfidence(),
+                missingSlots,
+                threshold.maxMissingSlots(),
+                threshold.requiredEntities(),
+                entityCount
+        );
+    }
+
+    private RecallThreshold resolveRecallThreshold(TaskRuntimeState runtimeState) {
+        if (runtimeState == null) {
+            return new RecallThreshold(RECALL_MIN_CONFIDENCE_LIGHT, RECALL_MAX_MISSING_SLOTS_LIGHT, 0);
+        }
+        return switch (runtimeState) {
+            case EXECUTING, WAITING_TOOL, WAITING_APPROVAL, REPORTING, REPLANNING, REFLECTING ->
+                    new RecallThreshold(RECALL_MIN_CONFIDENCE_EXECUTION, RECALL_MAX_MISSING_SLOTS_EXECUTION, 1);
+            case CONTEXT_BUILDING, PLANNING, WAITING_PLAN_CONFIRMATION ->
+                    new RecallThreshold(RECALL_MIN_CONFIDENCE_PLANNING, RECALL_MAX_MISSING_SLOTS_PLANNING, 1);
+            default -> new RecallThreshold(RECALL_MIN_CONFIDENCE_LIGHT, RECALL_MAX_MISSING_SLOTS_LIGHT, 0);
+        };
+    }
+
+    private int countMissingSlots(InputReconstructionResult reconstructionResult) {
+        if (reconstructionResult == null || reconstructionResult.getMissingSlots() == null) {
+            return 0;
+        }
+        return (int) reconstructionResult.getMissingSlots().stream()
+                .filter(this::nonBlank)
+                .count();
+    }
+
+    private int countRequiredEntities(InputReconstructionResult reconstructionResult) {
+        if (reconstructionResult == null || reconstructionResult.getClarifiedEntities() == null) {
+            return 0;
+        }
+        return (int) reconstructionResult.getClarifiedEntities().entrySet().stream()
+                .filter(entry -> nonBlank(entry.getKey()) && nonBlank(entry.getValue()))
+                .count();
+    }
+
+    private record RecallThreshold(double minIntentConfidence, int maxMissingSlots, int requiredEntities) {
+    }
+
+    private record ReconstructionRecallGate(boolean ready,
+                                            String blockedReason,
+                                            double intentConfidence,
+                                            double minIntentConfidence,
+                                            int missingSlots,
+                                            int maxMissingSlots,
+                                            int requiredEntities,
+                                            int entityCount) {
     }
 
     private NodeWorksetResult blockedNodeWorksetResult(String reason) {

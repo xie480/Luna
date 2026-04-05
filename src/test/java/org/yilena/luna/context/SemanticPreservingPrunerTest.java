@@ -50,4 +50,30 @@ class SemanticPreservingPrunerTest {
         assertTrue(merged.contains("2026-04-01"));
         assertTrue(merged.contains("latest_tool_conclusion"));
     }
+
+    @Test
+    void shouldPreserveChineseCriticalFacts() {
+        SemanticPreservingPruner pruner = new SemanticPreservingPruner();
+        Map<String, List<String>> sections = Map.of(
+                "Current Task State", List.of(
+                        "截止时间=2026-05-01",
+                        "未决事项=等待审批",
+                        "预算上限=3000"
+                ),
+                "Tool Evidence", List.of("最新工具结论=接口限流，需重试"),
+                "Recent Interaction", List.of("噪声 ".repeat(1200))
+        );
+        Map<String, Integer> budget = Map.of(
+                "Current Task State", 30,
+                "Tool Evidence", 30,
+                "Recent Interaction", 20
+        );
+
+        SemanticPreservingPruner.PruneResult result = pruner.prune(sections, budget);
+        String merged = result.getSections().values().stream().flatMap(List::stream).reduce("", (a, b) -> a + " " + b);
+
+        assertTrue(merged.contains("截止时间"));
+        assertTrue(merged.contains("未决事项"));
+        assertTrue(merged.contains("最新工具结论"));
+    }
 }

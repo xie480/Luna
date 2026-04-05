@@ -28,7 +28,7 @@ public class SemanticPreservingPruner {
             Pattern.CASE_INSENSITIVE
     );
     private static final Pattern FORBIDDEN_DROP_PATTERN = Pattern.compile(
-            "(\\d{4}-\\d{2}-\\d{2}|\\b\\d+(?:\\.\\d+)?\\b|pending|unresolved|issue|latest\\s*tool\\s*conclusion|constraint|time|截止|时间|未决|工具结论)",
+            "(\\d{4}-\\d{2}-\\d{2}|\\b\\d+(?:\\.\\d+)?\\b|pending|unresolved|issue|latest\\s*tool\\s*conclusion|constraint|time|截止|时间|未决|待处理|工具结论|最新工具结论)",
             Pattern.CASE_INSENSITIVE
     );
 

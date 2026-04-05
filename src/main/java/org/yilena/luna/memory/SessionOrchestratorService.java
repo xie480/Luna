@@ -5,9 +5,7 @@ import org.yilena.luna.memory.model.OrchestrationDecision;
 public interface SessionOrchestratorService {
     OrchestrationDecision onUserInput(String sessionId, String userInput);
 
-    default OrchestrationDecision onUserInput(String sessionId, String userInput, String orchestrationSignal) {
-        return onUserInput(sessionId, userInput);
-    }
+    OrchestrationDecision onUserInput(String sessionId, String userInput, String orchestrationSignal);
 
     OrchestrationDecision onToolResult(String sessionId, String payloadJson);
 

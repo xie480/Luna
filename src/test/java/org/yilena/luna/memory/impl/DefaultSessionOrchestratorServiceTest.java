@@ -85,6 +85,22 @@ class DefaultSessionOrchestratorServiceTest {
         assertEquals(TaskRuntimeState.CONTEXT_BUILDING, decision.getTaskState());
     }
 
+    @Test
+    void invalidGovernedSignalShouldNotFallbackToRawInput() {
+        DefaultSessionOrchestratorService service = createService(
+                TaskRuntimeState.EXECUTING,
+                RelationalRuntimeState.TRUST_BUILDING
+        );
+
+        OrchestrationDecision decision = service.onUserInput(
+                "s-1",
+                "done finish completed",
+                "not_a_valid_governed_signal_payload"
+        );
+
+        assertEquals(TaskRuntimeState.CONTEXT_BUILDING, decision.getTaskState());
+    }
+
     private DefaultSessionOrchestratorService createService(TaskRuntimeState previousTaskState,
                                                             RelationalRuntimeState previousRelationalState) {
         SessionRuntimeMapper sessionRuntimeMapper = mock(SessionRuntimeMapper.class);

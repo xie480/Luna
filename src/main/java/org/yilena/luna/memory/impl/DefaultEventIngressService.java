@@ -15,6 +15,7 @@ import org.yilena.luna.memory.SessionOrchestratorService;
 import org.yilena.luna.memory.model.OrchestrationDecision;
 
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
@@ -44,9 +45,26 @@ public class DefaultEventIngressService implements EventIngressService {
 
     @Override
     public OrchestrationDecision ingestUserInput(String sessionId, String userInput, String orchestrationSignal) {
+        String normalizedSessionId = sessionId == null || sessionId.isBlank() ? "default-session" : sessionId;
+        String signal = orchestrationSignal == null ? "" : orchestrationSignal.trim();
+        if (signal.isBlank() || !isParseableGovernedSignal(signal)) {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("text", userInput == null ? "" : userInput);
+            payload.put("orchestration_signal", signal);
+            payload.put("reason", signal.isBlank() ? "orchestration_signal_missing" : "orchestration_signal_unparseable");
+            runtimeAuditService.persistDecisionRecord(
+                    normalizedSessionId,
+                    null,
+                    null,
+                    "EVENT_GOVERNED_SIGNAL_INVALID",
+                    "governed signal must be non-empty and parseable before orchestrator ingress",
+                    toJsonSafe(payload)
+            );
+            return null;
+        }
         return ingestEvent(sessionId, "USER_INPUT", Map.of(
                 "text", userInput == null ? "" : userInput,
-                "orchestration_signal", orchestrationSignal == null ? "" : orchestrationSignal
+                "orchestration_signal", signal
         ));
     }
 
@@ -230,6 +248,44 @@ public class DefaultEventIngressService implements EventIngressService {
             case "USER_INPUT", "TOOL_RESULT", "APPROVAL", "SYSTEM", "TIMER" -> text;
             default -> "SYSTEM";
         };
+    }
+
+    private boolean isParseableGovernedSignal(String orchestrationSignal) {
+        if (orchestrationSignal == null || orchestrationSignal.isBlank()) {
+            return false;
+        }
+        if (isJsonGovernedSignal(orchestrationSignal)) {
+            return true;
+        }
+        return isLegacyGovernedSignal(orchestrationSignal);
+    }
+
+    private boolean isJsonGovernedSignal(String orchestrationSignal) {
+        try {
+            JsonNode jsonNode = objectMapper.readTree(orchestrationSignal);
+            if (jsonNode == null || !jsonNode.isObject()) {
+                return false;
+            }
+            return jsonNode.has("intent")
+                    || jsonNode.has("goal")
+                    || jsonNode.has("timeScope")
+                    || jsonNode.has("fallback")
+                    || jsonNode.has("missingSlots");
+        } catch (Exception ignore) {
+            return false;
+        }
+    }
+
+    private boolean isLegacyGovernedSignal(String orchestrationSignal) {
+        String normalized = orchestrationSignal.toLowerCase(Locale.ROOT);
+        if (!normalized.contains("=")) {
+            return false;
+        }
+        return normalized.contains("intent=")
+                || normalized.contains("goal=")
+                || normalized.contains("timescope=")
+                || normalized.contains("fallback=")
+                || normalized.contains("missingslots=");
     }
 
     private void markProcessed(Long eventId) {

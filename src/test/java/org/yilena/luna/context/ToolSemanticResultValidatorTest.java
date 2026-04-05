@@ -129,4 +129,28 @@ class ToolSemanticResultValidatorTest {
         assertNotNull(validation.normalized());
         assertTrue(Boolean.TRUE.equals(validation.normalized().getSemanticPayload().get("schema_invalid")));
     }
+
+    @Test
+    void shouldDetectPendingChineseNextStepConflict() {
+        ToolSemanticResultValidator validator = new ToolSemanticResultValidator();
+        ToolSemanticResult result = ToolSemanticResult.builder()
+                .toolName("tool-x")
+                .toolDescription("demo")
+                .rawResultDigest("digest")
+                .toolStatus("PENDING")
+                .keyFacts(List.of("k1"))
+                .businessImpact("pending")
+                .unresolvedIssues(List.of("waiting"))
+                .nextStepHint("\u7ee7\u7eed\u6267\u884c\u4e0b\u4e00\u6b65")
+                .confidence(0.8)
+                .semanticPayload(Map.of("status", "PENDING", "tool", "tool-x"))
+                .build();
+        StructuredContextPackage contextPackage = StructuredContextPackage.builder()
+                .taskState(TaskRuntimeState.WAITING_TOOL)
+                .build();
+
+        ToolSemanticResultValidator.ValidationResult validation = validator.validate(result, contextPackage);
+        assertFalse(validation.valid());
+        assertTrue(validation.issues().contains("pending_next_step_conflict"));
+    }
 }

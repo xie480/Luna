@@ -2,6 +2,7 @@ package org.yilena.luna.memory.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.enums.RelationalRuntimeState;
@@ -25,6 +26,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class DefaultSessionOrchestratorService implements SessionOrchestratorService {
 
@@ -39,7 +41,7 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
     private boolean sessionTypeEnabled;
 
     @Value("${strict_governed_signal_mode:${memory.strict_governed_signal_mode:true}}")
-    private boolean strictGovernedSignalMode;
+    private boolean strictGovernedSignalMode = true;
 
     @Override
     public OrchestrationDecision onUserInput(String sessionId, String userInput) {
@@ -75,6 +77,10 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
 
     private OrchestrationDecision orchestrate(String sessionId, String eventType, String signal, String payloadJson) {
         String normalizedSessionId = sessionId == null || sessionId.isBlank() ? "default-session" : sessionId;
+        if (!strictGovernedSignalMode) {
+            log.error("strict governed signal mode disabled, orchestration rejected. sessionId={}, eventType={}", normalizedSessionId, eventType);
+            throw new IllegalStateException("strict_governed_signal_mode_must_be_enabled");
+        }
         Long principalId = principalIdOf(normalizedSessionId);
         ensureDefaultAgentIdentity();
         Long agentId = defaultAgentId();
@@ -744,6 +750,7 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
             if (fromLegacy != null) {
                 return sanitizeSignal(fromLegacy, rawInput);
             }
+            return invalidGovernedSignal(rawInput, "governed_signal_invalid");
         }
         return GovernedSignal.fromRawInput(rawInput);
     }
@@ -815,7 +822,7 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
 
     private GovernedSignal sanitizeSignal(GovernedSignal signal, String rawInput) {
         if (signal == null) {
-            return GovernedSignal.fromRawInput(rawInput);
+            return invalidGovernedSignal(rawInput, "governed_signal_invalid");
         }
         boolean debugFlag = signal.isDebugFlag() || GovernedSignal.fromRawInput(rawInput).isDebugFlag();
         return GovernedSignal.builder()
@@ -826,6 +833,19 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
                 .timeScope(normalizeSignalText(signal.getTimeScope(), "unspecified"))
                 .missingSlots(signal.safeMissingSlots())
                 .fallback(normalizeSignalText(signal.getFallback(), "reconstruct_retry_required"))
+                .build();
+    }
+
+    private GovernedSignal invalidGovernedSignal(String rawInput, String fallbackCode) {
+        boolean debugFlag = GovernedSignal.fromRawInput(rawInput).isDebugFlag();
+        return GovernedSignal.builder()
+                .debugFlag(debugFlag)
+                .intent("intent_unavailable")
+                .goal("goal_unavailable")
+                .constraints(List.of())
+                .timeScope("unspecified")
+                .missingSlots(List.of("governed_signal"))
+                .fallback(normalizeSignalText(fallbackCode, "governed_signal_invalid"))
                 .build();
     }
 
@@ -959,6 +979,7 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
                             || fallback.contains("reconstruction_missing")
                             || fallback.contains("reconstruction_partial")
                             || fallback.contains("empty_orchestration_signal")
+                            || fallback.contains("governed_signal_invalid")
             )) || !hasGoalOrIntent();
         }
 

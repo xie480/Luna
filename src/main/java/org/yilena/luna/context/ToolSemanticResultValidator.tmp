@@ -1,4 +1,4 @@
-package org.yilena.luna.context;
+﻿package org.yilena.luna.context;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -174,14 +174,14 @@ public class ToolSemanticResultValidator {
             issues.add("status_conflict_waiting_tool");
         }
         String nextStep = result.getNextStepHint() == null ? "" : result.getNextStepHint().toLowerCase(Locale.ROOT);
-        if ("PENDING".equals(status) && containsAny(
+                if ("PENDING".equals(status) && containsAny(
                 nextStep,
                 "continue reasoning",
                 "execute",
-                "\u7ee7\u7eed\u63a8\u7406",
-                "\u7ee7\u7eed\u6267\u884c",
-                "\u7acb\u523b\u6267\u884c",
-                "\u9a6c\u4e0a\u6267\u884c"
+                "继续推理",
+                "继续执行",
+                "立刻执行",
+                "马上执行"
         )) {
             issues.add("pending_next_step_conflict");
         }
