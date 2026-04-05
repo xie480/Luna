@@ -7,14 +7,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-import org.yilena.luna.context.ToolSemanticAgent;
-import org.yilena.luna.context.ToolSemanticResultValidator;
-import org.yilena.luna.context.ToolSemanticTraceLogger;
 import org.yilena.luna.context.model.ContextNodeTemplatePolicy;
 import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.EvidenceBlock;
 import org.yilena.luna.context.model.InputReconstructionResult;
-import org.yilena.luna.context.model.SummaryResult;
 import org.yilena.luna.context.model.ToolSemanticResult;
 import org.yilena.luna.entity.ApprovalTask;
 import org.yilena.luna.entity.ChatMessage;
@@ -31,13 +27,13 @@ import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.mapper.SessionRuntimeMapper;
 import org.yilena.luna.service.ApprovalService;
 import org.yilena.luna.service.McpService;
+import org.yilena.luna.service.RoundPipelineOrchestrator;
 import org.yilena.luna.service.SessionService;
 import org.yilena.luna.service.TaskOrchestratorService;
-import org.yilena.luna.service.model.MainModelExecutionRequest;
 import org.yilena.luna.service.model.MainModelOrchestrationResult;
 import org.yilena.luna.service.model.NodeWorksetResult;
-import org.yilena.luna.service.model.RoundStateWriteRequest;
-import org.yilena.luna.service.model.SummaryOrchestrationResult;
+import org.yilena.luna.service.model.RoundPipelineRequest;
+import org.yilena.luna.service.model.RoundPipelineResult;
 import org.yilena.luna.service.model.TaskOrchestrationResult;
 import org.yilena.luna.state.model.ContextState;
 import org.yilena.luna.state.model.ContextSnapshot;
@@ -79,9 +75,7 @@ public class ApprovalServiceImpl implements ApprovalService {
     private final SseSessionManager sseSessionManager;
     private final LunaStatusPublisher statusPublisher;
 
-    private final ToolSemanticAgent toolSemanticAgent;
-    private final ToolSemanticResultValidator toolSemanticResultValidator;
-    private final ToolSemanticTraceLogger toolSemanticTraceLogger;
+    private final RoundPipelineOrchestrator roundPipelineOrchestrator;
     private final RuntimeAuditService runtimeAuditService;
     private final SessionService sessionService;
     private final EventIngressService eventIngressService;
@@ -401,64 +395,14 @@ public class ApprovalServiceImpl implements ApprovalService {
             List<String> runtimeMemorySnippets = extractRuntimeMessageSnippets(contextPackage);
             List<String> retrievedMemorySnippets = selectedMemorySnippets;
             ContextNodeTemplatePolicy nodeTemplatePolicy = resolveNodeTemplatePolicy(recoveryDecision, contextPackage);
-            ToolSemanticResult toolSemanticResult = toolSemanticAgent.translate(
-                    resolvePrimaryToolName(executionCandidates),
-                    resolvePrimaryToolDescription(executionCandidates),
-                    approved ? toolContext : "",
-                    recoveryDecision == null ? null : recoveryDecision.getTaskState(),
-                    reconstructionResult == null ? "" : reconstructionResult.getExplicitTaskGoal()
-            );
-            ToolSemanticResultValidator.ValidationResult semanticValidation = toolSemanticResultValidator.validate(toolSemanticResult, contextPackage);
-            if (semanticValidation.valid()) {
-                runtimeAuditService.persistDecisionRecord(
-                        task.getSessionId(),
-                        contextPlanId(contextPackage),
-                        contextNodeId(contextPackage),
-                        "TOOL_SEMANTIC_VALIDATION",
-                        "approval recovery semantic channel validation passed",
-                        "{}"
-                );
-            } else {
-                runtimeAuditService.persistDecisionRecord(
-                        task.getSessionId(),
-                        contextPlanId(contextPackage),
-                        contextNodeId(contextPackage),
-                        "TOOL_SEMANTIC_VALIDATION",
-                        "approval recovery semantic channel validation failed",
-                        objectMapper.writeValueAsString(Map.of("issues", semanticValidation.issues()))
-                );
-            }
-            toolSemanticResult = semanticValidation.normalized() == null ? toolSemanticResult : semanticValidation.normalized();
-            toolSemanticTraceLogger.log(task.getSessionId(), contextPlanId(contextPackage), contextNodeId(contextPackage), toolSemanticResult);
-            SummaryOrchestrationResult preAssemblySummary = taskOrchestratorService.orchestrateSummary(
-                    task.getSessionId(),
-                    task.getUserInput(),
-                    "",
-                    contextPackage,
-                    selectedKnowledgeEvidenceBlocks,
-                    mcpResourceHints,
-                    toolSemanticResult,
-                    false,
-                    "APPROVAL_PRE_ASSEMBLY"
-            );
-            SummaryResult roundSummaryInput = preAssemblySummary == null ? null : preAssemblySummary.getSummaryResult();
-            runtimeAuditService.persistDecisionRecord(
-                    task.getSessionId(),
-                    contextPlanId(contextPackage),
-                    contextNodeId(contextPackage),
-                    "PRE_ASSEMBLY_SUMMARY",
-                    "round summary generated before context assembly",
-                    objectMapper.writeValueAsString(roundSummaryInput)
-            );
-            MainModelOrchestrationResult modelResult = taskOrchestratorService.orchestrateMainModel(
-                    MainModelExecutionRequest.builder()
+            RoundPipelineResult roundPipelineResult = roundPipelineOrchestrator.executeRound(
+                    RoundPipelineRequest.builder()
                             .sessionId(task.getSessionId())
                             .userInput(task.getUserInput())
+                            .decision(recoveryDecision)
                             .contextPackage(contextPackage)
                             .reconstructionResult(reconstructionResult)
-                            .rerankResult(rerankResult)
-                            .toolSemanticResult(toolSemanticResult)
-                            .knowledgeEvidenceBlocks(selectedKnowledgeEvidenceBlocks)
+                            .nodeWorksetResult(nodeWorksetResult)
                             .workingMemorySnippets(workingMemorySnippets)
                             .runtimeMemorySnippets(runtimeMemorySnippets)
                             .retrievedMemorySnippets(retrievedMemorySnippets)
@@ -473,59 +417,28 @@ public class ApprovalServiceImpl implements ApprovalService {
                             .longTermMemorySnippets(task.getLongTermMemorySnippets() != null ? task.getLongTermMemorySnippets() : Collections.emptyList())
                             .executionCandidates(executionCandidates)
                             .mcpResourceHints(mcpResourceHints)
-                            .toolContext(approved ? toolContext : null)
                             .nodeTemplatePolicy(nodeTemplatePolicy)
-                            .roundSummaryInput(roundSummaryInput)
-                            .planId(contextPlanId(contextPackage))
-                            .nodeId(contextNodeId(contextPackage))
+                            .toolContext(approved ? toolContext : "")
                             .stage("APPROVAL_RECOVERY")
                             .repairSeed(task.getUserInput())
+                            .runMainModel(true)
+                            .assistantReplyOverride("")
+                            .preAssemblyTriggerSource("APPROVAL_PRE_ASSEMBLY")
+                            .postSummaryTriggerSource("APPROVAL_RECOVERY")
+                            .writeRoundState(true)
                             .rawToolResultChannel(buildRawToolResultChannel(
                                     approved ? toolContext : "",
                                     approved ? List.of(Map.of("rawResult", safe(toolContext))) : List.of(),
                                     "",
                                     List.of()
                             ))
+                            .retrievalPlanOverrides(Map.of("approvalRecovery", true))
                             .build()
             );
-            if (modelResult == null || modelResult.isBlocked()) {
+            MainModelOrchestrationResult modelResult = roundPipelineResult == null ? null : roundPipelineResult.getMainModelResult();
+            if (roundPipelineResult == null || roundPipelineResult.isBlocked() || modelResult == null || modelResult.isBlocked()) {
                 return errorJson("context governance blocked: final governed workset is empty");
             }
-            String finalSnapshotId = safe(modelResult.getFinalSnapshotId());
-            SummaryOrchestrationResult recoveryTurnSummary = taskOrchestratorService.orchestrateSummary(
-                    task.getSessionId(),
-                    task.getUserInput(),
-                    modelResult.getReplyText(),
-                    contextPackage,
-                    selectedKnowledgeEvidenceBlocks,
-                    mcpResourceHints,
-                    toolSemanticResult,
-                    false,
-                    "APPROVAL_RECOVERY"
-            );
-            SummaryResult summaryResult = recoveryTurnSummary == null ? null : recoveryTurnSummary.getSummaryResult();
-            runtimeAuditService.persistDecisionRecord(
-                    task.getSessionId(),
-                    contextPlanId(contextPackage),
-                    contextNodeId(contextPackage),
-                    "RECOVERY_SUMMARY",
-                    "approval recovery summary",
-                    objectMapper.writeValueAsString(summaryResult)
-            );
-            taskOrchestratorService.writeRoundState(RoundStateWriteRequest.builder()
-                    .sessionId(task.getSessionId())
-                    .decision(recoveryDecision)
-                    .contextPackage(contextPackage)
-                    .reconstruction(reconstructionResult)
-                    .rerankResult(rerankResult)
-                    .toolSemanticResult(toolSemanticResult)
-                    .summaryResult(summaryResult)
-                    .latestSnapshotId(finalSnapshotId)
-                    .ragQuery(nodeWorksetResult == null ? "" : nodeWorksetResult.getRagQuery())
-                    .memoryQuery(nodeWorksetResult == null ? "" : nodeWorksetResult.getMemoryQuery())
-                    .mcpQuery(nodeWorksetResult == null ? "" : nodeWorksetResult.getMcpDrivenInput())
-                    .retrievalPlanOverrides(Map.of("approvalRecovery", true))
-                    .build());
             memoryWritePipelineService.writeAfterTurn(
                     task.getSessionId(),
                     task.getUserInput(),

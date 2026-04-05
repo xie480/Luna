@@ -717,9 +717,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         String finalSnapshotId = assembledContext == null ? "" : nullSafe(assembledContext.getSnapshotId());
         Map<String, Object> rawToolResultChannel = request.getRawToolResultChannel() == null ? Map.of() : request.getRawToolResultChannel();
         Map<String, List<String>> finalActiveRefs = buildFinalSnapshotActiveRefs(request, contextPackage);
-        boolean shouldPersistByOrchestrator = !sessionId.isBlank()
-                && (finalSnapshotId.isBlank() || shouldBackfillRawChannel(rawToolResultChannel));
-        if (shouldPersistByOrchestrator) {
+        if (!sessionId.isBlank()) {
             finalSnapshotId = nullSafe(contextSnapshotStore.saveFinalSnapshot(
                     sessionId,
                     planId,
@@ -737,15 +735,6 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     nodeId,
                     "CONTEXT_SNAPSHOT_FINAL",
                     "final model context snapshot persisted by task orchestrator",
-                    toJsonSafe(Map.of("snapshotId", finalSnapshotId))
-            );
-        } else if (!sessionId.isBlank() && !finalSnapshotId.isBlank()) {
-            runtimeAuditService.persistDecisionRecord(
-                    sessionId,
-                    planId,
-                    nodeId,
-                    "CONTEXT_SNAPSHOT_FINAL",
-                    "final model context snapshot persisted by context assembler",
                     toJsonSafe(Map.of("snapshotId", finalSnapshotId))
             );
         }
@@ -2387,10 +2376,6 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .filter(item -> !item.isBlank())
                 .distinct()
                 .toList();
-    }
-
-    private boolean shouldBackfillRawChannel(Map<String, Object> rawToolResultChannel) {
-        return rawToolResultChannel != null && !rawToolResultChannel.isEmpty();
     }
 
     @SuppressWarnings("unchecked")

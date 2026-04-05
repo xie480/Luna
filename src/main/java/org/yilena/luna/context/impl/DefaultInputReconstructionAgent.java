@@ -34,6 +34,15 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
     private static final Pattern DATE_PATTERN = Pattern.compile("\\b\\d{4}-\\d{2}-\\d{2}\\b");
     private static final Pattern NUMBER_PATTERN = Pattern.compile("\\b\\d+(?:\\.\\d+)?\\b");
     private static final Pattern QUARTER_PATTERN = Pattern.compile("\\bq([1-4])\\b", Pattern.CASE_INSENSITIVE);
+    private static final String[] TIME_SCOPE_TODAY_KEYWORDS = {"today", "今天", "今晚"};
+    private static final String[] TIME_SCOPE_TOMORROW_KEYWORDS = {"tomorrow", "明天"};
+    private static final String[] TIME_SCOPE_THIS_WEEK_KEYWORDS = {"this week", "本周", "这周"};
+    private static final String[] TIME_SCOPE_THIS_MONTH_KEYWORDS = {"this month", "本月", "这个月"};
+    private static final String[] TARGET_REFERENCE_KEYWORDS = {"这个", "那个", "it", "this", "that", "再来一次", "继续", "same as before"};
+    private static final String[] TASK_ACTION_KEYWORDS = {"帮我", "please", "分析", "处理", "solve", "optimize"};
+    private static final String[] GOAL_QUERY_KEYWORDS = {"怎么", "what", "如何", "目标", "标准", "criteria"};
+    private static final String[] CONSTRAINT_TRIGGER_KEYWORDS = {"必须", "must", "不要", "预算", "deadline", "截止"};
+    private static final String[] HARD_CONSTRAINT_KEYWORDS = {"不要", "别", "must", "必须", "only", "仅", "deadline", "截止", "预算", "budget"};
     private static final String RECONSTRUCTION_PROMPT = """
             You are Input Reconstruction Agent.
             Return one compact JSON only. No markdown.
@@ -221,16 +230,16 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
 
     private String inferTimeScope(String input, ContextSignals signals) {
         String lower = normalize(input).toLowerCase(Locale.ROOT);
-        if (containsAny(lower, "today", "今天", "今晚")) {
+        if (containsAny(lower, TIME_SCOPE_TODAY_KEYWORDS)) {
             return "today";
         }
-        if (containsAny(lower, "tomorrow", "明天")) {
+        if (containsAny(lower, TIME_SCOPE_TOMORROW_KEYWORDS)) {
             return "tomorrow";
         }
-        if (containsAny(lower, "this week", "本周", "这周")) {
+        if (containsAny(lower, TIME_SCOPE_THIS_WEEK_KEYWORDS)) {
             return "this_week";
         }
-        if (containsAny(lower, "this month", "本月", "这个月")) {
+        if (containsAny(lower, TIME_SCOPE_THIS_MONTH_KEYWORDS)) {
             return "this_month";
         }
         if (!signals.latestTimeScope().isBlank()) {
@@ -246,11 +255,11 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
                                            TaskRuntimeState taskState) {
         String lower = normalize(input).toLowerCase(Locale.ROOT);
         List<String> missing = new ArrayList<>();
-        if (containsAny(lower, "这个", "那个", "it", "this", "that", "再来一次", "继续", "same as before")) {
+        if (containsAny(lower, TARGET_REFERENCE_KEYWORDS)) {
             missing.add("target_reference");
         }
-        if (containsAny(lower, "帮我", "please", "分析", "处理", "solve", "optimize")
-                && !containsAny(lower, "怎么", "what", "如何", "目标", "标准", "criteria")) {
+        if (containsAny(lower, TASK_ACTION_KEYWORDS)
+                && !containsAny(lower, GOAL_QUERY_KEYWORDS)) {
             missing.add("success_criteria");
         }
         if (explicitGoal.isBlank()) {
@@ -259,7 +268,7 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
         if (entities.isEmpty() && (taskState == TaskRuntimeState.EXECUTING || taskState == TaskRuntimeState.PLANNING)) {
             missing.add("core_entity");
         }
-        if (constraints.isEmpty() && containsAny(lower, "必须", "must", "不要", "预算", "deadline", "截止")) {
+        if (constraints.isEmpty() && containsAny(lower, CONSTRAINT_TRIGGER_KEYWORDS)) {
             missing.add("constraint_detail");
         }
         return missing;
@@ -269,7 +278,7 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
     private List<String> inferConstraints(String input, ContextSignals signals, StructuredContextPackage contextPackage) {
         String lower = normalize(input).toLowerCase(Locale.ROOT);
         List<String> out = new ArrayList<>();
-        if (containsAny(lower, "不要", "别", "must", "必须", "only", "仅", "deadline", "截止", "预算", "budget")) {
+        if (containsAny(lower, HARD_CONSTRAINT_KEYWORDS)) {
             out.add("hard_constraint_from_user_input");
         }
         if (!signals.pendingQuestions().isBlank()) {

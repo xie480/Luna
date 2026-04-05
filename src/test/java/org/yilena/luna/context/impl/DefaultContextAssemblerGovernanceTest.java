@@ -10,7 +10,6 @@ import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.memory.RelationalMemoryRetriever;
 import org.yilena.luna.memory.TaskMemoryRetriever;
 import org.yilena.luna.memory.model.StructuredContextPackage;
-import org.yilena.luna.state.store.ContextSnapshotStore;
 
 import java.util.List;
 import java.util.Map;
@@ -36,8 +35,7 @@ class DefaultContextAssemblerGovernanceTest {
                 taskMemoryRetriever,
                 relationalMemoryRetriever,
                 mock(org.yilena.luna.context.SummaryAgent.class),
-                mock(org.yilena.luna.context.ToolSemanticAgent.class),
-                mock(ContextSnapshotStore.class)
+                mock(org.yilena.luna.context.ToolSemanticAgent.class)
         );
         when(taskMemoryRetriever.retrieve(anyString(), anyString(), any())).thenReturn(Map.of());
 

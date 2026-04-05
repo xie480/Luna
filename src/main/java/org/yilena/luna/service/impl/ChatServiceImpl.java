@@ -13,9 +13,6 @@ import org.yilena.luna.annotation.aspect.LunaLogAspect;
 import org.yilena.luna.constants.LogActionConstant;
 import org.yilena.luna.constants.LogModuleConstant;
 import org.yilena.luna.constants.LunaStateConstant;
-import org.yilena.luna.context.ToolSemanticAgent;
-import org.yilena.luna.context.ToolSemanticResultValidator;
-import org.yilena.luna.context.ToolSemanticTraceLogger;
 import org.yilena.luna.context.model.ContextNodeTemplatePolicy;
 import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.EvidenceBlock;
@@ -41,12 +38,15 @@ import org.yilena.luna.rag.models.RetrievalOptions;
 import org.yilena.luna.rag.models.RetrievalRoute;
 import org.yilena.luna.service.AgentService;
 import org.yilena.luna.service.ChatService;
+import org.yilena.luna.service.RoundPipelineOrchestrator;
 import org.yilena.luna.service.SessionService;
 import org.yilena.luna.service.TaskOrchestratorService;
 import org.yilena.luna.service.model.MainModelExecutionRequest;
 import org.yilena.luna.service.model.MainModelOrchestrationResult;
 import org.yilena.luna.service.model.NodeWorksetResult;
-import org.yilena.luna.service.model.RoundStateWriteRequest;
+import org.yilena.luna.service.model.RoundPipelineRequest;
+import org.yilena.luna.service.model.RoundPipelineResult;
+import org.yilena.luna.service.model.RoundToolSemanticRequest;
 import org.yilena.luna.service.model.SummaryOrchestrationResult;
 import org.yilena.luna.service.model.TaskOrchestrationResult;
 import org.yilena.luna.state.model.ContextState;
@@ -86,9 +86,7 @@ public class ChatServiceImpl implements ChatService {
     private final RuntimeAuditService runtimeAuditService;
     private final SessionRuntimeMapper sessionRuntimeMapper;
     private final TaskOrchestratorService taskOrchestratorService;
-    private final ToolSemanticAgent toolSemanticAgent;
-    private final ToolSemanticResultValidator toolSemanticResultValidator;
-    private final ToolSemanticTraceLogger toolSemanticTraceLogger;
+    private final RoundPipelineOrchestrator roundPipelineOrchestrator;
     private final ContextSnapshotStore contextSnapshotStore;
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -233,56 +231,17 @@ public class ChatServiceImpl implements ChatService {
             ));
         }
 
-        ToolSemanticResult toolSemanticResult = toolSemanticAgent.translate(
-                resolvePrimaryToolName(executionCandidates),
-                resolvePrimaryToolDescription(executionCandidates),
-                toolContext,
-                decision == null ? null : decision.getTaskState(),
-                reconstruction == null ? "" : reconstruction.getExplicitTaskGoal()
+        ToolSemanticResult toolSemanticResult = roundPipelineOrchestrator.resolveToolSemantic(
+                RoundToolSemanticRequest.builder()
+                        .sessionId(runtimeSessionId)
+                        .contextPackage(contextPackage)
+                        .taskState(decision == null ? null : decision.getTaskState())
+                        .explicitTaskGoal(reconstruction == null ? "" : reconstruction.getExplicitTaskGoal())
+                        .executionCandidates(executionCandidates)
+                        .toolContext(toolContext)
+                        .stage("CHAT_TURN")
+                        .build()
         );
-        ToolSemanticResultValidator.ValidationResult semanticValidation = toolSemanticResultValidator.validate(toolSemanticResult, contextPackage);
-        if (!semanticValidation.valid()) {
-            if (semanticValidation.issues() != null && semanticValidation.issues().contains("schema_invalid")) {
-                runtimeAuditService.persistDecisionRecord(
-                        runtimeSessionId,
-                        contextPlanId(contextPackage),
-                        contextNodeId(contextPackage),
-                        "TOOL_SEMANTIC_SCHEMA_INVALID",
-                        "semantic result rejected by json schema, fallback applied",
-                        toJsonSafe(Map.of(
-                                "issues", semanticValidation.issues(),
-                                "schemaInvalid", true
-                        ))
-                );
-            }
-            runtimeAuditService.persistDecisionRecord(
-                    runtimeSessionId,
-                    contextPlanId(contextPackage),
-                    contextNodeId(contextPackage),
-                    "TOOL_SEMANTIC_VALIDATION",
-                    "semantic channel validation failed",
-                    toJsonSafe(Map.of("issues", semanticValidation.issues()))
-            );
-        } else {
-            runtimeAuditService.persistDecisionRecord(
-                    runtimeSessionId,
-                    contextPlanId(contextPackage),
-                    contextNodeId(contextPackage),
-                    "TOOL_SEMANTIC_VALIDATION",
-                    "semantic channel validation passed",
-                    "{}"
-            );
-        }
-        toolSemanticResult = semanticValidation.normalized() == null ? toolSemanticResult : semanticValidation.normalized();
-        runtimeAuditService.persistDecisionRecord(
-                runtimeSessionId,
-                contextPlanId(contextPackage),
-                contextNodeId(contextPackage),
-                "TOOL_SEMANTIC_TRANSLATION",
-                "tool result translated to semantic channel",
-                toJsonSafe(toolSemanticResult)
-        );
-        toolSemanticTraceLogger.log(runtimeSessionId, contextPlanId(contextPackage), contextNodeId(contextPackage), toolSemanticResult);
 
         String synthesisBrief = threeStageResponseService.generateSynthesisBrief(input, toolContext, contextPackage);
         String semanticToolContext = mergeToolContextWithSemantic(toolContext, toolSemanticResult);
@@ -321,27 +280,16 @@ public class ChatServiceImpl implements ChatService {
         }
 
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_THINKING, LunaStateConstant.VALUE_THINKING_ORGANIZE);
-        SummaryOrchestrationResult preAssemblySummary = taskOrchestratorService.orchestrateSummary(
-                runtimeSessionId,
-                input,
-                "",
-                contextPackage,
-                knowledgeEvidenceBlocks,
-                mcpResourceHints,
-                toolSemanticResult,
-                false,
-                "PRE_ASSEMBLY_INPUT"
-        );
-        SummaryResult roundSummaryInput = preAssemblySummary == null ? null : preAssemblySummary.getSummaryResult();
-        MainModelOrchestrationResult modelResult = taskOrchestratorService.orchestrateMainModel(
-                MainModelExecutionRequest.builder()
+        ContextState previousContextState = contextPackage == null ? null : contextPackage.getContextState();
+        RoundPipelineResult roundPipelineResult = roundPipelineOrchestrator.executeRound(
+                RoundPipelineRequest.builder()
                         .sessionId(runtimeSessionId)
                         .userInput(input)
+                        .decision(decision)
                         .contextPackage(contextPackage)
                         .reconstructionResult(reconstruction)
-                        .rerankResult(rerankResult)
+                        .nodeWorksetResult(nodeWorkset)
                         .toolSemanticResult(toolSemanticResult)
-                        .knowledgeEvidenceBlocks(knowledgeEvidenceBlocks)
                         .workingMemorySnippets(workingMemorySnippets)
                         .runtimeMemorySnippets(runtimeMemorySnippets)
                         .retrievedMemorySnippets(ragMemorySnippets)
@@ -350,13 +298,17 @@ public class ChatServiceImpl implements ChatService {
                         .longTermMemorySnippets(longTermMemorySnippets)
                         .executionCandidates(executionCandidates)
                         .mcpResourceHints(mcpResourceHints)
-                        .toolContext(mergedToolContext)
                         .nodeTemplatePolicy(nodeTemplatePolicy)
-                        .roundSummaryInput(roundSummaryInput)
-                        .planId(contextPlanId(contextPackage))
-                        .nodeId(contextNodeId(contextPackage))
+                        .toolContext(mergedToolContext)
                         .stage("CHAT_TURN")
                         .repairSeed(input)
+                        .runMainModel(true)
+                        .assistantReplyOverride("")
+                        .preAssemblyTriggerSource("PRE_ASSEMBLY_INPUT")
+                        .postSummaryTriggerSource("CHAT_TURN")
+                        .writeRoundState(true)
+                        .latestToolRawRef(toolTraceRefs == null ? "" : toolTraceRefs.latestRawRef())
+                        .latestToolHistoryRefs(toolTraceRefs == null ? List.of() : toolTraceRefs.historyRefs())
                         .rawToolResultChannel(buildRawToolResultChannel(
                                 mergedToolContext,
                                 latestToolExecutionTraces,
@@ -365,8 +317,11 @@ public class ChatServiceImpl implements ChatService {
                         ))
                         .build()
         );
-        String finalSnapshotId = modelResult == null ? "" : stringValue(modelResult.getFinalSnapshotId());
-        if (modelResult == null || modelResult.isBlocked()) {
+        MainModelOrchestrationResult modelResult = roundPipelineResult == null ? null : roundPipelineResult.getMainModelResult();
+        toolSemanticResult = roundPipelineResult == null ? toolSemanticResult : roundPipelineResult.getToolSemanticResult();
+        String finalSnapshotId = roundPipelineResult == null ? "" : stringValue(roundPipelineResult.getFinalSnapshotId());
+        SummaryResult summaryResult = roundPipelineResult == null ? null : roundPipelineResult.getSummaryResult();
+        if (roundPipelineResult == null || roundPipelineResult.isBlocked() || modelResult == null || modelResult.isBlocked()) {
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
             return ResponseEntity.status(503).body(contextGovernanceBlockedPayload("chat turn aborted because final governed workset is empty"));
         }
@@ -388,34 +343,6 @@ public class ChatServiceImpl implements ChatService {
         if (writeGate.allowWrite()) {
             memoryWritePipelineService.writeAfterTurn(runtimeSessionId, input, modelResult.getReplyText(), contextPackage);
         }
-        SummaryOrchestrationResult turnSummary = taskOrchestratorService.orchestrateSummary(
-                runtimeSessionId,
-                input,
-                modelResult.getReplyText(),
-                contextPackage,
-                knowledgeEvidenceBlocks,
-                mcpResourceHints,
-                toolSemanticResult,
-                false,
-                "CHAT_TURN"
-        );
-        SummaryResult summaryResult = turnSummary == null ? null : turnSummary.getSummaryResult();
-        ContextState previousContextState = contextPackage == null ? null : contextPackage.getContextState();
-        taskOrchestratorService.writeRoundState(RoundStateWriteRequest.builder()
-                .sessionId(runtimeSessionId)
-                .decision(decision)
-                .contextPackage(contextPackage)
-                .reconstruction(reconstruction)
-                .rerankResult(rerankResult)
-                .toolSemanticResult(toolSemanticResult)
-                .summaryResult(summaryResult)
-                .latestSnapshotId(finalSnapshotId)
-                .latestToolRawRef(toolTraceRefs == null ? "" : toolTraceRefs.latestRawRef())
-                .latestToolHistoryRefs(toolTraceRefs == null ? List.of() : toolTraceRefs.historyRefs())
-                .ragQuery(nodeWorkset == null ? "" : nodeWorkset.getRagQuery())
-                .memoryQuery(nodeWorkset == null ? "" : nodeWorkset.getMemoryQuery())
-                .mcpQuery(nodeWorkset == null ? "" : nodeWorkset.getMcpDrivenInput())
-                .build());
         persistReplayAndMemoryGovernance(
                 runtimeSessionId,
                 contextPlanId(contextPackage),

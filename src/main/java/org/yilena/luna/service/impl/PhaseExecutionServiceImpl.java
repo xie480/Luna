@@ -14,19 +14,13 @@ import org.yilena.luna.mapper.PlanNodeMapper;
 import org.yilena.luna.memory.MemoryWritePipelineService;
 import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
-import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.InputReconstructionResult;
-import org.yilena.luna.context.model.SummaryResult;
-import org.yilena.luna.context.model.ToolSemanticResult;
-import org.yilena.luna.context.ToolSemanticAgent;
-import org.yilena.luna.context.ToolSemanticResultValidator;
-import org.yilena.luna.context.ToolSemanticTraceLogger;
 import org.yilena.luna.service.AgentService;
 import org.yilena.luna.service.PhaseExecutionService;
+import org.yilena.luna.service.RoundPipelineOrchestrator;
 import org.yilena.luna.service.TaskOrchestratorService;
 import org.yilena.luna.service.model.NodeWorksetResult;
-import org.yilena.luna.service.model.RoundStateWriteRequest;
-import org.yilena.luna.service.model.SummaryOrchestrationResult;
+import org.yilena.luna.service.model.RoundPipelineRequest;
 import org.yilena.luna.service.model.TaskOrchestrationResult;
 import org.yilena.luna.sse.LunaStatusPublisher;
 import org.yilena.luna.tools.PlanEventTools;
@@ -71,9 +65,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
     private final LunaStatusPublisher statusPublisher;
     private final MemoryWritePipelineService memoryWritePipelineService;
     private final TaskOrchestratorService taskOrchestratorService;
-    private final ToolSemanticAgent toolSemanticAgent;
-    private final ToolSemanticResultValidator toolSemanticResultValidator;
-    private final ToolSemanticTraceLogger toolSemanticTraceLogger;
+    private final RoundPipelineOrchestrator roundPipelineOrchestrator;
     private final ContextSnapshotStore contextSnapshotStore;
     private final ObjectMapper objectMapper;
 
@@ -739,49 +731,38 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
             return;
         }
         try {
-            ToolSemanticResult translatedToolSemanticResult = translatePhaseToolSemanticResult(
-                    sessionId,
-                    contextPlanId(contextPackage),
-                    contextNodeId(contextPackage),
-                    decision,
-                    nodeWorksetResult,
-                    userInput,
-                    agentResult,
-                    contextPackage
-            );
             String assistantReply = success
                     ? truncate(agentResult, 1200)
                     : "node_execution_failed:" + truncate(extractErrorMessage(agentResult), 480);
-            SummaryOrchestrationResult summaryOrchestrationResult = taskOrchestratorService.orchestrateSummary(
-                    sessionId,
-                    userInput,
-                    assistantReply,
-                    contextPackage,
-                    nodeWorksetResult == null ? List.of() : nodeWorksetResult.getSelectedKnowledgeEvidenceBlocks(),
-                    nodeWorksetResult == null ? List.of() : nodeWorksetResult.getMcpResourceHints(),
-                    translatedToolSemanticResult,
-                    false,
-                    "PHASE_EXECUTION_NODE"
+            roundPipelineOrchestrator.executeRound(
+                    RoundPipelineRequest.builder()
+                            .sessionId(sessionId)
+                            .userInput(userInput)
+                            .decision(decision)
+                            .contextPackage(contextPackage)
+                            .reconstructionResult(reconstructionResult)
+                            .nodeWorksetResult(nodeWorksetResult)
+                            .workingMemorySnippets(List.of())
+                            .runtimeMemorySnippets(List.of())
+                            .retrievedMemorySnippets(List.of())
+                            .knowledgeSnippets(List.of())
+                            .preferenceSnippets(List.of())
+                            .longTermMemorySnippets(List.of())
+                            .executionCandidates(nodeWorksetResult == null ? List.of() : nodeWorksetResult.getExecutionCandidates())
+                            .mcpResourceHints(nodeWorksetResult == null ? List.of() : nodeWorksetResult.getMcpResourceHints())
+                            .toolContext(agentResult)
+                            .stage("PHASE_EXECUTION_NODE")
+                            .runMainModel(false)
+                            .assistantReplyOverride(assistantReply)
+                            .postSummaryTriggerSource("PHASE_EXECUTION_NODE")
+                            .writeRoundState(true)
+                            .retrievalPlanOverrides(Map.of(
+                                    "phaseExecution", true,
+                                    "nodeId", nodeId == null ? "" : nodeId,
+                                    "nodeStatus", success ? "SUCCESS" : "FAILED"
+                            ))
+                            .build()
             );
-            SummaryResult summaryResult = summaryOrchestrationResult == null ? null : summaryOrchestrationResult.getSummaryResult();
-            ContextRerankResult rerankResult = nodeWorksetResult == null ? null : nodeWorksetResult.getRerankResult();
-            taskOrchestratorService.writeRoundState(RoundStateWriteRequest.builder()
-                    .sessionId(sessionId)
-                    .decision(decision)
-                    .contextPackage(contextPackage)
-                    .reconstruction(reconstructionResult)
-                    .rerankResult(rerankResult)
-                    .toolSemanticResult(translatedToolSemanticResult)
-                    .summaryResult(summaryResult)
-                    .ragQuery(nodeWorksetResult == null ? "" : nodeWorksetResult.getRagQuery())
-                    .memoryQuery(nodeWorksetResult == null ? "" : nodeWorksetResult.getMemoryQuery())
-                    .mcpQuery(nodeWorksetResult == null ? "" : nodeWorksetResult.getMcpDrivenInput())
-                    .retrievalPlanOverrides(Map.of(
-                            "phaseExecution", true,
-                            "nodeId", nodeId == null ? "" : nodeId,
-                            "nodeStatus", success ? "SUCCESS" : "FAILED"
-                    ))
-                    .build());
             memoryWritePipelineService.writeAfterTurn(sessionId, userInput, assistantReply, contextPackage);
         } catch (Exception e) {
             log.warn("[Node] 节点上下文写回失败（不中断主流程）, sessionId={}, nodeId={}, err={}",
@@ -824,68 +805,6 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         } catch (Exception e) {
             log.warn("[Node] pre-tool snapshot save failed, sessionId={}, nodeId={}, err={}", sessionId, nodeId, e.getMessage());
         }
-    }
-
-    private ToolSemanticResult translatePhaseToolSemanticResult(String sessionId,
-                                                                Long planId,
-                                                                Long nodeId,
-                                                                OrchestrationDecision decision,
-                                                                NodeWorksetResult nodeWorksetResult,
-                                                                String nodeGoal,
-                                                                String rawToolResult,
-                                                                StructuredContextPackage contextPackage) {
-        ToolSemanticResult translated;
-        String toolName = resolvePrimaryToolName(nodeWorksetResult == null ? List.of() : nodeWorksetResult.getExecutionCandidates());
-        String toolDescription = resolvePrimaryToolDescription(nodeWorksetResult == null ? List.of() : nodeWorksetResult.getExecutionCandidates());
-        try {
-            translated = toolSemanticAgent.translate(
-                    toolName,
-                    toolDescription,
-                    rawToolResult,
-                    decision == null ? null : decision.getTaskState(),
-                    nodeGoal
-            );
-        } catch (Exception ex) {
-            translated = fallbackToolSemanticResult(toolName, toolDescription, rawToolResult, ex.getMessage());
-        }
-
-        try {
-            ToolSemanticResultValidator.ValidationResult validationResult = toolSemanticResultValidator.validate(translated, contextPackage);
-            if (validationResult != null && validationResult.normalized() != null) {
-                translated = validationResult.normalized();
-            }
-        } catch (Exception ex) {
-            translated = fallbackToolSemanticResult(toolName, toolDescription, rawToolResult, ex.getMessage());
-        }
-        try {
-            toolSemanticTraceLogger.log(sessionId == null ? "" : sessionId, planId, nodeId, translated);
-        } catch (Exception ignore) {
-        }
-        return translated;
-    }
-
-    private ToolSemanticResult fallbackToolSemanticResult(String toolName,
-                                                          String toolDescription,
-                                                          String rawToolResult,
-                                                          String errorMessage) {
-        boolean failed = isErrorResult(rawToolResult);
-        return ToolSemanticResult.builder()
-                .toolName(toolName == null ? "agent_tool_chain" : toolName)
-                .toolDescription(toolDescription == null ? "" : toolDescription)
-                .rawResultDigest(truncate(rawToolResult, 640))
-                .toolStatus(failed ? "FAILED" : "UNKNOWN")
-                .keyFacts(List.of("tool_semantic_fallback_applied"))
-                .businessImpact(failed ? "tool call failed and requires follow-up" : "tool result available but semantic translation degraded")
-                .unresolvedIssues(errorMessage == null || errorMessage.isBlank() ? List.of() : List.of(truncate(errorMessage, 200)))
-                .nextStepHint(failed ? "retry_or_recover" : "inspect_raw_tool_result")
-                .confidence(0.15)
-                .semanticPayload(Map.of(
-                        "status", failed ? "FAILED" : "UNKNOWN",
-                        "tool", toolName == null ? "" : toolName,
-                        "fallback", true,
-                        "fallbackReason", errorMessage == null ? "" : truncate(errorMessage, 200)
-                ))
-                .build();
     }
 
     private String resolvePrimaryToolName(List<Resource> executionCandidates) {

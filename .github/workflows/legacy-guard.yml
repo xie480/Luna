@@ -25,3 +25,5 @@ jobs:
       - name: Check Legacy Drop Gate
         run: python scripts/ci/check_legacy_drop_gate.py
 
+      - name: Check Docs UTF-8 And Structure
+        run: python scripts/ci/check_docs_utf8_and_structure.py

@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
@@ -23,11 +24,7 @@ class DefaultInputReconstructionAgentTest {
 
     @Test
     void shouldUseStateAndFullShortTermMemoryForReconstruction() {
-        DefaultInputReconstructionAgent agent = new DefaultInputReconstructionAgent(
-                mock(LlmClientUtil.class),
-                new GeminiProperty(),
-                new ObjectMapper()
-        );
+        DefaultInputReconstructionAgent agent = newAgent();
         List<Map<String, Object>> shortTermMemory = IntStream.range(0, 25)
                 .mapToObj(i -> Map.<String, Object>of(
                         "role", i % 2 == 0 ? "USER" : "ASSISTANT",
@@ -76,5 +73,48 @@ class DefaultInputReconstructionAgentTest {
         assertTrue(result.getNormalizedUserIntent().contains("msg-0"));
         assertTrue(result.getNormalizedUserIntent().contains("msg-24"));
         assertTrue(result.getReformulatedQueryForRag().contains("goal=complete Q2 operation review"));
+    }
+
+    @Test
+    void shouldSupportChineseTimeScopeConstraintAndPronounDisambiguation() {
+        DefaultInputReconstructionAgent agent = newAgent();
+        InputReconstructionResult result = agent.reconstruct(
+                "s-cn",
+                "这个需求今天继续处理，不要超预算",
+                null,
+                TaskRuntimeState.PLANNING,
+                RelationalRuntimeState.LIGHT_CHAT
+        );
+
+        assertEquals("today", result.getTimeScope());
+        assertTrue(result.getMissingSlots().contains("target_reference"));
+        assertTrue(result.getBusinessConstraints().contains("hard_constraint_from_user_input"));
+        assertTrue(result.getMissingSlots().contains("success_criteria"));
+    }
+
+    @Test
+    void shouldSupportEnglishTimeScopeConstraintAndPronounDisambiguation() {
+        DefaultInputReconstructionAgent agent = newAgent();
+        InputReconstructionResult result = agent.reconstruct(
+                "s-en",
+                "please optimize this report tomorrow with a strict deadline, same as before",
+                null,
+                TaskRuntimeState.PLANNING,
+                RelationalRuntimeState.LIGHT_CHAT
+        );
+
+        assertEquals("tomorrow", result.getTimeScope());
+        assertTrue(result.getMissingSlots().contains("target_reference"));
+        assertTrue(result.getBusinessConstraints().contains("hard_constraint_from_user_input"));
+        assertTrue(result.getMissingSlots().contains("success_criteria"));
+        assertFalse(result.getMissingSlots().contains("constraint_detail"));
+    }
+
+    private DefaultInputReconstructionAgent newAgent() {
+        return new DefaultInputReconstructionAgent(
+                mock(LlmClientUtil.class),
+                new GeminiProperty(),
+                new ObjectMapper()
+        );
     }
 }
