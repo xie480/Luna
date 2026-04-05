@@ -674,7 +674,11 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         contextTraceLogger.log(sessionId, planId, nodeId, assembledContext);
 
         String finalSnapshotId = assembledContext == null ? "" : nullSafe(assembledContext.getSnapshotId());
-        if (!sessionId.isBlank() && finalSnapshotId.isBlank()) {
+        Map<String, Object> rawToolResultChannel = request.getRawToolResultChannel() == null ? Map.of() : request.getRawToolResultChannel();
+        Map<String, List<String>> finalActiveRefs = buildFinalSnapshotActiveRefs(request, contextPackage);
+        boolean shouldPersistByOrchestrator = !sessionId.isBlank()
+                && (finalSnapshotId.isBlank() || shouldBackfillRawChannel(rawToolResultChannel));
+        if (shouldPersistByOrchestrator) {
             finalSnapshotId = nullSafe(contextSnapshotStore.saveFinalSnapshot(
                     sessionId,
                     planId,
@@ -683,15 +687,15 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     assembledContext == null ? "" : nullSafe(assembledContext.getPrompt()),
                     assembledContext == null || assembledContext.getSectionTokenCounts() == null ? Map.of() : assembledContext.getSectionTokenCounts(),
                     assembledContext == null || assembledContext.getSectionTokenRatios() == null ? Map.of() : assembledContext.getSectionTokenRatios(),
-                    request.getRawToolResultChannel() == null ? Map.of() : request.getRawToolResultChannel(),
-                    buildFinalSnapshotActiveRefs(request, contextPackage)
+                    rawToolResultChannel,
+                    finalActiveRefs
             ));
             runtimeAuditService.persistDecisionRecord(
                     sessionId,
                     planId,
                     nodeId,
                     "CONTEXT_SNAPSHOT_FINAL",
-                    "final model context snapshot persisted",
+                    "final model context snapshot persisted by task orchestrator",
                     toJsonSafe(Map.of("snapshotId", finalSnapshotId))
             );
         } else if (!sessionId.isBlank() && !finalSnapshotId.isBlank()) {
@@ -2187,6 +2191,10 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .filter(item -> !item.isBlank())
                 .distinct()
                 .toList();
+    }
+
+    private boolean shouldBackfillRawChannel(Map<String, Object> rawToolResultChannel) {
+        return rawToolResultChannel != null && !rawToolResultChannel.isEmpty();
     }
 
     @SuppressWarnings("unchecked")

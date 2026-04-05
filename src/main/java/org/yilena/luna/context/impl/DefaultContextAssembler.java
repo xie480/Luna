@@ -169,7 +169,15 @@ public class DefaultContextAssembler implements ContextAssembler {
                     preSnapshotContext.getSectionTokenCounts(),
                     preSnapshotContext.getSectionTokenRatios(),
                     Map.of(),
-                    buildActiveRefsForSnapshot(rerankResult, knowledgeEvidenceBlocks)
+                    buildActiveRefsForSnapshot(
+                            rerankResult,
+                            knowledgeEvidenceBlocks,
+                            executionCandidates,
+                            mcpResourceHints,
+                            effectiveToolSemanticResult,
+                            toolContext,
+                            contextPackage
+                    )
             ));
         }
         return AssembledContext.builder()
@@ -183,7 +191,12 @@ public class DefaultContextAssembler implements ContextAssembler {
     }
 
     private Map<String, List<String>> buildActiveRefsForSnapshot(ContextRerankResult rerankResult,
-                                                                 List<EvidenceBlock> knowledgeEvidenceBlocks) {
+                                                                 List<EvidenceBlock> knowledgeEvidenceBlocks,
+                                                                 List<Resource> executionCandidates,
+                                                                 List<String> mcpResourceHints,
+                                                                 ToolSemanticResult toolSemanticResult,
+                                                                 String toolContext,
+                                                                 StructuredContextPackage contextPackage) {
         List<String> knowledgeRefs = new ArrayList<>();
         if (rerankResult != null && rerankResult.getSelectedKnowledgeEvidenceBlocks() != null) {
             for (EvidenceBlock block : rerankResult.getSelectedKnowledgeEvidenceBlocks()) {
@@ -205,13 +218,172 @@ public class DefaultContextAssembler implements ContextAssembler {
                 .filter(item -> item != null && !item.isBlank())
                 .distinct()
                 .toList();
+        List<String> toolRefs = mergeDistinct(
+                deriveToolRefsFromRerank(rerankResult),
+                contextPackage == null || contextPackage.getContextState() == null
+                        ? List.of()
+                        : contextPackage.getContextState().getActiveToolEvidenceRefs()
+        );
+        if (toolRefs.isEmpty() && toolSemanticResult != null && toolSemanticResult.getToolName() != null
+                && !toolSemanticResult.getToolName().isBlank()) {
+            toolRefs = List.of("tool_name:" + toolSemanticResult.getToolName());
+        }
+        if (toolRefs.isEmpty() && toolContext != null && !toolContext.isBlank()) {
+            toolRefs = List.of("tool_context_hash:" + Integer.toHexString(toolContext.hashCode()));
+        }
+        List<String> mcpPromptRefs = mergeDistinct(
+                derivePromptRefsFromRerank(rerankResult),
+                derivePromptRefsFromExecutionCandidates(executionCandidates)
+        );
+        if (mcpPromptRefs.isEmpty() && contextPackage != null && contextPackage.getContextState() != null) {
+            mcpPromptRefs = contextPackage.getContextState().getActiveMcpPromptRefs();
+        }
+        List<String> mcpResourceRefs = mergeDistinct(
+                deriveResourceRefsFromRerank(rerankResult),
+                mergeDistinct(
+                        deriveResourceRefsFromExecutionCandidates(executionCandidates),
+                        deriveResourceRefsFromHints(mcpResourceHints)
+                )
+        );
+        if (mcpResourceRefs.isEmpty() && contextPackage != null && contextPackage.getContextState() != null) {
+            mcpResourceRefs = contextPackage.getContextState().getActiveMcpResourceRefs();
+        }
         return Map.of(
                 "activeKnowledgeRefs", knowledgeRefs.stream().distinct().toList(),
                 "activeMemoryRefs", memoryRefs,
-                "activeToolEvidenceRefs", List.of(),
-                "activeMcpPromptRefs", List.of(),
-                "activeMcpResourceRefs", List.of()
+                "activeToolEvidenceRefs", toolRefs == null ? List.of() : toolRefs.stream().filter(item -> item != null && !item.isBlank()).distinct().toList(),
+                "activeMcpPromptRefs", mcpPromptRefs == null ? List.of() : mcpPromptRefs.stream().filter(item -> item != null && !item.isBlank()).distinct().toList(),
+                "activeMcpResourceRefs", mcpResourceRefs == null ? List.of() : mcpResourceRefs.stream().filter(item -> item != null && !item.isBlank()).distinct().toList()
         );
+    }
+
+    private List<String> deriveToolRefsFromRerank(ContextRerankResult rerankResult) {
+        if (rerankResult == null || rerankResult.getSelectedToolCandidates() == null || rerankResult.getSelectedToolCandidates().isEmpty()) {
+            return List.of();
+        }
+        List<String> refs = new ArrayList<>();
+        for (Map<String, Object> row : rerankResult.getSelectedToolCandidates()) {
+            if (row == null || row.isEmpty()) {
+                continue;
+            }
+            String capability = firstNonBlank(safe(row.get("capability_name")), firstNonBlank(safe(row.get("tool_name")), safe(row.get("name"))));
+            String server = safe(row.get("server_code"));
+            String resourceUri = safe(row.get("resource_uri"));
+            String id = safe(row.get("id"));
+            if (!capability.isBlank()) {
+                refs.add("tool:" + capability + (server.isBlank() ? "" : "@"+ server));
+            } else if (!resourceUri.isBlank()) {
+                refs.add("tool_uri:" + resourceUri);
+            } else if (!id.isBlank()) {
+                refs.add("tool_id:" + id);
+            }
+        }
+        return refs.stream().filter(item -> item != null && !item.isBlank()).distinct().toList();
+    }
+
+    private List<String> derivePromptRefsFromRerank(ContextRerankResult rerankResult) {
+        if (rerankResult == null || rerankResult.getSelectedPromptResources() == null || rerankResult.getSelectedPromptResources().isEmpty()) {
+            return List.of();
+        }
+        List<String> refs = new ArrayList<>();
+        for (Map<String, Object> row : rerankResult.getSelectedPromptResources()) {
+            if (row == null || row.isEmpty()) {
+                continue;
+            }
+            String type = safe(row.get("type")).toUpperCase();
+            if (!type.isBlank() && !"PROMPT".equals(type)) {
+                continue;
+            }
+            String name = firstNonBlank(safe(row.get("prompt_name")), firstNonBlank(safe(row.get("name")), safe(row.get("capability_name"))));
+            String server = safe(row.get("server_code"));
+            String id = safe(row.get("id"));
+            if (!name.isBlank()) {
+                refs.add("prompt:" + name + (server.isBlank() ? "" : "@"+ server));
+            } else if (!id.isBlank()) {
+                refs.add("prompt_id:" + id);
+            }
+        }
+        return refs.stream().filter(item -> item != null && !item.isBlank()).distinct().toList();
+    }
+
+    private List<String> deriveResourceRefsFromRerank(ContextRerankResult rerankResult) {
+        if (rerankResult == null || rerankResult.getSelectedPromptResources() == null || rerankResult.getSelectedPromptResources().isEmpty()) {
+            return List.of();
+        }
+        List<String> refs = new ArrayList<>();
+        for (Map<String, Object> row : rerankResult.getSelectedPromptResources()) {
+            if (row == null || row.isEmpty()) {
+                continue;
+            }
+            String type = safe(row.get("type")).toUpperCase();
+            if (!type.isBlank() && "PROMPT".equals(type)) {
+                continue;
+            }
+            String resourceUri = safe(row.get("resource_uri"));
+            String name = safe(row.get("name"));
+            String id = safe(row.get("id"));
+            if (!resourceUri.isBlank()) {
+                refs.add("resource_uri:" + resourceUri);
+            } else if (!name.isBlank()) {
+                refs.add("resource:" + name);
+            } else if (!id.isBlank()) {
+                refs.add("resource_id:" + id);
+            }
+        }
+        return refs.stream().filter(item -> item != null && !item.isBlank()).distinct().toList();
+    }
+
+    private List<String> derivePromptRefsFromExecutionCandidates(List<Resource> executionCandidates) {
+        if (executionCandidates == null || executionCandidates.isEmpty()) {
+            return List.of();
+        }
+        List<String> refs = new ArrayList<>();
+        for (Resource candidate : executionCandidates) {
+            if (candidate == null || candidate.getType() == null) {
+                continue;
+            }
+            if (candidate.getType() != org.yilena.luna.enums.ResourceType.PROMPT) {
+                continue;
+            }
+            String name = safe(candidate.getName());
+            if (!name.isBlank()) {
+                refs.add("prompt:" + name + (safe(candidate.getServerCode()).isBlank() ? "" : "@"+ safe(candidate.getServerCode())));
+            }
+        }
+        return refs.stream().filter(item -> item != null && !item.isBlank()).distinct().toList();
+    }
+
+    private List<String> deriveResourceRefsFromExecutionCandidates(List<Resource> executionCandidates) {
+        if (executionCandidates == null || executionCandidates.isEmpty()) {
+            return List.of();
+        }
+        List<String> refs = new ArrayList<>();
+        for (Resource candidate : executionCandidates) {
+            if (candidate == null || candidate.getType() == null) {
+                continue;
+            }
+            if (candidate.getType() != org.yilena.luna.enums.ResourceType.RESOURCE
+                    && candidate.getType() != org.yilena.luna.enums.ResourceType.WORKFLOW) {
+                continue;
+            }
+            if (candidate.getResourceUri() != null && !candidate.getResourceUri().isBlank()) {
+                refs.add("resource_uri:" + candidate.getResourceUri());
+            } else if (candidate.getName() != null && !candidate.getName().isBlank()) {
+                refs.add("resource:" + candidate.getName());
+            }
+        }
+        return refs.stream().filter(item -> item != null && !item.isBlank()).distinct().toList();
+    }
+
+    private List<String> deriveResourceRefsFromHints(List<String> mcpResourceHints) {
+        if (mcpResourceHints == null || mcpResourceHints.isEmpty()) {
+            return List.of();
+        }
+        return mcpResourceHints.stream()
+                .filter(item -> item != null && !item.isBlank())
+                .map(item -> "hint:" + item.trim())
+                .distinct()
+                .toList();
     }
 
     private Map<String, List<String>> buildCandidatePool(String userInput,

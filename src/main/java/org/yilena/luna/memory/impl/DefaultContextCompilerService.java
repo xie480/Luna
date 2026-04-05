@@ -7,9 +7,11 @@ import org.yilena.luna.enums.SessionType;
 import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.memory.ContextCompilerService;
 import org.yilena.luna.memory.MemoryHotLayerService;
+import org.yilena.luna.memory.RelationalMemoryRetriever;
 import org.yilena.luna.memory.ResponseSynthesizerService;
 import org.yilena.luna.memory.RuntimeRetriever;
 import org.yilena.luna.memory.SocialReasonerService;
+import org.yilena.luna.memory.TaskMemoryRetriever;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.state.model.ContextState;
 import org.yilena.luna.state.model.RetrievalState;
@@ -33,6 +35,8 @@ public class DefaultContextCompilerService implements ContextCompilerService {
 
     private final RuntimeRetriever runtimeRetriever;
     private final MemoryHotLayerService memoryHotLayerService;
+    private final TaskMemoryRetriever taskMemoryRetriever;
+    private final RelationalMemoryRetriever relationalMemoryRetriever;
     private final SocialReasonerService socialReasonerService;
     private final ResponseSynthesizerService responseSynthesizerService;
     private final TaskStateStore taskStateStore;
@@ -65,9 +69,21 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                 taskState,
                 relationalState
         );
-        // Memory/capability retrieval is deferred to node-level orchestration and Context Assembler.
-        Map<String, Object> taskContext = Map.of();
-        Map<String, Object> relationalContext = Map.of();
+        Map<String, Object> taskContext = preloadTaskContext(
+                sessionId,
+                userInput,
+                taskState,
+                storedTaskState,
+                storedRetrievalState,
+                runtime
+        );
+        Map<String, Object> relationalContext = preloadRelationalContext(
+                sessionId,
+                userInput,
+                relationalState,
+                storedContextState,
+                runtime
+        );
 
         List<Map<String, Object>> recentMessages = safeList(runtime.get("recent_messages"));
         Map<String, Object> socialDraft = socialReasonerService.buildRelationalDraft(
@@ -85,7 +101,7 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                 socialDraft
         );
         Map<String, Object> promptPolicy = buildPromptPolicy(taskState, relationalState, sessionType, socialDraft, synthesisPolicy);
-        promptPolicy.put("memory_fetch_mode", "NODE_ON_DEMAND");
+        promptPolicy.put("memory_fetch_mode", "ENTRY_PRELOADED_PLUS_NODE_ON_DEMAND");
         promptPolicy.put("capability_fetch_mode", "MCP_QUERY_ON_DEMAND");
         Map<String, Integer> budget = buildTokenBudget(taskState, relationalState, sessionType);
 
@@ -108,6 +124,81 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                 .build();
         memoryHotLayerService.putCompiledContextCache(sessionId, userInput, taskState, relationalState, contextPackage);
         return contextPackage;
+    }
+
+    private Map<String, Object> preloadTaskContext(String sessionId,
+                                                   String userInput,
+                                                   TaskRuntimeState taskState,
+                                                   TaskState storedTaskState,
+                                                   RetrievalState storedRetrievalState,
+                                                   Map<String, Object> runtime) {
+        if (isBlank(sessionId)) {
+            return Map.of();
+        }
+        String semanticQuery = buildTaskSemanticQuery(userInput, storedTaskState, storedRetrievalState, runtime);
+        Map<String, Object> retrieved = mapOf(taskMemoryRetriever.retrieve(sessionId, semanticQuery, taskState));
+        if (retrieved.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> merged = new LinkedHashMap<>(retrieved);
+        merged.put("compiler_preloaded", true);
+        merged.put("semantic_query", semanticQuery);
+        return merged;
+    }
+
+    private Map<String, Object> preloadRelationalContext(String sessionId,
+                                                         String userInput,
+                                                         RelationalRuntimeState relationalState,
+                                                         ContextState storedContextState,
+                                                         Map<String, Object> runtime) {
+        if (isBlank(sessionId)) {
+            return Map.of();
+        }
+        String semanticQuery = buildRelationalSemanticQuery(userInput, storedContextState, runtime);
+        Map<String, Object> retrieved = mapOf(relationalMemoryRetriever.retrieve(sessionId, semanticQuery, relationalState));
+        if (retrieved.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> merged = new LinkedHashMap<>(retrieved);
+        merged.put("compiler_preloaded", true);
+        merged.put("semantic_query", semanticQuery);
+        return merged;
+    }
+
+    private String buildTaskSemanticQuery(String userInput,
+                                          TaskState storedTaskState,
+                                          RetrievalState storedRetrievalState,
+                                          Map<String, Object> runtime) {
+        String user = str(userInput);
+        String objective = storedTaskState == null ? "" : str(storedTaskState.getObjective());
+        String node = storedTaskState == null ? "" : str(storedTaskState.getCurrentNode());
+        String retrievalIntent = storedRetrievalState == null ? "" : str(storedRetrievalState.getReconstructedIntent());
+        Map<String, Object> session = mapOf(runtime == null ? null : runtime.get("session"));
+        String currentGoal = str(session.get("current_goal"));
+        return String.join(" | ",
+                "user_input=" + firstNonBlank(user, "none"),
+                "objective=" + firstNonBlank(objective, currentGoal),
+                "node=" + firstNonBlank(node, "unknown"),
+                "retrieval_intent=" + firstNonBlank(retrievalIntent, "none"),
+                "query_source=context_compiler_preload");
+    }
+
+    private String buildRelationalSemanticQuery(String userInput,
+                                                ContextState storedContextState,
+                                                Map<String, Object> runtime) {
+        String user = str(userInput);
+        String narrative = storedContextState == null ? "" : str(storedContextState.getLatestNarrativeSummary());
+        List<Map<String, Object>> messages = safeList(runtime == null ? null : runtime.get("recent_messages"));
+        String recentSignal = "";
+        if (!messages.isEmpty()) {
+            Map<String, Object> latest = messages.get(messages.size() - 1);
+            recentSignal = str(latest.get("content_text"));
+        }
+        return String.join(" | ",
+                "user_input=" + firstNonBlank(user, "none"),
+                "recent_signal=" + firstNonBlank(recentSignal, "none"),
+                "narrative_summary=" + firstNonBlank(narrative, "none"),
+                "query_source=context_compiler_preload");
     }
 
     private String buildContextualSignal(Map<String, Object> runtime,
@@ -318,6 +409,10 @@ public class DefaultContextCompilerService implements ContextCompilerService {
         } catch (Exception ignore) {
             return 0;
         }
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
     }
 }
 
