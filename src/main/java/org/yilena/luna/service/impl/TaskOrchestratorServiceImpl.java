@@ -408,13 +408,14 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     sessionId,
                     contextPlanId(contextPackage),
                     contextNodeId(contextPackage),
-                    "BOTTOM_RERANK_DETAIL_TRACE",
-                    "bottom rerank detail before global semantic rerank merge",
-                    toJsonSafe(Map.of(
-                            "knowledgeTopIds", getEvidences(response, RetrievalSource.KNOWLEDGE).stream().limit(20).map(Evidence::getId).toList(),
-                            "memoryTopIds", getEvidences(response, RetrievalSource.MEMORY).stream().limit(20).map(Evidence::getId).toList(),
-                            "preferenceTopIds", getEvidences(response, RetrievalSource.PREFERENCE).stream().limit(20).map(Evidence::getId).toList(),
-                            "mcpPreRankTopNames", mcpPreRankedCandidates.stream().limit(20).map(row -> stringValue(row.get("capability_name"))).toList()
+                    "RERANK_TRACE_BOTTOM_CHANNELS",
+                    "standardized per-channel bottom rerank trace before global semantic rerank",
+                    toJsonSafe(buildBottomRerankTracePayload(
+                            response,
+                            mcpPreRankedCandidates,
+                            ragQuery,
+                            memoryQuery,
+                            mcpDrivenInput
                     ))
             );
             runtimeAuditService.persistDecisionRecord(
@@ -1379,6 +1380,82 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             return Collections.emptyList();
         }
         return response.getEvidences().getOrDefault(source, Collections.emptyList());
+    }
+
+    private Map<String, Object> buildBottomRerankTracePayload(RetrievalResponse response,
+                                                              List<Map<String, Object>> mcpPreRankedCandidates,
+                                                              String ragQuery,
+                                                              String memoryQuery,
+                                                              String mcpQuery) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("queries", Map.of(
+                "rag", nullSafe(ragQuery),
+                "memory", nullSafe(memoryQuery),
+                "mcp", nullSafe(mcpQuery)
+        ));
+        payload.put("knowledgeBottomRerank", toBottomRerankRows(getEvidences(response, RetrievalSource.KNOWLEDGE), 24));
+        payload.put("memoryBottomRerank", toBottomRerankRows(getEvidences(response, RetrievalSource.MEMORY), 24));
+        payload.put("preferenceBottomRerank", toBottomRerankRows(getEvidences(response, RetrievalSource.PREFERENCE), 24));
+        payload.put("mcpBottomRerank", toMcpBottomRerankRows(mcpPreRankedCandidates, 24));
+        return payload;
+    }
+
+    private List<Map<String, Object>> toBottomRerankRows(List<Evidence> evidences, int limit) {
+        if (evidences == null || evidences.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> rows = new ArrayList<>();
+        int rank = 1;
+        for (Evidence evidence : evidences) {
+            if (evidence == null) {
+                continue;
+            }
+            if (rows.size() >= Math.max(1, limit)) {
+                break;
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("rank", rank++);
+            row.put("id", nullSafe(evidence.getId()));
+            row.put("source", evidence.getSource() == null ? "" : evidence.getSource().name());
+            row.put("role", evidence.getRole() == null ? "" : evidence.getRole().name());
+            row.put("score", evidence.getScore());
+            row.put("title", nullSafe(evidence.getTitle()));
+            row.put("metadata", evidence.getMetadata() == null ? Map.of() : evidence.getMetadata());
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    private List<Map<String, Object>> toMcpBottomRerankRows(List<Map<String, Object>> candidates, int limit) {
+        if (candidates == null || candidates.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> rows = new ArrayList<>();
+        int rank = 1;
+        for (Map<String, Object> candidate : candidates) {
+            if (candidate == null || candidate.isEmpty()) {
+                continue;
+            }
+            if (rows.size() >= Math.max(1, limit)) {
+                break;
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("rank", rank++);
+            row.put("capabilityName", stringValue(candidate.get("capability_name")));
+            row.put("capabilityType", stringValue(candidate.get("capability_type")));
+            row.put("serverCode", stringValue(candidate.get("server_code")));
+            row.put("score", firstNonBlank(
+                    stringValue(candidate.get("score")),
+                    firstNonBlank(
+                            stringValue(candidate.get("final_score")),
+                            stringValue(candidate.get("relevance_score"))
+                    )
+            ));
+            row.put("requiresApproval", candidate.get("requires_approval"));
+            row.put("sensitivity", stringValue(candidate.get("sensitivity")));
+            rows.add(row);
+        }
+        return rows;
     }
 
     private List<String> toMemorySnippets(RetrievalResponse response) {

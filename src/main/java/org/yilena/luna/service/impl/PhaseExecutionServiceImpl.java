@@ -16,6 +16,10 @@ import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.context.model.SummaryResult;
+import org.yilena.luna.context.model.ToolSemanticResult;
+import org.yilena.luna.context.ToolSemanticAgent;
+import org.yilena.luna.context.ToolSemanticResultValidator;
+import org.yilena.luna.context.ToolSemanticTraceLogger;
 import org.yilena.luna.service.AgentService;
 import org.yilena.luna.service.PhaseExecutionService;
 import org.yilena.luna.service.TaskOrchestratorService;
@@ -26,6 +30,7 @@ import org.yilena.luna.service.model.TaskOrchestrationResult;
 import org.yilena.luna.sse.LunaStatusPublisher;
 import org.yilena.luna.tools.PlanEventTools;
 import org.yilena.luna.tools.PlanNodeTools;
+import org.yilena.luna.state.store.ContextSnapshotStore;
 
 import java.util.*;
 import java.util.concurrent.*;
@@ -63,6 +68,10 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
     private final LunaStatusPublisher statusPublisher;
     private final MemoryWritePipelineService memoryWritePipelineService;
     private final TaskOrchestratorService taskOrchestratorService;
+    private final ToolSemanticAgent toolSemanticAgent;
+    private final ToolSemanticResultValidator toolSemanticResultValidator;
+    private final ToolSemanticTraceLogger toolSemanticTraceLogger;
+    private final ContextSnapshotStore contextSnapshotStore;
     private final ObjectMapper objectMapper;
 
     // =========================================================
@@ -414,6 +423,15 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
             if (governedNodeWorksetResult != null && governedNodeWorksetResult.getExecutionCandidates() != null && !governedNodeWorksetResult.getExecutionCandidates().isEmpty()) {
                 governedExecutionCandidates = governedNodeWorksetResult.getExecutionCandidates();
             }
+            savePhasePreToolDecisionSnapshot(
+                    sessionId,
+                    planId,
+                    nodeId,
+                    nodeGoal,
+                    governedNodeGoal,
+                    governedExecutionCandidates,
+                    governedNodeWorksetResult
+            );
         } catch (Exception e) {
             governanceError = e.getMessage();
             log.error("[Node] context workset pipeline failed, nodeId={}, err={}", nodeId, governanceError, e);
@@ -716,6 +734,16 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
             return;
         }
         try {
+            ToolSemanticResult translatedToolSemanticResult = translatePhaseToolSemanticResult(
+                    sessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    decision,
+                    nodeWorksetResult,
+                    userInput,
+                    agentResult,
+                    contextPackage
+            );
             String assistantReply = success
                     ? truncate(agentResult, 1200)
                     : "node_execution_failed:" + truncate(extractErrorMessage(agentResult), 480);
@@ -726,7 +754,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                     contextPackage,
                     nodeWorksetResult == null ? List.of() : nodeWorksetResult.getSelectedKnowledgeEvidenceBlocks(),
                     nodeWorksetResult == null ? List.of() : nodeWorksetResult.getMcpResourceHints(),
-                    null,
+                    translatedToolSemanticResult,
                     false,
                     "PHASE_EXECUTION_NODE"
             );
@@ -738,6 +766,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                     .contextPackage(contextPackage)
                     .reconstruction(reconstructionResult)
                     .rerankResult(rerankResult)
+                    .toolSemanticResult(translatedToolSemanticResult)
                     .summaryResult(summaryResult)
                     .ragQuery(nodeWorksetResult == null ? "" : nodeWorksetResult.getRagQuery())
                     .memoryQuery(nodeWorksetResult == null ? "" : nodeWorksetResult.getMemoryQuery())
@@ -752,6 +781,198 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         } catch (Exception e) {
             log.warn("[Node] 节点上下文写回失败（不中断主流程）, sessionId={}, nodeId={}, err={}",
                     sessionId, nodeId, e.getMessage());
+        }
+    }
+
+    private void savePhasePreToolDecisionSnapshot(String sessionId,
+                                                  String planId,
+                                                  String nodeId,
+                                                  String userInput,
+                                                  String reconstructedMcpQuery,
+                                                  List<Resource> executionCandidates,
+                                                  NodeWorksetResult nodeWorksetResult) {
+        if (sessionId == null || sessionId.isBlank() || contextSnapshotStore == null) {
+            return;
+        }
+        try {
+            contextSnapshotStore.savePreToolDecisionSnapshot(
+                    sessionId,
+                    parseLong(planId),
+                    parseLong(nodeId),
+                    userInput,
+                    reconstructedMcpQuery,
+                    toExecutionCandidateMaps(executionCandidates),
+                    Map.of(
+                            "phaseExecution", true,
+                            "nodeId", nodeId == null ? "" : nodeId,
+                            "rerankedToolCandidateCount",
+                            nodeWorksetResult == null || nodeWorksetResult.getRerankResult() == null || nodeWorksetResult.getRerankResult().getSelectedToolCandidates() == null
+                                    ? 0
+                                    : nodeWorksetResult.getRerankResult().getSelectedToolCandidates().size(),
+                            "rerankedPromptResourceCount",
+                            nodeWorksetResult == null || nodeWorksetResult.getRerankResult() == null || nodeWorksetResult.getRerankResult().getSelectedPromptResources() == null
+                                    ? 0
+                                    : nodeWorksetResult.getRerankResult().getSelectedPromptResources().size()
+                    ),
+                    buildRawToolResultChannel("", List.of(), "", List.of())
+            );
+        } catch (Exception e) {
+            log.warn("[Node] pre-tool snapshot save failed, sessionId={}, nodeId={}, err={}", sessionId, nodeId, e.getMessage());
+        }
+    }
+
+    private ToolSemanticResult translatePhaseToolSemanticResult(String sessionId,
+                                                                Long planId,
+                                                                Long nodeId,
+                                                                OrchestrationDecision decision,
+                                                                NodeWorksetResult nodeWorksetResult,
+                                                                String nodeGoal,
+                                                                String rawToolResult,
+                                                                StructuredContextPackage contextPackage) {
+        ToolSemanticResult translated;
+        String toolName = resolvePrimaryToolName(nodeWorksetResult == null ? List.of() : nodeWorksetResult.getExecutionCandidates());
+        String toolDescription = resolvePrimaryToolDescription(nodeWorksetResult == null ? List.of() : nodeWorksetResult.getExecutionCandidates());
+        try {
+            translated = toolSemanticAgent.translate(
+                    toolName,
+                    toolDescription,
+                    rawToolResult,
+                    decision == null ? null : decision.getTaskState(),
+                    nodeGoal
+            );
+        } catch (Exception ex) {
+            translated = fallbackToolSemanticResult(toolName, toolDescription, rawToolResult, ex.getMessage());
+        }
+
+        try {
+            ToolSemanticResultValidator.ValidationResult validationResult = toolSemanticResultValidator.validate(translated, contextPackage);
+            if (validationResult != null && validationResult.normalized() != null) {
+                translated = validationResult.normalized();
+            }
+        } catch (Exception ex) {
+            translated = fallbackToolSemanticResult(toolName, toolDescription, rawToolResult, ex.getMessage());
+        }
+        try {
+            toolSemanticTraceLogger.log(sessionId == null ? "" : sessionId, planId, nodeId, translated);
+        } catch (Exception ignore) {
+        }
+        return translated;
+    }
+
+    private ToolSemanticResult fallbackToolSemanticResult(String toolName,
+                                                          String toolDescription,
+                                                          String rawToolResult,
+                                                          String errorMessage) {
+        boolean failed = isErrorResult(rawToolResult);
+        return ToolSemanticResult.builder()
+                .toolName(toolName == null ? "agent_tool_chain" : toolName)
+                .toolDescription(toolDescription == null ? "" : toolDescription)
+                .rawResultDigest(truncate(rawToolResult, 640))
+                .toolStatus(failed ? "FAILED" : "UNKNOWN")
+                .keyFacts(List.of("tool_semantic_fallback_applied"))
+                .businessImpact(failed ? "tool call failed and requires follow-up" : "tool result available but semantic translation degraded")
+                .unresolvedIssues(errorMessage == null || errorMessage.isBlank() ? List.of() : List.of(truncate(errorMessage, 200)))
+                .nextStepHint(failed ? "retry_or_recover" : "inspect_raw_tool_result")
+                .confidence(0.15)
+                .semanticPayload(Map.of(
+                        "status", failed ? "FAILED" : "UNKNOWN",
+                        "tool", toolName == null ? "" : toolName,
+                        "fallback", true,
+                        "fallbackReason", errorMessage == null ? "" : truncate(errorMessage, 200)
+                ))
+                .build();
+    }
+
+    private String resolvePrimaryToolName(List<Resource> executionCandidates) {
+        if (executionCandidates == null || executionCandidates.isEmpty()) {
+            return "agent_tool_chain";
+        }
+        Resource first = executionCandidates.get(0);
+        return first == null || first.getName() == null || first.getName().isBlank()
+                ? "agent_tool_chain"
+                : first.getName();
+    }
+
+    private String resolvePrimaryToolDescription(List<Resource> executionCandidates) {
+        if (executionCandidates == null || executionCandidates.isEmpty()) {
+            return "";
+        }
+        Resource first = executionCandidates.get(0);
+        if (first == null) {
+            return "";
+        }
+        return "type=" + (first.getType() == null ? "" : first.getType().name())
+                + ", server=" + text(first.getServerCode())
+                + ", resourceUri=" + text(first.getResourceUri());
+    }
+
+    private List<Map<String, Object>> toExecutionCandidateMaps(List<Resource> resources) {
+        if (resources == null || resources.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Resource resource : resources) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("name", resource.getName());
+            row.put("type", resource.getType() == null ? "" : resource.getType().name());
+            row.put("serverCode", resource.getServerCode());
+            row.put("resourceUri", resource.getResourceUri());
+            row.put("requiresApproval", resource.getRequiresApproval());
+            row.put("sensitivity", resource.getSensitivity() == null ? "" : resource.getSensitivity().name());
+            out.add(row);
+        }
+        return out;
+    }
+
+    private Map<String, Object> buildRawToolResultChannel(String rawToolContext,
+                                                          List<Map<String, Object>> rawToolExecutionTraces,
+                                                          String latestToolRawRef,
+                                                          List<String> toolHistoryRefs) {
+        Map<String, Object> channel = new LinkedHashMap<>();
+        channel.put("rawToolContext", rawToolContext == null ? "" : rawToolContext);
+        channel.put("rawToolExecutionTraces", rawToolExecutionTraces == null ? List.of() : rawToolExecutionTraces);
+        channel.put("latestToolRawRef", latestToolRawRef == null ? "" : latestToolRawRef);
+        channel.put("toolHistoryRefs", toolHistoryRefs == null ? List.of() : toolHistoryRefs);
+        return channel;
+    }
+
+    private Long contextPlanId(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getRuntime() == null) {
+            return null;
+        }
+        Object sessionRow = contextPackage.getRuntime().get("session");
+        if (sessionRow instanceof Map<?, ?> row) {
+            return parseLong(row.get("current_plan_id"));
+        }
+        return null;
+    }
+
+    private Long contextNodeId(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getTaskContext() == null) {
+            return null;
+        }
+        Object working = contextPackage.getTaskContext().get("working_memory");
+        if (working instanceof Map<?, ?> row) {
+            return parseLong(row.get("active_node_id"));
+        }
+        return null;
+    }
+
+    private Long parseLong(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value == null) {
+            return null;
+        }
+        String normalized = String.valueOf(value).trim();
+        if (normalized.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(normalized);
+        } catch (Exception ignore) {
+            return null;
         }
     }
 
