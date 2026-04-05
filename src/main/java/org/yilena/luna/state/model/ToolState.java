@@ -12,7 +12,9 @@ public class ToolState {
     String lastToolInput;
     String lastToolStatus;
     String lastToolRawResultRef;
+    String lastToolRawResultDigest;
+    String lastToolRawResultPreview;
+    String lastToolRawResultJson;
     String lastToolSemanticSummary;
     List<String> toolCallHistoryRefs;
 }
-

@@ -2,6 +2,7 @@ package org.yilena.luna.memory.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.enums.RelationalRuntimeState;
 import org.yilena.luna.enums.SessionType;
@@ -13,6 +14,7 @@ import org.yilena.luna.memory.ResponseSynthesizerService;
 import org.yilena.luna.memory.RuntimeRetriever;
 import org.yilena.luna.memory.SocialReasonerService;
 import org.yilena.luna.memory.TaskMemoryRetriever;
+import org.yilena.luna.memory.model.ContextCompileOptions;
 import org.yilena.luna.memory.model.GovernedSignal;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.state.model.ContextState;
@@ -30,6 +32,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
+import java.security.MessageDigest;
 
 @Service
 @RequiredArgsConstructor
@@ -48,14 +52,20 @@ public class DefaultContextCompilerService implements ContextCompilerService {
     private final RecoveryStateStore recoveryStateStore;
     private final ObjectMapper objectMapper;
 
+    @Value("${memory.context.compiler.fallback-preload-enabled:false}")
+    private boolean fallbackPreloadEnabled;
+
     @Override
     public StructuredContextPackage compile(String sessionId,
                                             String userInput,
                                             TaskRuntimeState taskState,
-                                            RelationalRuntimeState relationalState) {
-        StructuredContextPackage cached = memoryHotLayerService.getCompiledContextCache(sessionId, userInput, taskState, relationalState);
-        if (cached != null) {
-            return cached;
+                                            RelationalRuntimeState relationalState,
+                                            ContextCompileOptions options) {
+        if (isCacheEligible(options)) {
+            StructuredContextPackage cached = memoryHotLayerService.getCompiledContextCache(sessionId, userInput, taskState, relationalState);
+            if (cached != null) {
+                return cached;
+            }
         }
 
         Map<String, Object> runtime = runtimeRetriever.retrieve(sessionId);
@@ -73,20 +83,23 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                 relationalState
         );
         GovernedSignal governedSignal = extractGovernedSignal(userInput);
+        PreloadDecision preloadDecision = resolvePreloadDecision(taskState, options);
         Map<String, Object> taskContext = preloadTaskContext(
                 sessionId,
                 governedSignal,
                 taskState,
                 storedTaskState,
                 storedRetrievalState,
-                runtime
+                runtime,
+                preloadDecision.preloadTaskMemory()
         );
         Map<String, Object> relationalContext = preloadRelationalContext(
                 sessionId,
                 governedSignal,
                 relationalState,
                 storedContextState,
-                runtime
+                runtime,
+                preloadDecision.preloadRelationalMemory()
         );
 
         List<Map<String, Object>> recentMessages = safeList(runtime.get("recent_messages"));
@@ -105,8 +118,12 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                 socialDraft
         );
         Map<String, Object> promptPolicy = buildPromptPolicy(taskState, relationalState, sessionType, socialDraft, synthesisPolicy);
-        promptPolicy.put("memory_fetch_mode", "ENTRY_PRELOADED_PLUS_NODE_ON_DEMAND");
+        promptPolicy.put("memory_fetch_mode", preloadDecision.memoryFetchMode());
         promptPolicy.put("capability_fetch_mode", "MCP_QUERY_ON_DEMAND");
+        promptPolicy.put("compiler_preload_mode", preloadDecision.preloadMode());
+        promptPolicy.put("compiler_preload_reason", preloadDecision.reason());
+        promptPolicy.put("compiler_preload_task_memory", preloadDecision.preloadTaskMemory());
+        promptPolicy.put("compiler_preload_relational_memory", preloadDecision.preloadRelationalMemory());
         Map<String, Integer> budget = buildTokenBudget(taskState, relationalState, sessionType);
 
         StructuredContextPackage contextPackage = StructuredContextPackage.builder()
@@ -126,7 +143,9 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                 .contextState(storedContextState)
                 .recoveryState(recoveryStateStore.load(sessionId))
                 .build();
-        memoryHotLayerService.putCompiledContextCache(sessionId, userInput, taskState, relationalState, contextPackage);
+        if (isCacheEligible(options)) {
+            memoryHotLayerService.putCompiledContextCache(sessionId, userInput, taskState, relationalState, contextPackage);
+        }
         return contextPackage;
     }
 
@@ -135,9 +154,16 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                                                    TaskRuntimeState taskState,
                                                    TaskState storedTaskState,
                                                    RetrievalState storedRetrievalState,
-                                                   Map<String, Object> runtime) {
+                                                   Map<String, Object> runtime,
+                                                   boolean preloadEnabled) {
         if (isBlank(sessionId)) {
             return Map.of();
+        }
+        if (!preloadEnabled) {
+            return Map.of(
+                    "compiler_preloaded", false,
+                    "preload_mode", "minimal_runtime_state_only"
+            );
         }
         String semanticQuery = buildTaskSemanticQuery(governedSignal, storedTaskState, storedRetrievalState, runtime);
         Map<String, Object> retrieved = mapOf(taskMemoryRetriever.retrieve(sessionId, semanticQuery, taskState));
@@ -154,9 +180,16 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                                                          GovernedSignal governedSignal,
                                                          RelationalRuntimeState relationalState,
                                                          ContextState storedContextState,
-                                                         Map<String, Object> runtime) {
+                                                         Map<String, Object> runtime,
+                                                         boolean preloadEnabled) {
         if (isBlank(sessionId)) {
             return Map.of();
+        }
+        if (!preloadEnabled) {
+            return Map.of(
+                    "compiler_preloaded", false,
+                    "preload_mode", "minimal_runtime_state_only"
+            );
         }
         String semanticQuery = buildRelationalSemanticQuery(governedSignal, storedContextState, runtime);
         Map<String, Object> retrieved = mapOf(relationalMemoryRetriever.retrieve(sessionId, semanticQuery, relationalState));
@@ -333,16 +366,29 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                     .lastToolInput("")
                     .lastToolStatus("")
                     .lastToolRawResultRef("")
+                    .lastToolRawResultDigest("")
+                    .lastToolRawResultPreview("")
+                    .lastToolRawResultJson("")
                     .lastToolSemanticSummary("")
                     .toolCallHistoryRefs(List.of())
                     .build();
         }
         Map<String, Object> latest = toolRows.get(0);
+        String rawJson = normalizeJsonString(latest.get("normalized_output"));
+        String traceId = str(latest.get("trace_id"));
+        String toolName = str(latest.get("tool_name"));
+        String callStatus = str(latest.get("call_status")).toUpperCase(Locale.ROOT);
+        String rawRef = traceId.isBlank()
+                ? (toolName.isBlank() ? "tool_execution_trace:latest" : "tool_execution_trace:" + toolName + ":" + (callStatus.isBlank() ? "UNKNOWN" : callStatus))
+                : "tool_execution_trace:id=" + traceId;
         return ToolState.builder()
-                .lastToolName(str(latest.get("tool_name")))
+                .lastToolName(toolName)
                 .lastToolInput("")
-                .lastToolStatus(str(latest.get("call_status")))
-                .lastToolRawResultRef(str(latest.get("normalized_output")))
+                .lastToolStatus(callStatus)
+                .lastToolRawResultRef(rawRef)
+                .lastToolRawResultDigest(sha256Hex(rawJson))
+                .lastToolRawResultPreview(truncate(rawJson, 320))
+                .lastToolRawResultJson(limitRawJson(rawJson, 4096))
                 .lastToolSemanticSummary("")
                 .toolCallHistoryRefs(toolRows.stream().map(row -> str(row.get("tool_name"))).filter(name -> !name.isBlank()).toList())
                 .build();
@@ -431,6 +477,53 @@ public class DefaultContextCompilerService implements ContextCompilerService {
         return value == null ? "" : String.valueOf(value);
     }
 
+    private String normalizeJsonString(Object value) {
+        if (value == null) {
+            return "";
+        }
+        if (value instanceof String text) {
+            return text;
+        }
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception ignore) {
+            return String.valueOf(value);
+        }
+    }
+
+    private String limitRawJson(String raw, int maxLen) {
+        String normalized = raw == null ? "" : raw;
+        if (normalized.length() <= maxLen) {
+            return normalized;
+        }
+        return normalized.substring(0, Math.max(0, maxLen));
+    }
+
+    private String truncate(String text, int maxLen) {
+        String normalized = text == null ? "" : text;
+        if (normalized.length() <= maxLen) {
+            return normalized;
+        }
+        return normalized.substring(0, Math.max(0, maxLen));
+    }
+
+    private String sha256Hex(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = digest.digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(bytes.length * 2);
+            for (byte b : bytes) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (Exception ignore) {
+            return "";
+        }
+    }
+
     private String firstNonBlank(String first, String second) {
         if (first != null && !first.isBlank()) {
             return first;
@@ -454,6 +547,53 @@ public class DefaultContextCompilerService implements ContextCompilerService {
 
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private boolean isCacheEligible(ContextCompileOptions options) {
+        if (options == null) {
+            return true;
+        }
+        ContextCompileOptions.PreloadMode mode = options.getPreloadMode();
+        if (mode != null && mode != ContextCompileOptions.PreloadMode.AUTO) {
+            return false;
+        }
+        return options.getFallbackPreloadEnabled() == null;
+    }
+
+    private PreloadDecision resolvePreloadDecision(TaskRuntimeState taskState, ContextCompileOptions options) {
+        ContextCompileOptions effective = options == null ? ContextCompileOptions.auto() : options;
+        ContextCompileOptions.PreloadMode mode = effective.getPreloadMode() == null
+                ? ContextCompileOptions.PreloadMode.AUTO
+                : effective.getPreloadMode();
+        boolean fallbackEnabled = effective.getFallbackPreloadEnabled() == null
+                ? fallbackPreloadEnabled
+                : effective.getFallbackPreloadEnabled();
+        if (mode == ContextCompileOptions.PreloadMode.FULL) {
+            return new PreloadDecision(true, true, "FULL", "explicit_full_preload", "ENTRY_PRELOADED_PLUS_NODE_ON_DEMAND");
+        }
+        if (mode == ContextCompileOptions.PreloadMode.MINIMAL) {
+            return new PreloadDecision(false, false, "MINIMAL", "explicit_minimal_preload", "MIN_RUNTIME_STATE_PLUS_NODE_ON_DEMAND");
+        }
+        if (fallbackEnabled && shouldAutoFallbackPreload(taskState)) {
+            return new PreloadDecision(true, true, "AUTO", "fallback_gray_preload", "ENTRY_PRELOADED_PLUS_NODE_ON_DEMAND");
+        }
+        return new PreloadDecision(false, false, "AUTO", "default_minimal_runtime_state", "MIN_RUNTIME_STATE_PLUS_NODE_ON_DEMAND");
+    }
+
+    private boolean shouldAutoFallbackPreload(TaskRuntimeState taskState) {
+        if (taskState == null) {
+            return false;
+        }
+        return taskState == TaskRuntimeState.EXECUTING
+                || taskState == TaskRuntimeState.WAITING_TOOL
+                || taskState == TaskRuntimeState.WAITING_APPROVAL;
+    }
+
+    private record PreloadDecision(boolean preloadTaskMemory,
+                                   boolean preloadRelationalMemory,
+                                   String preloadMode,
+                                   String reason,
+                                   String memoryFetchMode) {
     }
 }
 

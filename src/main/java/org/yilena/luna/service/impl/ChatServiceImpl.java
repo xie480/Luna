@@ -243,6 +243,12 @@ public class ChatServiceImpl implements ChatService {
                         .executionCandidates(executionCandidates)
                         .toolContext(toolContext)
                         .stage("CHAT_TURN")
+                        .rawToolResultChannel(buildRawToolResultChannel(
+                                toolContext,
+                                latestToolExecutionTraces,
+                                toolTraceRefs.latestRawRef(),
+                                toolTraceRefs.historyRefs()
+                        ))
                         .build()
         );
 

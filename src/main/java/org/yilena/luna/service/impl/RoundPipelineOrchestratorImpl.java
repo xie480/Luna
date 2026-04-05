@@ -30,6 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -81,7 +82,8 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                 nodeId,
                 stage,
                 translated,
-                contextPackage
+                contextPackage,
+                safeMap(request.getRawToolResultChannel())
         );
         return translated;
     }
@@ -123,6 +125,7 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                     .executionCandidates(executionCandidates)
                     .toolContext(request.getToolContext())
                     .stage(firstNonBlank(request.getStage(), "ROUND"))
+                    .rawToolResultChannel(safeMap(request.getRawToolResultChannel()))
                     .build());
         }
 
@@ -211,6 +214,7 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                     .latestSnapshotId(finalSnapshotId)
                     .latestToolRawRef(nullSafe(request.getLatestToolRawRef()))
                     .latestToolHistoryRefs(safeList(request.getLatestToolHistoryRefs()))
+                    .rawToolResultChannel(safeMap(request.getRawToolResultChannel()))
                     .ragQuery(nodeWorksetResult == null ? "" : nullSafe(nodeWorksetResult.getRagQuery()))
                     .memoryQuery(nodeWorksetResult == null ? "" : nullSafe(nodeWorksetResult.getMemoryQuery()))
                     .mcpQuery(nodeWorksetResult == null ? "" : nullSafe(nodeWorksetResult.getMcpDrivenInput()))
@@ -234,7 +238,8 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                                                             Long nodeId,
                                                             String stage,
                                                             ToolSemanticResult translated,
-                                                            StructuredContextPackage contextPackage) {
+                                                            StructuredContextPackage contextPackage,
+                                                            Map<String, Object> rawToolResultChannel) {
         ToolSemanticResult safeTranslated = translated == null
                 ? fallbackToolSemanticResult("agent_tool_chain", "", "", "tool_semantic_translation_empty")
                 : translated;
@@ -274,6 +279,23 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
         if (validationResult.normalized() != null) {
             safeTranslated = validationResult.normalized();
         }
+        String rawResultRef = resolveLatestRawResultRef(rawToolResultChannel, null);
+        List<String> validationIssues = validationResult.issues() == null ? List.of() : validationResult.issues();
+        String semanticTraceId = UUID.randomUUID().toString();
+        Map<String, Object> semanticPipelinePayload = new LinkedHashMap<>();
+        semanticPipelinePayload.put("traceId", semanticTraceId);
+        semanticPipelinePayload.put("rawResultRef", rawResultRef);
+        semanticPipelinePayload.put("rawDigest", nullSafe(safeTranslated.getRawResultDigest()));
+        semanticPipelinePayload.put("semanticResult", safeTranslated);
+        semanticPipelinePayload.put("validationIssues", validationIssues);
+        runtimeAuditService.persistDecisionRecord(
+                sessionId,
+                planId,
+                nodeId,
+                "TOOL_SEMANTIC_PIPELINE_TRACE",
+                firstNonBlank(stage, "ROUND") + " semantic pipeline traced",
+                toJsonSafe(semanticPipelinePayload)
+        );
         runtimeAuditService.persistDecisionRecord(
                 sessionId,
                 planId,
@@ -284,6 +306,27 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
         );
         toolSemanticTraceLogger.log(sessionId, planId, nodeId, safeTranslated);
         return safeTranslated;
+    }
+
+    @SuppressWarnings("unchecked")
+    private String resolveLatestRawResultRef(Map<String, Object> rawToolResultChannel, String fallbackRef) {
+        if (rawToolResultChannel != null && !rawToolResultChannel.isEmpty()) {
+            Object latest = rawToolResultChannel.get("latestToolRawRef");
+            if (latest != null && !String.valueOf(latest).isBlank()) {
+                return String.valueOf(latest);
+            }
+            Object refs = rawToolResultChannel.get("toolHistoryRefs");
+            if (refs instanceof List<?> list && !list.isEmpty()) {
+                Object first = list.get(0);
+                if (first != null && !String.valueOf(first).isBlank()) {
+                    return String.valueOf(first);
+                }
+            }
+        }
+        if (fallbackRef != null && !fallbackRef.isBlank()) {
+            return fallbackRef;
+        }
+        return "tool_execution_trace:latest";
     }
 
     private ToolSemanticResult fallbackToolSemanticResult(String toolName,
@@ -440,4 +483,3 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
         }
     }
 }
-

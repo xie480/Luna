@@ -30,6 +30,7 @@ public class RoundStateWriteRequest {
     private String latestSnapshotId;
     private String latestToolRawRef;
     private List<String> latestToolHistoryRefs;
+    private Map<String, Object> rawToolResultChannel;
     private String ragQuery;
     private String memoryQuery;
     private String mcpQuery;

@@ -913,6 +913,13 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 toolRows,
                 previousToolState
         );
+        String latestToolRawResultJson = resolveLatestToolRawResultJson(
+                request.getRawToolResultChannel(),
+                toolRows,
+                previousToolState
+        );
+        String latestToolRawResultDigest = sha256Hex(latestToolRawResultJson);
+        String latestToolRawResultPreview = truncate(latestToolRawResultJson, 512);
         List<String> activeToolRefs = resolveActiveToolEvidenceRefs(
                 request.getLatestToolHistoryRefs(),
                 toolRows
@@ -922,6 +929,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .lastToolInput(reconstruction == null ? "" : reconstruction.getReformulatedQueryForMcp())
                 .lastToolStatus(toolSemanticResult == null ? "" : toolSemanticResult.getToolStatus())
                 .lastToolRawResultRef(latestToolRawRef)
+                .lastToolRawResultDigest(firstNonBlank(latestToolRawResultDigest, previousToolState == null ? "" : previousToolState.getLastToolRawResultDigest()))
+                .lastToolRawResultPreview(firstNonBlank(latestToolRawResultPreview, previousToolState == null ? "" : previousToolState.getLastToolRawResultPreview()))
+                .lastToolRawResultJson(firstNonBlank(limitRawJson(latestToolRawResultJson, 4096), previousToolState == null ? "" : previousToolState.getLastToolRawResultJson()))
                 .lastToolSemanticSummary(toolSemanticResult == null ? "" : toolSemanticResult.getBusinessImpact())
                 .toolCallHistoryRefs(mergeDistinctList(
                         previousToolState == null ? List.of() : previousToolState.getToolCallHistoryRefs(),
@@ -1945,6 +1955,83 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             return previousToolState.getLastToolRawResultRef();
         }
         return "tool_execution_trace:latest";
+    }
+
+    private String resolveLatestToolRawResultJson(Map<String, Object> rawToolResultChannel,
+                                                  List<Map<String, Object>> toolRows,
+                                                  ToolState previousToolState) {
+        String fromChannel = extractLatestRawResultFromChannel(rawToolResultChannel);
+        if (!fromChannel.isBlank()) {
+            return fromChannel;
+        }
+        if (toolRows != null && !toolRows.isEmpty()) {
+            String normalizedOutput = stringValue(toolRows.get(0).get("normalized_output"));
+            if (!normalizedOutput.isBlank()) {
+                return normalizedOutput;
+            }
+        }
+        if (previousToolState != null && previousToolState.getLastToolRawResultJson() != null
+                && !previousToolState.getLastToolRawResultJson().isBlank()) {
+            return previousToolState.getLastToolRawResultJson();
+        }
+        return "";
+    }
+
+    @SuppressWarnings("unchecked")
+    private String extractLatestRawResultFromChannel(Map<String, Object> rawToolResultChannel) {
+        if (rawToolResultChannel == null || rawToolResultChannel.isEmpty()) {
+            return "";
+        }
+        Object tracesObj = rawToolResultChannel.get("rawToolExecutionTraces");
+        if (!(tracesObj instanceof List<?> traces) || traces.isEmpty()) {
+            return "";
+        }
+        Object latest = traces.get(0);
+        if (!(latest instanceof Map<?, ?> latestMap)) {
+            return "";
+        }
+        Object rawOutput = latestMap.get("normalized_output");
+        if (rawOutput == null) {
+            return "";
+        }
+        try {
+            return objectMapper.writeValueAsString(rawOutput);
+        } catch (Exception ignore) {
+            return String.valueOf(rawOutput);
+        }
+    }
+
+    private String limitRawJson(String raw, int maxLen) {
+        String normalized = raw == null ? "" : raw;
+        if (normalized.length() <= maxLen) {
+            return normalized;
+        }
+        return normalized.substring(0, Math.max(0, maxLen));
+    }
+
+    private String truncate(String text, int maxLen) {
+        String normalized = text == null ? "" : text;
+        if (normalized.length() <= maxLen) {
+            return normalized;
+        }
+        return normalized.substring(0, Math.max(0, maxLen));
+    }
+
+    private String sha256Hex(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] bytes = digest.digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(bytes.length * 2);
+            for (byte b : bytes) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (Exception ignore) {
+            return "";
+        }
     }
 
     private List<String> resolveActiveToolEvidenceRefs(List<String> explicitHistoryRefs,

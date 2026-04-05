@@ -7,6 +7,7 @@ import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 
 import java.util.List;
+import java.util.Map;
 
 @Value
 @Builder
@@ -20,5 +21,5 @@ public class RoundToolSemanticRequest {
     List<Resource> executionCandidates;
     String toolContext;
     String stage;
+    Map<String, Object> rawToolResultChannel;
 }
-

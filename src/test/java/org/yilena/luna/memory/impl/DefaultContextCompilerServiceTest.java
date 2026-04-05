@@ -15,6 +15,7 @@ import org.yilena.luna.state.store.RecoveryStateStore;
 import org.yilena.luna.state.store.RetrievalStateStore;
 import org.yilena.luna.state.store.TaskStateStore;
 import org.yilena.luna.state.store.ToolStateStore;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.List;
 import java.util.Map;
@@ -41,6 +42,7 @@ class DefaultContextCompilerServiceTest {
         ToolStateStore toolStateStore = mock(ToolStateStore.class);
         ContextStateStore contextStateStore = mock(ContextStateStore.class);
         RecoveryStateStore recoveryStateStore = mock(RecoveryStateStore.class);
+        ObjectMapper objectMapper = new ObjectMapper();
 
         when(hotLayerService.getCompiledContextCache(any(), any(), any(), any())).thenReturn(null);
         when(runtimeRetriever.retrieve("s-1")).thenReturn(Map.of(
@@ -61,7 +63,8 @@ class DefaultContextCompilerServiceTest {
                 retrievalStateStore,
                 toolStateStore,
                 contextStateStore,
-                recoveryStateStore
+                recoveryStateStore,
+                objectMapper
         );
 
         StructuredContextPackage contextPackage = service.compile(
@@ -72,10 +75,10 @@ class DefaultContextCompilerServiceTest {
         );
 
         assertNotNull(contextPackage);
-        assertTrue(contextPackage.getTaskContext().isEmpty());
-        assertTrue(contextPackage.getRelationalContext().isEmpty());
+        assertEquals(false, contextPackage.getTaskContext().isEmpty());
+        assertEquals(false, contextPackage.getRelationalContext().isEmpty());
         assertTrue(contextPackage.getCapabilityCandidates().isEmpty());
-        assertEquals("ENTRY_PRELOADED_PLUS_NODE_ON_DEMAND", contextPackage.getPromptPolicy().get("memory_fetch_mode"));
+        assertEquals("MIN_RUNTIME_STATE_PLUS_NODE_ON_DEMAND", contextPackage.getPromptPolicy().get("memory_fetch_mode"));
         assertEquals("MCP_QUERY_ON_DEMAND", contextPackage.getPromptPolicy().get("capability_fetch_mode"));
         assertEquals("输出季度复盘报告", contextPackage.getTaskStateEntity().getObjective());
     }
