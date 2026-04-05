@@ -10,6 +10,7 @@ import org.yilena.luna.state.model.ContextState;
 import org.yilena.luna.state.model.ContextSnapshot;
 import org.yilena.luna.state.model.RecoveryState;
 import org.yilena.luna.state.model.RetrievalState;
+import org.yilena.luna.state.model.TaskState;
 import org.yilena.luna.state.store.ContextSnapshotStore;
 import org.yilena.luna.state.store.RecoveryStateStore;
 import org.yilena.luna.utils.LlmClientUtil;
@@ -194,6 +195,114 @@ class DefaultRecoveryContextAgentTest {
         assertTrue(Boolean.TRUE.equals(recovered.getRetrievalState().getRetrievalPlan().get("need_rag_refresh")));
         assertTrue(Boolean.TRUE.equals(recovered.getRetrievalState().getRetrievalPlan().get("need_mcp_refresh")));
         assertTrue(Boolean.TRUE.equals(recovered.getRetrievalState().getRetrievalPlan().get("need_reassembly")));
+    }
+
+    @Test
+    void shouldPreferStructuredRecoveryPayloadFromFinalSnapshot() {
+        RecoveryStateStore recoveryStateStore = mock(RecoveryStateStore.class);
+        ContextSnapshotStore contextSnapshotStore = mock(ContextSnapshotStore.class);
+        when(contextSnapshotStore.loadLatest("s-structured")).thenReturn(ContextSnapshot.builder()
+                .snapshotId("901")
+                .sessionId("s-structured")
+                .planId(8L)
+                .nodeId(9L)
+                .payload(Map.of(
+                        "snapshotType", "FINAL_MODEL_CONTEXT",
+                        "structuredRecoveryPayload", Map.of(
+                                "taskState", Map.of("taskId", "t-901", "currentNode", "9", "currentStage", "EXECUTING"),
+                                "retrievalState", Map.of(
+                                        "reconstructedIntent", "intent-901",
+                                        "retrievalPlan", Map.of("refreshRagNow", true)
+                                ),
+                                "contextState", Map.of(
+                                        "latestNarrativeSummary", "summary",
+                                        "latestStateSnapshot", Map.of(),
+                                        "activeKnowledgeRefs", List.of("knowledge:901"),
+                                        "latestContextSnapshotId", "901"
+                                ),
+                                "runtimePointers", Map.of("snapshotId", "901", "nodeId", 9)
+                        )
+                ))
+                .build());
+        DefaultRecoveryContextAgent agent = new DefaultRecoveryContextAgent(
+                recoveryStateStore,
+                contextSnapshotStore,
+                new ObjectMapper(),
+                mock(LlmClientUtil.class),
+                geminiProperty()
+        );
+        StructuredContextPackage recovered = agent.recover(
+                "s-structured",
+                StructuredContextPackage.builder().sessionId("s-structured").build(),
+                "APPROVAL_RESUME",
+                "timeout"
+        );
+        assertNotNull(recovered);
+        assertNotNull(recovered.getTaskStateEntity());
+        assertEquals("t-901", recovered.getTaskStateEntity().getTaskId());
+        assertNotNull(recovered.getContextState());
+        assertTrue(recovered.getContextState().getActiveKnowledgeRefs().contains("knowledge:901"));
+    }
+
+    @Test
+    void shouldForceReassembleWhenRecoveryFlagsInconsistent() {
+        RecoveryStateStore recoveryStateStore = mock(RecoveryStateStore.class);
+        ContextSnapshotStore contextSnapshotStore = mock(ContextSnapshotStore.class);
+        when(contextSnapshotStore.loadLatest("s-mismatch")).thenReturn(ContextSnapshot.builder()
+                .snapshotId("77")
+                .sessionId("s-mismatch")
+                .planId(3L)
+                .nodeId(4L)
+                .payload(Map.of(
+                        "snapshotType", "FINAL_MODEL_CONTEXT",
+                        "structuredRecoveryPayload", Map.of(
+                                "taskState", Map.of("taskId", "task-1", "currentNode", "4"),
+                                "retrievalState", Map.of(
+                                        "reconstructedIntent", "intent",
+                                        "retrievalPlan", Map.of(
+                                                "refreshRagNow", false,
+                                                "refreshMcpNow", false,
+                                                "reassembleNow", false
+                                        )
+                                ),
+                                "contextState", Map.of(
+                                        "latestNarrativeSummary", "",
+                                        "latestStateSnapshot", Map.of(),
+                                        "activeKnowledgeRefs", List.of("knowledge:4"),
+                                        "latestContextSnapshotId", "77"
+                                )
+                        )
+                ))
+                .build());
+
+        DefaultRecoveryContextAgent agent = new DefaultRecoveryContextAgent(
+                recoveryStateStore,
+                contextSnapshotStore,
+                new ObjectMapper(),
+                mock(LlmClientUtil.class),
+                geminiProperty()
+        );
+        StructuredContextPackage current = StructuredContextPackage.builder()
+                .sessionId("s-mismatch")
+                .taskStateEntity(TaskState.builder().taskId("task-1").currentNode("4").build())
+                .retrievalState(RetrievalState.builder()
+                        .reconstructedIntent("intent")
+                        .activeQueries(List.of("q"))
+                        .retrievalPlan(Map.of("refreshRagNow", true, "refreshMcpNow", true, "reassembleNow", true))
+                        .selectedEvidenceRefs(List.of("knowledge:4"))
+                        .rerankSummary("")
+                        .build())
+                .build();
+
+        StructuredContextPackage recovered = agent.recover(
+                "s-mismatch",
+                current,
+                "TOOL_RESULT",
+                "timeout"
+        );
+        assertNotNull(recovered);
+        assertNotNull(recovered.getRetrievalState());
+        assertTrue(Boolean.TRUE.equals(recovered.getRetrievalState().getRetrievalPlan().get("reassembleNow")));
     }
 
     private GeminiProperty geminiProperty() {

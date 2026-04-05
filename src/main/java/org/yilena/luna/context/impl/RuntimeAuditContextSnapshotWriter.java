@@ -22,6 +22,17 @@ public class RuntimeAuditContextSnapshotWriter implements ContextSnapshotWriter 
                                        AssembledContext assembledContext,
                                        Map<String, Object> rawToolResultChannel,
                                        Map<String, List<String>> activeRefs) {
+        return persistFinalSnapshot(sessionId, planId, nodeId, assembledContext, rawToolResultChannel, activeRefs, Map.of());
+    }
+
+    @Override
+    public String persistFinalSnapshot(String sessionId,
+                                       Long planId,
+                                       Long nodeId,
+                                       AssembledContext assembledContext,
+                                       Map<String, Object> rawToolResultChannel,
+                                       Map<String, List<String>> activeRefs,
+                                       Map<String, Object> structuredRecoveryPayload) {
         if (assembledContext == null || sessionId == null || sessionId.isBlank()) {
             return "";
         }
@@ -34,7 +45,8 @@ public class RuntimeAuditContextSnapshotWriter implements ContextSnapshotWriter 
                 assembledContext.getSectionTokenCounts() == null ? Map.of() : assembledContext.getSectionTokenCounts(),
                 assembledContext.getSectionTokenRatios() == null ? Map.of() : assembledContext.getSectionTokenRatios(),
                 rawToolResultChannel == null ? Map.of() : rawToolResultChannel,
-                activeRefs == null ? Map.of() : activeRefs
+                activeRefs == null ? Map.of() : activeRefs,
+                structuredRecoveryPayload == null ? Map.of() : structuredRecoveryPayload
         );
     }
 }

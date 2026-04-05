@@ -19,6 +19,9 @@ import org.yilena.luna.context.SummaryAgent;
 import org.yilena.luna.context.SummaryTraceLogger;
 import org.yilena.luna.context.ContextAssembler;
 import org.yilena.luna.context.ContextTraceLogger;
+import org.yilena.luna.context.StateTransitionTraceLogger;
+import org.yilena.luna.context.ToolSemanticAgent;
+import org.yilena.luna.context.ToolSemanticTraceLogger;
 import org.yilena.luna.context.ToolSemanticResultValidator;
 import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.context.model.SummaryResult;
@@ -38,12 +41,14 @@ import org.yilena.luna.router.CapabilityPolicyRouterService;
 import org.yilena.luna.router.ToolRouter;
 import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.service.SessionService;
+import org.yilena.luna.service.AgentService;
 import org.yilena.luna.service.model.NodeWorksetResult;
 import org.yilena.luna.service.model.SummaryOrchestrationResult;
 import org.yilena.luna.service.model.TaskOrchestrationResult;
 import org.yilena.luna.state.model.ContextState;
 import org.yilena.luna.state.model.RetrievalState;
 import org.yilena.luna.state.store.ContextStateStore;
+import org.yilena.luna.state.store.ContextSnapshotStore;
 import org.yilena.luna.state.store.RecoveryStateStore;
 import org.yilena.luna.state.store.TaskStateStore;
 import org.yilena.luna.state.store.RetrievalStateStore;
@@ -65,6 +70,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -317,7 +323,7 @@ class TaskOrchestratorStateRecoveryE2eTest {
 
         ArgumentCaptor<String> typeCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
-        verify(fixture.runtimeAuditService, times(3))
+        verify(fixture.runtimeAuditService, atLeast(3))
                 .persistDecisionRecord(anyString(), any(), any(), typeCaptor.capture(), anyString(), payloadCaptor.capture());
 
         String bottomPayload = "";
@@ -364,11 +370,16 @@ class TaskOrchestratorStateRecoveryE2eTest {
         final SummaryTraceLogger summaryTraceLogger = mock(SummaryTraceLogger.class);
         final ContextAssembler contextAssembler = mock(ContextAssembler.class);
         final ContextTraceLogger contextTraceLogger = mock(ContextTraceLogger.class);
+        final ToolSemanticAgent toolSemanticAgent = mock(ToolSemanticAgent.class);
+        final ToolSemanticTraceLogger toolSemanticTraceLogger = mock(ToolSemanticTraceLogger.class);
+        final AgentService agentService = mock(AgentService.class);
+        final ContextSnapshotStore contextSnapshotStore = mock(ContextSnapshotStore.class);
         final ContextStateStore contextStateStore = mock(ContextStateStore.class);
         final TaskStateStore taskStateStore = mock(TaskStateStore.class);
         final RetrievalStateStore retrievalStateStore = mock(RetrievalStateStore.class);
         final ToolStateStore toolStateStore = mock(ToolStateStore.class);
         final ToolSemanticResultValidator toolSemanticResultValidator = mock(ToolSemanticResultValidator.class);
+        final StateTransitionTraceLogger stateTransitionTraceLogger = mock(StateTransitionTraceLogger.class);
         final LlmClientUtil llmClientUtil = mock(LlmClientUtil.class);
         final GeminiProperty geminiProperty = new GeminiProperty();
         final SessionService sessionService = mock(SessionService.class);
@@ -396,11 +407,16 @@ class TaskOrchestratorStateRecoveryE2eTest {
                 summaryTraceLogger,
                 contextAssembler,
                 contextTraceLogger,
+                toolSemanticAgent,
+                toolSemanticTraceLogger,
+                agentService,
+                contextSnapshotStore,
                 contextStateStore,
                 taskStateStore,
                 retrievalStateStore,
                 toolStateStore,
                 toolSemanticResultValidator,
+                stateTransitionTraceLogger,
                 llmClientUtil,
                 geminiProperty,
                 sessionService,

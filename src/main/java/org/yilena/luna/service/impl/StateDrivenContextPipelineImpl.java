@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.context.model.ContextNodeTemplatePolicy;
 import org.yilena.luna.context.model.InputReconstructionResult;
+import org.yilena.luna.context.StateTransitionTraceLogger;
 import org.yilena.luna.entity.Resource;
 import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.mapper.SessionRuntimeMapper;
@@ -34,6 +35,7 @@ public class StateDrivenContextPipelineImpl implements StateDrivenContextPipelin
     private final TaskOrchestratorService taskOrchestratorService;
     private final SessionRuntimeMapper sessionRuntimeMapper;
     private final ObjectMapper objectMapper;
+    private final StateTransitionTraceLogger stateTransitionTraceLogger;
 
     @Override
     public RoundPipelineResult run(StateDrivenContextPipelineRequest request) {
@@ -49,31 +51,32 @@ public class StateDrivenContextPipelineImpl implements StateDrivenContextPipelin
         String triggerSource = firstNonBlank(request.getTriggerSource(), "STATE_DRIVEN_CONTEXT_PIPELINE");
         Long planId = contextPlanId(hydratedRoundRequest);
         Long nodeId = contextNodeId(hydratedRoundRequest);
+        String traceId = "state_pipeline:" + sessionId + ":" + System.currentTimeMillis();
 
-        auditHook(sessionId, planId, nodeId, "reconstruct", triggerSource, Map.of(
+        auditHook(traceId, sessionId, planId, nodeId, "reconstruct", triggerSource, hydratedRoundRequest, Map.of(
                 "hasReconstruction", hydratedRoundRequest.getReconstructionResult() != null,
                 "stage", safe(hydratedRoundRequest.getStage())
         ));
-        auditHook(sessionId, planId, nodeId, "recall", triggerSource, Map.of(
+        auditHook(traceId, sessionId, planId, nodeId, "recall", triggerSource, hydratedRoundRequest, Map.of(
                 "hasNodeWorkset", hydratedRoundRequest.getNodeWorksetResult() != null,
                 "hasExecutionCandidates", hydratedRoundRequest.getExecutionCandidates() != null && !hydratedRoundRequest.getExecutionCandidates().isEmpty(),
                 "hasMcpHints", hydratedRoundRequest.getMcpResourceHints() != null && !hydratedRoundRequest.getMcpResourceHints().isEmpty()
         ));
-        auditHook(sessionId, planId, nodeId, "rerank", triggerSource, Map.of(
+        auditHook(traceId, sessionId, planId, nodeId, "rerank", triggerSource, hydratedRoundRequest, Map.of(
                 "hasRerankResult", hydratedRoundRequest.getNodeWorksetResult() != null
                         && hydratedRoundRequest.getNodeWorksetResult().getRerankResult() != null
         ));
-        auditHook(sessionId, planId, nodeId, "assemble", triggerSource, Map.of(
+        auditHook(traceId, sessionId, planId, nodeId, "assemble", triggerSource, hydratedRoundRequest, Map.of(
                 "runMainModel", hydratedRoundRequest.isRunMainModel(),
                 "writeRoundState", hydratedRoundRequest.isWriteRoundState()
         ));
 
         RoundPipelineResult result = roundPipelineOrchestrator.executeRound(hydratedRoundRequest);
-        auditHook(sessionId, planId, nodeId, "execute", triggerSource, Map.of(
+        auditHook(traceId, sessionId, planId, nodeId, "execute", triggerSource, hydratedRoundRequest, Map.of(
                 "blocked", result != null && result.isBlocked(),
                 "blockedReason", result == null ? "round_result_missing" : safe(result.getBlockedReason())
         ));
-        auditHook(sessionId, planId, nodeId, "writeback", triggerSource, Map.of(
+        auditHook(traceId, sessionId, planId, nodeId, "writeback", triggerSource, hydratedRoundRequest, Map.of(
                 "finalSnapshotId", result == null ? "" : safe(result.getFinalSnapshotId()),
                 "summaryPresent", result != null && result.getSummaryResult() != null
         ));
@@ -225,11 +228,13 @@ public class StateDrivenContextPipelineImpl implements StateDrivenContextPipelin
                 .build();
     }
 
-    private void auditHook(String sessionId,
+    private void auditHook(String traceId,
+                           String sessionId,
                            Long planId,
                            Long nodeId,
                            String hookName,
                            String triggerSource,
+                           RoundPipelineRequest request,
                            Map<String, Object> payload) {
         runtimeAuditService.persistDecisionRecord(
                 sessionId,
@@ -242,6 +247,24 @@ public class StateDrivenContextPipelineImpl implements StateDrivenContextPipelin
                         "triggerSource", triggerSource,
                         "payload", payload
                 ))
+        );
+        stateTransitionTraceLogger.log(
+                traceId,
+                sessionId,
+                planId,
+                nodeId,
+                request == null || request.getDecision() == null || request.getDecision().getTaskState() == null
+                        ? ""
+                        : request.getDecision().getTaskState().name(),
+                request == null || request.getDecision() == null || request.getDecision().getTaskState() == null
+                        ? ""
+                        : request.getDecision().getTaskState().name(),
+                triggerSource,
+                hookName,
+                request == null ? "" : safe(request.getLatestSnapshotId()),
+                request == null || request.getContextPackage() == null || request.getContextPackage().getRecoveryState() == null
+                        ? ""
+                        : safe(request.getContextPackage().getRecoveryState().getRecoveryEvent())
         );
     }
 

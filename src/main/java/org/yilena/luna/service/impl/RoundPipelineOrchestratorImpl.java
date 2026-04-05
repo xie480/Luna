@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.yilena.luna.context.ToolSemanticAgent;
 import org.yilena.luna.context.ToolSemanticResultValidator;
 import org.yilena.luna.context.ToolSemanticTraceLogger;
+import org.yilena.luna.context.StateTransitionTraceLogger;
 import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.EvidenceBlock;
 import org.yilena.luna.context.model.SummaryResult;
@@ -43,6 +44,7 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
     private final ToolSemanticTraceLogger toolSemanticTraceLogger;
     private final RuntimeAuditService runtimeAuditService;
     private final ObjectMapper objectMapper;
+    private final StateTransitionTraceLogger stateTransitionTraceLogger;
 
     @Override
     public ToolSemanticResult resolveToolSemantic(RoundToolSemanticRequest request) {
@@ -107,6 +109,9 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
         }
         String sessionId = nullSafe(request.getSessionId());
         StructuredContextPackage contextPackage = request.getContextPackage();
+        Long planId = contextPlanId(contextPackage);
+        Long nodeId = contextNodeId(contextPackage);
+        String traceId = "round_pipeline:" + sessionId + ":" + System.currentTimeMillis();
         NodeWorksetResult nodeWorksetResult = request.getNodeWorksetResult();
         ContextRerankResult rerankResult = nodeWorksetResult == null ? null : nodeWorksetResult.getRerankResult();
         List<Resource> executionCandidates = request.getExecutionCandidates() == null
@@ -179,6 +184,18 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                             .build()
             );
             if (modelResult == null || modelResult.isBlocked()) {
+                stateTransitionTraceLogger.log(
+                        traceId,
+                        sessionId,
+                        planId,
+                        nodeId,
+                        request.getDecision() == null || request.getDecision().getTaskState() == null ? "" : request.getDecision().getTaskState().name(),
+                        request.getDecision() == null || request.getDecision().getTaskState() == null ? "" : request.getDecision().getTaskState().name(),
+                        firstNonBlank(request.getStage(), "ROUND"),
+                        "execute",
+                        modelResult == null ? "" : firstNonBlank(modelResult.getFinalSnapshotId(), ""),
+                        contextPackage == null || contextPackage.getRecoveryState() == null ? "" : nullSafe(contextPackage.getRecoveryState().getRecoveryEvent())
+                );
                 return RoundPipelineResult.builder()
                         .blocked(true)
                         .blockedReason(modelResult == null ? "main_model_result_missing" : nullSafe(modelResult.getBlockedReason()))
@@ -229,6 +246,18 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                     .retrievalPlanOverrides(safeMap(request.getRetrievalPlanOverrides()))
                     .build());
         }
+        stateTransitionTraceLogger.log(
+                traceId,
+                sessionId,
+                planId,
+                nodeId,
+                request.getDecision() == null || request.getDecision().getTaskState() == null ? "" : request.getDecision().getTaskState().name(),
+                request.getDecision() == null || request.getDecision().getTaskState() == null ? "" : request.getDecision().getTaskState().name(),
+                firstNonBlank(request.getStage(), "ROUND"),
+                "writeback",
+                finalSnapshotId,
+                contextPackage == null || contextPackage.getRecoveryState() == null ? "" : nullSafe(contextPackage.getRecoveryState().getRecoveryEvent())
+        );
 
         return RoundPipelineResult.builder()
                 .blocked(false)

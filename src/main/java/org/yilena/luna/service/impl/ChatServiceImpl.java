@@ -13,22 +13,18 @@ import org.yilena.luna.annotation.aspect.LunaLogAspect;
 import org.yilena.luna.constants.LogActionConstant;
 import org.yilena.luna.constants.LogModuleConstant;
 import org.yilena.luna.constants.LunaStateConstant;
-import org.yilena.luna.context.ContextAssembler;
 import org.yilena.luna.context.model.ContextNodeTemplatePolicy;
 import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.EvidenceBlock;
 import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.context.model.SummaryResult;
 import org.yilena.luna.context.model.ToolSemanticResult;
-import org.yilena.luna.context.model.AssembledContext;
 import org.yilena.luna.entity.ChatMessage;
 import org.yilena.luna.entity.ChatRequest;
 import org.yilena.luna.entity.Resource;
-import org.yilena.luna.entity.ToolCallingContext;
 import org.yilena.luna.enums.LogType;
 import org.yilena.luna.enums.RelationalRuntimeState;
 import org.yilena.luna.enums.TaskRuntimeState;
-import org.yilena.luna.memory.EventIngressService;
 import org.yilena.luna.memory.MemoryHotLayerService;
 import org.yilena.luna.memory.MemoryWritePipelineService;
 import org.yilena.luna.memory.RuntimeAuditService;
@@ -38,9 +34,7 @@ import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.mapper.SessionRuntimeMapper;
 import org.yilena.luna.rag.models.RetrievalOptions;
 import org.yilena.luna.rag.models.RetrievalRoute;
-import org.yilena.luna.service.AgentService;
 import org.yilena.luna.service.ChatService;
-import org.yilena.luna.service.RoundPipelineOrchestrator;
 import org.yilena.luna.service.SessionService;
 import org.yilena.luna.service.StateDrivenContextPipeline;
 import org.yilena.luna.service.TaskOrchestratorService;
@@ -49,19 +43,15 @@ import org.yilena.luna.service.model.MainModelOrchestrationResult;
 import org.yilena.luna.service.model.NodeWorksetResult;
 import org.yilena.luna.service.model.RoundPipelineRequest;
 import org.yilena.luna.service.model.RoundPipelineResult;
-import org.yilena.luna.service.model.RoundToolSemanticRequest;
 import org.yilena.luna.service.model.StateDrivenContextPipelineRequest;
 import org.yilena.luna.service.model.SummaryOrchestrationResult;
 import org.yilena.luna.service.model.TaskOrchestrationResult;
-import org.yilena.luna.service.model.ToolDecisionCommand;
+import org.yilena.luna.service.model.ToolDecisionNodeResult;
 import org.yilena.luna.state.model.ContextState;
 import org.yilena.luna.state.model.TaskState;
 import org.yilena.luna.state.model.ToolState;
-import org.yilena.luna.state.store.ContextSnapshotStore;
 import org.yilena.luna.sse.LunaStatusPublisher;
 import org.yilena.luna.utils.AuthContextHolder;
-import org.yilena.luna.utils.ToolDecisionInputSignatureUtil;
-import org.yilena.luna.utils.ToolCallingContextHolder;
 
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -72,7 +62,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CopyOnWriteArrayList;
 
 @Slf4j
 @Service
@@ -82,18 +71,13 @@ public class ChatServiceImpl implements ChatService {
     private static final DateTimeFormatter SESSION_KEY_FORMATTER = DateTimeFormatter.ofPattern("yyyy:MM:dd");
     private final SessionService sessionService;
     private final LunaStatusPublisher statusPublisher;
-    private final AgentService agentService;
-    private final EventIngressService eventIngressService;
     private final MemoryHotLayerService memoryHotLayerService;
     private final MemoryWritePipelineService memoryWritePipelineService;
     private final ThreeStageResponseService threeStageResponseService;
     private final RuntimeAuditService runtimeAuditService;
     private final SessionRuntimeMapper sessionRuntimeMapper;
     private final TaskOrchestratorService taskOrchestratorService;
-    private final RoundPipelineOrchestrator roundPipelineOrchestrator;
     private final StateDrivenContextPipeline stateDrivenContextPipeline;
-    private final ContextAssembler contextAssembler;
-    private final ContextSnapshotStore contextSnapshotStore;
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Override
@@ -150,8 +134,6 @@ public class ChatServiceImpl implements ChatService {
         List<String> workingMemorySnippets = extractWorkingMemorySnippets(contextPackage);
         List<String> runtimeMemorySnippets = extractRuntimeMessageSnippets(contextPackage);
         ContextNodeTemplatePolicy nodeTemplatePolicy = resolveNodeTemplatePolicy(decision, contextPackage);
-        ContextRerankResult rerankResult = nodeWorkset == null ? null : nodeWorkset.getRerankResult();
-        String mcpDrivenInput = nodeWorkset == null ? "" : stringValue(nodeWorkset.getMcpDrivenInput());
         List<Resource> executionCandidates = nodeWorkset == null || nodeWorkset.getExecutionCandidates() == null
                 ? List.of()
                 : nodeWorkset.getExecutionCandidates();
@@ -174,161 +156,29 @@ public class ChatServiceImpl implements ChatService {
                         : nodeWorkset.getSelectedPreferenceSnippets()
         );
 
-        List<String> memorySnippets = buildNodeScopedMemorySnippets(
-                nodeTemplatePolicy,
-                workingMemorySnippets,
-                runtimeMemorySnippets,
-                ragMemorySnippets,
-                longTermMemorySnippets
-        );
-        ContextNodeTemplatePolicy toolDecisionPolicy = ContextNodeTemplatePolicy.forToolDecision(
-                nodeTemplatePolicy == null ? "" : nodeTemplatePolicy.getCurrentNodeId()
-        );
-        AssembledContext assembledDecision = contextAssembler.assemble(
+        ToolDecisionNodeResult toolDecisionNodeResult = taskOrchestratorService.orchestrateToolDecisionNode(
+                runtimeSessionId,
+                input,
+                decision,
                 contextPackage,
                 reconstruction,
-                rerankResult,
-                null,
-                input,
-                knowledgeEvidenceBlocks,
-                workingMemorySnippets,
-                runtimeMemorySnippets,
-                ragMemorySnippets,
-                knowledgeSnippets,
-                preferenceSnippets,
-                longTermMemorySnippets,
-                executionCandidates,
-                mcpResourceHints,
-                "",
-                toolDecisionPolicy,
-                null,
-                runtimeSessionId,
-                contextPlanId(contextPackage),
-                contextNodeId(contextPackage)
+                nodeWorkset
         );
-        String assembledDecisionContext = assembledDecision == null ? "" : stringValue(assembledDecision.getPrompt());
-
-        ToolCallingContextHolder.set(ToolCallingContext.builder()
-                .chatSessionKey(runtimeSessionId)
-                .userInput(input)
-                .toolDecisionInput(mcpDrivenInput)
-                .governedInputSignature(ToolDecisionInputSignatureUtil.sign(runtimeSessionId, mcpDrivenInput, assembledDecisionContext))
-                .assembledDecisionContext(assembledDecisionContext)
-                .memorySnippets(memorySnippets)
-                .knowledgeSnippets(knowledgeSnippets)
-                .preferenceSnippets(preferenceSnippets)
-                .longTermMemorySnippets(longTermMemorySnippets)
-                .executionCandidates(executionCandidates)
-                .mcpResourceHints(mcpResourceHints)
-                .toolExecutionTraces(new CopyOnWriteArrayList<>())
-                .build());
-
-        String toolContext = null;
-        String preToolSnapshotId = contextSnapshotStore.savePreToolDecisionSnapshot(
-                runtimeSessionId,
-                contextPlanId(contextPackage),
-                contextNodeId(contextPackage),
-                input,
-                mcpDrivenInput,
-                toExecutionCandidateMaps(executionCandidates),
-                Map.of(
-                        "rerankedToolCandidateCount", rerankResult == null || rerankResult.getSelectedToolCandidates() == null ? 0 : rerankResult.getSelectedToolCandidates().size(),
-                        "rerankedPromptCount", rerankResult == null || rerankResult.getSelectedPromptCandidates() == null ? 0 : rerankResult.getSelectedPromptCandidates().size(),
-                        "rerankedResourceCount", rerankResult == null || rerankResult.getSelectedResourceCandidates() == null ? 0 : rerankResult.getSelectedResourceCandidates().size(),
-                        "rerankedWorkflowCount", rerankResult == null || rerankResult.getSelectedWorkflowCandidates() == null ? 0 : rerankResult.getSelectedWorkflowCandidates().size(),
-                        "rerankedPromptResourceCountLegacy", rerankResult == null || rerankResult.getSelectedPromptResources() == null ? 0 : rerankResult.getSelectedPromptResources().size(),
-                        "decisionWorksetSnapshotType", "TOOL_DECISION_CONTEXT"
-                ),
-                buildRawToolResultChannel("", List.of(), "", List.of())
-        );
-        String toolDecisionSnapshotId = contextSnapshotStore.saveToolDecisionContextSnapshot(
-                runtimeSessionId,
-                contextPlanId(contextPackage),
-                contextNodeId(contextPackage),
-                assembledDecisionContext,
-                assembledDecision == null ? Map.of() : assembledDecision.getCanonicalSections(),
-                toExecutionCandidateMaps(executionCandidates),
-                assembledDecision == null ? Map.of() : assembledDecision.getSectionTokenCounts(),
-                assembledDecision == null ? Map.of() : assembledDecision.getSectionTokenRatios(),
-                Map.of(
-                        "rerankedToolCandidateCount", rerankResult == null || rerankResult.getSelectedToolCandidates() == null ? 0 : rerankResult.getSelectedToolCandidates().size(),
-                        "rerankedPromptCount", rerankResult == null || rerankResult.getSelectedPromptCandidates() == null ? 0 : rerankResult.getSelectedPromptCandidates().size(),
-                        "rerankedResourceCount", rerankResult == null || rerankResult.getSelectedResourceCandidates() == null ? 0 : rerankResult.getSelectedResourceCandidates().size(),
-                        "rerankedWorkflowCount", rerankResult == null || rerankResult.getSelectedWorkflowCandidates() == null ? 0 : rerankResult.getSelectedWorkflowCandidates().size()
-                )
-        );
-        runtimeAuditService.persistDecisionRecord(
-                runtimeSessionId,
-                contextPlanId(contextPackage),
-                contextNodeId(contextPackage),
-                "CONTEXT_SNAPSHOT_PRE_TOOL",
-                "pre-tool snapshot persisted",
-                toJsonSafe(Map.of(
-                        "snapshotId", preToolSnapshotId == null ? "" : preToolSnapshotId,
-                        "toolDecisionSnapshotId", toolDecisionSnapshotId == null ? "" : toolDecisionSnapshotId
-                ))
-        );
-        long toolStartAt = System.currentTimeMillis();
-        String toolStatus = "SUCCESS";
-        String toolError = null;
-        ToolTraceRefs toolTraceRefs = ToolTraceRefs.empty();
-        List<Map<String, Object>> latestToolExecutionTraces = List.of();
-        try {
-            toolContext = agentService.processToolCallingWithGovernance(
-                    ToolDecisionCommand.builder()
-                            .sessionId(runtimeSessionId)
-                            .rawUserInput(input)
-                            .toolDecisionInput(mcpDrivenInput)
-                            .taskState(decision == null ? null : decision.getTaskState())
-                            .relationalState(decision == null ? null : decision.getRelationalState())
-                            .executionCandidates(executionCandidates)
-                            .governedInputSignature(ToolDecisionInputSignatureUtil.sign(runtimeSessionId, mcpDrivenInput, assembledDecisionContext))
-                            .assembledDecisionContext(assembledDecisionContext)
-                            .build()
-            );
-        } catch (Exception ex) {
-            toolStatus = "FAILED";
-            toolError = ex.getMessage();
-            throw ex;
-        } finally {
-            List<Map<String, Object>> toolExecutionTraces = ToolCallingContextHolder.snapshotToolExecutionTraces();
-            latestToolExecutionTraces = toolExecutionTraces == null ? List.of() : toolExecutionTraces;
-            ToolCallingContextHolder.clear();
-            toolTraceRefs = persistToolExecutionTraces(
-                    runtimeSessionId,
-                    contextPlanId(contextPackage),
-                    contextNodeId(contextPackage),
-                    input,
-                    toolContext,
-                    toolStatus,
-                    toolError,
-                    System.currentTimeMillis() - toolStartAt,
-                    toolExecutionTraces
-            );
-            eventIngressService.ingestToolResult(runtimeSessionId, Map.of(
-                    "status", toolStatus.toLowerCase(),
-                    "toolContext", toolContext == null ? "" : toolContext,
-                    "error", toolError == null ? "" : toolError
-            ));
-        }
-
-        ToolSemanticResult toolSemanticResult = roundPipelineOrchestrator.resolveToolSemantic(
-                RoundToolSemanticRequest.builder()
-                        .sessionId(runtimeSessionId)
-                        .contextPackage(contextPackage)
-                        .taskState(decision == null ? null : decision.getTaskState())
-                        .explicitTaskGoal(reconstruction == null ? "" : reconstruction.getExplicitTaskGoal())
-                        .executionCandidates(executionCandidates)
-                        .toolContext(toolContext)
-                        .stage("CHAT_TURN")
-                        .rawToolResultChannel(buildRawToolResultChannel(
-                                toolContext,
-                                latestToolExecutionTraces,
-                                toolTraceRefs.latestRawRef(),
-                                toolTraceRefs.historyRefs()
-                        ))
-                        .build()
-        );
+        String toolContext = toolDecisionNodeResult == null ? "" : stringValue(toolDecisionNodeResult.getToolContext());
+        ToolSemanticResult toolSemanticResult = toolDecisionNodeResult == null ? null : toolDecisionNodeResult.getToolSemantic();
+        Map<String, Object> rawToolResultChannel = toolDecisionNodeResult == null || toolDecisionNodeResult.getRawToolResultChannel() == null
+                ? Map.of()
+                : toolDecisionNodeResult.getRawToolResultChannel();
+        String toolDecisionSnapshotId = toolDecisionNodeResult == null ? "" : stringValue(toolDecisionNodeResult.getToolDecisionSnapshotId());
+        String latestToolRawRef = stringValue(rawToolResultChannel.get("latestToolRawRef"));
+        @SuppressWarnings("unchecked")
+        List<String> latestToolHistoryRefs = rawToolResultChannel.get("toolHistoryRefs") instanceof List<?> refs
+                ? ((List<Object>) refs).stream().map(this::stringValue).filter(ref -> ref != null && !ref.isBlank()).distinct().toList()
+                : List.of();
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> latestToolExecutionTraces = rawToolResultChannel.get("rawToolExecutionTraces") instanceof List<?> traces
+                ? ((List<Object>) traces).stream().filter(Map.class::isInstance).map(item -> (Map<String, Object>) item).toList()
+                : List.of();
 
         String synthesisBrief = threeStageResponseService.generateSynthesisBrief(input, toolContext, contextPackage);
         String semanticToolContext = mergeToolContextWithSemantic(toolContext, toolSemanticResult);
@@ -393,13 +243,13 @@ public class ChatServiceImpl implements ChatService {
                                     .replaceHistoryWithSummary(false)
                                     .writeRoundState(true)
                                     .latestSnapshotId(toolDecisionSnapshotId)
-                                    .latestToolRawRef(toolTraceRefs == null ? "" : toolTraceRefs.latestRawRef())
-                                    .latestToolHistoryRefs(toolTraceRefs == null ? List.of() : toolTraceRefs.historyRefs())
+                                    .latestToolRawRef(latestToolRawRef)
+                                    .latestToolHistoryRefs(latestToolHistoryRefs)
                                     .rawToolResultChannel(buildRawToolResultChannel(
                                             mergedToolContext,
                                             latestToolExecutionTraces,
-                                            toolTraceRefs == null ? "" : toolTraceRefs.latestRawRef(),
-                                            toolTraceRefs == null ? List.of() : toolTraceRefs.historyRefs()
+                                            latestToolRawRef,
+                                            latestToolHistoryRefs
                                     ))
                                     .retrievalPlanOverrides(Map.of(
                                             "pending", true,
@@ -441,13 +291,13 @@ public class ChatServiceImpl implements ChatService {
                         .postSummaryTriggerSource("CHAT_TURN")
                         .replaceHistoryWithSummary(true)
                         .writeRoundState(true)
-                        .latestToolRawRef(toolTraceRefs == null ? "" : toolTraceRefs.latestRawRef())
-                        .latestToolHistoryRefs(toolTraceRefs == null ? List.of() : toolTraceRefs.historyRefs())
+                        .latestToolRawRef(latestToolRawRef)
+                        .latestToolHistoryRefs(latestToolHistoryRefs)
                         .rawToolResultChannel(buildRawToolResultChannel(
                                 mergedToolContext,
                                 latestToolExecutionTraces,
-                                toolTraceRefs == null ? "" : toolTraceRefs.latestRawRef(),
-                                toolTraceRefs == null ? List.of() : toolTraceRefs.historyRefs()
+                                latestToolRawRef,
+                                latestToolHistoryRefs
                         ))
                         .build();
         RoundPipelineResult roundPipelineResult = stateDrivenContextPipeline.run(

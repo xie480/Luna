@@ -78,4 +78,35 @@ class ContextSnapshotStoreImplTest {
         assertTrue(payload.contains("\"executionCandidates\""));
         assertTrue(payload.contains("\"sectionTokenRatios\""));
     }
+
+    @Test
+    void shouldPersistStructuredRecoveryPayloadInFinalSnapshot() {
+        RuntimeAuditMapper mapper = mock(RuntimeAuditMapper.class);
+        when(mapper.insertContextSnapshotAndReturnId(anyString(), anyLong(), anyLong(), anyString())).thenReturn(101L);
+        ContextSnapshotStoreImpl store = new ContextSnapshotStoreImpl(mapper, new ObjectMapper());
+
+        store.saveFinalSnapshot(
+                "s-2",
+                11L,
+                22L,
+                null,
+                "prompt",
+                Map.of(),
+                Map.of(),
+                Map.of("rawToolContext", "{}"),
+                Map.of("activeKnowledgeRefs", List.of("k1")),
+                Map.of(
+                        "taskState", Map.of("taskId", "t-1"),
+                        "retrievalState", Map.of("retrievalPlan", Map.of("reassembleNow", true)),
+                        "runtimePointers", Map.of("snapshotId", "99", "nodeId", 22)
+                )
+        );
+
+        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
+        verify(mapper).insertContextSnapshotAndReturnId(anyString(), anyLong(), anyLong(), payloadCaptor.capture());
+        String payload = payloadCaptor.getValue();
+        assertTrue(payload.contains("\"structuredRecoveryPayload\""));
+        assertTrue(payload.contains("\"runtimePointers\""));
+        assertTrue(payload.contains("\"reassembleNow\":true"));
+    }
 }

@@ -9,11 +9,14 @@ import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
 import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.memory.model.StructuredContextPackage;
+import org.yilena.luna.memory.RuntimeAuditService;
 import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.state.model.ContextState;
 import org.yilena.luna.state.model.ContextSnapshot;
 import org.yilena.luna.state.model.RecoveryState;
 import org.yilena.luna.state.model.RetrievalState;
+import org.yilena.luna.state.model.TaskState;
+import org.yilena.luna.state.model.ToolState;
 import org.yilena.luna.state.store.ContextSnapshotStore;
 import org.yilena.luna.state.store.RecoveryStateStore;
 import org.yilena.luna.utils.LlmClientUtil;
@@ -56,17 +59,28 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
     private final ObjectMapper objectMapper;
     private final LlmClientUtil llmClientUtil;
     private final GeminiProperty geminiProperty;
+    private final RuntimeAuditService runtimeAuditService;
 
     public DefaultRecoveryContextAgent(RecoveryStateStore recoveryStateStore,
                                        ContextSnapshotStore contextSnapshotStore,
                                        ObjectMapper objectMapper,
                                        LlmClientUtil llmClientUtil,
                                        GeminiProperty geminiProperty) {
+        this(recoveryStateStore, contextSnapshotStore, objectMapper, llmClientUtil, geminiProperty, null);
+    }
+
+    public DefaultRecoveryContextAgent(RecoveryStateStore recoveryStateStore,
+                                       ContextSnapshotStore contextSnapshotStore,
+                                       ObjectMapper objectMapper,
+                                       LlmClientUtil llmClientUtil,
+                                       GeminiProperty geminiProperty,
+                                       RuntimeAuditService runtimeAuditService) {
         this.recoveryStateStore = recoveryStateStore;
         this.contextSnapshotStore = contextSnapshotStore;
         this.objectMapper = objectMapper;
         this.llmClientUtil = llmClientUtil;
         this.geminiProperty = geminiProperty;
+        this.runtimeAuditService = runtimeAuditService;
     }
 
     @Override
@@ -82,6 +96,7 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
         StructuredContextPackage restoredContext = rebuildFromSnapshot(contextPackage, snapshot);
         RecoveryDecision decision = evaluateRecoveryDecision(recoveryEvent, interruptReason, restoredContext, snapshot);
         String resolvedSnapshotId = resolveSnapshotId(snapshot, requestedSnapshotId, sessionId);
+        decision = enforceRecoveryConsistency(sessionId, snapshot, restoredContext, decision, resolvedSnapshotId);
         RecoveryState state = RecoveryState.builder()
                 .interruptedAt(Instant.now().toString())
                 .interruptReason(interruptReason == null ? "" : interruptReason)
@@ -266,6 +281,13 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
     private StructuredContextPackage extractTypedSnapshot(ContextSnapshot snapshot, Map<String, Object> payload) {
         String type = safeType(payload.get("snapshotType"));
         if ("FINAL_MODEL_CONTEXT".equalsIgnoreCase(type)) {
+            Map<String, Object> structuredRecoveryPayload = safeMap(payload.get("structuredRecoveryPayload"));
+            if (!structuredRecoveryPayload.isEmpty()) {
+                StructuredContextPackage structured = buildFromStructuredRecoveryPayload(snapshot, payload, structuredRecoveryPayload, type);
+                if (structured != null) {
+                    return structured;
+                }
+            }
             Map<String, Object> runtime = new LinkedHashMap<>();
             runtime.put("recovery_snapshot_type", type);
             runtime.put("recovery_prompt", payload.getOrDefault("prompt", ""));
@@ -330,6 +352,143 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
         return null;
     }
 
+    private StructuredContextPackage buildFromStructuredRecoveryPayload(ContextSnapshot snapshot,
+                                                                        Map<String, Object> payload,
+                                                                        Map<String, Object> structuredRecoveryPayload,
+                                                                        String snapshotType) {
+        try {
+            TaskState taskState = parseTaskState(safeMap(structuredRecoveryPayload.get("taskState")));
+            RetrievalState retrievalState = parseRetrievalState(safeMap(structuredRecoveryPayload.get("retrievalState")));
+            ToolState toolState = parseToolState(safeMap(structuredRecoveryPayload.get("toolState")));
+            ContextState contextState = parseContextState(safeMap(structuredRecoveryPayload.get("contextState")));
+            RecoveryState recoveryState = parseRecoveryState(safeMap(structuredRecoveryPayload.get("recoveryState")));
+
+            Map<String, Object> runtime = new LinkedHashMap<>();
+            runtime.put("recovery_snapshot_type", snapshotType);
+            runtime.put("recovery_prompt", payload.getOrDefault("prompt", ""));
+            runtime.put("recovery_section_token_counts", payload.getOrDefault("sectionTokenCounts", Map.of()));
+            runtime.put("recovery_section_token_ratios", payload.getOrDefault("sectionTokenRatios", Map.of()));
+            runtime.put("recovery_active_refs", payload.getOrDefault("activeRefs", Map.of()));
+            runtime.put("recovery_runtime_pointers", safeMap(structuredRecoveryPayload.get("runtimePointers")));
+
+            Map<String, Object> taskContext = new LinkedHashMap<>();
+            Object sections = payload.get("sections");
+            if (sections instanceof Map<?, ?> map) {
+                taskContext.put("final_context_sections", map);
+            }
+            if (snapshot.getNodeId() != null) {
+                taskContext.put("working_memory", Map.of("active_node_id", snapshot.getNodeId()));
+            }
+            if (contextState != null && (contextState.getLatestContextSnapshotId() == null || contextState.getLatestContextSnapshotId().isBlank())) {
+                contextState = ContextState.builder()
+                        .latestNarrativeSummary(contextState.getLatestNarrativeSummary())
+                        .latestStateSnapshot(contextState.getLatestStateSnapshot())
+                        .activeKnowledgeRefs(contextState.getActiveKnowledgeRefs())
+                        .activeMemoryRefs(contextState.getActiveMemoryRefs())
+                        .activeToolEvidenceRefs(contextState.getActiveToolEvidenceRefs())
+                        .activeMcpPromptRefs(contextState.getActiveMcpPromptRefs())
+                        .activeMcpResourceRefs(contextState.getActiveMcpResourceRefs())
+                        .activeMcpWorkflowRefs(contextState.getActiveMcpWorkflowRefs())
+                        .activeMcpToolRefs(contextState.getActiveMcpToolRefs())
+                        .latestContextSnapshotId(snapshot.getSnapshotId() == null ? "" : snapshot.getSnapshotId())
+                        .build();
+            }
+            return StructuredContextPackage.builder()
+                    .sessionId(snapshot.getSessionId())
+                    .runtime(runtime)
+                    .taskContext(taskContext)
+                    .recentMessages(recentMessagesFromSections(payload))
+                    .taskStateEntity(taskState)
+                    .retrievalState(retrievalState)
+                    .toolState(toolState)
+                    .contextState(contextState)
+                    .recoveryState(recoveryState)
+                    .build();
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    private TaskState parseTaskState(Map<String, Object> row) {
+        if (row == null || row.isEmpty()) {
+            return null;
+        }
+        return TaskState.builder()
+                .taskId(stringValue(row.get("taskId")))
+                .sessionId(stringValue(row.get("sessionId")))
+                .objective(stringValue(row.get("objective")))
+                .currentStage(stringValue(row.get("currentStage")))
+                .currentNode(stringValue(row.get("currentNode")))
+                .confirmedSlots(safeMap(row.get("confirmedSlots")))
+                .pendingQuestions(toStringList(row.get("pendingQuestions")))
+                .finishedSteps(toStringList(row.get("finishedSteps")))
+                .failedSteps(toStringList(row.get("failedSteps")))
+                .retryCount(toInteger(row.get("retryCount")))
+                .nextActionHint(stringValue(row.get("nextActionHint")))
+                .build();
+    }
+
+    private RetrievalState parseRetrievalState(Map<String, Object> row) {
+        if (row == null || row.isEmpty()) {
+            return null;
+        }
+        return RetrievalState.builder()
+                .reconstructedIntent(stringValue(row.get("reconstructedIntent")))
+                .activeQueries(toStringList(row.get("activeQueries")))
+                .retrievalPlan(safeMap(row.get("retrievalPlan")))
+                .selectedEvidenceRefs(toStringList(row.get("selectedEvidenceRefs")))
+                .rerankSummary(stringValue(row.get("rerankSummary")))
+                .build();
+    }
+
+    private ToolState parseToolState(Map<String, Object> row) {
+        if (row == null || row.isEmpty()) {
+            return null;
+        }
+        return ToolState.builder()
+                .lastToolName(stringValue(row.get("lastToolName")))
+                .lastToolInput(stringValue(row.get("lastToolInput")))
+                .lastToolStatus(stringValue(row.get("lastToolStatus")))
+                .lastToolRawResultRef(stringValue(row.get("lastToolRawResultRef")))
+                .lastToolRawPayloadRef(stringValue(row.get("lastToolRawPayloadRef")))
+                .lastToolRawResult(stringValue(row.get("lastToolRawResult")))
+                .lastToolRawResultDigest(stringValue(row.get("lastToolRawResultDigest")))
+                .lastToolRawResultPreview(stringValue(row.get("lastToolRawResultPreview")))
+                .lastToolSemanticSummary(stringValue(row.get("lastToolSemanticSummary")))
+                .toolCallHistoryRefs(toStringList(row.get("toolCallHistoryRefs")))
+                .build();
+    }
+
+    private ContextState parseContextState(Map<String, Object> row) {
+        if (row == null || row.isEmpty()) {
+            return null;
+        }
+        return ContextState.builder()
+                .latestNarrativeSummary(stringValue(row.get("latestNarrativeSummary")))
+                .latestStateSnapshot(safeMap(row.get("latestStateSnapshot")))
+                .activeKnowledgeRefs(toStringList(row.get("activeKnowledgeRefs")))
+                .activeMemoryRefs(toStringList(row.get("activeMemoryRefs")))
+                .activeToolEvidenceRefs(toStringList(row.get("activeToolEvidenceRefs")))
+                .activeMcpPromptRefs(toStringList(row.get("activeMcpPromptRefs")))
+                .activeMcpResourceRefs(toStringList(row.get("activeMcpResourceRefs")))
+                .activeMcpWorkflowRefs(toStringList(row.get("activeMcpWorkflowRefs")))
+                .activeMcpToolRefs(toStringList(row.get("activeMcpToolRefs")))
+                .latestContextSnapshotId(stringValue(row.get("latestContextSnapshotId")))
+                .build();
+    }
+
+    private RecoveryState parseRecoveryState(Map<String, Object> row) {
+        if (row == null || row.isEmpty()) {
+            return null;
+        }
+        return RecoveryState.builder()
+                .interruptedAt(stringValue(row.get("interruptedAt")))
+                .interruptReason(stringValue(row.get("interruptReason")))
+                .recoveryEvent(stringValue(row.get("recoveryEvent")))
+                .recoverySnapshotId(stringValue(row.get("recoverySnapshotId")))
+                .build();
+    }
+
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> recentMessagesFromSections(Map<String, Object> payload) {
         if (payload == null) {
@@ -361,6 +520,55 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
 
     private String safeType(Object type) {
         return type == null ? "" : String.valueOf(type);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> safeMap(Object value) {
+        return value instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
+    }
+
+    private <T> T convertOrNull(Object value, Class<T> type) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return objectMapper.convertValue(value, type);
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> toStringList(Object value) {
+        if (!(value instanceof List<?> list) || list.isEmpty()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        for (Object item : list) {
+            String text = stringValue(item);
+            if (!text.isBlank()) {
+                out.add(text);
+            }
+        }
+        return out.stream().distinct().toList();
+    }
+
+    private Integer toInteger(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? "" : String.valueOf(value);
     }
 
     private boolean isStructuredPayload(Map<String, Object> payload) {
@@ -479,6 +687,161 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
             merged.put("recovery_snapshot_type", snapshotType(snapshot));
         }
         return merged;
+    }
+
+    private RecoveryDecision enforceRecoveryConsistency(String sessionId,
+                                                        ContextSnapshot snapshot,
+                                                        StructuredContextPackage restoredContext,
+                                                        RecoveryDecision decision,
+                                                        String resolvedSnapshotId) {
+        if (decision == null) {
+            return new RecoveryDecision(false, false, true, "recovery_decision_missing", List.of(), List.of(), Map.of());
+        }
+        List<String> issues = new ArrayList<>();
+        String runtimeSnapshotId = "";
+        if (restoredContext != null && restoredContext.getRuntime() != null) {
+            runtimeSnapshotId = String.valueOf(restoredContext.getRuntime().getOrDefault("recovery_snapshot_id", ""));
+        }
+        if (!runtimeSnapshotId.isBlank()
+                && !resolvedSnapshotId.isBlank()
+                && !runtimeSnapshotId.equals(resolvedSnapshotId)) {
+            issues.add("snapshot_id_mismatch");
+        }
+        Long snapshotNodeId = snapshot == null ? null : snapshot.getNodeId();
+        Long contextNodeId = resolveContextNodeId(restoredContext);
+        if (snapshotNodeId != null && contextNodeId != null && !snapshotNodeId.equals(contextNodeId)) {
+            issues.add("node_id_mismatch");
+        }
+        if (hasActiveRefMismatch(snapshot, restoredContext)) {
+            issues.add("active_refs_mismatch");
+        }
+        if (hasRecoveryFlagMismatch(restoredContext, decision)) {
+            issues.add("retrieval_plan_recovery_flags_mismatch");
+        }
+        if (!issues.isEmpty()) {
+            RecoveryDecision forced = new RecoveryDecision(
+                    decision.needRagRefresh(),
+                    decision.needMcpRefresh(),
+                    true,
+                    decision.reason() + "|consistency_forced_reassemble",
+                    decision.invalidatedEvidenceRefs(),
+                    decision.invalidatedCapabilityNames(),
+                    decision.invalidationReasonsByRef()
+            );
+            auditRecoveryConsistency(sessionId, snapshot, resolvedSnapshotId, issues, true);
+            return forced;
+        }
+        auditRecoveryConsistency(sessionId, snapshot, resolvedSnapshotId, List.of(), false);
+        return decision;
+    }
+
+    private boolean hasActiveRefMismatch(ContextSnapshot snapshot, StructuredContextPackage restoredContext) {
+        if (snapshot == null || snapshot.getPayload() == null) {
+            return false;
+        }
+        ContextState contextState = restoredContext == null ? null : restoredContext.getContextState();
+        if (contextState == null) {
+            return false;
+        }
+        return !matchesRefs(readSnapshotRefList(snapshot.getPayload(), "activeKnowledgeRefs"), contextState.getActiveKnowledgeRefs())
+                || !matchesRefs(readSnapshotRefList(snapshot.getPayload(), "activeMemoryRefs"), contextState.getActiveMemoryRefs())
+                || !matchesRefs(readSnapshotRefList(snapshot.getPayload(), "activeToolEvidenceRefs"), contextState.getActiveToolEvidenceRefs())
+                || !matchesRefs(readSnapshotRefList(snapshot.getPayload(), "activeMcpPromptRefs"), contextState.getActiveMcpPromptRefs())
+                || !matchesRefs(readSnapshotRefList(snapshot.getPayload(), "activeMcpResourceRefs"), contextState.getActiveMcpResourceRefs())
+                || !matchesRefs(readSnapshotRefList(snapshot.getPayload(), "activeMcpWorkflowRefs"), contextState.getActiveMcpWorkflowRefs())
+                || !matchesRefs(resolveSnapshotToolRefs(snapshot.getPayload()), contextState.getActiveMcpToolRefs());
+    }
+
+    private boolean hasRecoveryFlagMismatch(StructuredContextPackage restoredContext, RecoveryDecision decision) {
+        if (restoredContext == null || restoredContext.getRetrievalState() == null || restoredContext.getRetrievalState().getRetrievalPlan() == null) {
+            return false;
+        }
+        Map<String, Object> retrievalPlan = restoredContext.getRetrievalState().getRetrievalPlan();
+        boolean planRag = booleanValue(retrievalPlan.get("refreshRagNow")) || booleanValue(retrievalPlan.get("refresh_rag_now"));
+        boolean planMcp = booleanValue(retrievalPlan.get("refreshMcpNow")) || booleanValue(retrievalPlan.get("refresh_mcp_now"));
+        boolean planReassemble = booleanValue(retrievalPlan.get("reassembleNow")) || booleanValue(retrievalPlan.get("reassemble_now"));
+        return planRag != decision.needRagRefresh()
+                || planMcp != decision.needMcpRefresh()
+                || planReassemble != decision.needReassembly();
+    }
+
+    private boolean matchesRefs(List<String> left, List<String> right) {
+        java.util.LinkedHashSet<String> a = new java.util.LinkedHashSet<>(left == null ? List.of() : left.stream().filter(item -> item != null && !item.isBlank()).toList());
+        java.util.LinkedHashSet<String> b = new java.util.LinkedHashSet<>(right == null ? List.of() : right.stream().filter(item -> item != null && !item.isBlank()).toList());
+        return a.equals(b);
+    }
+
+    private boolean booleanValue(Object value) {
+        if (value instanceof Boolean flag) {
+            return flag;
+        }
+        if (value == null) {
+            return false;
+        }
+        return "true".equalsIgnoreCase(String.valueOf(value).trim());
+    }
+
+    private Long resolveContextNodeId(StructuredContextPackage contextPackage) {
+        if (contextPackage == null) {
+            return null;
+        }
+        if (contextPackage.getTaskContext() != null) {
+            Object working = contextPackage.getTaskContext().get("working_memory");
+            if (working instanceof Map<?, ?> map) {
+                Long node = toLong(map.get("active_node_id"));
+                if (node != null) {
+                    return node;
+                }
+            }
+        }
+        if (contextPackage.getTaskStateEntity() != null) {
+            return toLong(contextPackage.getTaskStateEntity().getCurrentNode());
+        }
+        return null;
+    }
+
+    private Long toLong(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    private void auditRecoveryConsistency(String sessionId,
+                                          ContextSnapshot snapshot,
+                                          String resolvedSnapshotId,
+                                          List<String> issues,
+                                          boolean forcedReassemble) {
+        if (runtimeAuditService == null || sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        runtimeAuditService.persistDecisionRecord(
+                sessionId,
+                snapshot == null ? null : snapshot.getPlanId(),
+                snapshot == null ? null : snapshot.getNodeId(),
+                "RECOVERY_CONSISTENCY_CHECK",
+                forcedReassemble ? "recovery consistency mismatch, forced reassembleNow=true" : "recovery consistency check passed",
+                toJsonSafe(Map.of(
+                        "snapshotId", resolvedSnapshotId == null ? "" : resolvedSnapshotId,
+                        "forcedReassemble", forcedReassemble,
+                        "issues", issues == null ? List.of() : issues
+                ))
+        );
+    }
+
+    private String toJsonSafe(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception ignore) {
+            return "{}";
+        }
     }
 
     private String snapshotType(ContextSnapshot snapshot) {

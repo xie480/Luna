@@ -7,6 +7,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.constants.ModelHintConstant;
 import org.yilena.luna.context.ContextAssembler;
+import org.yilena.luna.context.ToolSemanticAgent;
+import org.yilena.luna.context.ToolSemanticTraceLogger;
+import org.yilena.luna.context.StateTransitionTraceLogger;
 import org.yilena.luna.context.ContextTraceLogger;
 import org.yilena.luna.context.EvidenceBlockBuilder;
 import org.yilena.luna.context.GlobalContextRerankAgent;
@@ -22,6 +25,7 @@ import org.yilena.luna.context.SummaryAgent;
 import org.yilena.luna.context.SummaryStateSnapshotValidator;
 import org.yilena.luna.context.SummaryTraceLogger;
 import org.yilena.luna.context.ToolSemanticResultValidator;
+import org.yilena.luna.context.model.ContextNodeTemplatePolicy;
 import org.yilena.luna.context.model.AssembledContext;
 import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.EvidenceBlock;
@@ -29,6 +33,7 @@ import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.context.model.SummaryResult;
 import org.yilena.luna.context.model.ToolSemanticResult;
 import org.yilena.luna.entity.Resource;
+import org.yilena.luna.entity.ToolCallingContext;
 import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.memory.ContextCompilerService;
 import org.yilena.luna.memory.EventIngressService;
@@ -53,6 +58,7 @@ import org.yilena.luna.rag.models.RetrievalSource;
 import org.yilena.luna.router.CapabilityPolicyRouterService;
 import org.yilena.luna.router.ToolRouter;
 import org.yilena.luna.service.TaskOrchestratorService;
+import org.yilena.luna.service.AgentService;
 import org.yilena.luna.service.SessionService;
 import org.yilena.luna.service.model.BlueprintOrchestrationResult;
 import org.yilena.luna.service.model.BlueprintDraft;
@@ -60,18 +66,24 @@ import org.yilena.luna.service.model.MainModelExecutionRequest;
 import org.yilena.luna.service.model.MainModelOrchestrationResult;
 import org.yilena.luna.service.model.NodeWorksetResult;
 import org.yilena.luna.service.model.RoundStateWriteRequest;
+import org.yilena.luna.service.model.RoundToolSemanticRequest;
 import org.yilena.luna.service.model.SummaryOrchestrationResult;
 import org.yilena.luna.service.model.TaskOrchestrationResult;
+import org.yilena.luna.service.model.ToolDecisionCommand;
+import org.yilena.luna.service.model.ToolDecisionNodeResult;
 import org.yilena.luna.state.model.ContextState;
 import org.yilena.luna.state.model.RetrievalState;
 import org.yilena.luna.state.model.TaskState;
 import org.yilena.luna.state.model.ToolState;
 import org.yilena.luna.state.store.ContextStateStore;
+import org.yilena.luna.state.store.ContextSnapshotStore;
 import org.yilena.luna.state.store.RecoveryStateStore;
 import org.yilena.luna.state.store.RetrievalStateStore;
 import org.yilena.luna.state.store.TaskStateStore;
 import org.yilena.luna.state.store.ToolStateStore;
 import org.yilena.luna.utils.LlmClientUtil;
+import org.yilena.luna.utils.ToolCallingContextHolder;
+import org.yilena.luna.utils.ToolDecisionInputSignatureUtil;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -81,6 +93,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 @Service
 @RequiredArgsConstructor
@@ -122,11 +135,16 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
     private final SummaryTraceLogger summaryTraceLogger;
     private final ContextAssembler contextAssembler;
     private final ContextTraceLogger contextTraceLogger;
+    private final ToolSemanticAgent toolSemanticAgent;
+    private final ToolSemanticTraceLogger toolSemanticTraceLogger;
+    private final AgentService agentService;
+    private final ContextSnapshotStore contextSnapshotStore;
     private final ContextStateStore contextStateStore;
     private final TaskStateStore taskStateStore;
     private final RetrievalStateStore retrievalStateStore;
     private final ToolStateStore toolStateStore;
     private final ToolSemanticResultValidator toolSemanticResultValidator;
+    private final StateTransitionTraceLogger stateTransitionTraceLogger;
     private final LlmClientUtil llmClientUtil;
     private final GeminiProperty geminiProperty;
     private final SessionService sessionService;
@@ -134,6 +152,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
 
     @Override
     public TaskOrchestrationResult orchestrateUserInput(String sessionId, String userInput) {
+        String transitionTraceId = buildTraceId("TASK_ORCHESTRATOR", sessionId, null, null);
         StructuredContextPackage preContextPackage = contextCompilerService.compile(sessionId, userInput, null, null);
         InputReconstructionResult reconstructionResult = inputReconstructionAgent.reconstruct(
                 sessionId,
@@ -141,6 +160,18 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 preContextPackage,
                 preContextPackage == null ? null : preContextPackage.getTaskState(),
                 preContextPackage == null ? null : preContextPackage.getRelationalState()
+        );
+        stateTransitionTraceLogger.log(
+                transitionTraceId,
+                sessionId,
+                contextPlanId(preContextPackage),
+                contextNodeId(preContextPackage),
+                preContextPackage == null || preContextPackage.getTaskState() == null ? "" : preContextPackage.getTaskState().name(),
+                preContextPackage == null || preContextPackage.getTaskState() == null ? "" : preContextPackage.getTaskState().name(),
+                "CHAT",
+                "reconstruct",
+                preContextPackage == null || preContextPackage.getContextState() == null ? "" : nullSafe(preContextPackage.getContextState().getLatestContextSnapshotId()),
+                preContextPackage == null || preContextPackage.getRecoveryState() == null ? "" : nullSafe(preContextPackage.getRecoveryState().getRecoveryEvent())
         );
         GovernedSignal governedSignal = buildGovernedSignal(userInput, reconstructionResult);
         OrchestrationDecision decision = eventIngressService.ingestUserInput(
@@ -151,6 +182,18 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         StructuredContextPackage contextPackage = decision == null ? preContextPackage : decision.getContextPackage();
         RecoveryTrigger recoveryTrigger = resolveRecoveryTrigger(userInput, decision, contextPackage);
         if (recoveryTrigger.shouldRecover) {
+            stateTransitionTraceLogger.log(
+                    transitionTraceId,
+                    sessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    contextPackage == null || contextPackage.getTaskState() == null ? "" : contextPackage.getTaskState().name(),
+                    contextPackage == null || contextPackage.getTaskState() == null ? "" : contextPackage.getTaskState().name(),
+                    "CHAT",
+                    "recovery",
+                    contextPackage == null || contextPackage.getContextState() == null ? "" : nullSafe(contextPackage.getContextState().getLatestContextSnapshotId()),
+                    recoveryTrigger.recoveryEvent
+            );
             contextPackage = recoveryContextAgent.recover(
                     sessionId,
                     contextPackage,
@@ -206,6 +249,18 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     toJsonSafe(Map.of("input", userInput == null ? "" : userInput))
             );
         }
+        stateTransitionTraceLogger.log(
+                transitionTraceId,
+                sessionId,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage),
+                preContextPackage == null || preContextPackage.getTaskState() == null ? "" : preContextPackage.getTaskState().name(),
+                contextPackage == null || contextPackage.getTaskState() == null ? "" : contextPackage.getTaskState().name(),
+                "CHAT",
+                "writeback",
+                contextPackage == null || contextPackage.getContextState() == null ? "" : nullSafe(contextPackage.getContextState().getLatestContextSnapshotId()),
+                contextPackage == null || contextPackage.getRecoveryState() == null ? "" : nullSafe(contextPackage.getRecoveryState().getRecoveryEvent())
+        );
         runtimeAuditService.persistContextSnapshot(sessionId, contextPackage);
         runtimeAuditService.persistDecisionRecord(
                 sessionId,
@@ -312,6 +367,18 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                                                     InputReconstructionResult reconstructionResult) {
         String worksetTraceId = buildTraceId("NODE_WORKSET", sessionId, contextPlanId(contextPackage), contextNodeId(contextPackage));
         Map<String, Object> traceMeta = buildTraceMeta(contextPackage, contextNodeId(contextPackage), worksetTraceId, "NODE_WORKSET");
+        stateTransitionTraceLogger.log(
+                worksetTraceId,
+                sessionId,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage),
+                decision == null || decision.getTaskState() == null ? "" : decision.getTaskState().name(),
+                decision == null || decision.getTaskState() == null ? "" : decision.getTaskState().name(),
+                "NODE_WORKSET",
+                "recall",
+                contextPackage == null || contextPackage.getContextState() == null ? "" : nullSafe(contextPackage.getContextState().getLatestContextSnapshotId()),
+                contextPackage == null || contextPackage.getRecoveryState() == null ? "" : nullSafe(contextPackage.getRecoveryState().getRecoveryEvent())
+        );
         RecoveryRefreshPlan refreshPlan = consumeRecoveryRefreshPlan(contextPackage);
         String mcpDrivenInput = mcpQueryBuilder.build(
                 reconstructionResult,
@@ -353,6 +420,18 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                         "candidateCount", mcpPreRankedCandidates.size(),
                         "candidates", mcpPreRankedCandidates
                 )), traceMeta, "MCP_PRE_RANK", contextNodeId(contextPackage)))
+        );
+        stateTransitionTraceLogger.log(
+                worksetTraceId,
+                sessionId,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage),
+                decision == null || decision.getTaskState() == null ? "" : decision.getTaskState().name(),
+                decision == null || decision.getTaskState() == null ? "" : decision.getTaskState().name(),
+                "NODE_WORKSET",
+                "rerank",
+                contextPackage == null || contextPackage.getContextState() == null ? "" : nullSafe(contextPackage.getContextState().getLatestContextSnapshotId()),
+                contextPackage == null || contextPackage.getRecoveryState() == null ? "" : nullSafe(contextPackage.getRecoveryState().getRecoveryEvent())
         );
 
         String ragQuery = ragQueryBuilder.build(
@@ -546,6 +625,205 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .invalidationReasonsByRef(refreshPlan.invalidationReasonsByRef)
                 .executionCandidates(executionCandidates)
                 .mcpResourceHints(mcpResourceHints)
+                .build();
+    }
+
+    @Override
+    public ToolDecisionNodeResult orchestrateToolDecisionNode(String sessionId,
+                                                              String userInput,
+                                                              OrchestrationDecision decision,
+                                                              StructuredContextPackage contextPackage,
+                                                              InputReconstructionResult reconstructionResult,
+                                                              NodeWorksetResult nodeWorksetResult) {
+        String safeSessionId = sessionId == null ? "" : sessionId;
+        String safeUserInput = userInput == null ? "" : userInput;
+        ContextRerankResult rerankResult = nodeWorksetResult == null ? null : nodeWorksetResult.getRerankResult();
+        String mcpDrivenInput = nodeWorksetResult == null ? "" : nullSafe(nodeWorksetResult.getMcpDrivenInput());
+        List<Resource> executionCandidates = nodeWorksetResult == null || nodeWorksetResult.getExecutionCandidates() == null
+                ? List.of()
+                : nodeWorksetResult.getExecutionCandidates();
+        List<String> mcpResourceHints = nodeWorksetResult == null || nodeWorksetResult.getMcpResourceHints() == null
+                ? List.of()
+                : nodeWorksetResult.getMcpResourceHints();
+        List<String> knowledgeSnippets = nodeWorksetResult != null && nodeWorksetResult.getSelectedKnowledgeSnippets() != null
+                ? nodeWorksetResult.getSelectedKnowledgeSnippets()
+                : extractTaskKnowledgeSnippets(contextPackage);
+        List<String> preferenceSnippets = mergeDistinct(
+                extractRelationalPreferenceSnippets(contextPackage),
+                nodeWorksetResult == null ? List.of() : nodeWorksetResult.getSelectedPreferenceSnippets()
+        );
+        List<String> longTermMemorySnippets = extractTaskLongTermSnippets(contextPackage);
+        List<String> workingMemorySnippets = extractWorkingMemorySnippets(contextPackage);
+        List<String> runtimeMemorySnippets = extractRuntimeMessageSnippets(contextPackage);
+        List<String> ragMemorySnippets = nodeWorksetResult == null || nodeWorksetResult.getSelectedMemorySnippets() == null
+                ? List.of()
+                : nodeWorksetResult.getSelectedMemorySnippets();
+        List<EvidenceBlock> knowledgeEvidenceBlocks = nodeWorksetResult == null || nodeWorksetResult.getSelectedKnowledgeEvidenceBlocks() == null
+                ? List.of()
+                : nodeWorksetResult.getSelectedKnowledgeEvidenceBlocks();
+        ContextNodeTemplatePolicy nodeTemplatePolicy = resolveNodeTemplatePolicy(decision, contextPackage);
+        List<String> memorySnippets = buildNodeScopedMemorySnippets(
+                nodeTemplatePolicy,
+                workingMemorySnippets,
+                runtimeMemorySnippets,
+                ragMemorySnippets,
+                longTermMemorySnippets
+        );
+        ContextNodeTemplatePolicy toolDecisionPolicy = ContextNodeTemplatePolicy.forToolDecision(
+                nodeTemplatePolicy == null ? "" : nodeTemplatePolicy.getCurrentNodeId()
+        );
+        AssembledContext assembledDecision = contextAssembler.assemble(
+                contextPackage,
+                reconstructionResult,
+                rerankResult,
+                null,
+                safeUserInput,
+                knowledgeEvidenceBlocks,
+                workingMemorySnippets,
+                runtimeMemorySnippets,
+                ragMemorySnippets,
+                knowledgeSnippets,
+                preferenceSnippets,
+                longTermMemorySnippets,
+                executionCandidates,
+                mcpResourceHints,
+                "",
+                toolDecisionPolicy,
+                null,
+                safeSessionId,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage)
+        );
+        String assembledDecisionContext = assembledDecision == null ? "" : nullSafe(assembledDecision.getPrompt());
+
+        ToolCallingContextHolder.set(ToolCallingContext.builder()
+                .chatSessionKey(safeSessionId)
+                .userInput(safeUserInput)
+                .toolDecisionInput(mcpDrivenInput)
+                .governedInputSignature(ToolDecisionInputSignatureUtil.sign(safeSessionId, mcpDrivenInput, assembledDecisionContext))
+                .assembledDecisionContext(assembledDecisionContext)
+                .memorySnippets(memorySnippets)
+                .knowledgeSnippets(knowledgeSnippets)
+                .preferenceSnippets(preferenceSnippets)
+                .longTermMemorySnippets(longTermMemorySnippets)
+                .executionCandidates(executionCandidates)
+                .mcpResourceHints(mcpResourceHints)
+                .toolExecutionTraces(new CopyOnWriteArrayList<>())
+                .build());
+
+        String preToolSnapshotId = contextSnapshotStore.savePreToolDecisionSnapshot(
+                safeSessionId,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage),
+                safeUserInput,
+                mcpDrivenInput,
+                toExecutionCandidateMaps(executionCandidates),
+                Map.of(
+                        "rerankedToolCandidateCount", rerankResult == null || rerankResult.getSelectedToolCandidates() == null ? 0 : rerankResult.getSelectedToolCandidates().size(),
+                        "rerankedPromptCount", rerankResult == null || rerankResult.getSelectedPromptCandidates() == null ? 0 : rerankResult.getSelectedPromptCandidates().size(),
+                        "rerankedResourceCount", rerankResult == null || rerankResult.getSelectedResourceCandidates() == null ? 0 : rerankResult.getSelectedResourceCandidates().size(),
+                        "rerankedWorkflowCount", rerankResult == null || rerankResult.getSelectedWorkflowCandidates() == null ? 0 : rerankResult.getSelectedWorkflowCandidates().size(),
+                        "rerankedPromptResourceCountLegacy", rerankResult == null || rerankResult.getSelectedPromptResources() == null ? 0 : rerankResult.getSelectedPromptResources().size(),
+                        "decisionWorksetSnapshotType", "TOOL_DECISION_CONTEXT"
+                ),
+                buildRawToolResultChannel("", List.of(), "", List.of())
+        );
+        String toolDecisionSnapshotId = contextSnapshotStore.saveToolDecisionContextSnapshot(
+                safeSessionId,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage),
+                assembledDecisionContext,
+                assembledDecision == null ? Map.of() : assembledDecision.getCanonicalSections(),
+                toExecutionCandidateMaps(executionCandidates),
+                assembledDecision == null ? Map.of() : assembledDecision.getSectionTokenCounts(),
+                assembledDecision == null ? Map.of() : assembledDecision.getSectionTokenRatios(),
+                Map.of(
+                        "rerankedToolCandidateCount", rerankResult == null || rerankResult.getSelectedToolCandidates() == null ? 0 : rerankResult.getSelectedToolCandidates().size(),
+                        "rerankedPromptCount", rerankResult == null || rerankResult.getSelectedPromptCandidates() == null ? 0 : rerankResult.getSelectedPromptCandidates().size(),
+                        "rerankedResourceCount", rerankResult == null || rerankResult.getSelectedResourceCandidates() == null ? 0 : rerankResult.getSelectedResourceCandidates().size(),
+                        "rerankedWorkflowCount", rerankResult == null || rerankResult.getSelectedWorkflowCandidates() == null ? 0 : rerankResult.getSelectedWorkflowCandidates().size()
+                )
+        );
+        runtimeAuditService.persistDecisionRecord(
+                safeSessionId,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage),
+                "CONTEXT_SNAPSHOT_PRE_TOOL",
+                "pre-tool snapshot persisted",
+                toJsonSafe(Map.of(
+                        "snapshotId", preToolSnapshotId == null ? "" : preToolSnapshotId,
+                        "toolDecisionSnapshotId", toolDecisionSnapshotId == null ? "" : toolDecisionSnapshotId
+                ))
+        );
+
+        String toolContext = null;
+        String toolStatus = "SUCCESS";
+        String toolError = null;
+        long toolStartAt = System.currentTimeMillis();
+        ToolTraceRefs toolTraceRefs = ToolTraceRefs.empty();
+        List<Map<String, Object>> latestToolExecutionTraces = List.of();
+        try {
+            toolContext = agentService.processToolCallingWithGovernance(
+                    ToolDecisionCommand.builder()
+                            .sessionId(safeSessionId)
+                            .rawUserInput(safeUserInput)
+                            .toolDecisionInput(mcpDrivenInput)
+                            .taskState(decision == null ? null : decision.getTaskState())
+                            .relationalState(decision == null ? null : decision.getRelationalState())
+                            .executionCandidates(executionCandidates)
+                            .governedInputSignature(ToolDecisionInputSignatureUtil.sign(safeSessionId, mcpDrivenInput, assembledDecisionContext))
+                            .assembledDecisionContext(assembledDecisionContext)
+                            .build()
+            );
+        } catch (Exception ex) {
+            toolStatus = "FAILED";
+            toolError = ex.getMessage();
+            throw ex;
+        } finally {
+            List<Map<String, Object>> toolExecutionTraces = ToolCallingContextHolder.snapshotToolExecutionTraces();
+            latestToolExecutionTraces = toolExecutionTraces == null ? List.of() : toolExecutionTraces;
+            ToolCallingContextHolder.clear();
+            toolTraceRefs = persistToolExecutionTraces(
+                    safeSessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    safeUserInput,
+                    toolContext,
+                    toolStatus,
+                    toolError,
+                    System.currentTimeMillis() - toolStartAt,
+                    toolExecutionTraces
+            );
+            eventIngressService.ingestToolResult(safeSessionId, Map.of(
+                    "status", toolStatus.toLowerCase(Locale.ROOT),
+                    "toolContext", toolContext == null ? "" : toolContext,
+                    "error", toolError == null ? "" : toolError
+            ));
+        }
+
+        Map<String, Object> rawToolResultChannel = buildRawToolResultChannel(
+                toolContext,
+                latestToolExecutionTraces,
+                toolTraceRefs.latestRawRef(),
+                toolTraceRefs.historyRefs()
+        );
+        ToolSemanticResult toolSemanticResult = resolveToolSemanticFromRequest(RoundToolSemanticRequest.builder()
+                .sessionId(safeSessionId)
+                .contextPackage(contextPackage)
+                .taskState(decision == null ? null : decision.getTaskState())
+                .explicitTaskGoal(reconstructionResult == null ? "" : reconstructionResult.getExplicitTaskGoal())
+                .executionCandidates(executionCandidates)
+                .toolContext(toolContext)
+                .stage("CHAT_TURN")
+                .rawToolResultChannel(rawToolResultChannel)
+                .build());
+        return ToolDecisionNodeResult.builder()
+                .toolContext(toolContext)
+                .rawToolResultChannel(rawToolResultChannel)
+                .toolTraceRefs(toolTraceRefs.historyRefs())
+                .toolSemantic(toolSemanticResult)
+                .preToolSnapshotId(preToolSnapshotId == null ? "" : preToolSnapshotId)
+                .toolDecisionSnapshotId(toolDecisionSnapshotId == null ? "" : toolDecisionSnapshotId)
                 .build();
     }
 
@@ -748,9 +1026,22 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         StructuredContextPackage contextPackage = request.getContextPackage();
         Long planId = request.getPlanId() == null ? contextPlanId(contextPackage) : request.getPlanId();
         Long nodeId = request.getNodeId() == null ? contextNodeId(contextPackage) : request.getNodeId();
+        String transitionTraceId = buildTraceId("MAIN_MODEL", sessionId, planId, nodeId);
         Map<String, Object> rawToolResultChannel = request.getRawToolResultChannel() == null ? Map.of() : request.getRawToolResultChannel();
         Map<String, List<String>> activeRefs = buildFinalSnapshotActiveRefs(request, contextPackage);
-        AssembledContext assembledContext = contextAssembler.assembleAndSnapshot(
+        stateTransitionTraceLogger.log(
+                transitionTraceId,
+                sessionId,
+                planId,
+                nodeId,
+                contextPackage == null || contextPackage.getTaskState() == null ? "" : contextPackage.getTaskState().name(),
+                contextPackage == null || contextPackage.getTaskState() == null ? "" : contextPackage.getTaskState().name(),
+                nullSafe(request.getStage()),
+                "assemble",
+                contextPackage == null || contextPackage.getContextState() == null ? "" : nullSafe(contextPackage.getContextState().getLatestContextSnapshotId()),
+                contextPackage == null || contextPackage.getRecoveryState() == null ? "" : nullSafe(contextPackage.getRecoveryState().getRecoveryEvent())
+        );
+        AssembledContext assembledContext = contextAssembler.assemble(
                 contextPackage,
                 request.getReconstructionResult(),
                 request.getRerankResult(),
@@ -770,11 +1061,29 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 request.getRoundSummaryInput(),
                 sessionId,
                 planId,
-                nodeId,
-                rawToolResultChannel,
-                activeRefs
+                nodeId
         );
-        String finalSnapshotId = assembledContext == null ? "" : nullSafe(assembledContext.getSnapshotId());
+        String finalSnapshotId = contextSnapshotStore.saveFinalSnapshot(
+                sessionId,
+                planId,
+                nodeId,
+                assembledContext,
+                assembledContext == null ? "" : assembledContext.getPrompt(),
+                assembledContext == null ? Map.of() : assembledContext.getSectionTokenCounts(),
+                assembledContext == null ? Map.of() : assembledContext.getSectionTokenRatios(),
+                rawToolResultChannel,
+                activeRefs,
+                buildStructuredRecoveryPayload(contextPackage)
+        );
+        assembledContext = AssembledContext.builder()
+                .prompt(assembledContext == null ? "" : assembledContext.getPrompt())
+                .sections(assembledContext == null ? Map.of() : assembledContext.getSections())
+                .canonicalSections(assembledContext == null ? Map.of() : assembledContext.getCanonicalSections())
+                .candidatePool(assembledContext == null ? Map.of() : assembledContext.getCandidatePool())
+                .sectionTokenCounts(assembledContext == null ? Map.of() : assembledContext.getSectionTokenCounts())
+                .sectionTokenRatios(assembledContext == null ? Map.of() : assembledContext.getSectionTokenRatios())
+                .snapshotId(finalSnapshotId == null ? "" : finalSnapshotId)
+                .build();
         Map<String, Object> contextTraceMeta = buildTraceMeta(
                 contextPackage,
                 nodeId,
@@ -798,6 +1107,18 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
 
         String finalPrompt = assembledWithSnapshot == null ? "" : nullSafe(assembledWithSnapshot.getPrompt());
         if (finalPrompt.isBlank()) {
+            stateTransitionTraceLogger.log(
+                    transitionTraceId,
+                    sessionId,
+                    planId,
+                    nodeId,
+                    contextPackage == null || contextPackage.getTaskState() == null ? "" : contextPackage.getTaskState().name(),
+                    contextPackage == null || contextPackage.getTaskState() == null ? "" : contextPackage.getTaskState().name(),
+                    nullSafe(request.getStage()),
+                    "execute",
+                    finalSnapshotId,
+                    contextPackage == null || contextPackage.getRecoveryState() == null ? "" : nullSafe(contextPackage.getRecoveryState().getRecoveryEvent())
+            );
             runtimeAuditService.persistDecisionRecord(
                     sessionId,
                     planId,
@@ -826,6 +1147,18 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 finalPrompt,
                 request.getRepairSeed() == null ? request.getUserInput() : request.getRepairSeed(),
                 contextPackage
+        );
+        stateTransitionTraceLogger.log(
+                transitionTraceId,
+                sessionId,
+                planId,
+                nodeId,
+                contextPackage == null || contextPackage.getTaskState() == null ? "" : contextPackage.getTaskState().name(),
+                contextPackage == null || contextPackage.getTaskState() == null ? "" : contextPackage.getTaskState().name(),
+                nullSafe(request.getStage()),
+                "writeback",
+                finalSnapshotId,
+                contextPackage == null || contextPackage.getRecoveryState() == null ? "" : nullSafe(contextPackage.getRecoveryState().getRecoveryEvent())
         );
         return MainModelOrchestrationResult.builder()
                 .blocked(false)
@@ -2782,6 +3115,34 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .toList();
     }
 
+    private Map<String, Object> buildStructuredRecoveryPayload(StructuredContextPackage contextPackage) {
+        if (contextPackage == null) {
+            return Map.of();
+        }
+        Map<String, Object> runtimePointers = new LinkedHashMap<>();
+        runtimePointers.put("snapshotId", contextPackage.getContextState() == null ? "" : nullSafe(contextPackage.getContextState().getLatestContextSnapshotId()));
+        runtimePointers.put("planId", contextPlanId(contextPackage));
+        runtimePointers.put("nodeId", contextNodeId(contextPackage));
+        runtimePointers.put("activeRefs", contextPackage.getContextState() == null ? Map.of() : Map.of(
+                "activeKnowledgeRefs", contextPackage.getContextState().getActiveKnowledgeRefs() == null ? List.of() : contextPackage.getContextState().getActiveKnowledgeRefs(),
+                "activeMemoryRefs", contextPackage.getContextState().getActiveMemoryRefs() == null ? List.of() : contextPackage.getContextState().getActiveMemoryRefs(),
+                "activeToolEvidenceRefs", contextPackage.getContextState().getActiveToolEvidenceRefs() == null ? List.of() : contextPackage.getContextState().getActiveToolEvidenceRefs(),
+                "activeMcpPromptRefs", contextPackage.getContextState().getActiveMcpPromptRefs() == null ? List.of() : contextPackage.getContextState().getActiveMcpPromptRefs(),
+                "activeMcpResourceRefs", contextPackage.getContextState().getActiveMcpResourceRefs() == null ? List.of() : contextPackage.getContextState().getActiveMcpResourceRefs(),
+                "activeMcpWorkflowRefs", contextPackage.getContextState().getActiveMcpWorkflowRefs() == null ? List.of() : contextPackage.getContextState().getActiveMcpWorkflowRefs(),
+                "activeMcpToolRefs", contextPackage.getContextState().getActiveMcpToolRefs() == null ? List.of() : contextPackage.getContextState().getActiveMcpToolRefs()
+        ));
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("taskState", contextPackage.getTaskStateEntity() == null ? Map.of() : objectMapper.convertValue(contextPackage.getTaskStateEntity(), Map.class));
+        payload.put("retrievalState", contextPackage.getRetrievalState() == null ? Map.of() : objectMapper.convertValue(contextPackage.getRetrievalState(), Map.class));
+        payload.put("toolState", contextPackage.getToolState() == null ? Map.of() : objectMapper.convertValue(contextPackage.getToolState(), Map.class));
+        payload.put("contextState", contextPackage.getContextState() == null ? Map.of() : objectMapper.convertValue(contextPackage.getContextState(), Map.class));
+        payload.put("recoveryState", contextPackage.getRecoveryState() == null ? Map.of() : objectMapper.convertValue(contextPackage.getRecoveryState(), Map.class));
+        payload.put("runtimePointers", runtimePointers);
+        return payload;
+    }
+
     private Map<String, List<String>> buildFinalSnapshotActiveRefs(MainModelExecutionRequest request,
                                                                    StructuredContextPackage contextPackage) {
         ContextRerankResult rerankResult = request == null ? null : request.getRerankResult();
@@ -2855,6 +3216,433 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .toList();
     }
 
+    private ContextNodeTemplatePolicy resolveNodeTemplatePolicy(OrchestrationDecision decision, StructuredContextPackage contextPackage) {
+        TaskRuntimeState taskState = decision == null ? null : decision.getTaskState();
+        if (taskState == null && contextPackage != null) {
+            taskState = contextPackage.getTaskState();
+        }
+        String currentNode = "";
+        if (contextPackage != null && contextPackage.getTaskStateEntity() != null && contextPackage.getTaskStateEntity().getCurrentNode() != null) {
+            currentNode = contextPackage.getTaskStateEntity().getCurrentNode();
+        }
+        return ContextNodeTemplatePolicy.forTaskNode(taskState, currentNode, "");
+    }
+
+    private List<String> extractTaskKnowledgeSnippets(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getTaskContext() == null) {
+            return List.of();
+        }
+        Object raw = contextPackage.getTaskContext().get("knowledge");
+        if (!(raw instanceof List<?> list)) {
+            return List.of();
+        }
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) list;
+        return rows.stream()
+                .map(item -> "title: " + nullSafe(stringValue(item.get("title"))) + "\ncontent: " + nullSafe(stringValue(item.get("chunk_text"))))
+                .toList();
+    }
+
+    private List<String> extractTaskLongTermSnippets(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getTaskContext() == null) {
+            return List.of();
+        }
+        List<String> snippets = new ArrayList<>();
+        Object factsRaw = contextPackage.getTaskContext().get("task_facts");
+        if (factsRaw instanceof List<?> facts) {
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> rows = (List<Map<String, Object>>) facts;
+            snippets.addAll(rows.stream()
+                    .map(item -> "task_fact: " + nullSafe(stringValue(item.get("fact_key"))) + "=" + nullSafe(stringValue(item.get("fact_value_text"))))
+                    .toList());
+        }
+        Object episodesRaw = contextPackage.getTaskContext().get("task_episodes");
+        if (episodesRaw instanceof List<?> episodes) {
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> rows = (List<Map<String, Object>>) episodes;
+            snippets.addAll(rows.stream()
+                    .map(item -> "task_episode: " + nullSafe(stringValue(item.get("episode_type"))) + " | " + nullSafe(stringValue(item.get("trajectory_summary"))))
+                    .toList());
+        }
+        return snippets;
+    }
+
+    private List<String> extractWorkingMemorySnippets(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getTaskContext() == null) {
+            return List.of();
+        }
+        Object raw = contextPackage.getTaskContext().get("working_memory");
+        if (!(raw instanceof Map<?, ?> map) || map.isEmpty()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        out.add("working.goal_raw: " + nullSafe(stringValue(map.get("goal_raw"))));
+        out.add("working.goal_refined: " + nullSafe(stringValue(map.get("goal_refined"))));
+        out.add("working.unresolved_questions: " + nullSafe(stringValue(map.get("unresolved_questions_json"))));
+        out.add("working.risks: " + nullSafe(stringValue(map.get("risks_json"))));
+        return out;
+    }
+
+    private List<String> extractRelationalPreferenceSnippets(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getRelationalContext() == null) {
+            return List.of();
+        }
+        Object raw = contextPackage.getRelationalContext().get("semantic_facts");
+        if (!(raw instanceof List<?> list)) {
+            return List.of();
+        }
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) list;
+        return rows.stream()
+                .map(item -> "relation_pref: " + nullSafe(stringValue(item.get("fact_key"))) + "=" + nullSafe(stringValue(item.get("fact_value_text"))))
+                .toList();
+    }
+
+    private List<String> extractRuntimeMessageSnippets(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getRuntime() == null) {
+            return List.of();
+        }
+        Object raw = contextPackage.getRuntime().get("recent_messages");
+        if (!(raw instanceof List<?> list)) {
+            return List.of();
+        }
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) list;
+        return rows.stream()
+                .map(item -> nullSafe(stringValue(item.get("role"))) + ": " + nullSafe(stringValue(item.get("content_text"))))
+                .toList();
+    }
+
+    private List<String> buildNodeScopedMemorySnippets(ContextNodeTemplatePolicy policy,
+                                                       List<String> workingMemorySnippets,
+                                                       List<String> runtimeMemorySnippets,
+                                                       List<String> retrievedMemorySnippets,
+                                                       List<String> longTermMemorySnippets) {
+        ContextNodeTemplatePolicy effective = policy == null ? ContextNodeTemplatePolicy.defaultPolicy() : policy;
+        List<String> out = new ArrayList<>();
+        if (effective.isIncludeWorkingMemory()) {
+            out.addAll(limitSnippets(workingMemorySnippets, effective.getMaxWorkingMemoryItems()));
+        }
+        if (effective.isIncludeRuntimeMemory()) {
+            out.addAll(limitSnippets(runtimeMemorySnippets, effective.getMaxRuntimeMemoryItems()));
+        }
+        if (effective.isIncludeRetrievedMemory()) {
+            out.addAll(limitSnippets(retrievedMemorySnippets, effective.getMaxRetrievedMemoryItems()));
+        }
+        if (effective.isIncludeLongTermMemory()) {
+            out.addAll(limitSnippets(longTermMemorySnippets, effective.getMaxLongTermMemoryItems()));
+        }
+        return out.stream().filter(item -> item != null && !item.isBlank()).distinct().toList();
+    }
+
+    private List<String> limitSnippets(List<String> snippets, int maxItems) {
+        if (snippets == null || snippets.isEmpty() || maxItems <= 0) {
+            return List.of();
+        }
+        return snippets.stream()
+                .filter(item -> item != null && !item.isBlank())
+                .limit(maxItems)
+                .toList();
+    }
+
+    private ToolTraceRefs persistToolExecutionTraces(String sessionId,
+                                                     Long planId,
+                                                     Long nodeId,
+                                                     String userInput,
+                                                     String toolContext,
+                                                     String chainStatus,
+                                                     String chainError,
+                                                     long chainLatencyMs,
+                                                     List<Map<String, Object>> traces) {
+        List<Map<String, Object>> safeTraces = traces == null ? List.of() : traces;
+        List<String> historyRefs = new ArrayList<>();
+        String latestRawRef = "";
+        if (safeTraces.isEmpty()) {
+            Long traceId = runtimeAuditService.persistToolExecutionTraceAndReturnId(
+                    sessionId,
+                    planId,
+                    nodeId,
+                    "agent_tool_chain",
+                    chainStatus,
+                    toJsonSafe(Map.of("userInput", userInput == null ? "" : userInput)),
+                    toolContext,
+                    chainError,
+                    Math.max(0L, chainLatencyMs)
+            );
+            latestRawRef = toTraceRef(traceId, "agent_tool_chain", chainStatus);
+            historyRefs.add(latestRawRef);
+            return new ToolTraceRefs(latestRawRef, historyRefs.stream().filter(ref -> ref != null && !ref.isBlank()).distinct().toList());
+        }
+        int sequence = 1;
+        for (Map<String, Object> trace : safeTraces) {
+            String normalizedToolName = normalizeToolName(trace == null ? null : trace.get("tool_name"), sequence);
+            String normalizedStatus = normalizeCallStatus(trace == null ? null : trace.get("call_status"));
+            Map<String, Object> normalizedInput = new LinkedHashMap<>();
+            normalizedInput.put("sequence", sequence);
+            normalizedInput.put("source_type", trace == null ? "" : stringValue(trace.get("source_type")));
+            normalizedInput.put("payload", trace == null ? Map.of() : trace.getOrDefault("normalized_input", Map.of()));
+            Map<String, Object> normalizedOutput = new LinkedHashMap<>();
+            normalizedOutput.put("sequence", sequence);
+            normalizedOutput.put("source_type", trace == null ? "" : stringValue(trace.get("source_type")));
+            normalizedOutput.put("payload", trace == null ? Map.of() : trace.getOrDefault("normalized_output", Map.of()));
+            Long traceId = runtimeAuditService.persistToolExecutionTraceAndReturnId(
+                    sessionId,
+                    planId,
+                    nodeId,
+                    normalizedToolName,
+                    normalizedStatus,
+                    toJsonSafe(normalizedInput),
+                    toJsonSafe(normalizedOutput),
+                    trace == null ? "" : stringValue(trace.get("error_message")),
+                    normalizeLatency(trace == null ? null : trace.get("latency_ms"))
+            );
+            String traceRef = toTraceRef(traceId, normalizedToolName, normalizedStatus);
+            historyRefs.add(traceRef);
+            if (latestRawRef.isBlank()) {
+                latestRawRef = traceRef;
+            }
+            sequence++;
+        }
+        Long chainTraceId = runtimeAuditService.persistToolExecutionTraceAndReturnId(
+                sessionId,
+                planId,
+                nodeId,
+                "agent_tool_chain",
+                chainStatus,
+                toJsonSafe(Map.of(
+                        "userInput", userInput == null ? "" : userInput,
+                        "traceCount", safeTraces.size()
+                )),
+                toJsonSafe(Map.of(
+                        "toolContext", toolContext == null ? "" : toolContext,
+                        "chainStatus", chainStatus == null ? "" : chainStatus
+                )),
+                chainError,
+                Math.max(0L, chainLatencyMs)
+        );
+        historyRefs.add(toTraceRef(chainTraceId, "agent_tool_chain", chainStatus));
+        if (latestRawRef.isBlank()) {
+            latestRawRef = toTraceRef(chainTraceId, "agent_tool_chain", chainStatus);
+        }
+        return new ToolTraceRefs(latestRawRef, historyRefs.stream().filter(ref -> ref != null && !ref.isBlank()).distinct().toList());
+    }
+
+    private String normalizeToolName(Object rawName, int sequence) {
+        String name = stringValue(rawName);
+        if (name == null || name.isBlank()) {
+            return "tool_call_" + sequence;
+        }
+        return name;
+    }
+
+    private Long normalizeLatency(Object rawLatency) {
+        Long value = toLong(rawLatency);
+        if (value == null) {
+            return null;
+        }
+        return Math.max(0L, value);
+    }
+
+    private String toTraceRef(Long traceId, String toolName, String callStatus) {
+        if (traceId != null && traceId > 0L) {
+            return "tool_execution_trace:id=" + traceId;
+        }
+        String normalizedTool = toolName == null || toolName.isBlank() ? "agent_tool_chain" : toolName;
+        String normalizedStatus = callStatus == null || callStatus.isBlank() ? "UNKNOWN" : callStatus.toUpperCase(Locale.ROOT);
+        return "tool_execution_trace:" + normalizedTool + ":" + normalizedStatus;
+    }
+
+    private List<Map<String, Object>> toExecutionCandidateMaps(List<Resource> resources) {
+        if (resources == null || resources.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Resource resource : resources) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("name", resource.getName());
+            row.put("type", resource.getType() == null ? "" : resource.getType().name());
+            row.put("serverCode", resource.getServerCode());
+            row.put("resourceUri", resource.getResourceUri());
+            row.put("requiresApproval", resource.getRequiresApproval());
+            row.put("sensitivity", resource.getSensitivity() == null ? "" : resource.getSensitivity().name());
+            out.add(row);
+        }
+        return out;
+    }
+
+    private Map<String, Object> buildRawToolResultChannel(String rawToolContext,
+                                                          List<Map<String, Object>> rawToolExecutionTraces,
+                                                          String latestToolRawRef,
+                                                          List<String> toolHistoryRefs) {
+        Map<String, Object> channel = new LinkedHashMap<>();
+        channel.put("rawToolContext", rawToolContext == null ? "" : rawToolContext);
+        channel.put("rawToolExecutionTraces", rawToolExecutionTraces == null ? List.of() : rawToolExecutionTraces);
+        channel.put("latestToolRawRef", latestToolRawRef == null ? "" : latestToolRawRef);
+        channel.put("toolHistoryRefs", toolHistoryRefs == null ? List.of() : toolHistoryRefs);
+        return channel;
+    }
+
+    private ToolSemanticResult resolveToolSemanticFromRequest(RoundToolSemanticRequest request) {
+        if (request == null) {
+            return fallbackToolSemanticResult("agent_tool_chain", "", "", "round_tool_semantic_request_missing");
+        }
+        StructuredContextPackage contextPackage = request.getContextPackage();
+        Long planId = contextPlanId(contextPackage);
+        Long nodeId = contextNodeId(contextPackage);
+        String toolName = firstNonBlank(request.getToolName(), resolvePrimaryToolName(request.getExecutionCandidates()));
+        String toolDescription = firstNonBlank(request.getToolDescription(), resolvePrimaryToolDescription(request.getExecutionCandidates()));
+        String explicitGoal = nullSafe(request.getExplicitTaskGoal());
+        TaskRuntimeState taskState = request.getTaskState() == null
+                ? (contextPackage == null ? null : contextPackage.getTaskState())
+                : request.getTaskState();
+        String stage = nullSafe(request.getStage());
+        ToolSemanticResult translated;
+        try {
+            translated = toolSemanticAgent.translate(
+                    toolName,
+                    toolDescription,
+                    nullSafe(request.getToolContext()),
+                    taskState,
+                    explicitGoal
+            );
+        } catch (Exception ex) {
+            translated = fallbackToolSemanticResult(toolName, toolDescription, request.getToolContext(), ex.getMessage());
+        }
+        ToolSemanticResult safeTranslated = translated == null
+                ? fallbackToolSemanticResult(toolName, toolDescription, request.getToolContext(), "tool_semantic_translation_empty")
+                : translated;
+        ToolSemanticResultValidator.ValidationResult validation = toolSemanticResultValidator.validate(safeTranslated, contextPackage);
+        if (validation.normalized() != null) {
+            safeTranslated = validation.normalized();
+        }
+        runtimeAuditService.persistDecisionRecord(
+                request.getSessionId(),
+                planId,
+                nodeId,
+                "TOOL_SEMANTIC_VALIDATION",
+                validation.valid() ? firstNonBlank(stage, "ROUND") + " semantic validation passed"
+                        : firstNonBlank(stage, "ROUND") + " semantic validation failed",
+                validation.valid() ? "{}" : toJsonSafe(Map.of(
+                        "issues", validation.issues() == null ? List.of() : validation.issues(),
+                        "stage", stage
+                ))
+        );
+        if (!validation.valid() && validation.issues() != null && validation.issues().contains("schema_invalid")) {
+            runtimeAuditService.persistDecisionRecord(
+                    request.getSessionId(),
+                    planId,
+                    nodeId,
+                    "TOOL_SEMANTIC_SCHEMA_INVALID",
+                    "semantic result rejected by schema, normalized fallback applied",
+                    toJsonSafe(Map.of(
+                            "issues", validation.issues() == null ? List.of() : validation.issues(),
+                            "stage", stage
+                    ))
+            );
+        }
+        String rawResultRef = resolveLatestRawResultRef(request.getRawToolResultChannel(), null);
+        String semanticTraceId = buildTraceId("TOOL_SEMANTIC", request.getSessionId(), planId, nodeId);
+        runtimeAuditService.persistDecisionRecord(
+                request.getSessionId(),
+                planId,
+                nodeId,
+                "TOOL_SEMANTIC_PIPELINE_TRACE",
+                firstNonBlank(stage, "ROUND") + " semantic pipeline traced",
+                toJsonSafe(Map.of(
+                        "traceId", semanticTraceId,
+                        "rawResultRef", rawResultRef,
+                        "rawDigest", nullSafe(safeTranslated.getRawResultDigest()),
+                        "semanticResult", safeTranslated,
+                        "validationIssues", validation.issues() == null ? List.of() : validation.issues()
+                ))
+        );
+        runtimeAuditService.persistDecisionRecord(
+                request.getSessionId(),
+                planId,
+                nodeId,
+                "TOOL_SEMANTIC_TRANSLATION",
+                firstNonBlank(stage, "ROUND") + " tool semantic translated",
+                toJsonSafe(safeTranslated)
+        );
+        toolSemanticTraceLogger.log(request.getSessionId(), planId, nodeId, safeTranslated);
+        return safeTranslated;
+    }
+
+    private String resolveLatestRawResultRef(Map<String, Object> rawToolResultChannel, String fallbackRef) {
+        if (rawToolResultChannel != null && !rawToolResultChannel.isEmpty()) {
+            Object latest = rawToolResultChannel.get("latestToolRawRef");
+            if (latest != null && !String.valueOf(latest).isBlank()) {
+                return String.valueOf(latest);
+            }
+            Object refs = rawToolResultChannel.get("toolHistoryRefs");
+            if (refs instanceof List<?> list && !list.isEmpty()) {
+                Object first = list.get(0);
+                if (first != null && !String.valueOf(first).isBlank()) {
+                    return String.valueOf(first);
+                }
+            }
+        }
+        if (fallbackRef != null && !fallbackRef.isBlank()) {
+            return fallbackRef;
+        }
+        return "tool_execution_trace:latest";
+    }
+
+    private ToolSemanticResult fallbackToolSemanticResult(String toolName,
+                                                          String toolDescription,
+                                                          String rawToolResult,
+                                                          String errorMessage) {
+        boolean failed = isErrorResult(rawToolResult);
+        return ToolSemanticResult.builder()
+                .toolName(firstNonBlank(toolName, "agent_tool_chain"))
+                .toolDescription(nullSafe(toolDescription))
+                .rawResultDigest(truncate(rawToolResult, 640))
+                .toolStatus(failed ? "FAILED" : "UNKNOWN")
+                .keyFacts(List.of("tool_semantic_fallback_applied"))
+                .businessImpact(failed
+                        ? "tool call failed and requires follow-up"
+                        : "tool result available but semantic translation degraded")
+                .unresolvedIssues(errorMessage == null || errorMessage.isBlank() ? List.of() : List.of(truncate(errorMessage, 200)))
+                .nextStepHint(failed ? "retry_or_recover" : "inspect_raw_tool_result")
+                .confidence(0.15)
+                .semanticPayload(Map.of(
+                        "status", failed ? "FAILED" : "UNKNOWN",
+                        "tool", firstNonBlank(toolName, ""),
+                        "fallback", true,
+                        "fallbackReason", errorMessage == null ? "" : truncate(errorMessage, 200)
+                ))
+                .build();
+    }
+
+    private boolean isErrorResult(String rawToolResult) {
+        String lower = nullSafe(rawToolResult).toLowerCase(Locale.ROOT);
+        return lower.contains("\"status\":\"error\"")
+                || lower.contains("\"status\":\"failed\"")
+                || lower.contains("error_code")
+                || lower.contains("\"success\":false");
+    }
+
+    private String resolvePrimaryToolName(List<Resource> executionCandidates) {
+        if (executionCandidates == null || executionCandidates.isEmpty()) {
+            return "agent_tool_chain";
+        }
+        Resource first = executionCandidates.get(0);
+        return first == null || first.getName() == null || first.getName().isBlank() ? "agent_tool_chain" : first.getName();
+    }
+
+    private String resolvePrimaryToolDescription(List<Resource> executionCandidates) {
+        if (executionCandidates == null || executionCandidates.isEmpty()) {
+            return "";
+        }
+        Resource first = executionCandidates.get(0);
+        if (first == null) {
+            return "";
+        }
+        return "type=" + (first.getType() == null ? "" : first.getType().name())
+                + ", server=" + firstNonBlank(first.getServerCode(), "local")
+                + ", name=" + firstNonBlank(first.getName(), "");
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, String> safeStringMap(Object value) {
         if (!(value instanceof Map<?, ?> map) || map.isEmpty()) {
@@ -2881,6 +3669,12 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .filter(item -> !item.isBlank())
                 .distinct()
                 .toList();
+    }
+
+    private record ToolTraceRefs(String latestRawRef, List<String> historyRefs) {
+        private static ToolTraceRefs empty() {
+            return new ToolTraceRefs("", List.of());
+        }
     }
 
     private record RecoveryTrigger(boolean shouldRecover, String recoveryEvent, String interruptReason) {

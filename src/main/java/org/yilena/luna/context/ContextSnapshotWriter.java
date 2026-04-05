@@ -12,4 +12,21 @@ public interface ContextSnapshotWriter {
                                 AssembledContext assembledContext,
                                 Map<String, Object> rawToolResultChannel,
                                 Map<String, List<String>> activeRefs);
+
+    default String persistFinalSnapshot(String sessionId,
+                                        Long planId,
+                                        Long nodeId,
+                                        AssembledContext assembledContext,
+                                        Map<String, Object> rawToolResultChannel,
+                                        Map<String, List<String>> activeRefs,
+                                        Map<String, Object> structuredRecoveryPayload) {
+        return persistFinalSnapshot(
+                sessionId,
+                planId,
+                nodeId,
+                assembledContext,
+                rawToolResultChannel,
+                activeRefs
+        );
+    }
 }

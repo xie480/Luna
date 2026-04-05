@@ -175,6 +175,31 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
                                     Map<String, Double> sectionTokenRatios,
                                     Map<String, Object> rawToolResultChannel,
                                     Map<String, List<String>> activeRefs) {
+        return saveFinalSnapshot(
+                sessionId,
+                planId,
+                nodeId,
+                assembledContext,
+                prompt,
+                sectionTokenCounts,
+                sectionTokenRatios,
+                rawToolResultChannel,
+                activeRefs,
+                Map.of()
+        );
+    }
+
+    @Override
+    public String saveFinalSnapshot(String sessionId,
+                                    Long planId,
+                                    Long nodeId,
+                                    AssembledContext assembledContext,
+                                    String prompt,
+                                    Map<String, Integer> sectionTokenCounts,
+                                    Map<String, Double> sectionTokenRatios,
+                                    Map<String, Object> rawToolResultChannel,
+                                    Map<String, List<String>> activeRefs,
+                                    Map<String, Object> structuredRecoveryPayload) {
         if (sessionId == null || sessionId.isBlank()) {
             return "";
         }
@@ -197,6 +222,7 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
             payload.put("activeMcpWorkflowRefs", normalizedActiveRefs.getOrDefault("activeMcpWorkflowRefs", List.of()));
             payload.put("activeMcpToolRefs", normalizedActiveRefs.getOrDefault("activeMcpToolRefs", List.of()));
             payload.put("activeMcpResourceRefsLegacy", normalizedActiveRefs.getOrDefault("activeMcpResourceRefsLegacy", List.of()));
+            payload.put("structuredRecoveryPayload", structuredRecoveryPayload == null ? Map.of() : structuredRecoveryPayload);
             Long snapshotId = runtimeAuditMapper.insertContextSnapshotAndReturnId(
                     sessionId,
                     planId,

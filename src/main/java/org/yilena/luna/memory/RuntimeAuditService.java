@@ -18,6 +18,29 @@ public interface RuntimeAuditService {
                                        Map<String, Object> rawToolResultChannel,
                                        Map<String, java.util.List<String>> activeRefs);
 
+    default String persistFinalContextSnapshot(String sessionId,
+                                               Long planId,
+                                               Long nodeId,
+                                               AssembledContext assembledContext,
+                                               String prompt,
+                                               Map<String, Integer> sectionTokenCounts,
+                                               Map<String, Double> sectionTokenRatios,
+                                               Map<String, Object> rawToolResultChannel,
+                                               Map<String, java.util.List<String>> activeRefs,
+                                               Map<String, Object> structuredRecoveryPayload) {
+        return persistFinalContextSnapshot(
+                sessionId,
+                planId,
+                nodeId,
+                assembledContext,
+                prompt,
+                sectionTokenCounts,
+                sectionTokenRatios,
+                rawToolResultChannel,
+                activeRefs
+        );
+    }
+
     void persistDecisionRecord(String sessionId,
                                Long planId,
                                Long nodeId,

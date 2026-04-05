@@ -12,6 +12,7 @@ import org.yilena.luna.service.model.NodeWorksetResult;
 import org.yilena.luna.service.model.RoundStateWriteRequest;
 import org.yilena.luna.service.model.SummaryOrchestrationResult;
 import org.yilena.luna.service.model.TaskOrchestrationResult;
+import org.yilena.luna.service.model.ToolDecisionNodeResult;
 
 import java.util.List;
 import java.util.Map;
@@ -32,6 +33,13 @@ public interface TaskOrchestratorService {
                                              OrchestrationDecision decision,
                                              StructuredContextPackage contextPackage,
                                              InputReconstructionResult reconstructionResult);
+
+    ToolDecisionNodeResult orchestrateToolDecisionNode(String sessionId,
+                                                       String userInput,
+                                                       OrchestrationDecision decision,
+                                                       StructuredContextPackage contextPackage,
+                                                       InputReconstructionResult reconstructionResult,
+                                                       NodeWorksetResult nodeWorksetResult);
 
     BlueprintOrchestrationResult orchestrateBlueprintInput(String sessionId, String userGoal);
 
