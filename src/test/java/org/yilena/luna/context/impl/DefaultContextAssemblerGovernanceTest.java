@@ -35,7 +35,8 @@ class DefaultContextAssemblerGovernanceTest {
                 taskMemoryRetriever,
                 relationalMemoryRetriever,
                 mock(org.yilena.luna.context.SummaryAgent.class),
-                mock(org.yilena.luna.context.ToolSemanticAgent.class)
+                mock(org.yilena.luna.context.ToolSemanticAgent.class),
+                mock(org.yilena.luna.context.ContextSnapshotWriter.class)
         );
         when(taskMemoryRetriever.retrieve(anyString(), anyString(), any())).thenReturn(Map.of());
 

@@ -749,6 +749,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         Long planId = request.getPlanId() == null ? contextPlanId(contextPackage) : request.getPlanId();
         Long nodeId = request.getNodeId() == null ? contextNodeId(contextPackage) : request.getNodeId();
         Map<String, Object> rawToolResultChannel = request.getRawToolResultChannel() == null ? Map.of() : request.getRawToolResultChannel();
+        Map<String, List<String>> activeRefs = buildFinalSnapshotActiveRefs(request, contextPackage);
         AssembledContext assembledContext = contextAssembler.assembleAndSnapshot(
                 contextPackage,
                 request.getReconstructionResult(),
@@ -771,20 +772,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 planId,
                 nodeId,
                 rawToolResultChannel,
-                buildFinalSnapshotActiveRefs(request, contextPackage)
-        );
-        Map<String, List<String>> activeRefs = buildFinalSnapshotActiveRefs(request, contextPackage);
-        String finalSnapshotId = runtimeAuditService.persistFinalContextSnapshot(
-                sessionId,
-                planId,
-                nodeId,
-                assembledContext,
-                assembledContext == null ? "" : nullSafe(assembledContext.getPrompt()),
-                assembledContext == null || assembledContext.getSectionTokenCounts() == null ? Map.of() : assembledContext.getSectionTokenCounts(),
-                assembledContext == null || assembledContext.getSectionTokenRatios() == null ? Map.of() : assembledContext.getSectionTokenRatios(),
-                rawToolResultChannel,
                 activeRefs
         );
+        String finalSnapshotId = assembledContext == null ? "" : nullSafe(assembledContext.getSnapshotId());
         Map<String, Object> contextTraceMeta = buildTraceMeta(
                 contextPackage,
                 nodeId,
@@ -793,7 +783,6 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         );
         contextTraceLogger.log(sessionId, planId, nodeId, assembledContext, contextTraceMeta);
 
-        finalSnapshotId = firstNonBlank(finalSnapshotId, assembledContext == null ? "" : nullSafe(assembledContext.getSnapshotId()));
         if (!sessionId.isBlank()) {
             runtimeAuditService.persistDecisionRecord(
                     sessionId,
@@ -805,17 +794,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             );
         }
 
-        AssembledContext assembledWithSnapshot = assembledContext == null
-                ? null
-                : AssembledContext.builder()
-                .prompt(assembledContext.getPrompt())
-                .sections(assembledContext.getSections())
-                .canonicalSections(assembledContext.getCanonicalSections())
-                .candidatePool(assembledContext.getCandidatePool())
-                .sectionTokenCounts(assembledContext.getSectionTokenCounts())
-                .sectionTokenRatios(assembledContext.getSectionTokenRatios())
-                .snapshotId(finalSnapshotId)
-                .build();
+        AssembledContext assembledWithSnapshot = assembledContext;
 
         String finalPrompt = assembledWithSnapshot == null ? "" : nullSafe(assembledWithSnapshot.getPrompt());
         if (finalPrompt.isBlank()) {

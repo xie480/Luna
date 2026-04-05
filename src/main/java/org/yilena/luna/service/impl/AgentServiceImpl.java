@@ -17,6 +17,7 @@ import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.executor.WorkflowExecutor;
 import org.yilena.luna.gate.ExecutionGate;
 import org.yilena.luna.gate.ToolExecutionGateway;
+import org.yilena.luna.memory.RuntimeAuditService;
 import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.router.CapabilityPolicyRouterService;
 import org.yilena.luna.router.ToolRouter;
@@ -25,6 +26,7 @@ import org.yilena.luna.service.McpService;
 import org.yilena.luna.service.PlanOrchestratorService;
 import org.yilena.luna.service.SessionService;
 import org.yilena.luna.utils.AuthContextHolder;
+import org.yilena.luna.utils.ToolDecisionInputSignatureUtil;
 import org.yilena.luna.utils.ToolCallingContextHolder;
 
 import java.util.Collections;
@@ -49,6 +51,7 @@ public class AgentServiceImpl implements AgentService {
     private final SessionService sessionService;
     private final CapabilityPolicyRouterService capabilityPolicyRouterService;
     private final PlanOrchestratorService planOrchestratorService;
+    private final RuntimeAuditService runtimeAuditService;
     private static final String WORKFLOW_ARGS_PROMPT_TEMPLATE = PromptTemplates.SKILL_ARGS_PROMPT;
 
     @Override
@@ -81,7 +84,7 @@ public class AgentServiceImpl implements AgentService {
                                      List<Resource> executionCandidates,
                                      String assembledDecisionContext) {
         log.info("processToolCalling, sessionId={}, input={}", sessionId, input);
-        String decisionInput = resolveDecisionInput(input);
+        String decisionInput = resolveDecisionInput(sessionId, input);
         if (decisionInput.isBlank()) {
             log.info("skip tool decision: governed decision input unavailable");
             return null;
@@ -195,33 +198,43 @@ public class AgentServiceImpl implements AgentService {
         return sessionId;
     }
 
-    private String resolveDecisionInput(String input) {
+    private String resolveDecisionInput(String sessionId, String input) {
         ToolCallingContext context = ToolCallingContextHolder.get();
-        if (context != null && context.getToolDecisionInput() != null && !context.getToolDecisionInput().isBlank()) {
-            return context.getToolDecisionInput();
-        }
-        String candidate = input == null ? "" : input.trim();
-        if (candidate.isBlank()) {
+        if (context == null) {
+            auditUngovernedDecisionRejected(resolveStableSessionId(sessionId), "missing_tool_calling_context", input);
             return "";
         }
-        if (isGovernedDecisionInput(candidate)) {
-            return candidate;
+        String decisionInput = context.getToolDecisionInput() == null ? "" : context.getToolDecisionInput().trim();
+        if (decisionInput.isBlank()) {
+            auditUngovernedDecisionRejected(resolveStableSessionId(sessionId), "empty_governed_decision_input", input);
+            return "";
         }
-        log.warn("tool decision input blocked: missing ToolCallingContext and unguided raw input");
-        return "";
+        boolean signatureValid = ToolDecisionInputSignatureUtil.verify(
+                context.getGovernedInputSignature(),
+                context.getChatSessionKey(),
+                decisionInput,
+                context.getAssembledDecisionContext()
+        );
+        if (!signatureValid) {
+            auditUngovernedDecisionRejected(resolveStableSessionId(sessionId), "invalid_governed_input_signature", input);
+            return "";
+        }
+        return decisionInput;
     }
 
-    private boolean isGovernedDecisionInput(String input) {
-        String normalized = input == null ? "" : input.toLowerCase(Locale.ROOT);
-        return normalized.contains("task_stage=")
-                || normalized.contains("explicit_task_goal=")
-                || normalized.contains("clarified_entities=")
-                || normalized.contains("business_constraints=")
-                || normalized.contains("time_scope=")
-                || normalized.contains("intent=")
-                || normalized.contains("goal=")
-                || normalized.contains("timescope=")
-                || normalized.contains("missingslots=");
+    private void auditUngovernedDecisionRejected(String sessionId, String reason, String rawInput) {
+        log.warn("tool decision input blocked: {}", reason);
+        runtimeAuditService.persistDecisionRecord(
+                sessionId,
+                null,
+                null,
+                "UNGOVERNED_TOOL_DECISION_REJECTED",
+                reason,
+                toJson(Map.of(
+                        "reason", reason,
+                        "rawInputPreview", rawInput == null ? "" : rawInput.substring(0, Math.min(rawInput.length(), 240))
+                ))
+        );
     }
 
     private String buildDecisionPrompt(String input, List<String> history, List<Resource> tools, String assembledDecisionContext) {

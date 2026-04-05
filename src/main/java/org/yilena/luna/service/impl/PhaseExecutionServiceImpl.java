@@ -26,6 +26,7 @@ import org.yilena.luna.sse.LunaStatusPublisher;
 import org.yilena.luna.tools.PlanEventTools;
 import org.yilena.luna.tools.PlanNodeTools;
 import org.yilena.luna.state.store.ContextSnapshotStore;
+import org.yilena.luna.utils.ToolDecisionInputSignatureUtil;
 import org.yilena.luna.utils.ToolCallingContextHolder;
 
 import java.util.*;
@@ -1132,6 +1133,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                 .chatSessionKey(sessionId)
                 .userInput(rawUserInput)
                 .toolDecisionInput(governedDecisionInput)
+                .governedInputSignature(ToolDecisionInputSignatureUtil.sign(sessionId, governedDecisionInput, ""))
                 .assembledDecisionContext("")
                 .executionCandidates(executionCandidates == null ? List.of() : executionCandidates)
                 .toolExecutionTraces(new CopyOnWriteArrayList<>())

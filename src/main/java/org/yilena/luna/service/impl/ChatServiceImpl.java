@@ -59,6 +59,7 @@ import org.yilena.luna.state.model.ToolState;
 import org.yilena.luna.state.store.ContextSnapshotStore;
 import org.yilena.luna.sse.LunaStatusPublisher;
 import org.yilena.luna.utils.AuthContextHolder;
+import org.yilena.luna.utils.ToolDecisionInputSignatureUtil;
 import org.yilena.luna.utils.ToolCallingContextHolder;
 
 import java.time.LocalDateTime;
@@ -191,6 +192,7 @@ public class ChatServiceImpl implements ChatService {
                 .chatSessionKey(runtimeSessionId)
                 .userInput(input)
                 .toolDecisionInput(mcpDrivenInput)
+                .governedInputSignature(ToolDecisionInputSignatureUtil.sign(runtimeSessionId, mcpDrivenInput, assembledDecisionContext))
                 .assembledDecisionContext(assembledDecisionContext)
                 .memorySnippets(memorySnippets)
                 .knowledgeSnippets(knowledgeSnippets)

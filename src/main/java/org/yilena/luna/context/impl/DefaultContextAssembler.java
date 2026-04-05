@@ -2,6 +2,7 @@ package org.yilena.luna.context.impl;
 
 import org.springframework.stereotype.Service;
 import org.yilena.luna.context.ContextAssembler;
+import org.yilena.luna.context.ContextSnapshotWriter;
 import org.yilena.luna.context.SemanticPreservingPruner;
 import org.yilena.luna.context.SummaryAgent;
 import org.yilena.luna.context.ToolSemanticAgent;
@@ -33,17 +34,20 @@ public class DefaultContextAssembler implements ContextAssembler {
     private final RelationalMemoryRetriever relationalMemoryRetriever;
     private final SummaryAgent summaryAgent;
     private final ToolSemanticAgent toolSemanticAgent;
+    private final ContextSnapshotWriter contextSnapshotWriter;
 
     public DefaultContextAssembler(SemanticPreservingPruner semanticPreservingPruner,
                                    TaskMemoryRetriever taskMemoryRetriever,
                                    RelationalMemoryRetriever relationalMemoryRetriever,
                                    SummaryAgent summaryAgent,
-                                   ToolSemanticAgent toolSemanticAgent) {
+                                   ToolSemanticAgent toolSemanticAgent,
+                                   ContextSnapshotWriter contextSnapshotWriter) {
         this.semanticPreservingPruner = semanticPreservingPruner;
         this.taskMemoryRetriever = taskMemoryRetriever;
         this.relationalMemoryRetriever = relationalMemoryRetriever;
         this.summaryAgent = summaryAgent;
         this.toolSemanticAgent = toolSemanticAgent;
+        this.contextSnapshotWriter = contextSnapshotWriter;
     }
 
     @Override
@@ -199,7 +203,7 @@ public class DefaultContextAssembler implements ContextAssembler {
                                                 Long nodeId,
                                                 Map<String, Object> rawToolResultChannel,
                                                 Map<String, List<String>> activeRefs) {
-        return assemble(
+        AssembledContext assembled = assemble(
                 contextPackage,
                 reconstructionResult,
                 rerankResult,
@@ -221,6 +225,23 @@ public class DefaultContextAssembler implements ContextAssembler {
                 planId,
                 nodeId
         );
+        String snapshotId = contextSnapshotWriter.persistFinalSnapshot(
+                sessionId,
+                planId,
+                nodeId,
+                assembled,
+                rawToolResultChannel,
+                activeRefs
+        );
+        return AssembledContext.builder()
+                .prompt(assembled == null ? "" : assembled.getPrompt())
+                .sections(assembled == null ? Map.of() : assembled.getSections())
+                .canonicalSections(assembled == null ? Map.of() : assembled.getCanonicalSections())
+                .candidatePool(assembled == null ? Map.of() : assembled.getCandidatePool())
+                .sectionTokenCounts(assembled == null ? Map.of() : assembled.getSectionTokenCounts())
+                .sectionTokenRatios(assembled == null ? Map.of() : assembled.getSectionTokenRatios())
+                .snapshotId(snapshotId == null ? "" : snapshotId)
+                .build();
     }
 
     private Map<String, List<String>> buildCandidatePool(String userInput,
