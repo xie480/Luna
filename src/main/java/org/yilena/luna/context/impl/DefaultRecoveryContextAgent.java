@@ -2,6 +2,7 @@ package org.yilena.luna.context.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.context.Lexicon;
 import org.yilena.luna.context.RecoveryContextAgent;
 import org.yilena.luna.enums.ModelType;
 import org.yilena.luna.llm.LlmMessage;
@@ -168,9 +169,10 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
                                                ContextSnapshot snapshot) {
         String event = normalize(recoveryEvent);
         String reason = normalize(interruptReason);
-        boolean staleByTimeout = containsAny(reason, "timeout", "expired", "过期", "超时");
-        boolean staleByDataMutation = containsAny(event, "TOOL_RESULT", "APPROVAL", "SYSTEM", "TIMER") || containsAny(reason, "schema", "validation", "变更", "冲突");
-        boolean staleByFailure = containsAny(reason, "failed", "error", "失败", "异常");
+        boolean staleByTimeout = containsAny(reason, Lexicon.RECOVERY_TIMEOUT_KEYWORDS);
+        boolean staleByDataMutation = containsAny(event, "TOOL_RESULT", "APPROVAL", "SYSTEM", "TIMER")
+                || containsAny(reason, Lexicon.RECOVERY_DATA_MUTATION_KEYWORDS);
+        boolean staleByFailure = containsAny(reason, Lexicon.RECOVERY_FAILURE_KEYWORDS);
         boolean needRagRefresh = staleByTimeout || staleByDataMutation;
         boolean needMcpRefresh = staleByFailure || staleByDataMutation;
         boolean needReassembly = needRagRefresh || needMcpRefresh || contextPackage == null || snapshot == null;

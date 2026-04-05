@@ -35,6 +35,7 @@ import org.yilena.luna.service.PhaseExecutionService;
 import org.yilena.luna.service.PlanOrchestratorService;
 import org.yilena.luna.service.TaskOrchestratorService;
 import org.yilena.luna.service.model.BlueprintOrchestrationResult;
+import org.yilena.luna.service.model.BlueprintDraft;
 import org.yilena.luna.service.model.NodeWorksetResult;
 import org.yilena.luna.service.model.RoundStateWriteRequest;
 import org.yilena.luna.tools.PlanBlueprintTools;
@@ -108,8 +109,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             InputReconstructionResult reconstructionResult = planInputContext == null ? null : planInputContext.getReconstructionResult();
             StructuredContextPackage planningContextPackage = planInputContext == null ? null : planInputContext.getContextPackage();
             NodeWorksetResult planningNodeWorkset = planInputContext == null ? null : planInputContext.getNodeWorksetResult();
+            BlueprintDraft blueprintDraft = planInputContext == null ? null : planInputContext.getBlueprintDraft();
             PlanningIntent planningIntent = parsePlanningIntent(userGoal);
-            String effectiveGoal = resolveEffectiveGoal(reconstructionResult);
+            String effectiveGoal = resolveEffectiveGoal(reconstructionResult, blueprintDraft);
             if (effectiveGoal.isBlank()) {
                 return error("PLAN_RECONSTRUCTION_REQUIRED", "无法从输入重构得到明确任务目标，已拒绝使用原始 userGoal 直接生成蓝图");
             }
@@ -126,6 +128,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     .constraintsJson(Map.of(
                             "raw_user_goal", userGoal,
                             "planning_intent", planningIntent.meta(),
+                            "blueprint_draft", blueprintDraft == null ? Map.of() : objectMapper.convertValue(blueprintDraft, new TypeReference<Map<String, Object>>() {}),
                             "input_reconstruction", reconstructionResult == null
                                     ? Map.of()
                                     : objectMapper.convertValue(reconstructionResult, new TypeReference<Map<String, Object>>() {})
@@ -150,8 +153,8 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     sessionId,
                     effectiveGoal,
                     reconstructionResult,
-                    extractPlanningKnowledgeEvidence(planningContextPackage, planningNodeWorkset),
-                    extractPlanningWorkflowHints(planningContextPackage, planningNodeWorkset)
+                    extractPlanningKnowledgeEvidence(planningContextPackage, planningNodeWorkset, blueprintDraft),
+                    extractPlanningWorkflowHints(planningContextPackage, planningNodeWorkset, blueprintDraft)
             );
 
             String validateErr = blueprintValidationService.validate(blueprint);
@@ -197,6 +200,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     planningContextPackage,
                     reconstructionResult,
                     planningNodeWorkset,
+                    blueprintDraft,
                     orderedPhases.get(0).getPhaseId()
             );
 
@@ -1077,7 +1081,8 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
 
     private List<Map<String, Object>> extractPlanningKnowledgeEvidence(StructuredContextPackage contextPackage,
-                                                                       NodeWorksetResult nodeWorksetResult) {
+                                                                       NodeWorksetResult nodeWorksetResult,
+                                                                       BlueprintDraft blueprintDraft) {
         if (contextPackage == null || contextPackage.getTaskContext() == null) {
             return extractPlanningKnowledgeFromNodeWorkset(nodeWorksetResult);
         }
@@ -1115,6 +1120,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 }
             }
         }
+        if (blueprintDraft != null && blueprintDraft.getEvidenceBlocks() != null) {
+            out.addAll(blueprintDraft.getEvidenceBlocks());
+        }
         return out.stream().filter(row -> row != null && !row.isEmpty()).distinct().limit(20).toList();
     }
 
@@ -1142,7 +1150,8 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
     }
 
     private List<Map<String, Object>> extractPlanningWorkflowHints(StructuredContextPackage contextPackage,
-                                                                    NodeWorksetResult nodeWorksetResult) {
+                                                                    NodeWorksetResult nodeWorksetResult,
+                                                                    BlueprintDraft blueprintDraft) {
         List<Map<String, Object>> out = new ArrayList<>();
         if (contextPackage == null || contextPackage.getCapabilityCandidates() == null) {
             return extractPlanningWorkflowHintsFromNodeWorkset(nodeWorksetResult);
@@ -1168,6 +1177,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             }
         }
         out.addAll(extractPlanningWorkflowHintsFromNodeWorkset(nodeWorksetResult));
+        if (blueprintDraft != null && blueprintDraft.getWorkflowHints() != null) {
+            out.addAll(blueprintDraft.getWorkflowHints());
+        }
         return out.stream().filter(item -> item != null && !item.isEmpty()).distinct().limit(24).toList();
     }
 
@@ -1219,7 +1231,10 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         return out.stream().limit(12).toList();
     }
 
-    private String resolveEffectiveGoal(InputReconstructionResult reconstructionResult) {
+    private String resolveEffectiveGoal(InputReconstructionResult reconstructionResult, BlueprintDraft blueprintDraft) {
+        if (blueprintDraft != null && blueprintDraft.getExplicitTaskGoal() != null && !blueprintDraft.getExplicitTaskGoal().isBlank()) {
+            return blueprintDraft.getExplicitTaskGoal();
+        }
         if (reconstructionResult == null) {
             return "";
         }
@@ -1236,6 +1251,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                                             StructuredContextPackage planningContextPackage,
                                             InputReconstructionResult reconstructionResult,
                                             NodeWorksetResult planningNodeWorkset,
+                                            BlueprintDraft blueprintDraft,
                                             String nextPhaseId) {
         if (sessionId == null || sessionId.isBlank()) {
             return;
@@ -1265,7 +1281,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     .mcpQuery(planningNodeWorkset == null ? "" : planningNodeWorkset.getMcpDrivenInput())
                     .retrievalPlanOverrides(Map.of(
                             "blueprintGenerated", true,
-                            "planId", text(planId)
+                            "planId", text(planId),
+                            "blueprintDraftReady", blueprintDraft != null,
+                            "blueprintDraft", blueprintDraft == null ? Map.of() : objectMapper.convertValue(blueprintDraft, new TypeReference<Map<String, Object>>() {})
                     ))
                     .build());
         } catch (Exception e) {

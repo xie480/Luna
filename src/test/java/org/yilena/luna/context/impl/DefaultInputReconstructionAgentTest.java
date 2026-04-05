@@ -76,11 +76,34 @@ class DefaultInputReconstructionAgentTest {
     }
 
     @Test
-    void shouldSupportChineseTimeScopeConstraintAndPronounDisambiguation() {
+    void shouldRecognizeChineseTimeScopeKeywords() {
+        DefaultInputReconstructionAgent agent = newAgent();
+
+        InputReconstructionResult today = agent.reconstruct(
+                "s-cn-1",
+                "今天把这个任务推进到可执行版本",
+                null,
+                TaskRuntimeState.PLANNING,
+                RelationalRuntimeState.LIGHT_CHAT
+        );
+        InputReconstructionResult thisWeek = agent.reconstruct(
+                "s-cn-2",
+                "这周完成阶段复盘并输出差距表",
+                null,
+                TaskRuntimeState.PLANNING,
+                RelationalRuntimeState.LIGHT_CHAT
+        );
+
+        assertEquals("today", today.getTimeScope());
+        assertEquals("this_week", thisWeek.getTimeScope());
+    }
+
+    @Test
+    void shouldExtractChineseConstraintsAndMissingSlots() {
         DefaultInputReconstructionAgent agent = newAgent();
         InputReconstructionResult result = agent.reconstruct(
-                "s-cn",
-                "这个需求今天继续处理，不要超预算",
+                "s-cn-3",
+                "这个需求今天继续处理，不要超预算，必须在截止前完成",
                 null,
                 TaskRuntimeState.PLANNING,
                 RelationalRuntimeState.LIGHT_CHAT
@@ -88,8 +111,8 @@ class DefaultInputReconstructionAgentTest {
 
         assertEquals("today", result.getTimeScope());
         assertTrue(result.getMissingSlots().contains("target_reference"));
-        assertTrue(result.getBusinessConstraints().contains("hard_constraint_from_user_input"));
         assertTrue(result.getMissingSlots().contains("success_criteria"));
+        assertTrue(result.getBusinessConstraints().contains("hard_constraint_from_user_input"));
     }
 
     @Test
@@ -118,3 +141,4 @@ class DefaultInputReconstructionAgentTest {
         );
     }
 }
+

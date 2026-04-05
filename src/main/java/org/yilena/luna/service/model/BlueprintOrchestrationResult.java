@@ -13,4 +13,5 @@ public class BlueprintOrchestrationResult {
     InputReconstructionResult reconstructionResult;
     OrchestrationDecision decision;
     NodeWorksetResult nodeWorksetResult;
+    BlueprintDraft blueprintDraft;
 }

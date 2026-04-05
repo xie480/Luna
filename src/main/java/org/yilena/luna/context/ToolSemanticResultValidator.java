@@ -82,6 +82,9 @@ public class ToolSemanticResultValidator {
         double confidence = Math.max(0.0, Math.min(result.getConfidence(), 1.0));
         Map<String, Object> payload = normalizePayload(result.getSemanticPayload(), normalizedStatus, issues);
         return ToolSemanticResult.builder()
+                .toolName(result.getToolName() == null ? "" : result.getToolName())
+                .toolDescription(result.getToolDescription() == null ? "" : result.getToolDescription())
+                .rawResultDigest(result.getRawResultDigest() == null ? "" : result.getRawResultDigest())
                 .toolStatus(normalizedStatus)
                 .keyFacts(result.getKeyFacts() == null ? List.of("raw_result_available") : result.getKeyFacts())
                 .businessImpact(result.getBusinessImpact() == null ? "" : result.getBusinessImpact())

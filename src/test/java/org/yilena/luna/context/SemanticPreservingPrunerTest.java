@@ -13,7 +13,7 @@ class SemanticPreservingPrunerTest {
     void shouldKeepCriticalFactsWhenBudgetIsTight() {
         SemanticPreservingPruner pruner = new SemanticPreservingPruner();
         Map<String, List<String>> sections = Map.of(
-                "Current Task State", List.of("plan=Q2复盘; deadline=2026-04-10; budget=120000; must keep retry_count=2; long_note=" + "x".repeat(800))
+                "Current Task State", List.of("plan=Q2复盘；deadline=2026-04-10；budget=120000；必须保留retry_count=2；long_note=" + "x".repeat(800))
         );
         Map<String, Integer> budget = Map.of("Current Task State", 60);
 

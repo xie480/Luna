@@ -23,7 +23,10 @@ public class SemanticPreservingPruner {
             "Tool Evidence",
             "Output Constraints"
     );
-    private static final Pattern KEY_FACT_PATTERN = Pattern.compile("(\\d{4}-\\d{2}-\\d{2}|\\b\\d+(?:\\.\\d+)?\\b|must|必须|不要|deadline|预算|risk|status|pending)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern KEY_FACT_PATTERN = Pattern.compile(
+            "(\\d{4}-\\d{2}-\\d{2}|\\b\\d+(?:\\.\\d+)?\\b|must|deadline|risk|status|pending|" + Lexicon.KEY_FACT_CHINESE_PATTERN + ")",
+            Pattern.CASE_INSENSITIVE
+    );
 
     public PruneResult prune(Map<String, List<String>> sections, Map<String, Integer> sectionBudget) {
         Map<String, List<String>> input = sections == null ? Map.of() : sections;
@@ -45,11 +48,7 @@ public class SemanticPreservingPruner {
         int total = tokenCounts.values().stream().mapToInt(Integer::intValue).sum();
         Map<String, Double> ratios = new LinkedHashMap<>();
         for (Map.Entry<String, Integer> entry : tokenCounts.entrySet()) {
-            if (total <= 0) {
-                ratios.put(entry.getKey(), 0.0);
-            } else {
-                ratios.put(entry.getKey(), (double) entry.getValue() / total);
-            }
+            ratios.put(entry.getKey(), total <= 0 ? 0.0 : (double) entry.getValue() / total);
         }
 
         return PruneResult.builder()
@@ -162,10 +161,7 @@ public class SemanticPreservingPruner {
         if (normalized.length() <= 360) {
             return normalized;
         }
-        if (!mustKeep) {
-            return semanticFallback(normalized);
-        }
-        return preserveCriticalClauses(normalized, 420);
+        return mustKeep ? preserveCriticalClauses(normalized, 420) : semanticFallback(normalized);
     }
 
     private String preserveCriticalClauses(String text, int maxLen) {
@@ -218,8 +214,7 @@ public class SemanticPreservingPruner {
         }
         List<String> merged = new ArrayList<>();
         for (List<String> group : cluster.values()) {
-            String one = String.join(" | ", group.stream().distinct().toList());
-            merged.add(one);
+            merged.add(String.join(" | ", group.stream().distinct().toList()));
         }
         List<String> out = new ArrayList<>();
         int used = 0;
@@ -365,3 +360,4 @@ public class SemanticPreservingPruner {
         List<String> consistencyViolations;
     }
 }
+

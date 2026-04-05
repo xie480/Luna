@@ -11,6 +11,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ToolSemanticResultValidatorTest {
@@ -37,6 +38,9 @@ class ToolSemanticResultValidatorTest {
     void shouldAcceptWellStructuredSemanticResult() {
         ToolSemanticResultValidator validator = new ToolSemanticResultValidator();
         ToolSemanticResult result = ToolSemanticResult.builder()
+                .toolName("search_knowledge")
+                .toolDescription("search internal knowledge")
+                .rawResultDigest("digest-001")
                 .toolStatus("SUCCESS")
                 .keyFacts(List.of("tool=search_knowledge"))
                 .businessImpact("Knowledge evidence is ready")
@@ -48,6 +52,10 @@ class ToolSemanticResultValidatorTest {
 
         ToolSemanticResultValidator.ValidationResult validation = validator.validate(result);
         assertTrue(validation.valid());
+        assertNotNull(validation.normalized());
+        assertEquals("search_knowledge", validation.normalized().getToolName());
+        assertEquals("search internal knowledge", validation.normalized().getToolDescription());
+        assertEquals("digest-001", validation.normalized().getRawResultDigest());
     }
 
     @Test

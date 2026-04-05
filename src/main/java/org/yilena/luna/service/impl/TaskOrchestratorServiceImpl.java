@@ -54,6 +54,7 @@ import org.yilena.luna.router.ToolRouter;
 import org.yilena.luna.service.TaskOrchestratorService;
 import org.yilena.luna.service.SessionService;
 import org.yilena.luna.service.model.BlueprintOrchestrationResult;
+import org.yilena.luna.service.model.BlueprintDraft;
 import org.yilena.luna.service.model.MainModelExecutionRequest;
 import org.yilena.luna.service.model.MainModelOrchestrationResult;
 import org.yilena.luna.service.model.NodeWorksetResult;
@@ -536,6 +537,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         InputReconstructionResult reconstructionResult = orchestrationResult == null ? null : orchestrationResult.getReconstructionResult();
         OrchestrationDecision decision = orchestrationResult == null ? null : orchestrationResult.getDecision();
         NodeWorksetResult nodeWorksetResult = null;
+        BlueprintDraft blueprintDraft = null;
         if (contextPackage != null && reconstructionResult != null) {
             nodeWorksetResult = orchestrateNodeWorkset(
                     sessionId,
@@ -544,6 +546,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     contextPackage,
                     reconstructionResult
             );
+            blueprintDraft = buildBlueprintDraft(reconstructionResult, contextPackage, nodeWorksetResult, decision);
         }
         if (sessionId != null && !sessionId.isBlank()) {
             try {
@@ -565,7 +568,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                         .ragQuery(nodeWorksetResult == null ? "" : nodeWorksetResult.getRagQuery())
                         .memoryQuery(nodeWorksetResult == null ? "" : nodeWorksetResult.getMemoryQuery())
                         .mcpQuery(nodeWorksetResult == null ? "" : nodeWorksetResult.getMcpDrivenInput())
-                        .retrievalPlanOverrides(Map.of("blueprintEntry", true))
+                        .retrievalPlanOverrides(buildBlueprintEntryOverrides(blueprintDraft))
                         .build());
             } catch (Exception ignore) {
             }
@@ -575,6 +578,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .reconstructionResult(reconstructionResult)
                 .decision(decision)
                 .nodeWorksetResult(nodeWorksetResult)
+                .blueprintDraft(blueprintDraft)
                 .build();
     }
 
@@ -2132,6 +2136,86 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             selected.addAll(mcpPreRankedCandidates);
         }
         return toolRouter.materializeCandidates(selected, 16);
+    }
+
+    private BlueprintDraft buildBlueprintDraft(InputReconstructionResult reconstructionResult,
+                                               StructuredContextPackage contextPackage,
+                                               NodeWorksetResult nodeWorksetResult,
+                                               OrchestrationDecision decision) {
+        if (reconstructionResult == null) {
+            return null;
+        }
+        Map<String, Object> taskStateSnapshot = new LinkedHashMap<>();
+        if (contextPackage != null && contextPackage.getTaskStateEntity() != null) {
+            TaskState state = contextPackage.getTaskStateEntity();
+            taskStateSnapshot.put("taskId", nullSafe(state.getTaskId()));
+            taskStateSnapshot.put("sessionId", nullSafe(state.getSessionId()));
+            taskStateSnapshot.put("objective", nullSafe(state.getObjective()));
+            taskStateSnapshot.put("currentStage", nullSafe(state.getCurrentStage()));
+            taskStateSnapshot.put("currentNode", nullSafe(state.getCurrentNode()));
+            taskStateSnapshot.put("confirmedSlots", state.getConfirmedSlots() == null ? Map.of() : state.getConfirmedSlots());
+            taskStateSnapshot.put("pendingQuestions", state.getPendingQuestions() == null ? List.of() : state.getPendingQuestions());
+            taskStateSnapshot.put("nextActionHint", nullSafe(state.getNextActionHint()));
+        }
+        List<Map<String, Object>> workflowHints = new ArrayList<>();
+        if (nodeWorksetResult != null && nodeWorksetResult.getSelectedToolCandidateNames() != null) {
+            for (String name : nodeWorksetResult.getSelectedToolCandidateNames()) {
+                if (name == null || name.isBlank()) {
+                    continue;
+                }
+                workflowHints.add(Map.of(
+                        "capabilityName", name,
+                        "capabilityType", "TOOL"
+                ));
+            }
+        }
+        if (nodeWorksetResult != null && nodeWorksetResult.getSelectedPromptResourceNames() != null) {
+            for (String name : nodeWorksetResult.getSelectedPromptResourceNames()) {
+                if (name == null || name.isBlank()) {
+                    continue;
+                }
+                workflowHints.add(Map.of(
+                        "capabilityName", name,
+                        "capabilityType", "PROMPT"
+                ));
+            }
+        }
+        List<Map<String, Object>> evidenceBlocks = new ArrayList<>();
+        if (nodeWorksetResult != null && nodeWorksetResult.getSelectedKnowledgeEvidenceBlocks() != null) {
+            for (EvidenceBlock block : nodeWorksetResult.getSelectedKnowledgeEvidenceBlocks()) {
+                if (block == null) {
+                    continue;
+                }
+                evidenceBlocks.add(Map.of(
+                        "id", nullSafe(block.getBlockId()),
+                        "title", nullSafe(block.getTitle()),
+                        "content", nullSafe(block.getContent()),
+                        "sourceType", nullSafe(block.getSourceType()),
+                        "score", block.getScore() == null ? "" : String.valueOf(block.getScore())
+                ));
+            }
+        }
+        return BlueprintDraft.builder()
+                .explicitTaskGoal(nullSafe(reconstructionResult.getExplicitTaskGoal()))
+                .currentStage(decision == null || decision.getTaskState() == null ? "UNKNOWN" : decision.getTaskState().name())
+                .currentNode(String.valueOf(contextNodeId(contextPackage)))
+                .taskStateSnapshot(taskStateSnapshot)
+                .workflowHints(workflowHints.stream().distinct().limit(24).toList())
+                .evidenceBlocks(evidenceBlocks.stream().distinct().limit(20).toList())
+                .rationaleByNode(nodeWorksetResult == null || nodeWorksetResult.getRerankRationaleByNode() == null
+                        ? Map.of()
+                        : new LinkedHashMap<>(nodeWorksetResult.getRerankRationaleByNode()))
+                .build();
+    }
+
+    private Map<String, Object> buildBlueprintEntryOverrides(BlueprintDraft draft) {
+        Map<String, Object> overrides = new LinkedHashMap<>();
+        overrides.put("blueprintEntry", true);
+        overrides.put("blueprintDraftReady", draft != null);
+        if (draft != null) {
+            overrides.put("blueprintDraft", objectMapper.convertValue(draft, Map.class));
+        }
+        return overrides;
     }
 
     private boolean containsAny(String text, String... keywords) {

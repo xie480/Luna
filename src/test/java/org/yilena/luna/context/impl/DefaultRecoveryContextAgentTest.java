@@ -148,6 +148,54 @@ class DefaultRecoveryContextAgentTest {
         assertTrue(invalidatedCapabilityNames.contains("tool.search_knowledge"));
     }
 
+    @Test
+    void shouldTriggerRecoveryRefreshWithChineseReasonKeywords() {
+        RecoveryStateStore recoveryStateStore = mock(RecoveryStateStore.class);
+        ContextSnapshotStore contextSnapshotStore = mock(ContextSnapshotStore.class);
+        when(contextSnapshotStore.loadLatest("s-cn")).thenReturn(null);
+
+        DefaultRecoveryContextAgent agent = new DefaultRecoveryContextAgent(
+                recoveryStateStore,
+                contextSnapshotStore,
+                new ObjectMapper(),
+                mock(LlmClientUtil.class),
+                geminiProperty()
+        );
+        StructuredContextPackage contextPackage = StructuredContextPackage.builder()
+                .sessionId("s-cn")
+                .taskState(TaskRuntimeState.WAITING_TOOL)
+                .retrievalState(RetrievalState.builder()
+                        .reconstructedIntent("intent")
+                        .activeQueries(List.of("q1"))
+                        .retrievalPlan(Map.of())
+                        .selectedEvidenceRefs(List.of("knowledge:1"))
+                        .rerankSummary("")
+                        .build())
+                .contextState(ContextState.builder()
+                        .activeKnowledgeRefs(List.of("knowledge:1"))
+                        .activeMcpResourceRefs(List.of("search_knowledge"))
+                        .activeMcpPromptRefs(List.of("prompt_a"))
+                        .activeMemoryRefs(List.of())
+                        .activeToolEvidenceRefs(List.of())
+                        .latestStateSnapshot(Map.of())
+                        .latestNarrativeSummary("")
+                        .latestContextSnapshotId("")
+                        .build())
+                .build();
+
+        StructuredContextPackage recovered = agent.recover(
+                "s-cn",
+                contextPackage,
+                "TOOL_RESULT",
+                "工具执行超时且结果冲突"
+        );
+
+        assertNotNull(recovered);
+        assertTrue(Boolean.TRUE.equals(recovered.getRetrievalState().getRetrievalPlan().get("need_rag_refresh")));
+        assertTrue(Boolean.TRUE.equals(recovered.getRetrievalState().getRetrievalPlan().get("need_mcp_refresh")));
+        assertTrue(Boolean.TRUE.equals(recovered.getRetrievalState().getRetrievalPlan().get("need_reassembly")));
+    }
+
     private GeminiProperty geminiProperty() {
         GeminiProperty property = new GeminiProperty();
         GeminiProperty.ModelConfig flash = new GeminiProperty.ModelConfig();
