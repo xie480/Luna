@@ -70,6 +70,16 @@ public class AgentServiceImpl implements AgentService {
                                      TaskRuntimeState taskState,
                                      RelationalRuntimeState relationalState,
                                      List<Resource> executionCandidates) {
+        return processToolCalling(sessionId, input, taskState, relationalState, executionCandidates, null);
+    }
+
+    @Override
+    public String processToolCalling(String sessionId,
+                                     String input,
+                                     TaskRuntimeState taskState,
+                                     RelationalRuntimeState relationalState,
+                                     List<Resource> executionCandidates,
+                                     String assembledDecisionContext) {
         log.info("processToolCalling, sessionId={}, input={}", sessionId, input);
         String decisionInput = resolveDecisionInput(input);
         if (decisionInput.isBlank()) {
@@ -90,7 +100,7 @@ public class AgentServiceImpl implements AgentService {
         }
 
         List<String> history = loadRecentHistory(sessionId);
-        String decisionJson = llmAdapter.generate(buildDecisionPrompt(decisionInput, history, candidates));
+        String decisionJson = llmAdapter.generate(buildDecisionPrompt(decisionInput, history, candidates, assembledDecisionContext));
         DecisionAction decision = parseDecisionAction(decisionJson);
         if (decision == null || "none".equalsIgnoreCase(decision.targetName()) || "null".equalsIgnoreCase(decision.targetName())) {
             return null;
@@ -214,7 +224,23 @@ public class AgentServiceImpl implements AgentService {
                 || normalized.contains("missingslots=");
     }
 
-    private String buildDecisionPrompt(String input, List<String> history, List<Resource> tools) {
+    private String buildDecisionPrompt(String input, List<String> history, List<Resource> tools, String assembledDecisionContext) {
+        if (assembledDecisionContext != null && !assembledDecisionContext.isBlank()) {
+            return """
+                    You are a tool decision agent. Decide the next action strictly from the assembled decision workset.
+                    The workset already contains node state, MCP hints, constraints and recent tool semantics.
+                    Return exactly one JSON object, no markdown.
+
+                    Action JSON:
+                    {"action_type":"tool_call|prompt_get|resource_read|workflow_start|direct_answer","target_name":"...","arguments":{...}}
+                    or
+                    {"action_type":"direct_answer","answer":"..."}
+                    or
+                    {"action_type":"none","target_name":"none"}
+
+                    Assembled Decision Workset:
+                    """ + assembledDecisionContext;
+        }
         String toolDesc = tools.stream()
                 .map(this::formatCandidateForDecisionPrompt)
                 .collect(Collectors.joining("\n"));

@@ -20,6 +20,7 @@ public class ToolCallingContext {
     private String chatSessionKey;
     private String userInput;
     private String toolDecisionInput;
+    private String assembledDecisionContext;
     private List<String> memorySnippets;
     private List<String> knowledgeSnippets;
     private List<String> preferenceSnippets;

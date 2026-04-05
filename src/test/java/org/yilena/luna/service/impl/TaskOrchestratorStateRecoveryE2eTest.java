@@ -41,7 +41,6 @@ import org.yilena.luna.service.model.TaskOrchestrationResult;
 import org.yilena.luna.state.model.ContextState;
 import org.yilena.luna.state.model.RetrievalState;
 import org.yilena.luna.state.store.ContextStateStore;
-import org.yilena.luna.state.store.ContextSnapshotStore;
 import org.yilena.luna.state.store.RecoveryStateStore;
 import org.yilena.luna.state.store.TaskStateStore;
 import org.yilena.luna.state.store.RetrievalStateStore;
@@ -256,7 +255,6 @@ class TaskOrchestratorStateRecoveryE2eTest {
         final TaskStateStore taskStateStore = mock(TaskStateStore.class);
         final RetrievalStateStore retrievalStateStore = mock(RetrievalStateStore.class);
         final ToolStateStore toolStateStore = mock(ToolStateStore.class);
-        final ContextSnapshotStore contextSnapshotStore = mock(ContextSnapshotStore.class);
         final ToolSemanticResultValidator toolSemanticResultValidator = mock(ToolSemanticResultValidator.class);
         final LlmClientUtil llmClientUtil = mock(LlmClientUtil.class);
         final GeminiProperty geminiProperty = new GeminiProperty();
@@ -289,7 +287,6 @@ class TaskOrchestratorStateRecoveryE2eTest {
                 taskStateStore,
                 retrievalStateStore,
                 toolStateStore,
-                contextSnapshotStore,
                 toolSemanticResultValidator,
                 llmClientUtil,
                 geminiProperty,

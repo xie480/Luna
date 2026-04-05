@@ -1132,6 +1132,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                 .chatSessionKey(sessionId)
                 .userInput(rawUserInput)
                 .toolDecisionInput(governedDecisionInput)
+                .assembledDecisionContext("")
                 .executionCandidates(executionCandidates == null ? List.of() : executionCandidates)
                 .toolExecutionTraces(new CopyOnWriteArrayList<>())
                 .build());
@@ -1141,7 +1142,8 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                     governedDecisionInput,
                     taskState,
                     relationalState,
-                    executionCandidates
+                    executionCandidates,
+                    ""
             );
         } finally {
             ToolCallingContextHolder.clear();

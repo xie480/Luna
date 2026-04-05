@@ -34,6 +34,26 @@ public interface ContextSnapshotStore {
         );
     }
 
+    default String saveToolDecisionContextSnapshot(String sessionId,
+                                                   Long planId,
+                                                   Long nodeId,
+                                                   String assembledDecisionContext,
+                                                   Map<String, List<String>> sections,
+                                                   List<Map<String, Object>> executionCandidates,
+                                                   Map<String, Integer> sectionTokenCounts,
+                                                   Map<String, Double> sectionTokenRatios,
+                                                   Map<String, Object> extra) {
+        return savePreToolDecisionSnapshot(
+                sessionId,
+                planId,
+                nodeId,
+                "",
+                assembledDecisionContext,
+                executionCandidates,
+                extra
+        );
+    }
+
     String saveFinalSnapshot(String sessionId,
                              Long planId,
                              Long nodeId,

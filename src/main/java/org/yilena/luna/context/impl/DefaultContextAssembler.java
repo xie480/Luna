@@ -123,10 +123,17 @@ public class DefaultContextAssembler implements ContextAssembler {
         sections.put("Current Task State", lines(buildCurrentTaskState(contextPackage, policy)));
         sections.put("Reconstructed User Intent", lines(buildReconstructedIntent(userInput, reconstructionResult)));
         sections.put("Relevant Knowledge Evidence", candidatePool.getOrDefault("knowledge", List.of()));
-        sections.put("MCP Prompt Hints", candidatePool.getOrDefault("mcp_prompt", List.of()));
-        sections.put("MCP Resource Hints", candidatePool.getOrDefault("mcp_resource", List.of()));
-        sections.put("MCP Workflow Hints", candidatePool.getOrDefault("mcp_workflow", List.of()));
-        sections.put("Tool Evidence", candidatePool.getOrDefault("tool", List.of()));
+        sections.put("MCP Resource / Prompt Hints", mergeDistinct(
+                mergeDistinct(
+                        candidatePool.getOrDefault("mcp_prompt", List.of()),
+                        candidatePool.getOrDefault("mcp_resource", List.of())
+                ),
+                candidatePool.getOrDefault("mcp_workflow", List.of())
+        ));
+        sections.put("Tool Evidence", mergeDistinct(
+                candidatePool.getOrDefault("tool", List.of()),
+                candidatePool.getOrDefault("mcp_tool", List.of())
+        ));
         sections.put("Recent Interaction Context", mergeDistinct(
                 lines(buildRecentInteraction(contextPackage, runtimeMemorySnippets, policy)),
                 candidatePool.getOrDefault("raw_input", List.of())
@@ -152,9 +159,11 @@ public class DefaultContextAssembler implements ContextAssembler {
             );
         }
         String prompt = toPrompt(pruneResult.getSections(), buildRuntimePromptInput(userInput, reconstructionResult));
+        Map<String, List<String>> canonicalSections = toCanonicalSections(pruneResult.getSections());
         AssembledContext preSnapshotContext = AssembledContext.builder()
                 .prompt(prompt)
                 .sections(pruneResult.getSections())
+                .canonicalSections(canonicalSections)
                 .candidatePool(candidatePool)
                 .sectionTokenCounts(pruneResult.getSectionTokenCounts())
                 .sectionTokenRatios(pruneResult.getSectionTokenRatios())
@@ -163,6 +172,7 @@ public class DefaultContextAssembler implements ContextAssembler {
         return AssembledContext.builder()
                 .prompt(preSnapshotContext.getPrompt())
                 .sections(preSnapshotContext.getSections())
+                .canonicalSections(preSnapshotContext.getCanonicalSections())
                 .candidatePool(preSnapshotContext.getCandidatePool())
                 .sectionTokenCounts(preSnapshotContext.getSectionTokenCounts())
                 .sectionTokenRatios(preSnapshotContext.getSectionTokenRatios())
@@ -232,6 +242,7 @@ public class DefaultContextAssembler implements ContextAssembler {
         return AssembledContext.builder()
                 .prompt(assembled.getPrompt())
                 .sections(assembled.getSections())
+                .canonicalSections(assembled.getCanonicalSections())
                 .candidatePool(assembled.getCandidatePool())
                 .sectionTokenCounts(assembled.getSectionTokenCounts())
                 .sectionTokenRatios(assembled.getSectionTokenRatios())
@@ -905,6 +916,32 @@ public class DefaultContextAssembler implements ContextAssembler {
         return value == null ? "" : String.valueOf(value);
     }
 
+    private Map<String, List<String>> toCanonicalSections(Map<String, List<String>> sections) {
+        if (sections == null || sections.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, List<String>> canonical = new LinkedHashMap<>();
+        canonical.put("Instructions", sections.getOrDefault("Instructions", List.of()));
+        canonical.put("Current Task State", sections.getOrDefault("Current Task State", List.of()));
+        canonical.put("Reconstructed User Intent", sections.getOrDefault("Reconstructed User Intent", List.of()));
+        canonical.put("Relevant Knowledge Evidence", sections.getOrDefault("Relevant Knowledge Evidence", List.of()));
+        canonical.put("MCP Resource / Prompt Hints", mergeDistinct(
+                mergeDistinct(
+                        sections.getOrDefault("MCP Resource / Prompt Hints", List.of()),
+                        sections.getOrDefault("MCP Prompt Hints", List.of())
+                ),
+                mergeDistinct(
+                        sections.getOrDefault("MCP Resource Hints", List.of()),
+                        sections.getOrDefault("MCP Workflow Hints", List.of())
+                )
+        ));
+        canonical.put("Tool Evidence", sections.getOrDefault("Tool Evidence", List.of()));
+        canonical.put("Recent Interaction Context", sections.getOrDefault("Recent Interaction Context", List.of()));
+        canonical.put("Memory Hints", sections.getOrDefault("Memory Hints", List.of()));
+        canonical.put("Output Constraints", sections.getOrDefault("Output Constraints", List.of()));
+        return canonical;
+    }
+
     private Map<String, Integer> sectionBudget(Map<String, Integer> rawBudget, ContextNodeTemplatePolicy policy) {
         Map<String, Integer> mapped = new LinkedHashMap<>();
         mapped.put("Instructions", 800);
@@ -925,9 +962,7 @@ public class DefaultContextAssembler implements ContextAssembler {
             workflowBudget = Math.max(140, (int) (mcpBudget * 0.20));
             promptBudget = Math.max(140, mcpBudget - resourceBudget - workflowBudget);
         }
-        mapped.put("MCP Prompt Hints", promptBudget);
-        mapped.put("MCP Resource Hints", resourceBudget);
-        mapped.put("MCP Workflow Hints", workflowBudget);
+        mapped.put("MCP Resource / Prompt Hints", promptBudget + resourceBudget + workflowBudget);
         mapped.put("Tool Evidence", rawBudget.getOrDefault("task_procedures", 1400));
         mapped.put("Recent Interaction Context", rawBudget.getOrDefault("recent_messages", 1200));
         mapped.put("Memory Hints", rawBudget.getOrDefault("task_facts", 1300));

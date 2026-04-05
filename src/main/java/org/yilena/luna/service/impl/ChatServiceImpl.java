@@ -13,12 +13,14 @@ import org.yilena.luna.annotation.aspect.LunaLogAspect;
 import org.yilena.luna.constants.LogActionConstant;
 import org.yilena.luna.constants.LogModuleConstant;
 import org.yilena.luna.constants.LunaStateConstant;
+import org.yilena.luna.context.ContextAssembler;
 import org.yilena.luna.context.model.ContextNodeTemplatePolicy;
 import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.EvidenceBlock;
 import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.context.model.SummaryResult;
 import org.yilena.luna.context.model.ToolSemanticResult;
+import org.yilena.luna.context.model.AssembledContext;
 import org.yilena.luna.entity.ChatMessage;
 import org.yilena.luna.entity.ChatRequest;
 import org.yilena.luna.entity.Resource;
@@ -87,6 +89,7 @@ public class ChatServiceImpl implements ChatService {
     private final SessionRuntimeMapper sessionRuntimeMapper;
     private final TaskOrchestratorService taskOrchestratorService;
     private final RoundPipelineOrchestrator roundPipelineOrchestrator;
+    private final ContextAssembler contextAssembler;
     private final ContextSnapshotStore contextSnapshotStore;
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -156,11 +159,38 @@ public class ChatServiceImpl implements ChatService {
                 ragMemorySnippets,
                 longTermMemorySnippets
         );
+        ContextNodeTemplatePolicy toolDecisionPolicy = ContextNodeTemplatePolicy.forToolDecision(
+                nodeTemplatePolicy == null ? "" : nodeTemplatePolicy.getCurrentNodeId()
+        );
+        AssembledContext assembledDecision = contextAssembler.assemble(
+                contextPackage,
+                reconstruction,
+                rerankResult,
+                null,
+                input,
+                knowledgeEvidenceBlocks,
+                workingMemorySnippets,
+                runtimeMemorySnippets,
+                ragMemorySnippets,
+                knowledgeSnippets,
+                preferenceSnippets,
+                longTermMemorySnippets,
+                executionCandidates,
+                mcpResourceHints,
+                "",
+                toolDecisionPolicy,
+                null,
+                runtimeSessionId,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage)
+        );
+        String assembledDecisionContext = assembledDecision == null ? "" : stringValue(assembledDecision.getPrompt());
 
         ToolCallingContextHolder.set(ToolCallingContext.builder()
                 .chatSessionKey(runtimeSessionId)
                 .userInput(input)
                 .toolDecisionInput(mcpDrivenInput)
+                .assembledDecisionContext(assembledDecisionContext)
                 .memorySnippets(memorySnippets)
                 .knowledgeSnippets(knowledgeSnippets)
                 .preferenceSnippets(preferenceSnippets)
@@ -183,9 +213,26 @@ public class ChatServiceImpl implements ChatService {
                         "rerankedPromptCount", rerankResult == null || rerankResult.getSelectedPromptCandidates() == null ? 0 : rerankResult.getSelectedPromptCandidates().size(),
                         "rerankedResourceCount", rerankResult == null || rerankResult.getSelectedResourceCandidates() == null ? 0 : rerankResult.getSelectedResourceCandidates().size(),
                         "rerankedWorkflowCount", rerankResult == null || rerankResult.getSelectedWorkflowCandidates() == null ? 0 : rerankResult.getSelectedWorkflowCandidates().size(),
-                        "rerankedPromptResourceCountLegacy", rerankResult == null || rerankResult.getSelectedPromptResources() == null ? 0 : rerankResult.getSelectedPromptResources().size()
+                        "rerankedPromptResourceCountLegacy", rerankResult == null || rerankResult.getSelectedPromptResources() == null ? 0 : rerankResult.getSelectedPromptResources().size(),
+                        "decisionWorksetSnapshotType", "TOOL_DECISION_CONTEXT"
                 ),
                 buildRawToolResultChannel("", List.of(), "", List.of())
+        );
+        String toolDecisionSnapshotId = contextSnapshotStore.saveToolDecisionContextSnapshot(
+                runtimeSessionId,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage),
+                assembledDecisionContext,
+                assembledDecision == null ? Map.of() : assembledDecision.getCanonicalSections(),
+                toExecutionCandidateMaps(executionCandidates),
+                assembledDecision == null ? Map.of() : assembledDecision.getSectionTokenCounts(),
+                assembledDecision == null ? Map.of() : assembledDecision.getSectionTokenRatios(),
+                Map.of(
+                        "rerankedToolCandidateCount", rerankResult == null || rerankResult.getSelectedToolCandidates() == null ? 0 : rerankResult.getSelectedToolCandidates().size(),
+                        "rerankedPromptCount", rerankResult == null || rerankResult.getSelectedPromptCandidates() == null ? 0 : rerankResult.getSelectedPromptCandidates().size(),
+                        "rerankedResourceCount", rerankResult == null || rerankResult.getSelectedResourceCandidates() == null ? 0 : rerankResult.getSelectedResourceCandidates().size(),
+                        "rerankedWorkflowCount", rerankResult == null || rerankResult.getSelectedWorkflowCandidates() == null ? 0 : rerankResult.getSelectedWorkflowCandidates().size()
+                )
         );
         runtimeAuditService.persistDecisionRecord(
                 runtimeSessionId,
@@ -193,7 +240,10 @@ public class ChatServiceImpl implements ChatService {
                 contextNodeId(contextPackage),
                 "CONTEXT_SNAPSHOT_PRE_TOOL",
                 "pre-tool snapshot persisted",
-                toJsonSafe(Map.of("snapshotId", preToolSnapshotId == null ? "" : preToolSnapshotId))
+                toJsonSafe(Map.of(
+                        "snapshotId", preToolSnapshotId == null ? "" : preToolSnapshotId,
+                        "toolDecisionSnapshotId", toolDecisionSnapshotId == null ? "" : toolDecisionSnapshotId
+                ))
         );
         long toolStartAt = System.currentTimeMillis();
         String toolStatus = "SUCCESS";
@@ -206,7 +256,8 @@ public class ChatServiceImpl implements ChatService {
                     mcpDrivenInput,
                     decision == null ? null : decision.getTaskState(),
                     decision == null ? null : decision.getRelationalState(),
-                    executionCandidates
+                    executionCandidates,
+                    assembledDecisionContext
             );
         } catch (Exception ex) {
             toolStatus = "FAILED";

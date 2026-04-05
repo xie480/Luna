@@ -219,7 +219,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 contextNodeId(contextPackage),
                 "INPUT_RECONSTRUCTION",
                 "input reconstructed before RAG/MCP routing",
-                toJsonSafe(buildInputReconstructionAuditPayload(userInput, reconstructionResult))
+                toJsonSafe(buildInputReconstructionAuditPayload(userInput, reconstructionResult, contextPackage))
         );
         return TaskOrchestrationResult.builder()
                 .decision(decision)
@@ -290,7 +290,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 contextNodeId(contextPackage),
                 "INPUT_RECONSTRUCTION",
                 "input reconstructed in recovery branch",
-                toJsonSafe(buildInputReconstructionAuditPayload(userInput, reconstructionResult))
+                toJsonSafe(buildInputReconstructionAuditPayload(userInput, reconstructionResult, contextPackage))
         );
         return TaskOrchestrationResult.builder()
                 .decision(decision)
@@ -756,6 +756,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 : AssembledContext.builder()
                 .prompt(assembledContext.getPrompt())
                 .sections(assembledContext.getSections())
+                .canonicalSections(assembledContext.getCanonicalSections())
                 .candidatePool(assembledContext.getCandidatePool())
                 .sectionTokenCounts(assembledContext.getSectionTokenCounts())
                 .sectionTokenRatios(assembledContext.getSectionTokenRatios())
@@ -1448,13 +1449,16 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         return value != null && !value.isBlank();
     }
 
-    private Map<String, Object> buildInputReconstructionAuditPayload(String rawInput, InputReconstructionResult reconstruction) {
+    private Map<String, Object> buildInputReconstructionAuditPayload(String rawInput,
+                                                                     InputReconstructionResult reconstruction,
+                                                                     StructuredContextPackage contextPackage) {
         Map<String, Object> payload = new LinkedHashMap<>();
         String raw = nullSafe(rawInput).trim();
         payload.put("rawInput", raw);
         payload.put("rawInputLength", raw.length());
         payload.put("reconstruction", reconstruction == null ? Map.of() : reconstruction);
         payload.put("delta", buildReconstructionDelta(raw, reconstruction));
+        payload.put("carriedFromSnapshot", deriveCarriedFromSnapshot(raw, reconstruction, contextPackage));
         return payload;
     }
 
@@ -1509,6 +1513,54 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         delta.put("disambiguatedItems", new ArrayList<>(dedupDisambiguated));
         delta.put("intentConfidence", reconstruction.getIntentConfidence());
         return delta;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> deriveCarriedFromSnapshot(String rawInput,
+                                                   InputReconstructionResult reconstruction,
+                                                   StructuredContextPackage contextPackage) {
+        if (reconstruction == null || contextPackage == null || contextPackage.getContextState() == null) {
+            return List.of();
+        }
+        Map<String, Object> latestSnapshot = contextPackage.getContextState().getLatestStateSnapshot();
+        if (latestSnapshot == null || latestSnapshot.isEmpty()) {
+            return List.of();
+        }
+        String normalizedRaw = normalizeForCompare(rawInput);
+        List<String> carried = new ArrayList<>();
+
+        String snapshotTimeScope = stringValue(latestSnapshot.get("timeScope"));
+        if (!snapshotTimeScope.isBlank()
+                && snapshotTimeScope.equalsIgnoreCase(nullSafe(reconstruction.getTimeScope()))
+                && !containsNormalized(normalizedRaw, snapshotTimeScope)) {
+            carried.add("timeScope");
+        }
+
+        String snapshotNextAction = stringValue(latestSnapshot.get("nextStep"));
+        if (!snapshotNextAction.isBlank() && !containsNormalized(normalizedRaw, snapshotNextAction)) {
+            carried.add("nextActionHint");
+        }
+
+        Object unresolvedIssues = latestSnapshot.get("unresolvedIssues");
+        if (unresolvedIssues instanceof List<?> unresolvedList) {
+            List<String> unresolved = unresolvedList.stream()
+                    .map(item -> item == null ? "" : String.valueOf(item))
+                    .filter(item -> !item.isBlank())
+                    .toList();
+            if (!unresolved.isEmpty()) {
+                boolean referencedByMissingSlots = reconstruction.getMissingSlots() != null
+                        && reconstruction.getMissingSlots().stream()
+                        .anyMatch(slot -> unresolved.stream().anyMatch(issue -> containsNormalized(normalizeForCompare(slot), issue)));
+                boolean referencedByConstraints = reconstruction.getBusinessConstraints() != null
+                        && reconstruction.getBusinessConstraints().stream()
+                        .anyMatch(constraint -> unresolved.stream().anyMatch(issue -> containsNormalized(normalizeForCompare(constraint), issue)));
+                if (referencedByMissingSlots || referencedByConstraints) {
+                    carried.add("unfinishedActions");
+                }
+            }
+        }
+
+        return carried.stream().distinct().toList();
     }
 
     private void addIfNew(List<String> sink, String label, String value, String normalizedRaw) {

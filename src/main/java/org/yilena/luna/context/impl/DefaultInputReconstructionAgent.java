@@ -58,6 +58,9 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
             latestNarrativeSummary=%s
             recentDialog=%s
             latestTimeScope=%s
+            lastNextActionHint=%s
+            latestStateSnapshotDigest=%s
+            unfinishedActions=%s
             """;
 
     private final LlmClientUtil llmClientUtil;
@@ -119,7 +122,10 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
                     signals.retrievalIntent(),
                     signals.lastSummary(),
                     signals.recentDialog(),
-                    signals.latestTimeScope()
+                    signals.latestTimeScope(),
+                    signals.lastNextActionHint(),
+                    signals.latestStateSnapshotDigest(),
+                    signals.unfinishedActions()
             );
             LlmRequest request = LlmRequest.builder()
                     .modelType(ModelType.OPENAI_COMPATIBLE)
@@ -316,6 +322,15 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
         if (!signals.recentDialog().isBlank()) {
             intent.append("; recentDialog=").append(signals.recentDialog());
         }
+        if (!signals.lastNextActionHint().isBlank()) {
+            intent.append("; lastNextActionHint=").append(signals.lastNextActionHint());
+        }
+        if (!signals.latestStateSnapshotDigest().isBlank()) {
+            intent.append("; latestStateSnapshotDigest=").append(signals.latestStateSnapshotDigest());
+        }
+        if (!signals.unfinishedActions().isBlank()) {
+            intent.append("; unfinishedActions=").append(signals.unfinishedActions());
+        }
         if (!input.isBlank()) {
             intent.append("; userFact=").append(input);
         }
@@ -347,7 +362,8 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
                 + " | entities=" + entities
                 + " | constraints=" + constraints
                 + " | latest_tool=" + signals.lastToolName()
-                + " | node=" + signals.currentNode();
+                + " | node=" + signals.currentNode()
+                + " | unfinished_actions=" + signals.unfinishedActions();
     }
 
     private String buildBlueprintHint(String explicitGoal,
@@ -359,7 +375,8 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
                 + ", goal=" + explicitGoal
                 + ", timeScope=" + timeScope
                 + ", constraints=" + constraints
-                + ", pending=" + signals.pendingQuestions();
+                + ", pending=" + signals.pendingQuestions()
+                + ", nextActionHint=" + signals.lastNextActionHint();
     }
 
     private double scoreConfidence(String input,
@@ -470,25 +487,45 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
     @SuppressWarnings("unchecked")
     private ContextSignals collectSignals(StructuredContextPackage contextPackage) {
         if (contextPackage == null) {
-            return new ContextSignals("", "", "", "", "", "", "", "", "");
+            return new ContextSignals("", "", "", "", "", "", "", "", "", "", "", "");
         }
         String goalFromState = contextPackage.getTaskStateEntity() == null ? "" : asText(contextPackage.getTaskStateEntity().getObjective());
         String currentNode = contextPackage.getTaskStateEntity() == null ? "" : asText(contextPackage.getTaskStateEntity().getCurrentNode());
         String pendingQuestions = contextPackage.getTaskStateEntity() == null ? "" : asText(contextPackage.getTaskStateEntity().getPendingQuestions());
+        String lastNextActionHint = contextPackage.getTaskStateEntity() == null ? "" : asText(contextPackage.getTaskStateEntity().getNextActionHint());
         String lastToolName = contextPackage.getToolState() == null ? "" : asText(contextPackage.getToolState().getLastToolName());
         String lastToolSemantic = contextPackage.getToolState() == null ? "" : asText(contextPackage.getToolState().getLastToolSemanticSummary());
         String retrievalIntent = contextPackage.getRetrievalState() == null ? "" : asText(contextPackage.getRetrievalState().getReconstructedIntent());
         String lastSummary = contextPackage.getContextState() == null ? "" : asText(contextPackage.getContextState().getLatestNarrativeSummary());
         String latestTimeScope = "";
+        String latestStateSnapshotDigest = "";
+        String unfinishedActions = "";
         Map<String, Object> latestSnapshot = contextPackage.getContextState() == null ? Collections.emptyMap() : contextPackage.getContextState().getLatestStateSnapshot();
         if (latestSnapshot != null && !latestSnapshot.isEmpty()) {
             latestTimeScope = asText(latestSnapshot.get("timeScope"));
+            latestStateSnapshotDigest = buildStateSnapshotDigest(latestSnapshot);
+            unfinishedActions = extractUnfinishedActions(latestSnapshot);
         }
         if (latestTimeScope.isBlank() && contextPackage.getTaskContext() != null) {
             Object working = contextPackage.getTaskContext().get("working_memory");
             if (working instanceof Map<?, ?> map) {
                 latestTimeScope = asText(((Map<String, Object>) map).get("time_scope"));
             }
+        }
+        if (unfinishedActions.isBlank() && contextPackage.getTaskStateEntity() != null) {
+            List<String> unfinished = new ArrayList<>();
+            if (contextPackage.getTaskStateEntity().getPendingQuestions() != null) {
+                unfinished.addAll(contextPackage.getTaskStateEntity().getPendingQuestions());
+            }
+            if (contextPackage.getTaskStateEntity().getFailedSteps() != null) {
+                unfinished.addAll(contextPackage.getTaskStateEntity().getFailedSteps());
+            }
+            unfinishedActions = unfinished.stream()
+                    .filter(item -> item != null && !item.isBlank())
+                    .distinct()
+                    .limit(12)
+                    .toList()
+                    .toString();
         }
         String recentDialog = "";
         if (contextPackage.getRecentMessages() != null && !contextPackage.getRecentMessages().isEmpty()) {
@@ -499,7 +536,20 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
             }
             recentDialog = buffer.toString();
         }
-        return new ContextSignals(goalFromState, currentNode, pendingQuestions, lastToolName, lastToolSemantic, retrievalIntent, lastSummary, latestTimeScope, recentDialog);
+        return new ContextSignals(
+                goalFromState,
+                currentNode,
+                pendingQuestions,
+                lastToolName,
+                lastToolSemantic,
+                retrievalIntent,
+                lastSummary,
+                latestTimeScope,
+                recentDialog,
+                lastNextActionHint,
+                latestStateSnapshotDigest,
+                unfinishedActions
+        );
     }
 
     private record ContextSignals(String goalFromState,
@@ -510,6 +560,43 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
                                   String retrievalIntent,
                                   String lastSummary,
                                   String latestTimeScope,
-                                  String recentDialog) {
+                                  String recentDialog,
+                                  String lastNextActionHint,
+                                  String latestStateSnapshotDigest,
+                                  String unfinishedActions) {
+    }
+
+    private String buildStateSnapshotDigest(Map<String, Object> latestSnapshot) {
+        if (latestSnapshot == null || latestSnapshot.isEmpty()) {
+            return "";
+        }
+        String stage = asText(latestSnapshot.get("currentStage"));
+        String nextStep = asText(latestSnapshot.get("nextStep"));
+        String unresolved = asText(latestSnapshot.get("unresolvedIssues"));
+        String latestTool = asText(latestSnapshot.get("latestToolConclusion"));
+        return "stage=" + stage + ";nextStep=" + nextStep + ";unresolved=" + unresolved + ";latestTool=" + latestTool;
+    }
+
+    @SuppressWarnings("unchecked")
+    private String extractUnfinishedActions(Map<String, Object> latestSnapshot) {
+        if (latestSnapshot == null || latestSnapshot.isEmpty()) {
+            return "";
+        }
+        Object unresolved = latestSnapshot.get("unresolvedIssues");
+        if (unresolved instanceof List<?> list) {
+            return list.stream()
+                    .map(this::asText)
+                    .filter(item -> item != null && !item.isBlank())
+                    .distinct()
+                    .limit(12)
+                    .toList()
+                    .toString();
+        }
+        String fallback = asText(unresolved);
+        if (!fallback.isBlank()) {
+            return fallback;
+        }
+        fallback = asText(latestSnapshot.get("unfinishedActions"));
+        return fallback;
     }
 }

@@ -30,6 +30,7 @@ public class RuntimeContextTraceLogger implements ContextTraceLogger {
             payload.put("traceLayer", "CONTEXT_ASSEMBLY");
             payload.put("nodeId", nodeId);
             payload.put("sections", assembledContext == null ? java.util.Map.of() : assembledContext.getSections());
+            payload.put("canonicalSections", assembledContext == null ? java.util.Map.of() : assembledContext.getCanonicalSections());
             payload.put("candidatePool", assembledContext == null ? java.util.Map.of() : assembledContext.getCandidatePool());
             payload.put("snapshotId", assembledContext == null ? "" : assembledContext.getSnapshotId());
             payload.put("recoveryEvent", traceMeta == null ? "" : String.valueOf(traceMeta.getOrDefault("recoveryEvent", "")));

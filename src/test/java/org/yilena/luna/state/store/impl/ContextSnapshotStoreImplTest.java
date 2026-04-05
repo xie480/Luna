@@ -51,4 +51,31 @@ class ContextSnapshotStoreImplTest {
         assertTrue(payload.contains("\"activeMcpResourceRefs\":[\"r1\"]"));
         assertTrue(payload.contains("\"activeToolEvidenceRefs\":[\"t1\"]"));
     }
+
+    @Test
+    void shouldPersistToolDecisionContextSnapshotPayload() {
+        RuntimeAuditMapper mapper = mock(RuntimeAuditMapper.class);
+        when(mapper.insertContextSnapshotAndReturnId(anyString(), anyLong(), anyLong(), anyString())).thenReturn(100L);
+        ContextSnapshotStoreImpl store = new ContextSnapshotStoreImpl(mapper, new ObjectMapper());
+
+        store.saveToolDecisionContextSnapshot(
+                "s-1",
+                1L,
+                2L,
+                "decision-workset",
+                Map.of("MCP Resource / Prompt Hints", List.of("hint-1")),
+                List.of(Map.of("name", "search_knowledge")),
+                Map.of("Tool Evidence", 100),
+                Map.of("Tool Evidence", 0.2),
+                Map.of("candidateCount", 1)
+        );
+
+        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
+        verify(mapper).insertContextSnapshotAndReturnId(anyString(), anyLong(), anyLong(), payloadCaptor.capture());
+        String payload = payloadCaptor.getValue();
+        assertTrue(payload.contains("\"snapshotType\":\"TOOL_DECISION_CONTEXT\""));
+        assertTrue(payload.contains("\"assembledDecisionContext\":\"decision-workset\""));
+        assertTrue(payload.contains("\"executionCandidates\""));
+        assertTrue(payload.contains("\"sectionTokenRatios\""));
+    }
 }

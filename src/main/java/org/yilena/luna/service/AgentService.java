@@ -25,6 +25,15 @@ public interface AgentService {
         return processToolCalling(sessionId, input, taskState, relationalState);
     }
 
+    default String processToolCalling(String sessionId,
+                                      String input,
+                                      TaskRuntimeState taskState,
+                                      RelationalRuntimeState relationalState,
+                                      List<Resource> executionCandidates,
+                                      String assembledDecisionContext) {
+        return processToolCalling(sessionId, input, taskState, relationalState, executionCandidates);
+    }
+
     default String processToolCalling(String input) {
         return processToolCalling("agent-default", input);
     }

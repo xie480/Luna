@@ -28,6 +28,30 @@ public class ContextNodeTemplatePolicy {
         return forTaskNode(null, "", "");
     }
 
+    public static ContextNodeTemplatePolicy forToolDecision(String currentNodeId) {
+        Map<String, Integer> sectionOverrides = new LinkedHashMap<>();
+        sectionOverrides.put("MCP Resource / Prompt Hints", 2400);
+        sectionOverrides.put("Tool Evidence", 1800);
+        sectionOverrides.put("Recent Interaction Context", 1400);
+        sectionOverrides.put("Memory Hints", 1500);
+        sectionOverrides.put("Current Task State", 2200);
+        return builder()
+                .nodeType("TOOL_DECISION")
+                .nodeKind("TOOL_DECISION")
+                .templateKey("TOOL_DECISION")
+                .currentNodeId(currentNodeId == null ? "" : currentNodeId)
+                .includeWorkingMemory(true)
+                .includeRuntimeMemory(true)
+                .includeRetrievedMemory(true)
+                .includeLongTermMemory(true)
+                .maxWorkingMemoryItems(10)
+                .maxRuntimeMemoryItems(10)
+                .maxRetrievedMemoryItems(12)
+                .maxLongTermMemoryItems(8)
+                .sectionBudgetOverrides(sectionOverrides)
+                .build();
+    }
+
     public static ContextNodeTemplatePolicy forTaskStage(TaskRuntimeState taskState, String currentNodeId) {
         return forTaskNode(taskState, currentNodeId, "");
     }

@@ -81,6 +81,49 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
     }
 
     @Override
+    public String saveToolDecisionContextSnapshot(String sessionId,
+                                                  Long planId,
+                                                  Long nodeId,
+                                                  String assembledDecisionContext,
+                                                  Map<String, List<String>> sections,
+                                                  List<Map<String, Object>> executionCandidates,
+                                                  Map<String, Integer> sectionTokenCounts,
+                                                  Map<String, Double> sectionTokenRatios,
+                                                  Map<String, Object> extra) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return "";
+        }
+        try {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("snapshotType", "TOOL_DECISION_CONTEXT");
+            payload.put("assembledDecisionContext", assembledDecisionContext == null ? "" : assembledDecisionContext);
+            payload.put("sections", sections == null ? Map.of() : sections);
+            payload.put("executionCandidates", executionCandidates == null ? List.of() : executionCandidates);
+            payload.put("sectionTokenCounts", sectionTokenCounts == null ? Map.of() : sectionTokenCounts);
+            payload.put("sectionTokenRatios", sectionTokenRatios == null ? Map.of() : sectionTokenRatios);
+            payload.put("extra", extra == null ? Map.of() : extra);
+            Long snapshotId = runtimeAuditMapper.insertContextSnapshotAndReturnId(
+                    sessionId,
+                    planId,
+                    nodeId,
+                    objectMapper.writeValueAsString(payload)
+            );
+            if (snapshotId == null) {
+                runtimeAuditMapper.insertContextSnapshot(
+                        sessionId,
+                        planId,
+                        nodeId,
+                        objectMapper.writeValueAsString(payload)
+                );
+                return "";
+            }
+            return String.valueOf(snapshotId);
+        } catch (Exception ignore) {
+            return "";
+        }
+    }
+
+    @Override
     public String saveFinalSnapshot(String sessionId,
                                     Long planId,
                                     Long nodeId,
@@ -140,6 +183,7 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
             payload.put("snapshotType", "FINAL_MODEL_CONTEXT");
             payload.put("prompt", prompt == null ? "" : prompt);
             payload.put("sections", assembledContext == null ? Map.of() : assembledContext.getSections());
+            payload.put("canonicalSections", assembledContext == null ? Map.of() : assembledContext.getCanonicalSections());
             payload.put("sectionTokenCounts", sectionTokenCounts == null ? Map.of() : sectionTokenCounts);
             payload.put("sectionTokenRatios", sectionTokenRatios == null ? Map.of() : sectionTokenRatios);
             payload.put("rawToolResultChannel", rawToolResultChannel == null ? Map.of() : rawToolResultChannel);

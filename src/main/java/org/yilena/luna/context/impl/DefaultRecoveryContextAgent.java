@@ -313,6 +313,20 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
                     .runtime(runtime)
                     .build();
         }
+        if ("TOOL_DECISION_CONTEXT".equalsIgnoreCase(type)) {
+            Map<String, Object> runtime = new LinkedHashMap<>();
+            runtime.put("recovery_snapshot_type", type);
+            runtime.put("recovery_assembled_decision_context", payload.getOrDefault("assembledDecisionContext", ""));
+            runtime.put("recovery_sections", payload.getOrDefault("sections", Map.of()));
+            runtime.put("recovery_execution_candidates", payload.getOrDefault("executionCandidates", List.of()));
+            runtime.put("recovery_section_token_counts", payload.getOrDefault("sectionTokenCounts", Map.of()));
+            runtime.put("recovery_section_token_ratios", payload.getOrDefault("sectionTokenRatios", Map.of()));
+            runtime.put("recovery_extra", payload.getOrDefault("extra", Map.of()));
+            return StructuredContextPackage.builder()
+                    .sessionId(snapshot.getSessionId())
+                    .runtime(runtime)
+                    .build();
+        }
         return null;
     }
 
