@@ -10,7 +10,6 @@ import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.memory.RelationalMemoryRetriever;
 import org.yilena.luna.memory.TaskMemoryRetriever;
 import org.yilena.luna.memory.model.StructuredContextPackage;
-import org.yilena.luna.state.store.ContextSnapshotStore;
 
 import java.util.List;
 import java.util.Map;
@@ -29,19 +28,16 @@ class DefaultContextAssemblerGovernanceTest {
     @Test
     void shouldNotFallbackToRawUserInputForOnDemandMemoryQuery() {
         SemanticPreservingPruner pruner = new SemanticPreservingPruner();
-        ContextSnapshotStore snapshotStore = mock(ContextSnapshotStore.class);
         TaskMemoryRetriever taskMemoryRetriever = mock(TaskMemoryRetriever.class);
         RelationalMemoryRetriever relationalMemoryRetriever = mock(RelationalMemoryRetriever.class);
         DefaultContextAssembler assembler = new DefaultContextAssembler(
                 pruner,
-                snapshotStore,
                 taskMemoryRetriever,
                 relationalMemoryRetriever,
                 mock(org.yilena.luna.context.SummaryAgent.class),
                 mock(org.yilena.luna.context.ToolSemanticAgent.class)
         );
         when(taskMemoryRetriever.retrieve(anyString(), anyString(), any())).thenReturn(Map.of());
-        when(snapshotStore.saveFinalSnapshot(anyString(), any(), any(), any(), anyString(), any(), any())).thenReturn("snapshot-1");
 
         StructuredContextPackage contextPackage = StructuredContextPackage.builder()
                 .sessionId("s-1")

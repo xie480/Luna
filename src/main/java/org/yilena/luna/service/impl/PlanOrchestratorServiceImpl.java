@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.context.model.SummaryResult;
 import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.entity.ChatRequest;
 import org.yilena.luna.entity.PlanEdge;
@@ -25,6 +26,7 @@ import org.yilena.luna.mapper.PlanInstanceMapper;
 import org.yilena.luna.mapper.PlanNodeMapper;
 import org.yilena.luna.mapper.PlanPhaseMapper;
 import org.yilena.luna.prompt.PromptTemplates;
+import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.service.BlueprintValidationService;
 import org.yilena.luna.service.ChatService;
@@ -34,6 +36,7 @@ import org.yilena.luna.service.PlanOrchestratorService;
 import org.yilena.luna.service.TaskOrchestratorService;
 import org.yilena.luna.service.model.BlueprintOrchestrationResult;
 import org.yilena.luna.service.model.NodeWorksetResult;
+import org.yilena.luna.service.model.RoundStateWriteRequest;
 import org.yilena.luna.tools.PlanBlueprintTools;
 import org.yilena.luna.tools.PlanEventTools;
 import org.yilena.luna.tools.PlanNodeTools;
@@ -101,6 +104,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 return error("PLAN_INVALID_INPUT", "userGoal 不能為空");
             }
             BlueprintOrchestrationResult planInputContext = taskOrchestratorService.orchestrateBlueprintInput(sessionId, userGoal);
+            OrchestrationDecision planningDecision = planInputContext == null ? null : planInputContext.getDecision();
             InputReconstructionResult reconstructionResult = planInputContext == null ? null : planInputContext.getReconstructionResult();
             StructuredContextPackage planningContextPackage = planInputContext == null ? null : planInputContext.getContextPackage();
             NodeWorksetResult planningNodeWorkset = planInputContext == null ? null : planInputContext.getNodeWorksetResult();
@@ -186,6 +190,15 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 emitFrontProgress(planId, "PLAN_FAILED", "未找到可執行階段", 0, 0, 0, 0);
                 return error("PLAN_PHASE_EMPTY", "未找到可執行階段");
             }
+            persistBlueprintRoundState(
+                    sessionId,
+                    planId,
+                    planningDecision,
+                    planningContextPackage,
+                    reconstructionResult,
+                    planningNodeWorkset,
+                    orderedPhases.get(0).getPhaseId()
+            );
 
             emitFrontProgress(planId, "PLAN_RUNNING", "藍圖已就緒，開始分階段執行", orderedPhases.size(), 0, 0, 0);
             log.info("[Plan] 開始按階段執行, planId={}, phaseCount={}", planId, orderedPhases.size());
@@ -1215,6 +1228,49 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             return reconstructedGoal;
         }
         return text(reconstructionResult.getNormalizedUserIntent());
+    }
+
+    private void persistBlueprintRoundState(String sessionId,
+                                            String planId,
+                                            OrchestrationDecision planningDecision,
+                                            StructuredContextPackage planningContextPackage,
+                                            InputReconstructionResult reconstructionResult,
+                                            NodeWorksetResult planningNodeWorkset,
+                                            String nextPhaseId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        try {
+            SummaryResult summaryResult = SummaryResult.builder()
+                    .narrativeSummary("blueprint_generated_for_plan=" + text(planId))
+                    .stateSnapshot(Map.of(
+                            "currentStage", "PLANNING",
+                            "nextStep", firstNonBlank(
+                                    text(nextPhaseId).isBlank() ? "" : "execute_phase:" + text(nextPhaseId),
+                                    "execute_plan"
+                            ),
+                            "planId", text(planId),
+                            "blueprintStatus", "READY"
+                    ))
+                    .build();
+            taskOrchestratorService.writeRoundState(RoundStateWriteRequest.builder()
+                    .sessionId(sessionId)
+                    .decision(planningDecision)
+                    .contextPackage(planningContextPackage)
+                    .reconstruction(reconstructionResult)
+                    .rerankResult(planningNodeWorkset == null ? null : planningNodeWorkset.getRerankResult())
+                    .summaryResult(summaryResult)
+                    .ragQuery(planningNodeWorkset == null ? "" : planningNodeWorkset.getRagQuery())
+                    .memoryQuery(planningNodeWorkset == null ? "" : planningNodeWorkset.getMemoryQuery())
+                    .mcpQuery(planningNodeWorkset == null ? "" : planningNodeWorkset.getMcpDrivenInput())
+                    .retrievalPlanOverrides(Map.of(
+                            "blueprintGenerated", true,
+                            "planId", text(planId)
+                    ))
+                    .build());
+        } catch (Exception e) {
+            log.warn("[Plan] 写回蓝图阶段状态失败, sessionId={}, planId={}, err={}", sessionId, planId, e.getMessage());
+        }
     }
 
     private PlanningIntent parsePlanningIntent(String userGoal) {

@@ -50,6 +50,11 @@ public class DefaultSummaryAgent implements SummaryAgent {
             latestToolName=%s
             latestToolStatus=%s
             pendingQuestions=%s
+            retrievalIntent=%s
+            retrievalActiveQueries=%s
+            retrievalPlan=%s
+            retrievalSelectedEvidenceRefs=%s
+            retrievalRerankSummary=%s
             activeEvidenceCount=%s
             activeEvidenceDigest=%s
             mcpHintCount=%s
@@ -111,6 +116,11 @@ public class DefaultSummaryAgent implements SummaryAgent {
                     contextPackage == null || contextPackage.getToolState() == null ? "" : safe(contextPackage.getToolState().getLastToolName()),
                     contextPackage == null || contextPackage.getToolState() == null ? "" : safe(contextPackage.getToolState().getLastToolStatus()),
                     contextPackage == null || contextPackage.getTaskStateEntity() == null ? "" : safe(contextPackage.getTaskStateEntity().getPendingQuestions()),
+                    contextPackage == null || contextPackage.getRetrievalState() == null ? "" : safe(contextPackage.getRetrievalState().getReconstructedIntent()),
+                    contextPackage == null || contextPackage.getRetrievalState() == null ? "" : safe(contextPackage.getRetrievalState().getActiveQueries()),
+                    contextPackage == null || contextPackage.getRetrievalState() == null ? "" : safe(contextPackage.getRetrievalState().getRetrievalPlan()),
+                    contextPackage == null || contextPackage.getRetrievalState() == null ? "" : safe(contextPackage.getRetrievalState().getSelectedEvidenceRefs()),
+                    contextPackage == null || contextPackage.getRetrievalState() == null ? "" : safe(contextPackage.getRetrievalState().getRerankSummary()),
                     activeEvidenceBlocks == null ? 0 : activeEvidenceBlocks.size(),
                     buildEvidenceDigest(activeEvidenceBlocks),
                     activeMcpResourceHints == null ? 0 : activeMcpResourceHints.size(),
@@ -168,6 +178,12 @@ public class DefaultSummaryAgent implements SummaryAgent {
             if (contextPackage.getToolState() != null) {
                 sb.append("Latest tool=").append(safe(contextPackage.getToolState().getLastToolName()))
                         .append(", status=").append(safe(contextPackage.getToolState().getLastToolStatus())).append(". ");
+            }
+            if (contextPackage.getRetrievalState() != null) {
+                sb.append("Retrieval intent=").append(safe(contextPackage.getRetrievalState().getReconstructedIntent()))
+                        .append(", active queries=").append(safe(contextPackage.getRetrievalState().getActiveQueries()))
+                        .append(", selected evidence refs=").append(safe(contextPackage.getRetrievalState().getSelectedEvidenceRefs()))
+                        .append(". ");
             }
         }
         sb.append("Assistant response delivered: ").append(safe(assistantReply));

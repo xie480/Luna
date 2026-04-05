@@ -10,13 +10,18 @@ import org.yilena.luna.entity.Resource;
 import org.yilena.luna.enums.PlanNodeStatus;
 import org.yilena.luna.exception.impl.NeedApprovalException;
 import org.yilena.luna.mapper.PlanNodeMapper;
+import org.yilena.luna.memory.MemoryWritePipelineService;
 import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
+import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.InputReconstructionResult;
+import org.yilena.luna.context.model.SummaryResult;
 import org.yilena.luna.service.AgentService;
 import org.yilena.luna.service.PhaseExecutionService;
 import org.yilena.luna.service.TaskOrchestratorService;
 import org.yilena.luna.service.model.NodeWorksetResult;
+import org.yilena.luna.service.model.RoundStateWriteRequest;
+import org.yilena.luna.service.model.SummaryOrchestrationResult;
 import org.yilena.luna.service.model.TaskOrchestrationResult;
 import org.yilena.luna.sse.LunaStatusPublisher;
 import org.yilena.luna.tools.PlanEventTools;
@@ -56,6 +61,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
     private final PlanEventTools planEventTools;
     private final AgentService agentService;
     private final LunaStatusPublisher statusPublisher;
+    private final MemoryWritePipelineService memoryWritePipelineService;
     private final TaskOrchestratorService taskOrchestratorService;
     private final ObjectMapper objectMapper;
 
@@ -386,24 +392,27 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         String governedNodeGoal = nodeGoal;
         List<Resource> governedExecutionCandidates = List.of();
         OrchestrationDecision governedDecision = null;
+        StructuredContextPackage governedContextPackage = null;
+        InputReconstructionResult governedReconstructionResult = null;
+        NodeWorksetResult governedNodeWorksetResult = null;
         String governanceError = null;
         try {
             TaskOrchestrationResult orchestrationResult = taskOrchestratorService.orchestrateUserInput(sessionId, nodeGoal);
             governedDecision = orchestrationResult == null ? null : orchestrationResult.getDecision();
-            StructuredContextPackage contextPackage = orchestrationResult == null ? null : orchestrationResult.getContextPackage();
-            InputReconstructionResult reconstructionResult = orchestrationResult == null ? null : orchestrationResult.getReconstructionResult();
-            NodeWorksetResult nodeWorksetResult = taskOrchestratorService.orchestrateNodeWorkset(
+            governedContextPackage = orchestrationResult == null ? null : orchestrationResult.getContextPackage();
+            governedReconstructionResult = orchestrationResult == null ? null : orchestrationResult.getReconstructionResult();
+            governedNodeWorksetResult = taskOrchestratorService.orchestrateNodeWorkset(
                     sessionId,
                     nodeGoal,
                     governedDecision,
-                    contextPackage,
-                    reconstructionResult
+                    governedContextPackage,
+                    governedReconstructionResult
             );
-            if (nodeWorksetResult != null && nodeWorksetResult.getMcpDrivenInput() != null && !nodeWorksetResult.getMcpDrivenInput().isBlank()) {
-                governedNodeGoal = nodeWorksetResult.getMcpDrivenInput();
+            if (governedNodeWorksetResult != null && governedNodeWorksetResult.getMcpDrivenInput() != null && !governedNodeWorksetResult.getMcpDrivenInput().isBlank()) {
+                governedNodeGoal = governedNodeWorksetResult.getMcpDrivenInput();
             }
-            if (nodeWorksetResult != null && nodeWorksetResult.getExecutionCandidates() != null && !nodeWorksetResult.getExecutionCandidates().isEmpty()) {
-                governedExecutionCandidates = nodeWorksetResult.getExecutionCandidates();
+            if (governedNodeWorksetResult != null && governedNodeWorksetResult.getExecutionCandidates() != null && !governedNodeWorksetResult.getExecutionCandidates().isEmpty()) {
+                governedExecutionCandidates = governedNodeWorksetResult.getExecutionCandidates();
             }
         } catch (Exception e) {
             governanceError = e.getMessage();
@@ -505,6 +514,17 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
 
             emitNodeEvent(planId, phaseId, nodeId, "PLAN_NODE_SUCCESS", "SUCCESS", "INFO",
                     "节点执行成功", "", nodeName, nodeType, retryCount, maxRetry, costMs, outputForNext);
+            persistNodeRoundStateAndMemory(
+                    sessionId,
+                    nodeId,
+                    nodeGoal,
+                    agentResult,
+                    governedDecision,
+                    governedContextPackage,
+                    governedReconstructionResult,
+                    governedNodeWorksetResult,
+                    true
+            );
         } else {
             String failReason = extractErrorMessage(agentResult);
             String errorCode = extractErrorCode(agentResult);
@@ -515,6 +535,17 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
 
             emitNodeEvent(planId, phaseId, nodeId, "PLAN_NODE_FAILED", "FAILED", "WARN",
                     failReason, errorCode, nodeName, nodeType, maxRetry, maxRetry, costMs, Map.of());
+            persistNodeRoundStateAndMemory(
+                    sessionId,
+                    nodeId,
+                    nodeGoal,
+                    agentResult,
+                    governedDecision,
+                    governedContextPackage,
+                    governedReconstructionResult,
+                    governedNodeWorksetResult,
+                    false
+            );
         }
 
         return new NodeResult(success, nodeId, false);
@@ -669,6 +700,58 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         } catch (Exception e) {
             log.warn("[Node] 推送节点事件失败（不中断主流程）, nodeId={}, eventType={}, err={}",
                     nodeId, eventType, e.getMessage());
+        }
+    }
+
+    private void persistNodeRoundStateAndMemory(String sessionId,
+                                                String nodeId,
+                                                String userInput,
+                                                String agentResult,
+                                                OrchestrationDecision decision,
+                                                StructuredContextPackage contextPackage,
+                                                InputReconstructionResult reconstructionResult,
+                                                NodeWorksetResult nodeWorksetResult,
+                                                boolean success) {
+        if (sessionId == null || sessionId.isBlank() || contextPackage == null) {
+            return;
+        }
+        try {
+            String assistantReply = success
+                    ? truncate(agentResult, 1200)
+                    : "node_execution_failed:" + truncate(extractErrorMessage(agentResult), 480);
+            SummaryOrchestrationResult summaryOrchestrationResult = taskOrchestratorService.orchestrateSummary(
+                    sessionId,
+                    userInput,
+                    assistantReply,
+                    contextPackage,
+                    nodeWorksetResult == null ? List.of() : nodeWorksetResult.getSelectedKnowledgeEvidenceBlocks(),
+                    nodeWorksetResult == null ? List.of() : nodeWorksetResult.getMcpResourceHints(),
+                    null,
+                    false,
+                    "PHASE_EXECUTION_NODE"
+            );
+            SummaryResult summaryResult = summaryOrchestrationResult == null ? null : summaryOrchestrationResult.getSummaryResult();
+            ContextRerankResult rerankResult = nodeWorksetResult == null ? null : nodeWorksetResult.getRerankResult();
+            taskOrchestratorService.writeRoundState(RoundStateWriteRequest.builder()
+                    .sessionId(sessionId)
+                    .decision(decision)
+                    .contextPackage(contextPackage)
+                    .reconstruction(reconstructionResult)
+                    .rerankResult(rerankResult)
+                    .summaryResult(summaryResult)
+                    .ragQuery(nodeWorksetResult == null ? "" : nodeWorksetResult.getRagQuery())
+                    .memoryQuery(nodeWorksetResult == null ? "" : nodeWorksetResult.getMemoryQuery())
+                    .mcpQuery(nodeWorksetResult == null ? "" : nodeWorksetResult.getMcpDrivenInput())
+                    .retrievalPlanOverrides(Map.of(
+                            "phaseExecution", true,
+                            "nodeId", nodeId == null ? "" : nodeId,
+                            "nodeStatus", success ? "SUCCESS" : "FAILED"
+                    ))
+                    .build());
+            memoryWritePipelineService.writeAfterTurn(sessionId, userInput, assistantReply, contextPackage);
+        } catch (Exception e) {
+            log.warn("[Node] 节点上下文写回失败（不中断主流程）, sessionId={}, nodeId={}, err={}",
+                    sessionId, nodeId, e.getMessage());
         }
     }
 

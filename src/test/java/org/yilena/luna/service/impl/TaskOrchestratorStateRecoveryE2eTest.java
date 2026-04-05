@@ -13,8 +13,11 @@ import org.yilena.luna.context.McpResourceHintExtractor;
 import org.yilena.luna.context.RagQueryBuilder;
 import org.yilena.luna.context.RecoveryContextAgent;
 import org.yilena.luna.context.RerankTraceLogger;
+import org.yilena.luna.context.SummaryStateSnapshotValidator;
 import org.yilena.luna.context.SummaryAgent;
 import org.yilena.luna.context.SummaryTraceLogger;
+import org.yilena.luna.context.ContextAssembler;
+import org.yilena.luna.context.ContextTraceLogger;
 import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.context.model.SummaryResult;
 import org.yilena.luna.enums.RelationalRuntimeState;
@@ -29,13 +32,19 @@ import org.yilena.luna.rag.models.RetrievalResponse;
 import org.yilena.luna.rag.models.RetrievalRoute;
 import org.yilena.luna.router.CapabilityPolicyRouterService;
 import org.yilena.luna.router.ToolRouter;
+import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.service.SessionService;
 import org.yilena.luna.service.model.NodeWorksetResult;
 import org.yilena.luna.service.model.SummaryOrchestrationResult;
 import org.yilena.luna.state.model.ContextState;
 import org.yilena.luna.state.model.RetrievalState;
 import org.yilena.luna.state.store.ContextStateStore;
+import org.yilena.luna.state.store.ContextSnapshotStore;
 import org.yilena.luna.state.store.RecoveryStateStore;
+import org.yilena.luna.state.store.TaskStateStore;
+import org.yilena.luna.state.store.RetrievalStateStore;
+import org.yilena.luna.state.store.ToolStateStore;
+import org.yilena.luna.utils.LlmClientUtil;
 
 import java.util.List;
 import java.util.Map;
@@ -174,8 +183,17 @@ class TaskOrchestratorStateRecoveryE2eTest {
         final RerankTraceLogger rerankTraceLogger = mock(RerankTraceLogger.class);
         final RecoveryStateStore recoveryStateStore = mock(RecoveryStateStore.class);
         final SummaryAgent summaryAgent = mock(SummaryAgent.class);
+        final SummaryStateSnapshotValidator summaryStateSnapshotValidator = mock(SummaryStateSnapshotValidator.class);
         final SummaryTraceLogger summaryTraceLogger = mock(SummaryTraceLogger.class);
+        final ContextAssembler contextAssembler = mock(ContextAssembler.class);
+        final ContextTraceLogger contextTraceLogger = mock(ContextTraceLogger.class);
         final ContextStateStore contextStateStore = mock(ContextStateStore.class);
+        final TaskStateStore taskStateStore = mock(TaskStateStore.class);
+        final RetrievalStateStore retrievalStateStore = mock(RetrievalStateStore.class);
+        final ToolStateStore toolStateStore = mock(ToolStateStore.class);
+        final ContextSnapshotStore contextSnapshotStore = mock(ContextSnapshotStore.class);
+        final LlmClientUtil llmClientUtil = mock(LlmClientUtil.class);
+        final GeminiProperty geminiProperty = new GeminiProperty();
         final SessionService sessionService = mock(SessionService.class);
 
         final TaskOrchestratorServiceImpl service = new TaskOrchestratorServiceImpl(
@@ -197,8 +215,17 @@ class TaskOrchestratorStateRecoveryE2eTest {
                 rerankTraceLogger,
                 recoveryStateStore,
                 summaryAgent,
+                summaryStateSnapshotValidator,
                 summaryTraceLogger,
+                contextAssembler,
+                contextTraceLogger,
                 contextStateStore,
+                taskStateStore,
+                retrievalStateStore,
+                toolStateStore,
+                contextSnapshotStore,
+                llmClientUtil,
+                geminiProperty,
                 sessionService,
                 new ObjectMapper()
         );

@@ -24,6 +24,7 @@ import org.yilena.luna.entity.ToolCallingContext;
 import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.exception.impl.NeedApprovalException;
 import org.yilena.luna.memory.EventIngressService;
+import org.yilena.luna.memory.MemoryWritePipelineService;
 import org.yilena.luna.memory.RuntimeAuditService;
 import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
@@ -84,6 +85,7 @@ public class ApprovalServiceImpl implements ApprovalService {
     private final RuntimeAuditService runtimeAuditService;
     private final SessionService sessionService;
     private final EventIngressService eventIngressService;
+    private final MemoryWritePipelineService memoryWritePipelineService;
     private final TaskOrchestratorService taskOrchestratorService;
     private final ContextSnapshotStore contextSnapshotStore;
     private final RecoveryStateStore recoveryStateStore;
@@ -524,6 +526,12 @@ public class ApprovalServiceImpl implements ApprovalService {
                     .mcpQuery(nodeWorksetResult == null ? "" : nodeWorksetResult.getMcpDrivenInput())
                     .retrievalPlanOverrides(Map.of("approvalRecovery", true))
                     .build());
+            memoryWritePipelineService.writeAfterTurn(
+                    task.getSessionId(),
+                    task.getUserInput(),
+                    modelResult.getReplyText(),
+                    contextPackage
+            );
             sessionService.appendMessage(task.getChatSessionKey(), new ChatMessage(ChatMessage.Role.LUNA, modelResult.getReplyText(), LocalTime.now()));
             return modelResult.getValidResponse();
         } catch (Exception e) {

@@ -515,6 +515,31 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     reconstructionResult
             );
         }
+        if (sessionId != null && !sessionId.isBlank()) {
+            try {
+                SummaryResult blueprintEntrySummary = SummaryResult.builder()
+                        .narrativeSummary("blueprint_input_orchestrated")
+                        .stateSnapshot(Map.of(
+                                "currentStage", decision == null || decision.getTaskState() == null ? "PLANNING" : decision.getTaskState().name(),
+                                "nextStep", "generate_blueprint",
+                                "source", "BLUEPRINT_ENTRY"
+                        ))
+                        .build();
+                writeRoundState(RoundStateWriteRequest.builder()
+                        .sessionId(sessionId)
+                        .decision(decision)
+                        .contextPackage(contextPackage)
+                        .reconstruction(reconstructionResult)
+                        .rerankResult(nodeWorksetResult == null ? null : nodeWorksetResult.getRerankResult())
+                        .summaryResult(blueprintEntrySummary)
+                        .ragQuery(nodeWorksetResult == null ? "" : nodeWorksetResult.getRagQuery())
+                        .memoryQuery(nodeWorksetResult == null ? "" : nodeWorksetResult.getMemoryQuery())
+                        .mcpQuery(nodeWorksetResult == null ? "" : nodeWorksetResult.getMcpDrivenInput())
+                        .retrievalPlanOverrides(Map.of("blueprintEntry", true))
+                        .build());
+            } catch (Exception ignore) {
+            }
+        }
         return BlueprintOrchestrationResult.builder()
                 .contextPackage(contextPackage)
                 .reconstructionResult(reconstructionResult)

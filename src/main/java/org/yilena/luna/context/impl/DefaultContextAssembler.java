@@ -98,6 +98,7 @@ public class DefaultContextAssembler implements ContextAssembler {
         List<String> effectivePreferenceSnippets = mergeDistinct(preferenceSnippets, onDemandMemory.preferenceSnippets());
         List<String> effectiveLongTermMemorySnippets = mergeDistinct(longTermMemorySnippets, onDemandMemory.longTermMemorySnippets());
         Map<String, List<String>> candidatePool = buildCandidatePool(
+                userInput,
                 rerankResult,
                 knowledgeEvidenceBlocks,
                 effectiveWorkingMemorySnippets,
@@ -120,7 +121,10 @@ public class DefaultContextAssembler implements ContextAssembler {
         sections.put("Relevant Knowledge Evidence", candidatePool.getOrDefault("knowledge", List.of()));
         sections.put("MCP Resource / Prompt Hints", candidatePool.getOrDefault("mcp", List.of()));
         sections.put("Tool Evidence", candidatePool.getOrDefault("tool", List.of()));
-        sections.put("Recent Interaction Context", lines(buildRecentInteraction(contextPackage, runtimeMemorySnippets, policy)));
+        sections.put("Recent Interaction Context", mergeDistinct(
+                lines(buildRecentInteraction(contextPackage, runtimeMemorySnippets, policy)),
+                candidatePool.getOrDefault("raw_input", List.of())
+        ));
         sections.put("Memory Hints", mergeDistinct(
                 candidatePool.getOrDefault("memory", List.of()),
                 candidatePool.getOrDefault("summary", List.of())
@@ -160,7 +164,8 @@ public class DefaultContextAssembler implements ContextAssembler {
                 .build();
     }
 
-    private Map<String, List<String>> buildCandidatePool(ContextRerankResult rerankResult,
+    private Map<String, List<String>> buildCandidatePool(String userInput,
+                                                         ContextRerankResult rerankResult,
                                                          List<EvidenceBlock> knowledgeEvidenceBlocks,
                                                          List<String> workingMemorySnippets,
                                                          List<String> runtimeMemorySnippets,
@@ -178,6 +183,7 @@ public class DefaultContextAssembler implements ContextAssembler {
         pool.put("knowledge", selectKnowledgeCandidates(rerankResult, knowledgeEvidenceBlocks, knowledgeSnippets));
         pool.put("mcp", selectMcpCandidates(rerankResult, executionCandidates, mcpResourceHints));
         pool.put("tool", lines(buildToolEvidence(toolContext, toolSemanticResult)));
+        pool.put("raw_input", buildRawInputFact(userInput));
         pool.put("memory", buildMemoryHints(
                 workingMemorySnippets,
                 runtimeMemorySnippets,
@@ -294,7 +300,8 @@ public class DefaultContextAssembler implements ContextAssembler {
                     + "; missingSlots=[reconstruction_unavailable]"
                     + "; intentConfidence=0.0"
                     + "; rawInputArchived=true"
-                    + "; rawInputLength=" + (userInput == null ? 0 : userInput.trim().length());
+                    + "; rawInputLength=" + (userInput == null ? 0 : userInput.trim().length())
+                    + "; rawInputFactRef=" + rawInputFactRef(userInput);
         }
         return "normalizedIntent=" + safe(reconstructionResult.getNormalizedUserIntent())
                 + "; explicitGoal=" + safe(reconstructionResult.getExplicitTaskGoal())
@@ -302,7 +309,8 @@ public class DefaultContextAssembler implements ContextAssembler {
                 + "; constraints=" + safe(reconstructionResult.getBusinessConstraints())
                 + "; timeScope=" + safe(reconstructionResult.getTimeScope())
                 + "; missingSlots=" + safe(reconstructionResult.getMissingSlots())
-                + "; intentConfidence=" + reconstructionResult.getIntentConfidence();
+                + "; intentConfidence=" + reconstructionResult.getIntentConfidence()
+                + "; rawInputFactRef=" + rawInputFactRef(userInput);
     }
 
     private String buildToolEvidence(String toolContext, ToolSemanticResult toolSemanticResult) {
@@ -743,7 +751,8 @@ public class DefaultContextAssembler implements ContextAssembler {
 
     private String buildRuntimePromptInput(String userInput, InputReconstructionResult reconstructionResult) {
         if (reconstructionResult == null) {
-            return "raw_input_archived=true; use_reconstructed_intent_section_as_primary_input";
+            return "raw_input_archived=true; raw_input_fact_ref=" + rawInputFactRef(userInput)
+                    + "; use_reconstructed_intent_section_as_primary_input";
         }
         return "normalizedIntent=" + safe(reconstructionResult.getNormalizedUserIntent())
                 + "; explicitTaskGoal=" + safe(reconstructionResult.getExplicitTaskGoal())
@@ -753,7 +762,27 @@ public class DefaultContextAssembler implements ContextAssembler {
                 + "; missingSlots=" + safe(reconstructionResult.getMissingSlots())
                 + "; intentConfidence=" + reconstructionResult.getIntentConfidence()
                 + "; rawInputArchived=true"
-                + "; rawInputLength=" + (userInput == null ? 0 : userInput.trim().length());
+                + "; rawInputLength=" + (userInput == null ? 0 : userInput.trim().length())
+                + "; rawInputFactRef=" + rawInputFactRef(userInput);
+    }
+
+    private List<String> buildRawInputFact(String userInput) {
+        String raw = userInput == null ? "" : userInput.trim();
+        if (raw.isBlank()) {
+            return List.of("raw_input_fact={archived=true; length=0; hash=0; content=}");
+        }
+        String compact = raw.replaceAll("\\s+", " ").trim();
+        if (compact.length() > 240) {
+            compact = compact.substring(0, 240);
+        }
+        return List.of("raw_input_fact={archived=true; length=" + raw.length()
+                + "; hash=" + Integer.toHexString(raw.hashCode())
+                + "; content=" + compact + "}");
+    }
+
+    private String rawInputFactRef(String userInput) {
+        String raw = userInput == null ? "" : userInput.trim();
+        return "hash=" + Integer.toHexString(raw.hashCode()) + ",len=" + raw.length();
     }
 
     private List<String> lines(String text) {
