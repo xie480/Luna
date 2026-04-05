@@ -673,8 +673,8 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         );
         contextTraceLogger.log(sessionId, planId, nodeId, assembledContext);
 
-        String finalSnapshotId = "";
-        if (!sessionId.isBlank()) {
+        String finalSnapshotId = assembledContext == null ? "" : nullSafe(assembledContext.getSnapshotId());
+        if (!sessionId.isBlank() && finalSnapshotId.isBlank()) {
             finalSnapshotId = nullSafe(contextSnapshotStore.saveFinalSnapshot(
                     sessionId,
                     planId,
@@ -692,6 +692,15 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     nodeId,
                     "CONTEXT_SNAPSHOT_FINAL",
                     "final model context snapshot persisted",
+                    toJsonSafe(Map.of("snapshotId", finalSnapshotId))
+            );
+        } else if (!sessionId.isBlank() && !finalSnapshotId.isBlank()) {
+            runtimeAuditService.persistDecisionRecord(
+                    sessionId,
+                    planId,
+                    nodeId,
+                    "CONTEXT_SNAPSHOT_FINAL",
+                    "final model context snapshot persisted by context assembler",
                     toJsonSafe(Map.of("snapshotId", finalSnapshotId))
             );
         }

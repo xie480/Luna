@@ -3,6 +3,8 @@ package org.yilena.luna.memory.impl;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.context.InputReconstructionAgent;
+import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.enums.RelationalRuntimeState;
 import org.yilena.luna.enums.SessionType;
 import org.yilena.luna.enums.TaskRuntimeState;
@@ -27,6 +29,7 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
 
     private final SessionRuntimeMapper sessionRuntimeMapper;
     private final ContextCompilerService contextCompilerService;
+    private final InputReconstructionAgent inputReconstructionAgent;
     private final SessionTypeResolver sessionTypeResolver;
 
     @Value("${memory.session-type.enabled:true}")
@@ -34,16 +37,22 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
 
     @Override
     public OrchestrationDecision onUserInput(String sessionId, String userInput) {
-        return orchestrate(sessionId, "USER_INPUT", userInput, payloadOf("text", userInput));
+        String normalizedSessionId = sessionId == null || sessionId.isBlank() ? "default-session" : sessionId;
+        String signal = buildGovernedUserSignal(normalizedSessionId, userInput);
+        return orchestrate(normalizedSessionId, "USER_INPUT", signal, payloadOf("text", userInput));
     }
 
     @Override
     public OrchestrationDecision onUserInput(String sessionId, String userInput, String orchestrationSignal) {
+        String normalizedSessionId = sessionId == null || sessionId.isBlank() ? "default-session" : sessionId;
         String signal = orchestrationSignal == null ? "" : orchestrationSignal.trim();
         if (signal.isBlank()) {
-            signal = "intent=intent_unavailable;goal=goal_unavailable;timeScope=unspecified;constraints=[];missingSlots=[];fallback=empty_orchestration_signal";
+            signal = buildGovernedUserSignal(normalizedSessionId, userInput);
+            if (signal.isBlank()) {
+                signal = "intent=intent_unavailable;goal=goal_unavailable;timeScope=unspecified;constraints=[];missingSlots=[];fallback=empty_orchestration_signal";
+            }
         }
-        return orchestrate(sessionId, "USER_INPUT", signal, payloadOf("text", userInput));
+        return orchestrate(normalizedSessionId, "USER_INPUT", signal, payloadOf("text", userInput));
     }
 
     @Override
@@ -742,6 +751,46 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
         String safeKey = key == null || key.isBlank() ? "text" : key.trim();
         String safeValue = value == null ? "" : value;
         return "{\"" + safeKey + "\":\"" + escapeJson(safeValue) + "\"}";
+    }
+
+    private String buildGovernedUserSignal(String sessionId, String userInput) {
+        StructuredContextPackage preContext = contextCompilerService.compile(sessionId, userInput, null, null);
+        InputReconstructionResult reconstruction = inputReconstructionAgent.reconstruct(
+                sessionId,
+                userInput,
+                preContext,
+                preContext == null ? null : preContext.getTaskState(),
+                preContext == null ? null : preContext.getRelationalState()
+        );
+        return buildOrchestrationSignal(userInput, reconstruction);
+    }
+
+    private String buildOrchestrationSignal(String rawInput, InputReconstructionResult reconstruction) {
+        String normalizedIntent = reconstruction == null ? "" : safeLower(reconstruction.getNormalizedUserIntent());
+        String explicitGoal = reconstruction == null ? "" : safeLower(reconstruction.getExplicitTaskGoal());
+        String timeScope = reconstruction == null ? "" : safeLower(reconstruction.getTimeScope());
+        java.util.List<String> constraints = reconstruction == null || reconstruction.getBusinessConstraints() == null
+                ? java.util.List.of()
+                : reconstruction.getBusinessConstraints();
+        java.util.List<String> missingSlots = reconstruction == null || reconstruction.getMissingSlots() == null
+                ? java.util.List.of()
+                : reconstruction.getMissingSlots();
+        StringBuilder signal = new StringBuilder();
+        signal.append("intent=").append(normalizedIntent.isBlank() ? "intent_unavailable" : normalizedIntent);
+        signal.append(";goal=").append(explicitGoal.isBlank() ? "goal_unavailable" : explicitGoal);
+        signal.append(";timeScope=").append(timeScope.isBlank() ? "unspecified" : timeScope);
+        signal.append(";constraints=").append(constraints);
+        signal.append(";missingSlots=").append(missingSlots);
+        if (reconstruction == null) {
+            signal.append(";fallback=reconstruction_missing");
+            signal.append(";rawInputPresent=").append(rawInput != null && !rawInput.isBlank());
+            signal.append(";rawInputLength=").append(rawInput == null ? 0 : rawInput.trim().length());
+        } else if (normalizedIntent.isBlank() || explicitGoal.isBlank()) {
+            signal.append(";fallback=reconstruction_partial");
+        } else {
+            signal.append(";fallback=none");
+        }
+        return signal.toString();
     }
 
     private String escapeJson(String text) {

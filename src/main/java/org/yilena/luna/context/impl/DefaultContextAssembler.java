@@ -18,6 +18,7 @@ import org.yilena.luna.memory.TaskMemoryRetriever;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.state.model.TaskState;
+import org.yilena.luna.state.store.ContextSnapshotStore;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -33,17 +34,20 @@ public class DefaultContextAssembler implements ContextAssembler {
     private final RelationalMemoryRetriever relationalMemoryRetriever;
     private final SummaryAgent summaryAgent;
     private final ToolSemanticAgent toolSemanticAgent;
+    private final ContextSnapshotStore contextSnapshotStore;
 
     public DefaultContextAssembler(SemanticPreservingPruner semanticPreservingPruner,
                                    TaskMemoryRetriever taskMemoryRetriever,
                                    RelationalMemoryRetriever relationalMemoryRetriever,
                                    SummaryAgent summaryAgent,
-                                   ToolSemanticAgent toolSemanticAgent) {
+                                   ToolSemanticAgent toolSemanticAgent,
+                                   ContextSnapshotStore contextSnapshotStore) {
         this.semanticPreservingPruner = semanticPreservingPruner;
         this.taskMemoryRetriever = taskMemoryRetriever;
         this.relationalMemoryRetriever = relationalMemoryRetriever;
         this.summaryAgent = summaryAgent;
         this.toolSemanticAgent = toolSemanticAgent;
+        this.contextSnapshotStore = contextSnapshotStore;
     }
 
     @Override
@@ -154,14 +158,60 @@ public class DefaultContextAssembler implements ContextAssembler {
                 .sectionTokenRatios(pruneResult.getSectionTokenRatios())
                 .snapshotId("")
                 .build();
+        String snapshotId = "";
+        if (sessionId != null && !sessionId.isBlank()) {
+            snapshotId = safe(contextSnapshotStore.saveFinalSnapshot(
+                    sessionId,
+                    planId,
+                    nodeId,
+                    preSnapshotContext,
+                    preSnapshotContext.getPrompt(),
+                    preSnapshotContext.getSectionTokenCounts(),
+                    preSnapshotContext.getSectionTokenRatios(),
+                    Map.of(),
+                    buildActiveRefsForSnapshot(rerankResult, knowledgeEvidenceBlocks)
+            ));
+        }
         return AssembledContext.builder()
                 .prompt(preSnapshotContext.getPrompt())
                 .sections(preSnapshotContext.getSections())
                 .candidatePool(preSnapshotContext.getCandidatePool())
                 .sectionTokenCounts(preSnapshotContext.getSectionTokenCounts())
                 .sectionTokenRatios(preSnapshotContext.getSectionTokenRatios())
-                .snapshotId("")
+                .snapshotId(snapshotId)
                 .build();
+    }
+
+    private Map<String, List<String>> buildActiveRefsForSnapshot(ContextRerankResult rerankResult,
+                                                                 List<EvidenceBlock> knowledgeEvidenceBlocks) {
+        List<String> knowledgeRefs = new ArrayList<>();
+        if (rerankResult != null && rerankResult.getSelectedKnowledgeEvidenceBlocks() != null) {
+            for (EvidenceBlock block : rerankResult.getSelectedKnowledgeEvidenceBlocks()) {
+                if (block != null && block.getBlockId() != null && !block.getBlockId().isBlank()) {
+                    knowledgeRefs.add(block.getBlockId());
+                }
+            }
+        }
+        if (knowledgeRefs.isEmpty() && knowledgeEvidenceBlocks != null) {
+            for (EvidenceBlock block : knowledgeEvidenceBlocks) {
+                if (block != null && block.getBlockId() != null && !block.getBlockId().isBlank()) {
+                    knowledgeRefs.add(block.getBlockId());
+                }
+            }
+        }
+        List<String> memoryRefs = rerankResult == null || rerankResult.getSelectedMemoryHints() == null
+                ? List.of()
+                : rerankResult.getSelectedMemoryHints().stream()
+                .filter(item -> item != null && !item.isBlank())
+                .distinct()
+                .toList();
+        return Map.of(
+                "activeKnowledgeRefs", knowledgeRefs.stream().distinct().toList(),
+                "activeMemoryRefs", memoryRefs,
+                "activeToolEvidenceRefs", List.of(),
+                "activeMcpPromptRefs", List.of(),
+                "activeMcpResourceRefs", List.of()
+        );
     }
 
     private Map<String, List<String>> buildCandidatePool(String userInput,

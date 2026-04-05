@@ -72,6 +72,10 @@ public class AgentServiceImpl implements AgentService {
                                      List<Resource> executionCandidates) {
         log.info("processToolCalling, sessionId={}, input={}", sessionId, input);
         String decisionInput = resolveDecisionInput(input);
+        if (decisionInput.isBlank()) {
+            log.info("skip tool decision: governed decision input unavailable");
+            return null;
+        }
 
         if (capabilityPolicyRouterService.shouldTriggerPlanOrchestration(decisionInput, taskState)) {
             String stableSessionId = resolveStableSessionId(sessionId);
@@ -186,10 +190,28 @@ public class AgentServiceImpl implements AgentService {
         if (context != null && context.getToolDecisionInput() != null && !context.getToolDecisionInput().isBlank()) {
             return context.getToolDecisionInput();
         }
-        if (input == null || input.isBlank()) {
+        String candidate = input == null ? "" : input.trim();
+        if (candidate.isBlank()) {
             return "";
         }
-        return input;
+        if (isGovernedDecisionInput(candidate)) {
+            return candidate;
+        }
+        log.warn("tool decision input blocked: missing ToolCallingContext and unguided raw input");
+        return "";
+    }
+
+    private boolean isGovernedDecisionInput(String input) {
+        String normalized = input == null ? "" : input.toLowerCase(Locale.ROOT);
+        return normalized.contains("task_stage=")
+                || normalized.contains("explicit_task_goal=")
+                || normalized.contains("clarified_entities=")
+                || normalized.contains("business_constraints=")
+                || normalized.contains("time_scope=")
+                || normalized.contains("intent=")
+                || normalized.contains("goal=")
+                || normalized.contains("timescope=")
+                || normalized.contains("missingslots=");
     }
 
     private String buildDecisionPrompt(String input, List<String> history, List<Resource> tools) {

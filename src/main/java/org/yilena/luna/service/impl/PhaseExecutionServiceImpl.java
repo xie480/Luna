@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.yilena.luna.entity.PlanNode;
 import org.yilena.luna.entity.PlanPhase;
 import org.yilena.luna.entity.Resource;
+import org.yilena.luna.entity.ToolCallingContext;
 import org.yilena.luna.enums.PlanNodeStatus;
 import org.yilena.luna.exception.impl.NeedApprovalException;
 import org.yilena.luna.mapper.PlanNodeMapper;
@@ -31,9 +32,11 @@ import org.yilena.luna.sse.LunaStatusPublisher;
 import org.yilena.luna.tools.PlanEventTools;
 import org.yilena.luna.tools.PlanNodeTools;
 import org.yilena.luna.state.store.ContextSnapshotStore;
+import org.yilena.luna.utils.ToolCallingContextHolder;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -448,8 +451,9 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         boolean success;
 
         try {
-            agentResult = agentService.processToolCalling(
+            agentResult = processToolCallingWithGovernedContext(
                     sessionId,
+                    nodeGoal,
                     governedNodeGoal,
                     governedDecision == null ? null : governedDecision.getTaskState(),
                     governedDecision == null ? null : governedDecision.getRelationalState(),
@@ -484,8 +488,9 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                 safeUpdateNodeStatus(planId, nodeId, PlanNodeStatus.RUNNING, null, null, r);
 
                 try {
-                    agentResult = agentService.processToolCalling(
+                    agentResult = processToolCallingWithGovernedContext(
                             sessionId,
+                            nodeGoal,
                             governedNodeGoal,
                             governedDecision == null ? null : governedDecision.getTaskState(),
                             governedDecision == null ? null : governedDecision.getRelationalState(),
@@ -1184,6 +1189,32 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
             return m.group();
         }
         return "unknown";
+    }
+
+    private String processToolCallingWithGovernedContext(String sessionId,
+                                                         String rawUserInput,
+                                                         String governedDecisionInput,
+                                                         org.yilena.luna.enums.TaskRuntimeState taskState,
+                                                         org.yilena.luna.enums.RelationalRuntimeState relationalState,
+                                                         List<Resource> executionCandidates) {
+        ToolCallingContextHolder.set(ToolCallingContext.builder()
+                .chatSessionKey(sessionId)
+                .userInput(rawUserInput)
+                .toolDecisionInput(governedDecisionInput)
+                .executionCandidates(executionCandidates == null ? List.of() : executionCandidates)
+                .toolExecutionTraces(new CopyOnWriteArrayList<>())
+                .build());
+        try {
+            return agentService.processToolCalling(
+                    sessionId,
+                    governedDecisionInput,
+                    taskState,
+                    relationalState,
+                    executionCandidates
+            );
+        } finally {
+            ToolCallingContextHolder.clear();
+        }
     }
 
     // =========================================================

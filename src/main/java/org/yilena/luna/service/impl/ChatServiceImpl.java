@@ -438,18 +438,85 @@ public class ChatServiceImpl implements ChatService {
         }
 
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.STARTUP, "startup", LocalTime.now()));
-        List<String> memorySnippets = recent.stream()
-                .map(m -> m.getRole().name() + ": " + m.getContent() + ": " + m.getTime())
-                .toList();
+        String startupInput = "startup";
+        TaskOrchestrationResult orchestration = taskOrchestratorService.orchestrateUserInput(keyPrefix, startupInput);
+        OrchestrationDecision decision = orchestration == null ? null : orchestration.getDecision();
+        StructuredContextPackage contextPackage = orchestration == null ? null : orchestration.getContextPackage();
+        InputReconstructionResult reconstruction = orchestration == null ? null : orchestration.getReconstructionResult();
+        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_RETRIEVING, LunaStateConstant.VALUE_RETRIEVING);
+        NodeWorksetResult nodeWorkset = taskOrchestratorService.orchestrateNodeWorkset(
+                keyPrefix,
+                startupInput,
+                decision,
+                contextPackage,
+                reconstruction
+        );
+        ContextRerankResult rerankResult = nodeWorkset == null ? null : nodeWorkset.getRerankResult();
+        List<Resource> executionCandidates = nodeWorkset == null || nodeWorkset.getExecutionCandidates() == null
+                ? List.of()
+                : nodeWorkset.getExecutionCandidates();
+        List<String> mcpResourceHints = nodeWorkset == null || nodeWorkset.getMcpResourceHints() == null
+                ? List.of()
+                : nodeWorkset.getMcpResourceHints();
+        List<String> ragMemorySnippets = nodeWorkset == null || nodeWorkset.getSelectedMemorySnippets() == null
+                ? List.of()
+                : nodeWorkset.getSelectedMemorySnippets();
+        List<EvidenceBlock> knowledgeEvidenceBlocks = nodeWorkset == null || nodeWorkset.getSelectedKnowledgeEvidenceBlocks() == null
+                ? List.of()
+                : nodeWorkset.getSelectedKnowledgeEvidenceBlocks();
+        List<String> knowledgeSnippets = extractTaskKnowledgeSnippets(contextPackage);
+        if (nodeWorkset != null && nodeWorkset.getSelectedKnowledgeSnippets() != null && !nodeWorkset.getSelectedKnowledgeSnippets().isEmpty()) {
+            knowledgeSnippets = nodeWorkset.getSelectedKnowledgeSnippets();
+        }
+        List<String> preferenceSnippets = mergeDistinct(
+                extractRelationalPreferenceSnippets(contextPackage),
+                nodeWorkset == null || nodeWorkset.getSelectedPreferenceSnippets() == null
+                        ? List.of()
+                        : nodeWorkset.getSelectedPreferenceSnippets()
+        );
+        List<String> longTermMemorySnippets = extractTaskLongTermSnippets(contextPackage);
+        List<String> workingMemorySnippets = extractWorkingMemorySnippets(contextPackage);
+        List<String> runtimeMemorySnippets = mergeDistinct(
+                extractRuntimeMessageSnippets(contextPackage),
+                recent.stream().map(m -> m.getRole().name() + ": " + m.getContent() + ": " + m.getTime()).toList()
+        );
         ContextNodeTemplatePolicy startupPolicy = ContextNodeTemplatePolicy.defaultPolicy();
+        SummaryOrchestrationResult preAssemblySummary = taskOrchestratorService.orchestrateSummary(
+                keyPrefix,
+                startupInput,
+                "",
+                contextPackage,
+                knowledgeEvidenceBlocks,
+                mcpResourceHints,
+                null,
+                false,
+                "STARTUP_PRE_ASSEMBLY_INPUT"
+        );
+        SummaryResult roundSummaryInput = preAssemblySummary == null ? null : preAssemblySummary.getSummaryResult();
         MainModelOrchestrationResult startupResult = taskOrchestratorService.orchestrateMainModel(
                 MainModelExecutionRequest.builder()
                         .sessionId(keyPrefix)
-                        .userInput("startup")
-                        .runtimeMemorySnippets(memorySnippets)
+                        .userInput(startupInput)
+                        .contextPackage(contextPackage)
+                        .reconstructionResult(reconstruction)
+                        .rerankResult(rerankResult)
+                        .toolSemanticResult(null)
+                        .knowledgeEvidenceBlocks(knowledgeEvidenceBlocks)
+                        .workingMemorySnippets(workingMemorySnippets)
+                        .runtimeMemorySnippets(runtimeMemorySnippets)
+                        .retrievedMemorySnippets(ragMemorySnippets)
+                        .knowledgeSnippets(knowledgeSnippets)
+                        .preferenceSnippets(preferenceSnippets)
+                        .longTermMemorySnippets(longTermMemorySnippets)
+                        .executionCandidates(executionCandidates)
+                        .mcpResourceHints(mcpResourceHints)
+                        .toolContext("")
                         .nodeTemplatePolicy(startupPolicy)
+                        .roundSummaryInput(roundSummaryInput)
+                        .planId(contextPlanId(contextPackage))
+                        .nodeId(contextNodeId(contextPackage))
                         .stage("STARTUP")
-                        .repairSeed("startup")
+                        .repairSeed(startupInput)
                         .rawToolResultChannel(Map.of())
                         .build()
         );
