@@ -24,6 +24,10 @@ public class NodeWorksetResult {
     List<String> selectedMemorySnippets;
     List<String> selectedPreferenceSnippets;
     List<String> selectedToolCandidateNames;
+    List<String> selectedMcpToolCandidateNames;
+    List<String> selectedPromptCandidateNames;
+    List<String> selectedResourceCandidateNames;
+    List<String> selectedWorkflowCandidateNames;
     List<String> selectedPromptResourceNames;
     List<String> invalidatedEvidenceRefs;
     List<String> invalidatedCapabilityNames;

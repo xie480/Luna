@@ -180,7 +180,10 @@ public class ChatServiceImpl implements ChatService {
                 toExecutionCandidateMaps(executionCandidates),
                 Map.of(
                         "rerankedToolCandidateCount", rerankResult == null || rerankResult.getSelectedToolCandidates() == null ? 0 : rerankResult.getSelectedToolCandidates().size(),
-                        "rerankedPromptResourceCount", rerankResult == null || rerankResult.getSelectedPromptResources() == null ? 0 : rerankResult.getSelectedPromptResources().size()
+                        "rerankedPromptCount", rerankResult == null || rerankResult.getSelectedPromptCandidates() == null ? 0 : rerankResult.getSelectedPromptCandidates().size(),
+                        "rerankedResourceCount", rerankResult == null || rerankResult.getSelectedResourceCandidates() == null ? 0 : rerankResult.getSelectedResourceCandidates().size(),
+                        "rerankedWorkflowCount", rerankResult == null || rerankResult.getSelectedWorkflowCandidates() == null ? 0 : rerankResult.getSelectedWorkflowCandidates().size(),
+                        "rerankedPromptResourceCountLegacy", rerankResult == null || rerankResult.getSelectedPromptResources() == null ? 0 : rerankResult.getSelectedPromptResources().size()
                 ),
                 buildRawToolResultChannel("", List.of(), "", List.of())
         );

@@ -44,7 +44,9 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
               "memoryRankIds":[],
               "preferenceRankIds":[],
               "toolRankNames":[],
-              "promptResourceRankNames":[],
+              "promptRankNames":[],
+              "resourceRankNames":[],
+              "workflowRankNames":[],
               "rationale":"..."
             }
             Rank candidates by node-goal fitness, stage relevance, and anti-noise.
@@ -73,6 +75,18 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
         int knowledgeBudget = Math.max(320, (int) (totalBudget * 0.40));
         int memoryBudget = Math.max(220, (int) (totalBudget * 0.20));
         int mcpBudget = Math.max(260, (int) (totalBudget * 0.30));
+        int promptBudget = Math.max(100, (int) (mcpBudget * 0.30));
+        int resourceBudget = Math.max(100, (int) (mcpBudget * 0.40));
+        int workflowBudget = Math.max(100, mcpBudget - promptBudget - resourceBudget);
+        if (taskState == TaskRuntimeState.PLANNING || taskState == TaskRuntimeState.REPLANNING) {
+            workflowBudget = Math.max(workflowBudget, Math.max(120, (int) (mcpBudget * 0.45)));
+            resourceBudget = Math.max(80, (int) (mcpBudget * 0.30));
+            promptBudget = Math.max(80, mcpBudget - workflowBudget - resourceBudget);
+        } else if (taskState == TaskRuntimeState.EXECUTING || taskState == TaskRuntimeState.WAITING_TOOL) {
+            resourceBudget = Math.max(resourceBudget, Math.max(120, (int) (mcpBudget * 0.50)));
+            workflowBudget = Math.max(80, (int) (mcpBudget * 0.20));
+            promptBudget = Math.max(80, mcpBudget - resourceBudget - workflowBudget);
+        }
         String nodeGoal = resolveNodeGoal(reconstructionResult, contextPackage);
         String stage = taskState == null ? "UNKNOWN" : taskState.name();
 
@@ -89,9 +103,11 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
         List<String> selectedKnowledge = toKnowledgeSnippets(selectedKnowledgeEvidenceBlocks);
         List<String> selectedMemoryHints = toMemoryHints(memory, preference, memoryBudget);
         List<Map<String, Object>> toolCandidates = selectCapabilityCandidates(capabilityCandidates, "TOOL", 12, nodeGoal, taskState, mcpBudget, modelRerank.toolRankNames());
-        List<Map<String, Object>> promptResourceCandidates = selectPromptResourceCandidates(capabilityCandidates, 10, nodeGoal, taskState, mcpBudget, modelRerank.promptResourceRankNames());
-        List<String> rejected = collectRejected(capabilityCandidates, toolCandidates, promptResourceCandidates);
-        Map<String, String> rationale = buildRationale(stage, nodeGoal, totalBudget, selectedKnowledgeEvidenceBlocks, selectedMemoryHints, toolCandidates, promptResourceCandidates);
+        List<Map<String, Object>> promptCandidates = selectCapabilityCandidates(capabilityCandidates, "PROMPT", 8, nodeGoal, taskState, promptBudget, modelRerank.promptRankNames());
+        List<Map<String, Object>> resourceCandidates = selectCapabilityCandidates(capabilityCandidates, "RESOURCE", 8, nodeGoal, taskState, resourceBudget, modelRerank.resourceRankNames());
+        List<Map<String, Object>> workflowCandidates = selectCapabilityCandidates(capabilityCandidates, "WORKFLOW", 8, nodeGoal, taskState, workflowBudget, modelRerank.workflowRankNames());
+        List<String> rejected = collectRejected(capabilityCandidates, toolCandidates, promptCandidates, resourceCandidates, workflowCandidates);
+        Map<String, String> rationale = buildRationale(stage, nodeGoal, totalBudget, selectedKnowledgeEvidenceBlocks, selectedMemoryHints, toolCandidates, promptCandidates, resourceCandidates, workflowCandidates);
         if (!modelRerank.rationale().isBlank()) {
             rationale.put("model_rationale", modelRerank.rationale());
         }
@@ -100,7 +116,9 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
                 .selectedKnowledgeEvidenceBlocks(selectedKnowledgeEvidenceBlocks)
                 .selectedKnowledgeBlocks(selectedKnowledge)
                 .selectedToolCandidates(toolCandidates)
-                .selectedPromptResources(promptResourceCandidates)
+                .selectedPromptCandidates(promptCandidates)
+                .selectedResourceCandidates(resourceCandidates)
+                .selectedWorkflowCandidates(workflowCandidates)
                 .selectedMemoryHints(selectedMemoryHints)
                 .duplicateClusters(duplicateClusters)
                 .rejectedCandidates(rejected)
@@ -304,27 +322,6 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
         return budgetedCapabilities(sorted, Math.max(limit, 1), tokenBudget);
     }
 
-    private List<Map<String, Object>> selectPromptResourceCandidates(List<Map<String, Object>> rows,
-                                                                     int limit,
-                                                                     String nodeGoal,
-                                                                     TaskRuntimeState taskState,
-                                                                     int tokenBudget,
-                                                                     List<String> modelOrder) {
-        if (rows == null || rows.isEmpty()) {
-            return List.of();
-        }
-        List<Map<String, Object>> sorted = rows.stream()
-                .filter(item -> {
-                    String type = String.valueOf(item.getOrDefault("capability_type", ""));
-                    return "PROMPT".equalsIgnoreCase(type) || "RESOURCE".equalsIgnoreCase(type) || "WORKFLOW".equalsIgnoreCase(type);
-                })
-                .sorted(Comparator.comparingDouble((Map<String, Object> row) -> capabilityScore(row, nodeGoal, taskState)).reversed())
-                .map(this::copyShallow)
-                .toList();
-        sorted = reorderByCapabilityName(sorted, modelOrder);
-        return budgetedCapabilities(sorted, Math.max(limit, 1), tokenBudget);
-    }
-
     private List<Map<String, Object>> budgetedCapabilities(List<Map<String, Object>> sorted, int limit, int tokenBudget) {
         int used = 0;
         List<Map<String, Object>> out = new ArrayList<>();
@@ -355,7 +352,9 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
 
     private List<String> collectRejected(List<Map<String, Object>> all,
                                          List<Map<String, Object>> selectedTools,
-                                         List<Map<String, Object>> selectedPromptResources) {
+                                         List<Map<String, Object>> selectedPrompts,
+                                         List<Map<String, Object>> selectedResources,
+                                         List<Map<String, Object>> selectedWorkflows) {
         if (all == null || all.isEmpty()) {
             return List.of();
         }
@@ -363,8 +362,14 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
         if (selectedTools != null) {
             selected.addAll(selectedTools.stream().map(this::capabilityName).toList());
         }
-        if (selectedPromptResources != null) {
-            selected.addAll(selectedPromptResources.stream().map(this::capabilityName).toList());
+        if (selectedPrompts != null) {
+            selected.addAll(selectedPrompts.stream().map(this::capabilityName).toList());
+        }
+        if (selectedResources != null) {
+            selected.addAll(selectedResources.stream().map(this::capabilityName).toList());
+        }
+        if (selectedWorkflows != null) {
+            selected.addAll(selectedWorkflows.stream().map(this::capabilityName).toList());
         }
         return all.stream()
                 .map(this::capabilityName)
@@ -379,7 +384,9 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
                                                List<EvidenceBlock> knowledge,
                                                List<String> memory,
                                                List<Map<String, Object>> tools,
-                                               List<Map<String, Object>> promptResources) {
+                                               List<Map<String, Object>> prompts,
+                                               List<Map<String, Object>> resources,
+                                               List<Map<String, Object>> workflows) {
         Map<String, String> rationale = new HashMap<>();
         rationale.put("task_stage", stage);
         rationale.put("node_goal", nodeGoal);
@@ -387,7 +394,9 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
         rationale.put("knowledge", "selected=" + sizeOf(knowledge) + ", prioritize stage relevance and node-goal overlap");
         rationale.put("memory", "selected=" + sizeOf(memory) + ", keep unresolved issues and stable preferences");
         rationale.put("tool", "selected=" + sizeOf(tools) + ", prioritize low-risk and node-goal fit capabilities");
-        rationale.put("prompt_resource", "selected=" + sizeOf(promptResources) + ", keep compact cross-source hints for budget");
+        rationale.put("prompt", "selected=" + sizeOf(prompts) + ", keep concise prompt templates by node-goal");
+        rationale.put("resource", "selected=" + sizeOf(resources) + ", keep only resources with direct node utility");
+        rationale.put("workflow", "selected=" + sizeOf(workflows) + ", keep workflow channel independent");
         return rationale;
     }
 
@@ -517,7 +526,9 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
                     jsonArrayToList(node.path("memoryRankIds")),
                     jsonArrayToList(node.path("preferenceRankIds")),
                     jsonArrayToList(node.path("toolRankNames")),
-                    jsonArrayToList(node.path("promptResourceRankNames")),
+                    jsonArrayToList(node.path("promptRankNames")),
+                    jsonArrayToList(node.path("resourceRankNames")),
+                    jsonArrayToList(node.path("workflowRankNames")),
                     safe(node.path("rationale").asText(""))
             );
         } catch (Exception ignore) {
@@ -629,10 +640,12 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
                                      List<String> memoryRankIds,
                                      List<String> preferenceRankIds,
                                      List<String> toolRankNames,
-                                     List<String> promptResourceRankNames,
+                                     List<String> promptRankNames,
+                                     List<String> resourceRankNames,
+                                     List<String> workflowRankNames,
                                      String rationale) {
         private static ModelRerankResult empty() {
-            return new ModelRerankResult(List.of(), List.of(), List.of(), List.of(), List.of(), "");
+            return new ModelRerankResult(List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), "");
         }
     }
 }

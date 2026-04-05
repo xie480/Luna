@@ -795,7 +795,19 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                             nodeWorksetResult == null || nodeWorksetResult.getRerankResult() == null || nodeWorksetResult.getRerankResult().getSelectedToolCandidates() == null
                                     ? 0
                                     : nodeWorksetResult.getRerankResult().getSelectedToolCandidates().size(),
-                            "rerankedPromptResourceCount",
+                            "rerankedPromptCount",
+                            nodeWorksetResult == null || nodeWorksetResult.getRerankResult() == null || nodeWorksetResult.getRerankResult().getSelectedPromptCandidates() == null
+                                    ? 0
+                                    : nodeWorksetResult.getRerankResult().getSelectedPromptCandidates().size(),
+                            "rerankedResourceCount",
+                            nodeWorksetResult == null || nodeWorksetResult.getRerankResult() == null || nodeWorksetResult.getRerankResult().getSelectedResourceCandidates() == null
+                                    ? 0
+                                    : nodeWorksetResult.getRerankResult().getSelectedResourceCandidates().size(),
+                            "rerankedWorkflowCount",
+                            nodeWorksetResult == null || nodeWorksetResult.getRerankResult() == null || nodeWorksetResult.getRerankResult().getSelectedWorkflowCandidates() == null
+                                    ? 0
+                                    : nodeWorksetResult.getRerankResult().getSelectedWorkflowCandidates().size(),
+                            "rerankedPromptResourceCountLegacy",
                             nodeWorksetResult == null || nodeWorksetResult.getRerankResult() == null || nodeWorksetResult.getRerankResult().getSelectedPromptResources() == null
                                     ? 0
                                     : nodeWorksetResult.getRerankResult().getSelectedPromptResources().size()

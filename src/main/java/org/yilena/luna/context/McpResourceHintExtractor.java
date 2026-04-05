@@ -28,9 +28,37 @@ public class McpResourceHintExtractor {
         if (promptAndResourceCandidates == null || promptAndResourceCandidates.isEmpty()) {
             return List.of();
         }
+        List<Map<String, Object>> promptCandidates = new ArrayList<>();
+        List<Map<String, Object>> resourceCandidates = new ArrayList<>();
+        List<Map<String, Object>> workflowCandidates = new ArrayList<>();
+        List<Map<String, Object>> toolCandidates = new ArrayList<>();
+        for (Map<String, Object> row : promptAndResourceCandidates) {
+            String type = safe(row == null ? null : row.get("capability_type")).toUpperCase(Locale.ROOT);
+            if ("PROMPT".equals(type)) {
+                promptCandidates.add(row);
+            } else if ("RESOURCE".equals(type)) {
+                resourceCandidates.add(row);
+            } else if ("WORKFLOW".equals(type)) {
+                workflowCandidates.add(row);
+            } else if ("TOOL".equals(type)) {
+                toolCandidates.add(row);
+            }
+        }
+        return extract(promptCandidates, resourceCandidates, workflowCandidates, toolCandidates, limit);
+    }
+
+    public List<String> extract(List<Map<String, Object>> promptCandidates,
+                                List<Map<String, Object>> resourceCandidates,
+                                List<Map<String, Object>> workflowCandidates,
+                                List<Map<String, Object>> toolCandidates,
+                                int limit) {
+        List<Map<String, Object>> mergedCandidates = mergeByOrder(promptCandidates, resourceCandidates, workflowCandidates, toolCandidates);
+        if (mergedCandidates.isEmpty()) {
+            return List.of();
+        }
         int safeLimit = Math.max(1, limit);
         LinkedHashSet<String> hints = new LinkedHashSet<>();
-        for (Map<String, Object> row : promptAndResourceCandidates) {
+        for (Map<String, Object> row : mergedCandidates) {
             if (hints.size() >= safeLimit) {
                 break;
             }
@@ -45,6 +73,7 @@ public class McpResourceHintExtractor {
                 case "PROMPT" -> "prompt_hint";
                 case "RESOURCE" -> "resource_hint";
                 case "WORKFLOW" -> "workflow_hint";
+                case "TOOL" -> "tool_hint";
                 default -> "mcp_hint";
             };
             String summary = prefix + ": " + compact(name, title, description);
@@ -56,6 +85,21 @@ public class McpResourceHintExtractor {
             }
         }
         return new ArrayList<>(hints);
+    }
+
+    @SafeVarargs
+    private final List<Map<String, Object>> mergeByOrder(List<Map<String, Object>>... channels) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        if (channels == null) {
+            return out;
+        }
+        for (List<Map<String, Object>> channel : channels) {
+            if (channel == null || channel.isEmpty()) {
+                continue;
+            }
+            out.addAll(channel);
+        }
+        return out;
     }
 
     private String compact(String name, String title, String description) {

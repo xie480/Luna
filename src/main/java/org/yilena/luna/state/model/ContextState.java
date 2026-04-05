@@ -16,6 +16,7 @@ public class ContextState {
     List<String> activeToolEvidenceRefs;
     List<String> activeMcpPromptRefs;
     List<String> activeMcpResourceRefs;
+    List<String> activeMcpWorkflowRefs;
+    List<String> activeMcpToolRefs;
     String latestContextSnapshotId;
 }
-

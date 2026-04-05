@@ -34,7 +34,10 @@ public class RuntimeRerankTraceLogger implements RerankTraceLogger {
             payload.put("selectedKnowledgeEvidenceBlocks", rerankResult == null ? java.util.List.of() : rerankResult.getSelectedKnowledgeEvidenceBlocks());
             payload.put("selectedKnowledgeBlocks", rerankResult == null ? java.util.List.of() : rerankResult.getSelectedKnowledgeBlocks());
             payload.put("selectedToolCandidates", rerankResult == null ? java.util.List.of() : rerankResult.getSelectedToolCandidates());
-            payload.put("selectedPromptResources", rerankResult == null ? java.util.List.of() : rerankResult.getSelectedPromptResources());
+            payload.put("selectedPromptCandidates", rerankResult == null ? java.util.List.of() : rerankResult.getSelectedPromptCandidates());
+            payload.put("selectedResourceCandidates", rerankResult == null ? java.util.List.of() : rerankResult.getSelectedResourceCandidates());
+            payload.put("selectedWorkflowCandidates", rerankResult == null ? java.util.List.of() : rerankResult.getSelectedWorkflowCandidates());
+            payload.put("selectedPromptResourcesLegacy", rerankResult == null ? java.util.List.of() : rerankResult.getSelectedPromptResources());
             payload.put("selectedMemoryHints", rerankResult == null ? java.util.List.of() : rerankResult.getSelectedMemoryHints());
             payload.put("duplicateClusters", rerankResult == null ? java.util.List.of() : rerankResult.getDuplicateClusters());
             payload.put("rejectedCandidates", rerankResult == null ? java.util.List.of() : rerankResult.getRejectedCandidates());

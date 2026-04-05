@@ -1213,7 +1213,52 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 ));
             }
         }
-        if (nodeWorksetResult.getSelectedPromptResourceNames() != null) {
+        if (nodeWorksetResult.getSelectedPromptCandidateNames() != null) {
+            for (String name : nodeWorksetResult.getSelectedPromptCandidateNames()) {
+                if (name == null || name.isBlank()) {
+                    continue;
+                }
+                out.add(Map.of(
+                        "capabilityName", name,
+                        "capabilityType", "PROMPT",
+                        "description", "selected prompt hint by node workset global rerank",
+                        "serverCode", "node-workset",
+                        "requiresApproval", false,
+                        "sensitivity", "LOW"
+                ));
+            }
+        }
+        if (nodeWorksetResult.getSelectedResourceCandidateNames() != null) {
+            for (String name : nodeWorksetResult.getSelectedResourceCandidateNames()) {
+                if (name == null || name.isBlank()) {
+                    continue;
+                }
+                out.add(Map.of(
+                        "capabilityName", name,
+                        "capabilityType", "RESOURCE",
+                        "description", "selected resource hint by node workset global rerank",
+                        "serverCode", "node-workset",
+                        "requiresApproval", false,
+                        "sensitivity", "LOW"
+                ));
+            }
+        }
+        if (nodeWorksetResult.getSelectedWorkflowCandidateNames() != null) {
+            for (String name : nodeWorksetResult.getSelectedWorkflowCandidateNames()) {
+                if (name == null || name.isBlank()) {
+                    continue;
+                }
+                out.add(Map.of(
+                        "capabilityName", name,
+                        "capabilityType", "WORKFLOW",
+                        "description", "selected workflow hint by node workset global rerank",
+                        "serverCode", "node-workset",
+                        "requiresApproval", false,
+                        "sensitivity", "LOW"
+                ));
+            }
+        }
+        if (out.isEmpty() && nodeWorksetResult.getSelectedPromptResourceNames() != null) {
             for (String name : nodeWorksetResult.getSelectedPromptResourceNames()) {
                 if (name == null || name.isBlank()) {
                     continue;

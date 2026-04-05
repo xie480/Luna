@@ -295,6 +295,8 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
                             .activeToolEvidenceRefs(readSnapshotRefList(payload, "activeToolEvidenceRefs"))
                             .activeMcpPromptRefs(readSnapshotRefList(payload, "activeMcpPromptRefs"))
                             .activeMcpResourceRefs(readSnapshotRefList(payload, "activeMcpResourceRefs"))
+                            .activeMcpWorkflowRefs(readSnapshotRefList(payload, "activeMcpWorkflowRefs"))
+                            .activeMcpToolRefs(resolveSnapshotToolRefs(payload))
                             .latestContextSnapshotId(snapshot.getSnapshotId() == null ? "" : snapshot.getSnapshotId())
                             .build())
                     .build();
@@ -646,12 +648,28 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
             ContextState contextState = contextPackage.getContextState();
             addCapabilityNamesFromRefs(names, contextState.getActiveMcpResourceRefs());
             addCapabilityNamesFromRefs(names, contextState.getActiveMcpPromptRefs());
+            addCapabilityNamesFromRefs(names, contextState.getActiveMcpWorkflowRefs());
+            addCapabilityNamesFromRefs(names, contextState.getActiveMcpToolRefs());
         }
         if (snapshot != null && snapshot.getPayload() != null) {
             addCapabilityNamesFromRefs(names, readSnapshotRefList(snapshot.getPayload(), "activeMcpResourceRefs"));
             addCapabilityNamesFromRefs(names, readSnapshotRefList(snapshot.getPayload(), "activeMcpPromptRefs"));
+            addCapabilityNamesFromRefs(names, readSnapshotRefList(snapshot.getPayload(), "activeMcpWorkflowRefs"));
+            addCapabilityNamesFromRefs(names, resolveSnapshotToolRefs(snapshot.getPayload()));
         }
         return names.stream().limit(40).toList();
+    }
+
+    private List<String> resolveSnapshotToolRefs(Map<String, Object> payload) {
+        List<String> newRefs = readSnapshotRefList(payload, "activeMcpToolRefs");
+        if (newRefs != null && !newRefs.isEmpty()) {
+            return newRefs;
+        }
+        List<String> legacyRefs = readSnapshotRefList(payload, "activeMcpResourceRefsLegacy");
+        if (legacyRefs != null && !legacyRefs.isEmpty()) {
+            return legacyRefs;
+        }
+        return readSnapshotRefList(payload, "activeMcpResourceRefs");
     }
 
     @SuppressWarnings("unchecked")

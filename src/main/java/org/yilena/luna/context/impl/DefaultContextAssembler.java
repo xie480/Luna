@@ -123,7 +123,9 @@ public class DefaultContextAssembler implements ContextAssembler {
         sections.put("Current Task State", lines(buildCurrentTaskState(contextPackage, policy)));
         sections.put("Reconstructed User Intent", lines(buildReconstructedIntent(userInput, reconstructionResult)));
         sections.put("Relevant Knowledge Evidence", candidatePool.getOrDefault("knowledge", List.of()));
-        sections.put("MCP Resource / Prompt Hints", candidatePool.getOrDefault("mcp", List.of()));
+        sections.put("MCP Prompt Hints", candidatePool.getOrDefault("mcp_prompt", List.of()));
+        sections.put("MCP Resource Hints", candidatePool.getOrDefault("mcp_resource", List.of()));
+        sections.put("MCP Workflow Hints", candidatePool.getOrDefault("mcp_workflow", List.of()));
         sections.put("Tool Evidence", candidatePool.getOrDefault("tool", List.of()));
         sections.put("Recent Interaction Context", mergeDistinct(
                 lines(buildRecentInteraction(contextPackage, runtimeMemorySnippets, policy)),
@@ -254,7 +256,11 @@ public class DefaultContextAssembler implements ContextAssembler {
                                                          ContextNodeTemplatePolicy policy) {
         Map<String, List<String>> pool = new LinkedHashMap<>();
         pool.put("knowledge", selectKnowledgeCandidates(rerankResult, knowledgeEvidenceBlocks, knowledgeSnippets));
-        pool.put("mcp", selectMcpCandidates(rerankResult, executionCandidates, mcpResourceHints));
+        Map<String, List<String>> mcpBuckets = selectMcpCandidates(rerankResult, executionCandidates, mcpResourceHints);
+        pool.put("mcp_prompt", mcpBuckets.getOrDefault("mcp_prompt", List.of()));
+        pool.put("mcp_resource", mcpBuckets.getOrDefault("mcp_resource", List.of()));
+        pool.put("mcp_workflow", mcpBuckets.getOrDefault("mcp_workflow", List.of()));
+        pool.put("mcp_tool", mcpBuckets.getOrDefault("mcp_tool", List.of()));
         pool.put("tool", lines(buildToolEvidence(toolContext, toolSemanticResult)));
         pool.put("raw_input", buildRawInputFact(userInput));
         pool.put("memory", buildMemoryHints(
@@ -309,19 +315,28 @@ public class DefaultContextAssembler implements ContextAssembler {
         return out.stream().filter(v -> v != null && !v.isBlank()).distinct().limit(12).toList();
     }
 
-    private List<String> selectMcpCandidates(ContextRerankResult rerankResult,
-                                             List<Resource> executionCandidates,
-                                             List<String> mcpResourceHints) {
-        List<String> out = new ArrayList<>();
+    private Map<String, List<String>> selectMcpCandidates(ContextRerankResult rerankResult,
+                                                          List<Resource> executionCandidates,
+                                                          List<String> mcpResourceHints) {
+        List<String> toolHints = new ArrayList<>();
+        List<String> promptHints = new ArrayList<>();
+        List<String> resourceHints = new ArrayList<>();
+        List<String> workflowHints = new ArrayList<>();
         if (rerankResult != null) {
             if (rerankResult.getSelectedToolCandidates() != null) {
-                rerankResult.getSelectedToolCandidates().forEach(row -> out.add("tool_candidate=" + safe(row)));
+                rerankResult.getSelectedToolCandidates().forEach(row -> toolHints.add("tool_candidate=" + safe(row)));
             }
-            if (rerankResult.getSelectedPromptResources() != null) {
-                rerankResult.getSelectedPromptResources().forEach(row -> out.add("prompt_or_resource=" + safe(row)));
+            if (rerankResult.getSelectedPromptCandidates() != null) {
+                rerankResult.getSelectedPromptCandidates().forEach(row -> promptHints.add("prompt_candidate=" + safe(row)));
+            }
+            if (rerankResult.getSelectedResourceCandidates() != null) {
+                rerankResult.getSelectedResourceCandidates().forEach(row -> resourceHints.add("resource_candidate=" + safe(row)));
+            }
+            if (rerankResult.getSelectedWorkflowCandidates() != null) {
+                rerankResult.getSelectedWorkflowCandidates().forEach(row -> workflowHints.add("workflow_candidate=" + safe(row)));
             }
             if (rerankResult.getRationaleByNode() != null && !rerankResult.getRationaleByNode().isEmpty()) {
-                out.add("rerank_rationale=" + safe(rerankResult.getRationaleByNode()));
+                workflowHints.add("rerank_rationale=" + safe(rerankResult.getRationaleByNode()));
             }
         }
         if (executionCandidates != null) {
@@ -329,7 +344,7 @@ public class DefaultContextAssembler implements ContextAssembler {
                 if (candidate == null) {
                     continue;
                 }
-                out.add("execution_candidate="
+                toolHints.add("execution_candidate="
                         + safe(candidate.getName())
                         + "|type=" + (candidate.getType() == null ? "" : candidate.getType().name())
                         + "|server=" + safe(candidate.getServerCode())
@@ -337,9 +352,30 @@ public class DefaultContextAssembler implements ContextAssembler {
             }
         }
         if (mcpResourceHints != null) {
-            out.addAll(mcpResourceHints.stream().map(item -> "mcp_hint=" + safe(item)).toList());
+            for (String hint : mcpResourceHints) {
+                String value = safe(hint);
+                if (value.isBlank()) {
+                    continue;
+                }
+                if (value.startsWith("prompt_hint:")) {
+                    promptHints.add("mcp_hint=" + value);
+                } else if (value.startsWith("resource_hint:")) {
+                    resourceHints.add("mcp_hint=" + value);
+                } else if (value.startsWith("workflow_hint:")) {
+                    workflowHints.add("mcp_hint=" + value);
+                } else if (value.startsWith("tool_hint:")) {
+                    toolHints.add("mcp_hint=" + value);
+                } else {
+                    promptHints.add("mcp_hint=" + value);
+                }
+            }
         }
-        return out.stream().filter(v -> v != null && !v.isBlank()).distinct().limit(14).toList();
+        Map<String, List<String>> out = new LinkedHashMap<>();
+        out.put("mcp_tool", toolHints.stream().filter(v -> v != null && !v.isBlank()).distinct().limit(10).toList());
+        out.put("mcp_prompt", promptHints.stream().filter(v -> v != null && !v.isBlank()).distinct().limit(10).toList());
+        out.put("mcp_resource", resourceHints.stream().filter(v -> v != null && !v.isBlank()).distinct().limit(10).toList());
+        out.put("mcp_workflow", workflowHints.stream().filter(v -> v != null && !v.isBlank()).distinct().limit(10).toList());
+        return out;
     }
 
     private String buildCurrentTaskState(StructuredContextPackage contextPackage, ContextNodeTemplatePolicy policy) {
@@ -875,7 +911,23 @@ public class DefaultContextAssembler implements ContextAssembler {
         mapped.put("Current Task State", rawBudget.getOrDefault("task_working", 1800));
         mapped.put("Reconstructed User Intent", rawBudget.getOrDefault("task_buffer", 900));
         mapped.put("Relevant Knowledge Evidence", rawBudget.getOrDefault("knowledge", 2500));
-        mapped.put("MCP Resource / Prompt Hints", rawBudget.getOrDefault("plan_node", 1200));
+        int mcpBudget = rawBudget.getOrDefault("plan_node", 1200);
+        int promptBudget = Math.max(180, (int) (mcpBudget * 0.30));
+        int resourceBudget = Math.max(220, (int) (mcpBudget * 0.40));
+        int workflowBudget = Math.max(180, mcpBudget - promptBudget - resourceBudget);
+        String nodeKind = policy == null ? "" : safe(policy.getNodeKind()).toUpperCase();
+        if ("WORKFLOW".equals(nodeKind) || "ANALYZE".equals(nodeKind)) {
+            workflowBudget = Math.max(workflowBudget, Math.max(260, (int) (mcpBudget * 0.45)));
+            resourceBudget = Math.max(200, (int) (mcpBudget * 0.30));
+            promptBudget = Math.max(160, mcpBudget - workflowBudget - resourceBudget);
+        } else if ("TOOL".equals(nodeKind) || "RESOURCE".equals(nodeKind)) {
+            resourceBudget = Math.max(resourceBudget, Math.max(280, (int) (mcpBudget * 0.50)));
+            workflowBudget = Math.max(140, (int) (mcpBudget * 0.20));
+            promptBudget = Math.max(140, mcpBudget - resourceBudget - workflowBudget);
+        }
+        mapped.put("MCP Prompt Hints", promptBudget);
+        mapped.put("MCP Resource Hints", resourceBudget);
+        mapped.put("MCP Workflow Hints", workflowBudget);
         mapped.put("Tool Evidence", rawBudget.getOrDefault("task_procedures", 1400));
         mapped.put("Recent Interaction Context", rawBudget.getOrDefault("recent_messages", 1200));
         mapped.put("Memory Hints", rawBudget.getOrDefault("task_facts", 1300));

@@ -150,6 +150,9 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
             payload.put("activeToolEvidenceRefs", normalizedActiveRefs.getOrDefault("activeToolEvidenceRefs", List.of()));
             payload.put("activeMcpPromptRefs", normalizedActiveRefs.getOrDefault("activeMcpPromptRefs", List.of()));
             payload.put("activeMcpResourceRefs", normalizedActiveRefs.getOrDefault("activeMcpResourceRefs", List.of()));
+            payload.put("activeMcpWorkflowRefs", normalizedActiveRefs.getOrDefault("activeMcpWorkflowRefs", List.of()));
+            payload.put("activeMcpToolRefs", normalizedActiveRefs.getOrDefault("activeMcpToolRefs", List.of()));
+            payload.put("activeMcpResourceRefsLegacy", normalizedActiveRefs.getOrDefault("activeMcpResourceRefsLegacy", List.of()));
             Long snapshotId = runtimeAuditMapper.insertContextSnapshotAndReturnId(
                     sessionId,
                     planId,

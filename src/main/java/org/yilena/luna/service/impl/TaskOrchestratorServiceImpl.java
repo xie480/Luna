@@ -95,6 +95,8 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
     private static final int TOOL_REF_TTL = 3;
     private static final int MCP_PROMPT_REF_TTL = 4;
     private static final int MCP_RESOURCE_REF_TTL = 4;
+    private static final int MCP_WORKFLOW_REF_TTL = 4;
+    private static final int MCP_TOOL_REF_TTL = 4;
 
     private final ContextCompilerService contextCompilerService;
     private final InputReconstructionAgent inputReconstructionAgent;
@@ -505,8 +507,19 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 refreshPlan.reassembleNow ? List.of() : mcpPreRankedCandidates
         );
         List<String> mcpResourceHints = mcpResourceHintExtractor.extract(
-                rerankResult == null ? List.of() : rerankResult.getSelectedPromptResources(),
+                rerankResult == null ? List.of() : rerankResult.getSelectedPromptCandidates(),
+                rerankResult == null ? List.of() : rerankResult.getSelectedResourceCandidates(),
+                rerankResult == null ? List.of() : rerankResult.getSelectedWorkflowCandidates(),
+                rerankResult == null ? List.of() : rerankResult.getSelectedToolCandidates(),
                 8
+        );
+        List<String> selectedToolCandidateNames = extractCapabilityNames(rerankResult == null ? List.of() : rerankResult.getSelectedToolCandidates());
+        List<String> selectedPromptCandidateNames = extractCapabilityNames(rerankResult == null ? List.of() : rerankResult.getSelectedPromptCandidates());
+        List<String> selectedResourceCandidateNames = extractCapabilityNames(rerankResult == null ? List.of() : rerankResult.getSelectedResourceCandidates());
+        List<String> selectedWorkflowCandidateNames = extractCapabilityNames(rerankResult == null ? List.of() : rerankResult.getSelectedWorkflowCandidates());
+        List<String> selectedPromptResourceNames = mergeDistinct(
+                mergeDistinct(selectedPromptCandidateNames, selectedResourceCandidateNames),
+                selectedWorkflowCandidateNames
         );
         return NodeWorksetResult.builder()
                 .mcpDrivenInput(mcpDrivenInput)
@@ -520,8 +533,12 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .selectedKnowledgeSnippets(selectedKnowledge)
                 .selectedMemorySnippets(selectedMemory)
                 .selectedPreferenceSnippets(selectedPreference)
-                .selectedToolCandidateNames(extractCapabilityNames(rerankResult == null ? List.of() : rerankResult.getSelectedToolCandidates()))
-                .selectedPromptResourceNames(extractCapabilityNames(rerankResult == null ? List.of() : rerankResult.getSelectedPromptResources()))
+                .selectedToolCandidateNames(selectedToolCandidateNames)
+                .selectedMcpToolCandidateNames(selectedToolCandidateNames)
+                .selectedPromptCandidateNames(selectedPromptCandidateNames)
+                .selectedResourceCandidateNames(selectedResourceCandidateNames)
+                .selectedWorkflowCandidateNames(selectedWorkflowCandidateNames)
+                .selectedPromptResourceNames(selectedPromptResourceNames)
                 .invalidatedEvidenceRefs(refreshPlan.invalidatedEvidenceRefs)
                 .invalidatedCapabilityNames(refreshPlan.invalidatedCapabilityNames)
                 .invalidationReasonsByRef(refreshPlan.invalidationReasonsByRef)
@@ -918,10 +935,16 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
 
         List<String> knowledgeRefs = extractKnowledgeRefs(rerankResult);
         List<String> memoryRefs = rerankResult == null || rerankResult.getSelectedMemoryHints() == null ? List.of() : rerankResult.getSelectedMemoryHints();
-        List<String> mcpPromptRefs = rerankResult == null || rerankResult.getSelectedPromptResources() == null
+        List<String> mcpPromptRefs = rerankResult == null || rerankResult.getSelectedPromptCandidates() == null
                 ? List.of()
-                : rerankResult.getSelectedPromptResources().stream().map(this::toJsonSafe).toList();
-        List<String> mcpResourceRefs = rerankResult == null || rerankResult.getSelectedToolCandidates() == null
+                : rerankResult.getSelectedPromptCandidates().stream().map(this::toJsonSafe).toList();
+        List<String> mcpResourceRefs = rerankResult == null || rerankResult.getSelectedResourceCandidates() == null
+                ? List.of()
+                : rerankResult.getSelectedResourceCandidates().stream().map(this::toJsonSafe).toList();
+        List<String> mcpWorkflowRefs = rerankResult == null || rerankResult.getSelectedWorkflowCandidates() == null
+                ? List.of()
+                : rerankResult.getSelectedWorkflowCandidates().stream().map(this::toJsonSafe).toList();
+        List<String> mcpToolRefs = rerankResult == null || rerankResult.getSelectedToolCandidates() == null
                 ? List.of()
                 : rerankResult.getSelectedToolCandidates().stream().map(this::toJsonSafe).toList();
         Map<String, Object> latestStateSnapshot = new LinkedHashMap<>(
@@ -972,6 +995,29 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 ACTIVE_REF_MAX_PER_CHANNEL,
                 latestStateSnapshot
         );
+        ActiveRefGovernanceResult governedMcpWorkflowRefs = governActiveRefs(
+                "mcp_workflow",
+                mcpWorkflowRefs,
+                previousContextState == null ? List.of() : previousContextState.getActiveMcpWorkflowRefs(),
+                stageChanged,
+                finishedStepsAdvanced,
+                ACTIVE_REF_MAX_PER_CHANNEL,
+                latestStateSnapshot
+        );
+        ActiveRefGovernanceResult governedMcpToolRefs = governActiveRefs(
+                "mcp_tool",
+                mcpToolRefs,
+                previousContextState == null ? List.of() : resolveLegacyMcpToolRefs(previousContextState),
+                stageChanged,
+                finishedStepsAdvanced,
+                ACTIVE_REF_MAX_PER_CHANNEL,
+                latestStateSnapshot
+        );
+        latestStateSnapshot.put("activeMcpPromptRefs", governedMcpPromptRefs.refs());
+        latestStateSnapshot.put("activeMcpResourceRefs", governedMcpResourceRefs.refs());
+        latestStateSnapshot.put("activeMcpWorkflowRefs", governedMcpWorkflowRefs.refs());
+        latestStateSnapshot.put("activeMcpToolRefs", governedMcpToolRefs.refs());
+        latestStateSnapshot.put("activeMcpResourceRefsLegacy", mergeDistinct(governedMcpResourceRefs.refs(), governedMcpToolRefs.refs()));
         ContextState contextState = ContextState.builder()
                 .latestNarrativeSummary(summaryResult == null ? "" : nullSafe(summaryResult.getNarrativeSummary()))
                 .latestStateSnapshot(latestStateSnapshot)
@@ -980,6 +1026,8 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .activeToolEvidenceRefs(governedToolRefs.refs())
                 .activeMcpPromptRefs(governedMcpPromptRefs.refs())
                 .activeMcpResourceRefs(governedMcpResourceRefs.refs())
+                .activeMcpWorkflowRefs(governedMcpWorkflowRefs.refs())
+                .activeMcpToolRefs(governedMcpToolRefs.refs())
                 .latestContextSnapshotId(firstNonBlank(
                         request.getLatestSnapshotId(),
                         previousContextState == null ? "" : previousContextState.getLatestContextSnapshotId()
@@ -1259,16 +1307,41 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
 
         ContextState baseContextState = contextPackage.getContextState();
         ContextRerankResult rerankResult = nodeWorksetResult.getRerankResult();
+        List<String> refreshedPromptRefs = firstNonEmpty(
+                nodeWorksetResult.getSelectedPromptCandidateNames(),
+                nodeWorksetResult.getSelectedPromptResourceNames()
+        );
+        List<String> refreshedResourceRefs = firstNonEmpty(
+                nodeWorksetResult.getSelectedResourceCandidateNames(),
+                baseContextState == null ? List.of() : baseContextState.getActiveMcpResourceRefs()
+        );
+        List<String> refreshedWorkflowRefs = firstNonEmpty(
+                nodeWorksetResult.getSelectedWorkflowCandidateNames(),
+                baseContextState == null ? List.of() : baseContextState.getActiveMcpWorkflowRefs()
+        );
+        List<String> refreshedToolRefs = firstNonEmpty(
+                nodeWorksetResult.getSelectedMcpToolCandidateNames(),
+                nodeWorksetResult.getSelectedToolCandidateNames(),
+                baseContextState == null ? List.of() : resolveLegacyMcpToolRefs(baseContextState)
+        );
+        Map<String, Object> refreshedLatestSnapshot = baseContextState == null ? new LinkedHashMap<>() : new LinkedHashMap<>(safeMap(baseContextState.getLatestStateSnapshot()));
+        refreshedLatestSnapshot.put("activeMcpPromptRefs", refreshedPromptRefs);
+        refreshedLatestSnapshot.put("activeMcpResourceRefs", refreshedResourceRefs);
+        refreshedLatestSnapshot.put("activeMcpWorkflowRefs", refreshedWorkflowRefs);
+        refreshedLatestSnapshot.put("activeMcpToolRefs", refreshedToolRefs);
+        refreshedLatestSnapshot.put("activeMcpResourceRefsLegacy", mergeDistinct(refreshedResourceRefs, refreshedToolRefs));
         ContextState refreshedContextState = ContextState.builder()
                 .latestNarrativeSummary(baseContextState == null ? "" : nullSafe(baseContextState.getLatestNarrativeSummary()))
-                .latestStateSnapshot(baseContextState == null ? Map.of() : safeMap(baseContextState.getLatestStateSnapshot()))
+                .latestStateSnapshot(refreshedLatestSnapshot)
                 .activeKnowledgeRefs(nodeWorksetResult.getSelectedKnowledgeEvidenceRefs() == null ? List.of() : nodeWorksetResult.getSelectedKnowledgeEvidenceRefs())
                 .activeMemoryRefs(rerankResult == null || rerankResult.getSelectedMemoryHints() == null
                         ? (baseContextState == null ? List.of() : toStringList(baseContextState.getActiveMemoryRefs()))
                         : rerankResult.getSelectedMemoryHints())
                 .activeToolEvidenceRefs(baseContextState == null ? List.of() : toStringList(baseContextState.getActiveToolEvidenceRefs()))
-                .activeMcpPromptRefs(nodeWorksetResult.getSelectedPromptResourceNames() == null ? List.of() : nodeWorksetResult.getSelectedPromptResourceNames())
-                .activeMcpResourceRefs(nodeWorksetResult.getSelectedToolCandidateNames() == null ? List.of() : nodeWorksetResult.getSelectedToolCandidateNames())
+                .activeMcpPromptRefs(refreshedPromptRefs)
+                .activeMcpResourceRefs(refreshedResourceRefs)
+                .activeMcpWorkflowRefs(refreshedWorkflowRefs)
+                .activeMcpToolRefs(refreshedToolRefs)
                 .latestContextSnapshotId(baseContextState == null ? "" : nullSafe(baseContextState.getLatestContextSnapshotId()))
                 .build();
         contextStateStore.save(contextPackage.getSessionId(), refreshedContextState);
@@ -1668,11 +1741,16 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 ? List.of()
                 : previousOrEmpty(contextPackage.getRetrievalState().getSelectedEvidenceRefs());
         List<String> derivedToolRefs = deriveToolEvidenceRefsFromContext(contextPackage, latestToolSemanticResult);
-        List<String> derivedMcpPromptRefs = activeMcpResourceHints == null ? List.of() : activeMcpResourceHints.stream()
-                .filter(item -> item != null && !item.isBlank())
-                .distinct()
-                .toList();
-        List<String> derivedMcpResourceRefs = derivedMcpPromptRefs;
+        List<String> derivedMcpPromptRefs = parseMcpHintsByPrefix(activeMcpResourceHints, "prompt_hint:");
+        List<String> derivedMcpResourceRefs = parseMcpHintsByPrefix(activeMcpResourceHints, "resource_hint:");
+        List<String> derivedMcpWorkflowRefs = parseMcpHintsByPrefix(activeMcpResourceHints, "workflow_hint:");
+        List<String> derivedMcpToolRefs = parseMcpHintsByPrefix(activeMcpResourceHints, "tool_hint:");
+        if (derivedMcpPromptRefs.isEmpty() && activeMcpResourceHints != null) {
+            derivedMcpPromptRefs = activeMcpResourceHints.stream()
+                    .filter(item -> item != null && !item.isBlank())
+                    .distinct()
+                    .toList();
+        }
         boolean stageChanged = contextPackage != null
                 && contextPackage.getTaskStateEntity() != null
                 && previous != null
@@ -1729,6 +1807,29 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 ACTIVE_REF_MAX_PER_CHANNEL,
                 latestStateSnapshot
         );
+        ActiveRefGovernanceResult governedMcpWorkflowRefs = governActiveRefs(
+                "mcp_workflow",
+                derivedMcpWorkflowRefs,
+                previous == null ? List.of() : previous.getActiveMcpWorkflowRefs(),
+                stageChanged,
+                false,
+                ACTIVE_REF_MAX_PER_CHANNEL,
+                latestStateSnapshot
+        );
+        ActiveRefGovernanceResult governedMcpToolRefs = governActiveRefs(
+                "mcp_tool",
+                derivedMcpToolRefs,
+                previous == null ? List.of() : resolveLegacyMcpToolRefs(previous),
+                stageChanged,
+                false,
+                ACTIVE_REF_MAX_PER_CHANNEL,
+                latestStateSnapshot
+        );
+        latestStateSnapshot.put("activeMcpPromptRefs", governedMcpPromptRefs.refs());
+        latestStateSnapshot.put("activeMcpResourceRefs", governedMcpResourceRefs.refs());
+        latestStateSnapshot.put("activeMcpWorkflowRefs", governedMcpWorkflowRefs.refs());
+        latestStateSnapshot.put("activeMcpToolRefs", governedMcpToolRefs.refs());
+        latestStateSnapshot.put("activeMcpResourceRefsLegacy", mergeDistinct(governedMcpResourceRefs.refs(), governedMcpToolRefs.refs()));
         return ContextState.builder()
                 .latestNarrativeSummary(summaryResult == null ? "" : nullSafe(summaryResult.getNarrativeSummary()))
                 .latestStateSnapshot(latestStateSnapshot)
@@ -1737,6 +1838,8 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .activeToolEvidenceRefs(governedToolRefs.refs())
                 .activeMcpPromptRefs(governedMcpPromptRefs.refs())
                 .activeMcpResourceRefs(governedMcpResourceRefs.refs())
+                .activeMcpWorkflowRefs(governedMcpWorkflowRefs.refs())
+                .activeMcpToolRefs(governedMcpToolRefs.refs())
                 .latestContextSnapshotId(previous == null ? "" : nullSafe(previous.getLatestContextSnapshotId()))
                 .build();
     }
@@ -1933,6 +2036,12 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         if ("mcp_resource".equals(channel)) {
             return MCP_RESOURCE_REF_TTL;
         }
+        if ("mcp_workflow".equals(channel)) {
+            return MCP_WORKFLOW_REF_TTL;
+        }
+        if ("mcp_tool".equals(channel)) {
+            return MCP_TOOL_REF_TTL;
+        }
         if ("memory".equals(channel)) {
             return MEMORY_REF_TTL;
         }
@@ -2088,6 +2197,49 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         return List.of();
     }
 
+    private List<String> parseMcpHintsByPrefix(List<String> hints, String prefix) {
+        if (hints == null || hints.isEmpty() || prefix == null || prefix.isBlank()) {
+            return List.of();
+        }
+        return hints.stream()
+                .filter(item -> item != null && !item.isBlank())
+                .filter(item -> item.startsWith(prefix))
+                .distinct()
+                .toList();
+    }
+
+    @SafeVarargs
+    private final List<String> firstNonEmpty(List<String>... candidates) {
+        if (candidates == null || candidates.length == 0) {
+            return List.of();
+        }
+        for (List<String> candidate : candidates) {
+            if (candidate != null && !candidate.isEmpty()) {
+                return candidate.stream()
+                        .filter(item -> item != null && !item.isBlank())
+                        .distinct()
+                        .toList();
+            }
+        }
+        return List.of();
+    }
+
+    private List<String> resolveLegacyMcpToolRefs(ContextState contextState) {
+        if (contextState == null) {
+            return List.of();
+        }
+        List<String> refs = contextState.getActiveMcpToolRefs();
+        if (refs != null && !refs.isEmpty()) {
+            return refs;
+        }
+        Map<String, Object> snapshot = safeMap(contextState.getLatestStateSnapshot());
+        List<String> legacy = toStringList(snapshot.get("activeMcpResourceRefsLegacy"));
+        if (legacy != null && !legacy.isEmpty()) {
+            return legacy;
+        }
+        return contextState.getActiveMcpResourceRefs() == null ? List.of() : contextState.getActiveMcpResourceRefs();
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> safeMap(Object value) {
         if (value instanceof Map<?, ?> map && !map.isEmpty()) {
@@ -2129,7 +2281,16 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         if (rerankResult != null && rerankResult.getSelectedToolCandidates() != null) {
             selected.addAll(rerankResult.getSelectedToolCandidates());
         }
-        if (rerankResult != null && rerankResult.getSelectedPromptResources() != null) {
+        if (rerankResult != null && rerankResult.getSelectedPromptCandidates() != null) {
+            selected.addAll(rerankResult.getSelectedPromptCandidates());
+        }
+        if (rerankResult != null && rerankResult.getSelectedResourceCandidates() != null) {
+            selected.addAll(rerankResult.getSelectedResourceCandidates());
+        }
+        if (rerankResult != null && rerankResult.getSelectedWorkflowCandidates() != null) {
+            selected.addAll(rerankResult.getSelectedWorkflowCandidates());
+        }
+        if (selected.isEmpty() && rerankResult != null && rerankResult.getSelectedPromptResources() != null) {
             selected.addAll(rerankResult.getSelectedPromptResources());
         }
         if (selected.isEmpty() && mcpPreRankedCandidates != null) {
@@ -2166,10 +2327,43 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 workflowHints.add(Map.of(
                         "capabilityName", name,
                         "capabilityType", "TOOL"
+                    ));
+            }
+        }
+        if (nodeWorksetResult != null && nodeWorksetResult.getSelectedPromptCandidateNames() != null) {
+            for (String name : nodeWorksetResult.getSelectedPromptCandidateNames()) {
+                if (name == null || name.isBlank()) {
+                    continue;
+                }
+                workflowHints.add(Map.of(
+                        "capabilityName", name,
+                        "capabilityType", "PROMPT"
                 ));
             }
         }
-        if (nodeWorksetResult != null && nodeWorksetResult.getSelectedPromptResourceNames() != null) {
+        if (nodeWorksetResult != null && nodeWorksetResult.getSelectedResourceCandidateNames() != null) {
+            for (String name : nodeWorksetResult.getSelectedResourceCandidateNames()) {
+                if (name == null || name.isBlank()) {
+                    continue;
+                }
+                workflowHints.add(Map.of(
+                        "capabilityName", name,
+                        "capabilityType", "RESOURCE"
+                ));
+            }
+        }
+        if (nodeWorksetResult != null && nodeWorksetResult.getSelectedWorkflowCandidateNames() != null) {
+            for (String name : nodeWorksetResult.getSelectedWorkflowCandidateNames()) {
+                if (name == null || name.isBlank()) {
+                    continue;
+                }
+                workflowHints.add(Map.of(
+                        "capabilityName", name,
+                        "capabilityType", "WORKFLOW"
+                ));
+            }
+        }
+        if (workflowHints.isEmpty() && nodeWorksetResult != null && nodeWorksetResult.getSelectedPromptResourceNames() != null) {
             for (String name : nodeWorksetResult.getSelectedPromptResourceNames()) {
                 if (name == null || name.isBlank()) {
                     continue;
@@ -2389,14 +2583,28 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .filter(item -> item != null && !item.isBlank())
                 .distinct()
                 .toList();
-        List<String> mcpPromptRefs = rerankResult == null || rerankResult.getSelectedPromptResources() == null
+        List<String> mcpPromptRefs = rerankResult == null || rerankResult.getSelectedPromptCandidates() == null
                 ? List.of()
-                : rerankResult.getSelectedPromptResources().stream()
+                : rerankResult.getSelectedPromptCandidates().stream()
                 .map(this::toJsonSafe)
                 .filter(item -> item != null && !item.isBlank())
                 .distinct()
                 .toList();
-        List<String> mcpResourceRefs = rerankResult == null || rerankResult.getSelectedToolCandidates() == null
+        List<String> mcpResourceRefs = rerankResult == null || rerankResult.getSelectedResourceCandidates() == null
+                ? List.of()
+                : rerankResult.getSelectedResourceCandidates().stream()
+                .map(this::toJsonSafe)
+                .filter(item -> item != null && !item.isBlank())
+                .distinct()
+                .toList();
+        List<String> mcpWorkflowRefs = rerankResult == null || rerankResult.getSelectedWorkflowCandidates() == null
+                ? List.of()
+                : rerankResult.getSelectedWorkflowCandidates().stream()
+                .map(this::toJsonSafe)
+                .filter(item -> item != null && !item.isBlank())
+                .distinct()
+                .toList();
+        List<String> mcpToolRefs = rerankResult == null || rerankResult.getSelectedToolCandidates() == null
                 ? List.of()
                 : rerankResult.getSelectedToolCandidates().stream()
                 .map(this::toJsonSafe)
@@ -2413,6 +2621,12 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         activeRefs.put("activeToolEvidenceRefs", toolRefs == null ? List.of() : toolRefs);
         activeRefs.put("activeMcpPromptRefs", mcpPromptRefs == null ? List.of() : mcpPromptRefs);
         activeRefs.put("activeMcpResourceRefs", mcpResourceRefs == null ? List.of() : mcpResourceRefs);
+        activeRefs.put("activeMcpWorkflowRefs", mcpWorkflowRefs == null ? List.of() : mcpWorkflowRefs);
+        activeRefs.put("activeMcpToolRefs", mcpToolRefs == null ? List.of() : mcpToolRefs);
+        activeRefs.put("activeMcpResourceRefsLegacy", mergeDistinct(
+                mcpResourceRefs == null ? List.of() : mcpResourceRefs,
+                mcpToolRefs == null ? List.of() : mcpToolRefs
+        ));
         return activeRefs;
     }
 
