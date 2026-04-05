@@ -3,6 +3,7 @@ package org.yilena.luna.service.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.yilena.luna.context.EvidenceBlockBuilder;
 import org.yilena.luna.context.GlobalContextRerankAgent;
 import org.yilena.luna.context.InputReconstructionAgent;
@@ -29,8 +30,10 @@ import org.yilena.luna.memory.RuntimeAuditService;
 import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.rag.api.RetrievalService;
+import org.yilena.luna.rag.models.Evidence;
 import org.yilena.luna.rag.models.RetrievalResponse;
 import org.yilena.luna.rag.models.RetrievalRoute;
+import org.yilena.luna.rag.models.RetrievalSource;
 import org.yilena.luna.router.CapabilityPolicyRouterService;
 import org.yilena.luna.router.ToolRouter;
 import org.yilena.luna.properties.GeminiProperty;
@@ -48,6 +51,7 @@ import org.yilena.luna.state.store.ToolStateStore;
 import org.yilena.luna.utils.LlmClientUtil;
 
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -60,6 +64,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -226,6 +231,114 @@ class TaskOrchestratorStateRecoveryE2eTest {
         assertTrue(Boolean.TRUE.equals(result.getContextPackage().getRetrievalState().getRetrievalPlan().get("immediate_refresh_executed")));
         verify(fixture.retrievalStateStore, times(1)).save(eq("s-1"), any());
         verify(fixture.contextStateStore, times(1)).save(eq("s-1"), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldPersistBottomRerankTraceBeforeGlobalRerankAndIncludePreRankFields() throws Exception {
+        TestFixture fixture = new TestFixture();
+        when(fixture.capabilityPolicyRouterService.routeForContext(anyString(), anyString(), any(), any(), anyInt())).thenReturn(List.of());
+        when(fixture.mcpCandidatePreRank.preRank(anyString(), anyList(), any(), any(), anyInt())).thenReturn(List.of(
+                Map.of(
+                        "capability_name", "kb_search",
+                        "capability_type", "tool",
+                        "server_code", "local",
+                        "final_score", "0.73",
+                        "requires_approval", false,
+                        "sensitivity", "LOW"
+                )
+        ));
+
+        Evidence knowledge = Evidence.builder()
+                .id("knowledge:1")
+                .source(RetrievalSource.KNOWLEDGE)
+                .type("knowledge")
+                .title("k1")
+                .content("k1-content")
+                .score(0.91)
+                .build();
+        Evidence memory = Evidence.builder()
+                .id("memory:1")
+                .source(RetrievalSource.MEMORY)
+                .type("memory")
+                .title("m1")
+                .content("m1-content")
+                .score(0.62)
+                .build();
+        Evidence preference = Evidence.builder()
+                .id("preference:1")
+                .source(RetrievalSource.PREFERENCE)
+                .type("preference")
+                .title("p1")
+                .content("p1-content")
+                .score(0.57)
+                .build();
+        Map<RetrievalSource, List<Evidence>> evidences = new LinkedHashMap<>();
+        evidences.put(RetrievalSource.KNOWLEDGE, List.of(knowledge));
+        evidences.put(RetrievalSource.MEMORY, List.of(memory));
+        evidences.put(RetrievalSource.PREFERENCE, List.of(preference));
+        when(fixture.retrievalService.retrieve(any())).thenReturn(
+                RetrievalResponse.builder().route(RetrievalRoute.SEARCH).rewrittenQuery("q").evidences(evidences).build()
+        );
+
+        when(fixture.globalContextRerankAgent.rerank(any(), any(), any(), anyList(), any())).thenReturn(null);
+        when(fixture.evidenceBlockBuilder.buildKnowledgeBlocks(anyList())).thenReturn(List.of());
+        when(fixture.toolRouter.materializeCandidates(anyList(), anyInt())).thenReturn(List.of());
+        when(fixture.mcpResourceHintExtractor.extract(anyList(), anyInt())).thenReturn(List.of());
+
+        StructuredContextPackage contextPackage = StructuredContextPackage.builder()
+                .sessionId("s-1")
+                .taskState(TaskRuntimeState.EXECUTING)
+                .build();
+        InputReconstructionResult reconstruction = InputReconstructionResult.builder()
+                .reformulatedQueryForMcp("mcp-q")
+                .reformulatedQueryForRag("rag-q")
+                .explicitTaskGoal("goal")
+                .build();
+        OrchestrationDecision decision = OrchestrationDecision.builder()
+                .sessionId("s-1")
+                .taskState(TaskRuntimeState.EXECUTING)
+                .relationalState(RelationalRuntimeState.LIGHT_CHAT)
+                .contextPackage(contextPackage)
+                .build();
+
+        fixture.service.orchestrateNodeWorkset(
+                "s-1",
+                "run",
+                decision,
+                contextPackage,
+                reconstruction
+        );
+
+        InOrder ordered = inOrder(fixture.runtimeAuditService, fixture.globalContextRerankAgent);
+        ordered.verify(fixture.runtimeAuditService).persistDecisionRecord(anyString(), any(), any(), eq("MULTI_ROUTE_RECALL_TRACE"), anyString(), anyString());
+        ordered.verify(fixture.runtimeAuditService).persistDecisionRecord(anyString(), any(), any(), eq("RERANK_TRACE_BOTTOM_CHANNELS"), anyString(), anyString());
+        ordered.verify(fixture.globalContextRerankAgent).rerank(any(), any(), any(), anyList(), any());
+
+        ArgumentCaptor<String> typeCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
+        verify(fixture.runtimeAuditService, times(3))
+                .persistDecisionRecord(anyString(), any(), any(), typeCaptor.capture(), anyString(), payloadCaptor.capture());
+
+        String bottomPayload = "";
+        for (int i = 0; i < typeCaptor.getAllValues().size(); i++) {
+            if ("RERANK_TRACE_BOTTOM_CHANNELS".equals(typeCaptor.getAllValues().get(i))) {
+                bottomPayload = payloadCaptor.getAllValues().get(i);
+                break;
+            }
+        }
+        assertTrue(bottomPayload != null && !bottomPayload.isBlank());
+        Map<String, Object> payload = new ObjectMapper().readValue(bottomPayload, Map.class);
+        List<Map<String, Object>> knowledgeRows = (List<Map<String, Object>>) payload.get("knowledgeBottomRerank");
+        List<Map<String, Object>> mcpRows = (List<Map<String, Object>>) payload.get("mcpBottomRerank");
+        assertNotNull(knowledgeRows);
+        assertNotNull(mcpRows);
+        assertTrue(!knowledgeRows.isEmpty());
+        assertTrue(!mcpRows.isEmpty());
+        assertTrue(knowledgeRows.get(0).containsKey("preRankOrder"));
+        assertTrue(knowledgeRows.get(0).containsKey("preRankScore"));
+        assertTrue(mcpRows.get(0).containsKey("preRankOrder"));
+        assertTrue(mcpRows.get(0).containsKey("preRankScore"));
     }
 
     private static class TestFixture {

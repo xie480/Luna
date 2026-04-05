@@ -431,13 +431,6 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     "raw multi-route retrieval candidates before global rerank",
                     toJsonSafe(withTraceMeta(recallTracePayload, traceMeta, "MULTI_ROUTE_RECALL", contextNodeId(contextPackage)))
             );
-            rerankResult = globalContextRerankAgent.rerank(
-                    reconstructionResult,
-                    contextPackage,
-                    response,
-                    mcpPreRankedCandidates,
-                    decision == null ? null : decision.getTaskState()
-            );
             runtimeAuditService.persistDecisionRecord(
                     sessionId,
                     contextPlanId(contextPackage),
@@ -451,6 +444,13 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                             memoryQuery,
                             mcpDrivenInput
                     ))
+            );
+            rerankResult = globalContextRerankAgent.rerank(
+                    reconstructionResult,
+                    contextPackage,
+                    response,
+                    mcpPreRankedCandidates,
+                    decision == null ? null : decision.getTaskState()
             );
             runtimeAuditService.persistDecisionRecord(
                     sessionId,
@@ -1767,11 +1767,14 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 break;
             }
             Map<String, Object> row = new LinkedHashMap<>();
-            row.put("rank", rank++);
+            int preRankOrder = rank++;
+            row.put("rank", preRankOrder);
+            row.put("preRankOrder", preRankOrder);
             row.put("id", nullSafe(evidence.getId()));
             row.put("source", evidence.getSource() == null ? "" : evidence.getSource().name());
             row.put("role", evidence.getRole() == null ? "" : evidence.getRole().name());
             row.put("score", evidence.getScore());
+            row.put("preRankScore", evidence.getScore());
             row.put("title", nullSafe(evidence.getTitle()));
             row.put("metadata", evidence.getMetadata() == null ? Map.of() : evidence.getMetadata());
             rows.add(row);
@@ -1792,18 +1795,22 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             if (rows.size() >= Math.max(1, limit)) {
                 break;
             }
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("rank", rank++);
-            row.put("capabilityName", stringValue(candidate.get("capability_name")));
-            row.put("capabilityType", stringValue(candidate.get("capability_type")));
-            row.put("serverCode", stringValue(candidate.get("server_code")));
-            row.put("score", firstNonBlank(
+            int preRankOrder = rank++;
+            String preRankScore = firstNonBlank(
                     stringValue(candidate.get("score")),
                     firstNonBlank(
                             stringValue(candidate.get("final_score")),
                             stringValue(candidate.get("relevance_score"))
                     )
-            ));
+            );
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("rank", preRankOrder);
+            row.put("preRankOrder", preRankOrder);
+            row.put("capabilityName", stringValue(candidate.get("capability_name")));
+            row.put("capabilityType", stringValue(candidate.get("capability_type")));
+            row.put("serverCode", stringValue(candidate.get("server_code")));
+            row.put("score", preRankScore);
+            row.put("preRankScore", preRankScore);
             row.put("requiresApproval", candidate.get("requires_approval"));
             row.put("sensitivity", stringValue(candidate.get("sensitivity")));
             rows.add(row);

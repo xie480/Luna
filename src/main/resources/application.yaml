@@ -142,7 +142,7 @@ memory:
     enabled: true
 
 audit:
-  replay-mode: window
+  replay-mode: full
   tool-results-window-limit: 8
   context-snapshots-window-limit: 3
 

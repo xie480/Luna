@@ -9,7 +9,7 @@ import org.springframework.context.annotation.Configuration;
 @Data
 public class RuntimeAuditReplayProperty {
 
-    private String replayMode = "window";
+    private String replayMode = "full";
     private int toolResultsWindowLimit = 8;
     private int contextSnapshotsWindowLimit = 3;
 
