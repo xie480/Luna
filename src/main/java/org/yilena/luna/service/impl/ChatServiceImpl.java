@@ -53,6 +53,7 @@ import org.yilena.luna.service.model.RoundToolSemanticRequest;
 import org.yilena.luna.service.model.StateDrivenContextPipelineRequest;
 import org.yilena.luna.service.model.SummaryOrchestrationResult;
 import org.yilena.luna.service.model.TaskOrchestrationResult;
+import org.yilena.luna.service.model.ToolDecisionCommand;
 import org.yilena.luna.state.model.ContextState;
 import org.yilena.luna.state.model.TaskState;
 import org.yilena.luna.state.model.ToolState;
@@ -273,13 +274,17 @@ public class ChatServiceImpl implements ChatService {
         ToolTraceRefs toolTraceRefs = ToolTraceRefs.empty();
         List<Map<String, Object>> latestToolExecutionTraces = List.of();
         try {
-            toolContext = agentService.processToolCalling(
-                    runtimeSessionId,
-                    mcpDrivenInput,
-                    decision == null ? null : decision.getTaskState(),
-                    decision == null ? null : decision.getRelationalState(),
-                    executionCandidates,
-                    assembledDecisionContext
+            toolContext = agentService.processToolCallingWithGovernance(
+                    ToolDecisionCommand.builder()
+                            .sessionId(runtimeSessionId)
+                            .rawUserInput(input)
+                            .toolDecisionInput(mcpDrivenInput)
+                            .taskState(decision == null ? null : decision.getTaskState())
+                            .relationalState(decision == null ? null : decision.getRelationalState())
+                            .executionCandidates(executionCandidates)
+                            .governedInputSignature(ToolDecisionInputSignatureUtil.sign(runtimeSessionId, mcpDrivenInput, assembledDecisionContext))
+                            .assembledDecisionContext(assembledDecisionContext)
+                            .build()
             );
         } catch (Exception ex) {
             toolStatus = "FAILED";

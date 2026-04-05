@@ -25,6 +25,7 @@ import org.yilena.luna.service.AgentService;
 import org.yilena.luna.service.McpService;
 import org.yilena.luna.service.PlanOrchestratorService;
 import org.yilena.luna.service.SessionService;
+import org.yilena.luna.service.model.ToolDecisionCommand;
 import org.yilena.luna.utils.AuthContextHolder;
 import org.yilena.luna.utils.ToolDecisionInputSignatureUtil;
 import org.yilena.luna.utils.ToolCallingContextHolder;
@@ -55,44 +56,26 @@ public class AgentServiceImpl implements AgentService {
     private static final String WORKFLOW_ARGS_PROMPT_TEMPLATE = PromptTemplates.SKILL_ARGS_PROMPT;
 
     @Override
-    public String processToolCalling(String sessionId, String input) {
-        return processToolCalling(sessionId, input, null, null);
-    }
-
-    @Override
-    public String processToolCalling(String sessionId,
-                                     String input,
-                                     TaskRuntimeState taskState,
-                                     RelationalRuntimeState relationalState) {
-        return processToolCalling(sessionId, input, taskState, relationalState, null);
-    }
-
-    @Override
-    public String processToolCalling(String sessionId,
-                                     String input,
-                                     TaskRuntimeState taskState,
-                                     RelationalRuntimeState relationalState,
-                                     List<Resource> executionCandidates) {
-        return processToolCalling(sessionId, input, taskState, relationalState, executionCandidates, null);
-    }
-
-    @Override
-    public String processToolCalling(String sessionId,
-                                     String input,
-                                     TaskRuntimeState taskState,
-                                     RelationalRuntimeState relationalState,
-                                     List<Resource> executionCandidates,
-                                     String assembledDecisionContext) {
-        log.info("processToolCalling, sessionId={}, input={}", sessionId, input);
-        String decisionInput = resolveDecisionInput(sessionId, input);
+    public String processToolCallingWithGovernance(ToolDecisionCommand command) {
+        if (command == null) {
+            auditUngovernedDecisionRejected("agent-default", "missing_tool_decision_command", "");
+            return null;
+        }
+        String sessionId = resolveStableSessionId(command.getSessionId());
+        String input = command.getRawUserInput();
+        String assembledDecisionContext = command.getAssembledDecisionContext();
+        TaskRuntimeState taskState = command.getTaskState();
+        RelationalRuntimeState relationalState = command.getRelationalState();
+        List<Resource> executionCandidates = command.getExecutionCandidates();
+        log.info("processToolCallingWithGovernance, sessionId={}, input={}", sessionId, input);
+        String decisionInput = resolveDecisionInput(sessionId, command);
         if (decisionInput.isBlank()) {
             log.info("skip tool decision: governed decision input unavailable");
             return null;
         }
 
         if (capabilityPolicyRouterService.shouldTriggerPlanOrchestration(decisionInput, taskState)) {
-            String stableSessionId = resolveStableSessionId(sessionId);
-            return planOrchestratorService.createAndRunPlan(stableSessionId, decisionInput, false);
+            return planOrchestratorService.createAndRunPlan(sessionId, decisionInput, false);
         }
 
         List<Resource> candidates = executionCandidates == null || executionCandidates.isEmpty()
@@ -146,14 +129,12 @@ public class AgentServiceImpl implements AgentService {
         }
         if (ResourceType.STRATEGY.equals(target.getType())
                 && capabilityPolicyRouterService.shouldTriggerPlanOrchestration(decisionInput, taskState)) {
-            String stableSessionId = resolveStableSessionId(sessionId);
-            return runAndTrace(target, argsJson, () -> planOrchestratorService.createAndRunPlan(stableSessionId, decisionInput, false));
+            return runAndTrace(target, argsJson, () -> planOrchestratorService.createAndRunPlan(sessionId, decisionInput, false));
         }
 
-        String stableSessionId = resolveStableSessionId(sessionId);
         long startAt = System.currentTimeMillis();
         try {
-            ExecutionResult result = toolExecutionGateway.executeTool(stableSessionId, target, argsJson);
+            ExecutionResult result = toolExecutionGateway.executeTool(sessionId, target, argsJson);
             String output = result.getRawResult() != null
                     ? result.getRawResult()
                     : toJson(Map.of(
@@ -198,26 +179,26 @@ public class AgentServiceImpl implements AgentService {
         return sessionId;
     }
 
-    private String resolveDecisionInput(String sessionId, String input) {
-        ToolCallingContext context = ToolCallingContextHolder.get();
-        if (context == null) {
-            auditUngovernedDecisionRejected(resolveStableSessionId(sessionId), "missing_tool_calling_context", input);
-            return "";
-        }
-        String decisionInput = context.getToolDecisionInput() == null ? "" : context.getToolDecisionInput().trim();
+    private String resolveDecisionInput(String sessionId, ToolDecisionCommand command) {
+        String decisionInput = command.getToolDecisionInput() == null ? "" : command.getToolDecisionInput().trim();
         if (decisionInput.isBlank()) {
-            auditUngovernedDecisionRejected(resolveStableSessionId(sessionId), "empty_governed_decision_input", input);
+            auditUngovernedDecisionRejected(sessionId, "empty_governed_decision_input", command.getRawUserInput());
             return "";
         }
+        String assembledDecisionContext = command.getAssembledDecisionContext() == null ? "" : command.getAssembledDecisionContext();
         boolean signatureValid = ToolDecisionInputSignatureUtil.verify(
-                context.getGovernedInputSignature(),
-                context.getChatSessionKey(),
+                command.getGovernedInputSignature(),
+                sessionId,
                 decisionInput,
-                context.getAssembledDecisionContext()
+                assembledDecisionContext
         );
         if (!signatureValid) {
-            auditUngovernedDecisionRejected(resolveStableSessionId(sessionId), "invalid_governed_input_signature", input);
+            auditUngovernedDecisionRejected(sessionId, "invalid_governed_input_signature", command.getRawUserInput());
             return "";
+        }
+        ToolCallingContext holderContext = ToolCallingContextHolder.get();
+        if (holderContext != null && holderContext.getExecutionCandidates() == null) {
+            holderContext.setExecutionCandidates(command.getExecutionCandidates());
         }
         return decisionInput;
     }

@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.context.ContextAssembler;
+import org.yilena.luna.context.model.AssembledContext;
+import org.yilena.luna.context.model.ContextNodeTemplatePolicy;
 import org.yilena.luna.entity.PlanNode;
 import org.yilena.luna.entity.PlanPhase;
 import org.yilena.luna.entity.Resource;
@@ -19,6 +22,7 @@ import org.yilena.luna.service.AgentService;
 import org.yilena.luna.service.PhaseExecutionService;
 import org.yilena.luna.service.RoundPipelineOrchestrator;
 import org.yilena.luna.service.TaskOrchestratorService;
+import org.yilena.luna.service.model.ToolDecisionCommand;
 import org.yilena.luna.service.model.NodeWorksetResult;
 import org.yilena.luna.service.model.RoundPipelineRequest;
 import org.yilena.luna.service.model.TaskOrchestrationResult;
@@ -67,6 +71,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
     private final MemoryWritePipelineService memoryWritePipelineService;
     private final TaskOrchestratorService taskOrchestratorService;
     private final RoundPipelineOrchestrator roundPipelineOrchestrator;
+    private final ContextAssembler contextAssembler;
     private final ContextSnapshotStore contextSnapshotStore;
     private final ObjectMapper objectMapper;
 
@@ -400,6 +405,8 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         StructuredContextPackage governedContextPackage = null;
         InputReconstructionResult governedReconstructionResult = null;
         NodeWorksetResult governedNodeWorksetResult = null;
+        AssembledContext governedAssembledDecision = null;
+        String governedAssembledDecisionContext = "";
         String governanceError = null;
         try {
             TaskOrchestrationResult orchestrationResult = taskOrchestratorService.orchestrateUserInput(sessionId, nodeGoal);
@@ -428,6 +435,26 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                     governedExecutionCandidates,
                     governedNodeWorksetResult
             );
+            governedAssembledDecision = assemblePhaseDecisionWorkset(
+                    sessionId,
+                    nodeId,
+                    nodeGoal,
+                    governedContextPackage,
+                    governedReconstructionResult,
+                    governedNodeWorksetResult,
+                    governedExecutionCandidates
+            );
+            governedAssembledDecisionContext = governedAssembledDecision == null
+                    ? ""
+                    : text(governedAssembledDecision.getPrompt());
+            savePhaseToolDecisionContextSnapshot(
+                    sessionId,
+                    planId,
+                    nodeId,
+                    governedAssembledDecision,
+                    governedExecutionCandidates,
+                    governedNodeWorksetResult
+            );
         } catch (Exception e) {
             governanceError = e.getMessage();
             log.error("[Node] context workset pipeline failed, nodeId={}, err={}", nodeId, governanceError, e);
@@ -450,7 +477,8 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                     governedNodeGoal,
                     governedDecision == null ? null : governedDecision.getTaskState(),
                     governedDecision == null ? null : governedDecision.getRelationalState(),
-                    governedExecutionCandidates
+                    governedExecutionCandidates,
+                    governedAssembledDecisionContext
             );
             success = !isErrorResult(agentResult);
         } catch (NeedApprovalException e) {
@@ -487,7 +515,8 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                             governedNodeGoal,
                             governedDecision == null ? null : governedDecision.getTaskState(),
                             governedDecision == null ? null : governedDecision.getRelationalState(),
-                            governedExecutionCandidates
+                            governedExecutionCandidates,
+                            governedAssembledDecisionContext
                     );
                 } catch (NeedApprovalException e) {
                     String taskId = extractApprovalTaskId(e);
@@ -820,6 +849,231 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         }
     }
 
+    private AssembledContext assemblePhaseDecisionWorkset(String sessionId,
+                                                          String nodeId,
+                                                          String userInput,
+                                                          StructuredContextPackage contextPackage,
+                                                          InputReconstructionResult reconstructionResult,
+                                                          NodeWorksetResult nodeWorksetResult,
+                                                          List<Resource> executionCandidates) {
+        if (contextAssembler == null || contextPackage == null) {
+            return null;
+        }
+        List<String> knowledgeSnippets = extractTaskKnowledgeSnippets(contextPackage);
+        List<String> preferenceSnippets = mergeDistinct(
+                extractRelationalPreferenceSnippets(contextPackage),
+                nodeWorksetResult == null || nodeWorksetResult.getSelectedPreferenceSnippets() == null
+                        ? List.of()
+                        : nodeWorksetResult.getSelectedPreferenceSnippets()
+        );
+        List<String> longTermMemorySnippets = extractTaskLongTermSnippets(contextPackage);
+        List<String> workingMemorySnippets = extractWorkingMemorySnippets(contextPackage);
+        List<String> runtimeMemorySnippets = extractRuntimeMessageSnippets(contextPackage);
+        List<String> retrievedMemorySnippets = nodeWorksetResult == null || nodeWorksetResult.getSelectedMemorySnippets() == null
+                ? List.of()
+                : nodeWorksetResult.getSelectedMemorySnippets();
+        List<String> selectedKnowledgeSnippets = nodeWorksetResult == null || nodeWorksetResult.getSelectedKnowledgeSnippets() == null
+                ? knowledgeSnippets
+                : mergeDistinct(knowledgeSnippets, nodeWorksetResult.getSelectedKnowledgeSnippets());
+        List<String> mcpResourceHints = nodeWorksetResult == null || nodeWorksetResult.getMcpResourceHints() == null
+                ? List.of()
+                : nodeWorksetResult.getMcpResourceHints();
+
+        return contextAssembler.assemble(
+                contextPackage,
+                reconstructionResult,
+                nodeWorksetResult == null ? null : nodeWorksetResult.getRerankResult(),
+                null,
+                userInput,
+                nodeWorksetResult == null ? List.of() : nodeWorksetResult.getSelectedKnowledgeEvidenceBlocks(),
+                workingMemorySnippets,
+                runtimeMemorySnippets,
+                retrievedMemorySnippets,
+                selectedKnowledgeSnippets,
+                preferenceSnippets,
+                longTermMemorySnippets,
+                executionCandidates == null ? List.of() : executionCandidates,
+                mcpResourceHints,
+                "",
+                ContextNodeTemplatePolicy.forToolDecision(nodeId),
+                null,
+                sessionId,
+                parseLong(planIdFromContext(contextPackage)),
+                parseLong(nodeIdFromContext(contextPackage))
+        );
+    }
+
+    private void savePhaseToolDecisionContextSnapshot(String sessionId,
+                                                      String planId,
+                                                      String nodeId,
+                                                      AssembledContext assembledDecisionContext,
+                                                      List<Resource> executionCandidates,
+                                                      NodeWorksetResult nodeWorksetResult) {
+        if (sessionId == null || sessionId.isBlank() || contextSnapshotStore == null) {
+            return;
+        }
+        try {
+            contextSnapshotStore.saveToolDecisionContextSnapshot(
+                    sessionId,
+                    parseLong(planId),
+                    parseLong(nodeId),
+                    assembledDecisionContext == null ? "" : text(assembledDecisionContext.getPrompt()),
+                    assembledDecisionContext == null ? Map.of() : assembledDecisionContext.getCanonicalSections(),
+                    toExecutionCandidateMaps(executionCandidates),
+                    assembledDecisionContext == null ? Map.of() : assembledDecisionContext.getSectionTokenCounts(),
+                    assembledDecisionContext == null ? Map.of() : assembledDecisionContext.getSectionTokenRatios(),
+                    Map.of(
+                            "phaseExecution", true,
+                            "nodeId", nodeId == null ? "" : nodeId,
+                            "rerankedToolCandidateCount",
+                            nodeWorksetResult == null || nodeWorksetResult.getRerankResult() == null || nodeWorksetResult.getRerankResult().getSelectedToolCandidates() == null
+                                    ? 0
+                                    : nodeWorksetResult.getRerankResult().getSelectedToolCandidates().size(),
+                            "rerankedPromptCount",
+                            nodeWorksetResult == null || nodeWorksetResult.getRerankResult() == null || nodeWorksetResult.getRerankResult().getSelectedPromptCandidates() == null
+                                    ? 0
+                                    : nodeWorksetResult.getRerankResult().getSelectedPromptCandidates().size(),
+                            "rerankedResourceCount",
+                            nodeWorksetResult == null || nodeWorksetResult.getRerankResult() == null || nodeWorksetResult.getRerankResult().getSelectedResourceCandidates() == null
+                                    ? 0
+                                    : nodeWorksetResult.getRerankResult().getSelectedResourceCandidates().size(),
+                            "rerankedWorkflowCount",
+                            nodeWorksetResult == null || nodeWorksetResult.getRerankResult() == null || nodeWorksetResult.getRerankResult().getSelectedWorkflowCandidates() == null
+                                    ? 0
+                                    : nodeWorksetResult.getRerankResult().getSelectedWorkflowCandidates().size()
+                    )
+            );
+        } catch (Exception e) {
+            log.warn("[Node] tool decision context snapshot save failed, sessionId={}, nodeId={}, err={}", sessionId, nodeId, e.getMessage());
+        }
+    }
+
+    private List<String> extractTaskKnowledgeSnippets(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getTaskContext() == null) {
+            return List.of();
+        }
+        Object raw = contextPackage.getTaskContext().get("knowledge");
+        if (!(raw instanceof List<?> list)) {
+            return List.of();
+        }
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) list;
+        return rows.stream()
+                .map(item -> "title: " + text(item.get("title")) + "\ncontent: " + text(item.get("chunk_text")))
+                .toList();
+    }
+
+    private List<String> extractTaskLongTermSnippets(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getTaskContext() == null) {
+            return List.of();
+        }
+        List<String> snippets = new ArrayList<>();
+        Object factsRaw = contextPackage.getTaskContext().get("task_facts");
+        if (factsRaw instanceof List<?> facts) {
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> rows = (List<Map<String, Object>>) facts;
+            snippets.addAll(rows.stream()
+                    .map(item -> "task_fact: " + text(item.get("fact_key")) + "=" + text(item.get("fact_value_text")))
+                    .toList());
+        }
+        Object episodesRaw = contextPackage.getTaskContext().get("task_episodes");
+        if (episodesRaw instanceof List<?> episodes) {
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> rows = (List<Map<String, Object>>) episodes;
+            snippets.addAll(rows.stream()
+                    .map(item -> "task_episode: " + text(item.get("episode_type")) + " | " + text(item.get("trajectory_summary")))
+                    .toList());
+        }
+        return snippets;
+    }
+
+    private List<String> extractWorkingMemorySnippets(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getTaskContext() == null) {
+            return List.of();
+        }
+        Object raw = contextPackage.getTaskContext().get("working_memory");
+        if (!(raw instanceof Map<?, ?> map) || map.isEmpty()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        out.add("working.goal_raw: " + text(map.get("goal_raw")));
+        out.add("working.goal_refined: " + text(map.get("goal_refined")));
+        out.add("working.unresolved_questions: " + text(map.get("unresolved_questions_json")));
+        out.add("working.risks: " + text(map.get("risks_json")));
+        return out;
+    }
+
+    private List<String> extractRelationalPreferenceSnippets(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getRelationalContext() == null) {
+            return List.of();
+        }
+        Object raw = contextPackage.getRelationalContext().get("semantic_facts");
+        if (!(raw instanceof List<?> list)) {
+            return List.of();
+        }
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) list;
+        return rows.stream()
+                .map(item -> "relation_pref: " + text(item.get("fact_key")) + "=" + text(item.get("fact_value_text")))
+                .toList();
+    }
+
+    private List<String> extractRuntimeMessageSnippets(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getRuntime() == null) {
+            return List.of();
+        }
+        Object raw = contextPackage.getRuntime().get("recent_messages");
+        if (!(raw instanceof List<?> list)) {
+            return List.of();
+        }
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) list;
+        return rows.stream()
+                .map(item -> text(item.get("role")) + ": " + text(item.get("content_text")))
+                .toList();
+    }
+
+    private List<String> mergeDistinct(List<String> base, List<String> append) {
+        LinkedHashSet<String> merged = new LinkedHashSet<>();
+        if (base != null) {
+            for (String item : base) {
+                if (item != null && !item.isBlank()) {
+                    merged.add(item);
+                }
+            }
+        }
+        if (append != null) {
+            for (String item : append) {
+                if (item != null && !item.isBlank()) {
+                    merged.add(item);
+                }
+            }
+        }
+        return List.copyOf(merged);
+    }
+
+    private Long planIdFromContext(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getRuntime() == null) {
+            return null;
+        }
+        Object sessionRow = contextPackage.getRuntime().get("session");
+        if (sessionRow instanceof Map<?, ?> row) {
+            return parseLong(row.get("current_plan_id"));
+        }
+        return null;
+    }
+
+    private Long nodeIdFromContext(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getTaskContext() == null) {
+            return null;
+        }
+        Object working = contextPackage.getTaskContext().get("working_memory");
+        if (working instanceof Map<?, ?> row) {
+            return parseLong(row.get("active_node_id"));
+        }
+        return null;
+    }
+
     private String resolvePrimaryToolName(List<Resource> executionCandidates) {
         if (executionCandidates == null || executionCandidates.isEmpty()) {
             return "agent_tool_chain";
@@ -1128,24 +1382,35 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                                                          String governedDecisionInput,
                                                          org.yilena.luna.enums.TaskRuntimeState taskState,
                                                          org.yilena.luna.enums.RelationalRuntimeState relationalState,
-                                                         List<Resource> executionCandidates) {
+                                                         List<Resource> executionCandidates,
+                                                         String assembledDecisionContext) {
+        String stableAssembledDecisionContext = assembledDecisionContext == null ? "" : assembledDecisionContext;
+        String governedInputSignature = ToolDecisionInputSignatureUtil.sign(
+                sessionId,
+                governedDecisionInput,
+                stableAssembledDecisionContext
+        );
         ToolCallingContextHolder.set(ToolCallingContext.builder()
                 .chatSessionKey(sessionId)
                 .userInput(rawUserInput)
                 .toolDecisionInput(governedDecisionInput)
-                .governedInputSignature(ToolDecisionInputSignatureUtil.sign(sessionId, governedDecisionInput, ""))
-                .assembledDecisionContext("")
+                .governedInputSignature(governedInputSignature)
+                .assembledDecisionContext(stableAssembledDecisionContext)
                 .executionCandidates(executionCandidates == null ? List.of() : executionCandidates)
                 .toolExecutionTraces(new CopyOnWriteArrayList<>())
                 .build());
         try {
-            return agentService.processToolCalling(
-                    sessionId,
-                    governedDecisionInput,
-                    taskState,
-                    relationalState,
-                    executionCandidates,
-                    ""
+            return agentService.processToolCallingWithGovernance(
+                    ToolDecisionCommand.builder()
+                            .sessionId(sessionId)
+                            .rawUserInput(rawUserInput)
+                            .toolDecisionInput(governedDecisionInput)
+                            .taskState(taskState)
+                            .relationalState(relationalState)
+                            .executionCandidates(executionCandidates == null ? List.of() : executionCandidates)
+                            .governedInputSignature(governedInputSignature)
+                            .assembledDecisionContext(stableAssembledDecisionContext)
+                            .build()
             );
         } finally {
             ToolCallingContextHolder.clear();
