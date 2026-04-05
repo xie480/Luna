@@ -817,6 +817,15 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .stage("CHAT_TURN")
                 .rawToolResultChannel(rawToolResultChannel)
                 .build());
+        persistImmediateToolSemanticState(
+                safeSessionId,
+                contextPlanId(contextPackage),
+                contextNodeId(contextPackage),
+                contextPackage,
+                toolSemanticResult,
+                rawToolResultChannel,
+                toolTraceRefs.historyRefs()
+        );
         return ToolDecisionNodeResult.builder()
                 .toolContext(toolContext)
                 .rawToolResultChannel(rawToolResultChannel)
@@ -1041,7 +1050,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 contextPackage == null || contextPackage.getContextState() == null ? "" : nullSafe(contextPackage.getContextState().getLatestContextSnapshotId()),
                 contextPackage == null || contextPackage.getRecoveryState() == null ? "" : nullSafe(contextPackage.getRecoveryState().getRecoveryEvent())
         );
-        AssembledContext assembledContext = contextAssembler.assemble(
+        AssembledContext assembledContext = contextAssembler.assembleAndSnapshot(
                 contextPackage,
                 request.getReconstructionResult(),
                 request.getRerankResult(),
@@ -1061,29 +1070,12 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 request.getRoundSummaryInput(),
                 sessionId,
                 planId,
-                nodeId
-        );
-        String finalSnapshotId = contextSnapshotStore.saveFinalSnapshot(
-                sessionId,
-                planId,
                 nodeId,
-                assembledContext,
-                assembledContext == null ? "" : assembledContext.getPrompt(),
-                assembledContext == null ? Map.of() : assembledContext.getSectionTokenCounts(),
-                assembledContext == null ? Map.of() : assembledContext.getSectionTokenRatios(),
                 rawToolResultChannel,
                 activeRefs,
                 buildStructuredRecoveryPayload(contextPackage)
         );
-        assembledContext = AssembledContext.builder()
-                .prompt(assembledContext == null ? "" : assembledContext.getPrompt())
-                .sections(assembledContext == null ? Map.of() : assembledContext.getSections())
-                .canonicalSections(assembledContext == null ? Map.of() : assembledContext.getCanonicalSections())
-                .candidatePool(assembledContext == null ? Map.of() : assembledContext.getCandidatePool())
-                .sectionTokenCounts(assembledContext == null ? Map.of() : assembledContext.getSectionTokenCounts())
-                .sectionTokenRatios(assembledContext == null ? Map.of() : assembledContext.getSectionTokenRatios())
-                .snapshotId(finalSnapshotId == null ? "" : finalSnapshotId)
-                .build();
+        String finalSnapshotId = assembledContext == null ? "" : nullSafe(assembledContext.getSnapshotId());
         Map<String, Object> contextTraceMeta = buildTraceMeta(
                 contextPackage,
                 nodeId,
@@ -1424,6 +1416,144 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 ))
                 .build();
         contextStateStore.save(sessionId, contextState);
+    }
+
+    private void persistImmediateToolSemanticState(String sessionId,
+                                                   Long planId,
+                                                   Long nodeId,
+                                                   StructuredContextPackage contextPackage,
+                                                   ToolSemanticResult toolSemanticResult,
+                                                   Map<String, Object> rawToolResultChannel,
+                                                   List<String> explicitHistoryRefs) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        try {
+            ToolState previousToolState = contextPackage == null ? null : contextPackage.getToolState();
+            ContextState previousContextState = contextPackage == null ? null : contextPackage.getContextState();
+            String latestToolRawRef = resolveLatestToolRawRefFromChannel(rawToolResultChannel, previousToolState);
+            String latestToolRawResultJson = rawToolResultChannel == null || rawToolResultChannel.isEmpty()
+                    ? ""
+                    : toJsonSafe(rawToolResultChannel);
+            String latestToolRawResultDigest = sha256Hex(latestToolRawResultJson);
+            String latestToolRawResultPreview = truncate(latestToolRawResultJson, 512);
+            List<String> historyRefs = resolveImmediateToolHistoryRefs(explicitHistoryRefs, rawToolResultChannel, previousToolState);
+
+            ToolState immediateToolState = ToolState.builder()
+                    .lastToolName(firstNonBlank(
+                            toolSemanticResult == null ? "" : toolSemanticResult.getToolName(),
+                            previousToolState == null ? "" : previousToolState.getLastToolName()
+                    ))
+                    .lastToolInput(previousToolState == null ? "" : nullSafe(previousToolState.getLastToolInput()))
+                    .lastToolStatus(firstNonBlank(
+                            toolSemanticResult == null ? "" : toolSemanticResult.getToolStatus(),
+                            previousToolState == null ? "" : previousToolState.getLastToolStatus()
+                    ))
+                    .lastToolRawResultRef(firstNonBlank(
+                            latestToolRawRef,
+                            previousToolState == null ? "" : previousToolState.getLastToolRawResultRef()
+                    ))
+                    .lastToolRawPayloadRef(previousToolState == null ? "" : nullSafe(previousToolState.getLastToolRawPayloadRef()))
+                    .lastToolRawResult(firstNonBlank(
+                            latestToolRawResultJson,
+                            previousToolState == null ? "" : previousToolState.getLastToolRawResult()
+                    ))
+                    .lastToolRawResultDigest(firstNonBlank(
+                            latestToolRawResultDigest,
+                            previousToolState == null ? "" : previousToolState.getLastToolRawResultDigest()
+                    ))
+                    .lastToolRawResultPreview(firstNonBlank(
+                            latestToolRawResultPreview,
+                            previousToolState == null ? "" : previousToolState.getLastToolRawResultPreview()
+                    ))
+                    .lastToolSemanticSummary(firstNonBlank(
+                            toolSemanticResult == null ? "" : toolSemanticResult.getBusinessImpact(),
+                            previousToolState == null ? "" : previousToolState.getLastToolSemanticSummary()
+                    ))
+                    .toolCallHistoryRefs(mergeDistinctList(
+                            previousToolState == null ? List.of() : previousToolState.getToolCallHistoryRefs(),
+                            historyRefs
+                    ))
+                    .build();
+            toolStateStore.save(sessionId, immediateToolState);
+
+            Map<String, Object> latestStateSnapshot = new LinkedHashMap<>(
+                    previousContextState == null || previousContextState.getLatestStateSnapshot() == null
+                            ? Map.of()
+                            : previousContextState.getLatestStateSnapshot()
+            );
+            ActiveRefGovernanceResult governedToolRefs = governActiveRefs(
+                    "tool",
+                    historyRefs,
+                    previousContextState == null ? List.of() : previousContextState.getActiveToolEvidenceRefs(),
+                    false,
+                    false,
+                    ACTIVE_TOOL_REF_MAX,
+                    latestStateSnapshot
+            );
+            latestStateSnapshot.put("latestToolConclusion", firstNonBlank(
+                    toolSemanticResult == null ? "" : toolSemanticResult.getBusinessImpact(),
+                    previousContextState == null || previousContextState.getLatestStateSnapshot() == null
+                            ? ""
+                            : stringValue(previousContextState.getLatestStateSnapshot().get("latestToolConclusion"))
+            ));
+
+            ContextState immediateContextState = ContextState.builder()
+                    .latestNarrativeSummary(previousContextState == null ? "" : nullSafe(previousContextState.getLatestNarrativeSummary()))
+                    .latestStateSnapshot(latestStateSnapshot)
+                    .activeKnowledgeRefs(previousContextState == null ? List.of() : toStringList(previousContextState.getActiveKnowledgeRefs()))
+                    .activeMemoryRefs(previousContextState == null ? List.of() : toStringList(previousContextState.getActiveMemoryRefs()))
+                    .activeToolEvidenceRefs(governedToolRefs.refs())
+                    .activeMcpPromptRefs(previousContextState == null ? List.of() : toStringList(previousContextState.getActiveMcpPromptRefs()))
+                    .activeMcpResourceRefs(previousContextState == null ? List.of() : toStringList(previousContextState.getActiveMcpResourceRefs()))
+                    .activeMcpWorkflowRefs(previousContextState == null ? List.of() : toStringList(previousContextState.getActiveMcpWorkflowRefs()))
+                    .activeMcpToolRefs(previousContextState == null ? List.of() : toStringList(previousContextState.getActiveMcpToolRefs()))
+                    .latestContextSnapshotId(previousContextState == null ? "" : nullSafe(previousContextState.getLatestContextSnapshotId()))
+                    .build();
+            contextStateStore.save(sessionId, immediateContextState);
+
+            runtimeAuditService.persistDecisionRecord(
+                    sessionId,
+                    planId,
+                    nodeId,
+                    "TOOL_SEMANTIC_IMMEDIATE_WRITEBACK",
+                    "tool semantic immediate state writeback persisted",
+                    toJsonSafe(Map.of(
+                            "toolRawRef", latestToolRawRef == null ? "" : latestToolRawRef,
+                            "semanticStatus", toolSemanticResult == null ? "" : nullSafe(toolSemanticResult.getToolStatus()),
+                            "historyRefs", historyRefs == null ? List.of() : historyRefs
+                    ))
+            );
+        } catch (Exception ex) {
+            runtimeAuditService.persistDecisionRecord(
+                    sessionId,
+                    planId,
+                    nodeId,
+                    "TOOL_SEMANTIC_IMMEDIATE_WRITEBACK_FAILED",
+                    "tool semantic immediate state writeback failed",
+                    toJsonSafe(Map.of("error", ex.getMessage() == null ? "" : ex.getMessage()))
+            );
+        }
+    }
+
+    private String resolveLatestToolRawRefFromChannel(Map<String, Object> rawToolResultChannel, ToolState previousToolState) {
+        String channelRawRef = rawToolResultChannel == null ? "" : stringValue(rawToolResultChannel.get("latestToolRawRef"));
+        if (!channelRawRef.isBlank()) {
+            return channelRawRef;
+        }
+        return previousToolState == null ? "" : nullSafe(previousToolState.getLastToolRawResultRef());
+    }
+
+    private List<String> resolveImmediateToolHistoryRefs(List<String> explicitHistoryRefs,
+                                                         Map<String, Object> rawToolResultChannel,
+                                                         ToolState previousToolState) {
+        return mergeDistinctList(
+                previousToolState == null ? List.of() : previousToolState.getToolCallHistoryRefs(),
+                mergeDistinct(
+                        explicitHistoryRefs == null ? List.of() : explicitHistoryRefs,
+                        extractToolRefsFromRawChannel(rawToolResultChannel)
+                )
+        );
     }
 
     private ModelReply invokeMainModel(String prompt, String repairSeed, StructuredContextPackage contextPackage) {

@@ -202,7 +202,8 @@ public class DefaultContextAssembler implements ContextAssembler {
                                                 Long planId,
                                                 Long nodeId,
                                                 Map<String, Object> rawToolResultChannel,
-                                                Map<String, List<String>> activeRefs) {
+                                                Map<String, List<String>> activeRefs,
+                                                Map<String, Object> structuredRecoveryPayload) {
         AssembledContext assembled = assemble(
                 contextPackage,
                 reconstructionResult,
@@ -231,7 +232,8 @@ public class DefaultContextAssembler implements ContextAssembler {
                 nodeId,
                 assembled,
                 rawToolResultChannel,
-                activeRefs
+                activeRefs,
+                structuredRecoveryPayload
         );
         return AssembledContext.builder()
                 .prompt(assembled == null ? "" : assembled.getPrompt())

@@ -56,5 +56,6 @@ public interface ContextAssembler {
                                          Long planId,
                                          Long nodeId,
                                          Map<String, Object> rawToolResultChannel,
-                                         Map<String, List<String>> activeRefs);
+                                         Map<String, List<String>> activeRefs,
+                                         Map<String, Object> structuredRecoveryPayload);
 }
