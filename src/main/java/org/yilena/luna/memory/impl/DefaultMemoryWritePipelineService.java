@@ -313,6 +313,16 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
             if (candidate == null || candidate.factValue().isBlank()) {
                 continue;
             }
+            if (shouldHardDenyLongTermCandidate(candidate.sourceType(), candidate.factValue(), contextPackage)) {
+                auditGateRejection(
+                        sessionId,
+                        contextPackage,
+                        "SEMANTIC_CANDIDATE",
+                        candidate.sourceType(),
+                        new MemoryWritePolicyGate.GateDecision(false, "HARD_DENY_INTERMEDIATE_OR_PENDING", candidate.confidence())
+                );
+                continue;
+            }
             if ("TASK".equals(candidate.domain()) && !taskDomainOpen) {
                 continue;
             }
@@ -490,7 +500,8 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
                 gateContext,
                 "RELATIONAL_PROFILE",
                 "SOCIAL_DRAFT",
-                snapshot == null ? 0.0 : snapshot.emotionConfidence()
+                snapshot == null ? 0.0 : snapshot.emotionConfidence(),
+                userInput
         );
         if (!profileDecision.allow()) {
             auditGateRejection(sessionId, contextPackage, "RELATIONAL_PROFILE", "SOCIAL_DRAFT", profileDecision);
@@ -555,7 +566,8 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
                 gateContext,
                 "TASK_SEMANTIC",
                 sourceType,
-                confidence
+                confidence,
+                factValue
         );
         if (!decision.allow()) {
             auditGateRejection(sessionId, contextPackage, "TASK_SEMANTIC", sourceType, decision);
@@ -603,7 +615,8 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
                 gateContext,
                 "RELATIONAL_SEMANTIC",
                 sourceType,
-                confidence
+                confidence,
+                factValue
         );
         if (!decision.allow()) {
             auditGateRejection(sessionId, contextPackage, "RELATIONAL_SEMANTIC", sourceType, decision);
@@ -652,7 +665,8 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
                 gateContext,
                 "EPISODE",
                 "SUMMARY_SNAPSHOT",
-                0.70
+                0.70,
+                summarize(userInput, 180) + " " + summarize(assistantReply, 180)
         );
         if (!episodeDecision.allow()) {
             auditGateRejection(sessionId, contextPackage, "EPISODE", "SUMMARY_SNAPSHOT", episodeDecision);
@@ -734,7 +748,8 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
                 gateContext,
                 "PROCEDURE",
                 "SUMMARY_SNAPSHOT",
-                0.66
+                0.66,
+                summarize(userInput, 180) + " " + summarize(assistantReply, 180)
         );
         if (!procedureDecision.allow()) {
             auditGateRejection(sessionId, contextPackage, "PROCEDURE", "SUMMARY_SNAPSHOT", procedureDecision);
@@ -1024,6 +1039,34 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
             );
         } catch (Exception ignore) {
         }
+    }
+
+    private boolean shouldHardDenyLongTermCandidate(String sourceType, String content, StructuredContextPackage contextPackage) {
+        String normalizedSource = asText(sourceType).toUpperCase(Locale.ROOT);
+        if ("PENDING_TOOL_RESULT".equals(normalizedSource)
+                || "INTERMEDIATE_INFERENCE".equals(normalizedSource)
+                || "UNVERIFIED_CONCLUSION".equals(normalizedSource)) {
+            return true;
+        }
+        String lower = asText(content).toLowerCase(Locale.ROOT);
+        if (containsAny(lower, "pending", "intermediate", "unverified", "to be confirmed", "temporary", "未确认", "中间结论", "待工具结果")) {
+            return true;
+        }
+        if (contextPackage == null) {
+            return false;
+        }
+        if (contextPackage.getTaskState() == TaskRuntimeState.WAITING_TOOL
+                || contextPackage.getTaskState() == TaskRuntimeState.WAITING_APPROVAL
+                || contextPackage.getTaskState() == TaskRuntimeState.WAITING_USER) {
+            return true;
+        }
+        if (contextPackage.getToolState() != null) {
+            String lastToolStatus = asText(contextPackage.getToolState().getLastToolStatus()).toLowerCase(Locale.ROOT);
+            if (containsAny(lastToolStatus, "pending", "running", "waiting")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean isSupportedByCurrentTurn(String factValue, String userInput, String assistantReply) {

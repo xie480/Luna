@@ -27,6 +27,10 @@ public class SemanticPreservingPruner {
             "(\\d{4}-\\d{2}-\\d{2}|\\b\\d+(?:\\.\\d+)?\\b|must|deadline|risk|status|pending|" + Lexicon.KEY_FACT_CHINESE_PATTERN + ")",
             Pattern.CASE_INSENSITIVE
     );
+    private static final Pattern FORBIDDEN_DROP_PATTERN = Pattern.compile(
+            "(\\d{4}-\\d{2}-\\d{2}|\\b\\d+(?:\\.\\d+)?\\b|pending|unresolved|issue|latest\\s*tool\\s*conclusion|constraint|time|截止|时间|未决|工具结论)",
+            Pattern.CASE_INSENSITIVE
+    );
 
     public PruneResult prune(Map<String, List<String>> sections, Map<String, Integer> sectionBudget) {
         Map<String, List<String>> input = sections == null ? Map.of() : sections;
@@ -86,7 +90,48 @@ public class SemanticPreservingPruner {
             }
             pruned.put(sectionName, target.stream().distinct().toList());
         }
+        enforceGlobalForbiddenFacts(original, pruned, violations);
         return violations;
+    }
+
+    private void enforceGlobalForbiddenFacts(Map<String, List<String>> original,
+                                             Map<String, List<String>> pruned,
+                                             List<String> violations) {
+        List<String> forbiddenFacts = new ArrayList<>();
+        for (Map.Entry<String, List<String>> entry : original.entrySet()) {
+            if (entry.getValue() == null || entry.getValue().isEmpty()) {
+                continue;
+            }
+            for (String line : entry.getValue()) {
+                String normalized = line == null ? "" : line.trim();
+                if (normalized.isBlank()) {
+                    continue;
+                }
+                if (FORBIDDEN_DROP_PATTERN.matcher(normalized).find()) {
+                    forbiddenFacts.add(normalized);
+                }
+            }
+        }
+        if (forbiddenFacts.isEmpty()) {
+            return;
+        }
+        String allPrunedText = pruned.values().stream()
+                .flatMap(List::stream)
+                .map(item -> item == null ? "" : item.toLowerCase())
+                .collect(Collectors.joining(" "));
+        List<String> targetSection = new ArrayList<>(pruned.getOrDefault("Current Task State", List.of()));
+        for (String fact : forbiddenFacts.stream().distinct().toList()) {
+            String normalizedFact = fact.toLowerCase();
+            if (normalizedFact.isBlank() || allPrunedText.contains(normalizedFact)) {
+                continue;
+            }
+            targetSection.add(preserveCriticalClauses(fact, 420));
+            allPrunedText = (allPrunedText + " " + normalizedFact).trim();
+            violations.add("global:restored:" + fact);
+        }
+        if (!targetSection.isEmpty()) {
+            pruned.put("Current Task State", targetSection.stream().distinct().toList());
+        }
     }
 
     private List<String> extractCriticalFacts(List<String> sourceLines) {
@@ -360,4 +405,3 @@ public class SemanticPreservingPruner {
         List<String> consistencyViolations;
     }
 }
-

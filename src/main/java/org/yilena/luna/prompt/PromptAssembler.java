@@ -8,25 +8,28 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 /*
-    prompt组装器
+    prompt缁勮鍣?
  */
 @Component
 @Deprecated(since = "2026.04", forRemoval = false)
 public final class PromptAssembler {
-    // 总体prompt区块最大字符数
+    // 鎬讳綋prompt鍖哄潡鏈€澶у瓧绗︽暟
     private static final int MAX_PROMPT_CHARS = 60000;
+    private static final String LEGACY_FLAG = "luna.allowLegacyPromptAssembler";
 
     /*
-        核心组装逻辑 (无知识库)
+        鏍稿績缁勮閫昏緫 (鏃犵煡璇嗗簱)
      */
     public String assemble(List<String> memorySnippets, String userInput) {
+        ensureLegacyUseAllowed();
         return assembleFinalPrompt(memorySnippets, null, null, null, null, userInput);
     }
 
     /*
-        核心组装逻辑 (包含知识库 RAG 和 Tool Context)
+        鏍稿績缁勮閫昏緫 (鍖呭惈鐭ヨ瘑搴?RAG 鍜?Tool Context)
      */
     public String assembleFinalPrompt(List<String> memorySnippets, List<String> knowledgeSnippets, String toolContext, String userInput) {
+        ensureLegacyUseAllowed();
         return assembleFinalPrompt(memorySnippets, knowledgeSnippets, null, null, toolContext, userInput);
     }
 
@@ -41,14 +44,14 @@ public final class PromptAssembler {
             String toolContext,
             String userInput
     ) {
-        // 输入检查
-        Objects.requireNonNull(userInput, "用户输入为空");
+        ensureLegacyUseAllowed();
+        Objects.requireNonNull(userInput, "userInput must not be null");
         StringBuilder prompt = new StringBuilder(MAX_PROMPT_CHARS);
 
         // 1. System Prompt
         append(prompt, PromptTemplates.SYSTEM_PROMPT);
 
-        // 2. Knowledge Base Prompt (RAG 上下文)
+        // 2. Knowledge Base Prompt (RAG 涓婁笅鏂?
         if (knowledgeSnippets != null && !knowledgeSnippets.isEmpty()) {
             String kbMerged = merge(knowledgeSnippets);
             if (!kbMerged.isEmpty()) {
@@ -63,7 +66,7 @@ public final class PromptAssembler {
         // 4. Long-term Memory Prompt
         appendLongTermMemoryIfPresent(prompt, longTermMemorySnippets);
 
-        // 5. 工具执行结果 (Tool Context)
+        // 5. 宸ュ叿鎵ц缁撴灉 (Tool Context)
         if (toolContext != null && !toolContext.isBlank()) {
             append(prompt, PromptTemplates.TOOL_CONTEXT_PROMPT.formatted(toolContext));
         }
@@ -125,9 +128,10 @@ public final class PromptAssembler {
     }
 
     /*
-        构建压缩提示词
+        鏋勫缓鍘嬬缉鎻愮ず璇?
      */
     public String buildSummaryPrompt(List<String> memorySnippets) {
+        ensureLegacyUseAllowed();
         if (memorySnippets == null || memorySnippets.isEmpty()) {
             return "";
         }
@@ -136,6 +140,7 @@ public final class PromptAssembler {
     }
 
     public String assembleStartupPrompt(List<String> recentMemory) {
+        ensureLegacyUseAllowed();
         StringBuilder prompt = new StringBuilder(MAX_PROMPT_CHARS);
 
         // System Prompt
@@ -151,4 +156,12 @@ public final class PromptAssembler {
 
         return prompt.toString();
     }
+
+    private void ensureLegacyUseAllowed() {
+        if (Boolean.parseBoolean(System.getProperty(LEGACY_FLAG, "false"))) {
+            return;
+        }
+        throw new IllegalStateException("PromptAssembler is deprecated and blocked for production mainline. Use ContextAssembler instead.");
+    }
 }
+

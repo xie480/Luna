@@ -138,6 +138,23 @@ public class StateDrivenContextPipelineImpl implements StateDrivenContextPipelin
                 reconstructionResult = orchestration == null ? null : orchestration.getReconstructionResult();
             }
         }
+        if (!isReconstructionReady(reconstructionResult)) {
+            runtimeAuditService.persistDecisionRecord(
+                    sessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    "STATE_DRIVEN_PIPELINE_BLOCKED",
+                    "hydrate round request blocked due to missing reconstruction",
+                    toJsonSafe(Map.of(
+                            "reason", reconstructionResult == null
+                                    ? "input_reconstruction_missing"
+                                    : "input_reconstruction_goal_missing",
+                            "hasReconstruction", reconstructionResult != null,
+                            "explicitTaskGoal", reconstructionResult == null ? "" : safe(reconstructionResult.getExplicitTaskGoal())
+                    ))
+            );
+            return null;
+        }
 
         NodeWorksetResult nodeWorksetResult = input.getNodeWorksetResult();
         if (nodeWorksetResult == null
@@ -393,6 +410,11 @@ public class StateDrivenContextPipelineImpl implements StateDrivenContextPipelin
 
     private boolean nonEmpty(List<?> list) {
         return list != null && !list.isEmpty();
+    }
+
+    private boolean isReconstructionReady(InputReconstructionResult reconstructionResult) {
+        return reconstructionResult != null && reconstructionResult.getExplicitTaskGoal() != null
+                && !reconstructionResult.getExplicitTaskGoal().isBlank();
     }
 
     private Long contextPlanId(RoundPipelineRequest request) {

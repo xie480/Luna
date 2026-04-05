@@ -33,8 +33,19 @@ public class MemoryWritePolicyGate {
                                               String targetType,
                                               String sourceType,
                                               double confidenceHint) {
+        return evaluateLongTermWrite(context, targetType, sourceType, confidenceHint, "");
+    }
+
+    public GateDecision evaluateLongTermWrite(GateContext context,
+                                              String targetType,
+                                              String sourceType,
+                                              double confidenceHint,
+                                              String contentHint) {
         if (context == null) {
             return GateDecision.reject("GATE_CONTEXT_MISSING", 0.0);
+        }
+        if (isHardDeniedSource(sourceType) || isHardDeniedContent(contentHint)) {
+            return GateDecision.reject("HARD_DENY_INTERMEDIATE_OR_PENDING", effectiveConfidence(context, confidenceHint));
         }
         if (isWaitingOrRetryState(context.taskState())) {
             return GateDecision.reject("TASK_STATE_SHORT_TERM_ONLY", effectiveConfidence(context, confidenceHint));
@@ -83,6 +94,29 @@ public class MemoryWritePolicyGate {
                 || "SUMMARY_SNAPSHOT".equals(normalized)
                 || "TOOL_SEMANTIC".equals(normalized)
                 || "USER_INPUT".equals(normalized);
+    }
+
+    private boolean isHardDeniedSource(String sourceType) {
+        String normalized = sourceType == null ? "" : sourceType.trim().toUpperCase(Locale.ROOT);
+        return "PENDING_TOOL_RESULT".equals(normalized)
+                || "INTERMEDIATE_INFERENCE".equals(normalized)
+                || "UNVERIFIED_CONCLUSION".equals(normalized)
+                || "RUNTIME_BUFFER".equals(normalized);
+    }
+
+    private boolean isHardDeniedContent(String contentHint) {
+        String normalized = contentHint == null ? "" : contentHint.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isBlank()) {
+            return false;
+        }
+        return normalized.contains("pending")
+                || normalized.contains("intermediate")
+                || normalized.contains("unverified")
+                || normalized.contains("to be confirmed")
+                || normalized.contains("temporary")
+                || normalized.contains("未确认")
+                || normalized.contains("中间结论")
+                || normalized.contains("待工具结果");
     }
 
     private double effectiveConfidence(GateContext context, double confidenceHint) {

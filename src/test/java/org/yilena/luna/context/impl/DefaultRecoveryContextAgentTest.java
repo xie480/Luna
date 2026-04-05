@@ -305,6 +305,54 @@ class DefaultRecoveryContextAgentTest {
         assertTrue(Boolean.TRUE.equals(recovered.getRetrievalState().getRetrievalPlan().get("reassembleNow")));
     }
 
+    @Test
+    void shouldTriggerRecoveryByEventEvenWithoutReasonKeywords() {
+        RecoveryStateStore recoveryStateStore = mock(RecoveryStateStore.class);
+        ContextSnapshotStore contextSnapshotStore = mock(ContextSnapshotStore.class);
+        when(contextSnapshotStore.loadLatest("s-event")).thenReturn(null);
+
+        DefaultRecoveryContextAgent agent = new DefaultRecoveryContextAgent(
+                recoveryStateStore,
+                contextSnapshotStore,
+                new ObjectMapper(),
+                mock(LlmClientUtil.class),
+                geminiProperty()
+        );
+        StructuredContextPackage contextPackage = StructuredContextPackage.builder()
+                .sessionId("s-event")
+                .taskState(TaskRuntimeState.WAITING_TOOL)
+                .retrievalState(RetrievalState.builder()
+                        .reconstructedIntent("intent")
+                        .activeQueries(List.of("q1"))
+                        .retrievalPlan(Map.of())
+                        .selectedEvidenceRefs(List.of("knowledge:1"))
+                        .rerankSummary("")
+                        .build())
+                .contextState(ContextState.builder()
+                        .activeKnowledgeRefs(List.of("knowledge:1"))
+                        .activeMcpResourceRefs(List.of("search_knowledge"))
+                        .activeMcpPromptRefs(List.of())
+                        .activeMemoryRefs(List.of())
+                        .activeToolEvidenceRefs(List.of())
+                        .latestStateSnapshot(Map.of())
+                        .latestNarrativeSummary("")
+                        .latestContextSnapshotId("")
+                        .build())
+                .build();
+
+        StructuredContextPackage recovered = agent.recover(
+                "s-event",
+                contextPackage,
+                "TOOL_RESULT",
+                ""
+        );
+
+        assertNotNull(recovered);
+        assertTrue(Boolean.TRUE.equals(recovered.getRetrievalState().getRetrievalPlan().get("need_rag_refresh")));
+        assertTrue(Boolean.TRUE.equals(recovered.getRetrievalState().getRetrievalPlan().get("need_mcp_refresh")));
+        assertTrue(Boolean.TRUE.equals(recovered.getRetrievalState().getRetrievalPlan().get("need_reassembly")));
+    }
+
     private GeminiProperty geminiProperty() {
         GeminiProperty property = new GeminiProperty();
         GeminiProperty.ModelConfig flash = new GeminiProperty.ModelConfig();

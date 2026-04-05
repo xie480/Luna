@@ -12,10 +12,13 @@ import java.util.stream.Collectors;
 public class MemoryQueryBuilder {
 
     public String build(InputReconstructionResult reconstructionResult, TaskRuntimeState taskState) {
+        if (!isReconstructionReady(reconstructionResult)) {
+            return "";
+        }
         String base = resolveBaseQuery(reconstructionResult);
-        String pending = formatList(reconstructionResult == null ? List.of() : reconstructionResult.getMissingSlots());
-        String entities = formatEntities(reconstructionResult == null ? Map.of() : reconstructionResult.getClarifiedEntities());
-        String constraints = formatList(reconstructionResult == null ? List.of() : reconstructionResult.getBusinessConstraints());
+        String pending = formatList(reconstructionResult.getMissingSlots());
+        String entities = formatEntities(reconstructionResult.getClarifiedEntities());
+        String constraints = formatList(reconstructionResult.getBusinessConstraints());
         return base
                 + " | memory_focus=true"
                 + " | task_stage=" + (taskState == null ? "UNKNOWN" : taskState.name())
@@ -25,8 +28,8 @@ public class MemoryQueryBuilder {
     }
 
     private String resolveBaseQuery(InputReconstructionResult reconstructionResult) {
-        if (reconstructionResult == null) {
-            return "memory_retrieval_missing_reconstruction";
+        if (!isReconstructionReady(reconstructionResult)) {
+            return "";
         }
         List<String> candidates = List.of(
                 safe(reconstructionResult.getExplicitTaskGoal()),
@@ -38,7 +41,11 @@ public class MemoryQueryBuilder {
                 return candidate;
             }
         }
-        return "memory_retrieval_missing_reconstruction";
+        return "";
+    }
+
+    private boolean isReconstructionReady(InputReconstructionResult reconstructionResult) {
+        return reconstructionResult != null && !safe(reconstructionResult.getExplicitTaskGoal()).isBlank();
     }
 
     private String formatEntities(Map<String, String> entities) {
@@ -63,4 +70,3 @@ public class MemoryQueryBuilder {
         return value == null ? "" : value;
     }
 }
-

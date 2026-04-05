@@ -78,6 +78,15 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                     ex.getMessage()
             );
         }
+        if (translated == null || Boolean.TRUE.equals(safeMap(translated.getSemanticPayload()).get("semantic_translation_failed"))) {
+            Object failureReason = translated == null ? null : safeMap(translated.getSemanticPayload()).get("failure_reason");
+            translated = fallbackToolSemanticResult(
+                    toolName,
+                    toolDescription,
+                    request.getToolContext(),
+                    translated == null ? "tool_semantic_translation_empty" : (failureReason == null ? "" : String.valueOf(failureReason))
+            );
+        }
         translated = validateAndTraceToolSemantic(
                 nullSafe(request.getSessionId()),
                 planId,
@@ -374,26 +383,24 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                                                           String toolDescription,
                                                           String rawToolResult,
                                                           String errorMessage) {
-        boolean failed = isErrorResult(rawToolResult);
         return ToolSemanticResult.builder()
                 .toolName(firstNonBlank(toolName, "agent_tool_chain"))
                 .toolDescription(nullSafe(toolDescription))
                 .rawResultDigest(truncate(rawToolResult, 640))
-                .toolStatus(failed ? "FAILED" : "UNKNOWN")
-                .keyFacts(List.of("tool_semantic_fallback_applied"))
-                .businessImpact(failed
-                        ? "tool call failed and requires follow-up"
-                        : "tool result available but semantic translation degraded")
+                .toolStatus("UNKNOWN")
+                .keyFacts(List.of("semantic_translation_failed"))
+                .businessImpact("semantic_translation_unavailable_raw_channel_only")
                 .unresolvedIssues(errorMessage == null || errorMessage.isBlank()
-                        ? List.of()
+                        ? List.of("semantic_translation_failed")
                         : List.of(truncate(errorMessage, 200)))
-                .nextStepHint(failed ? "retry_or_recover" : "inspect_raw_tool_result")
-                .confidence(0.15)
+                .nextStepHint("retry_or_recover")
+                .confidence(0.0)
                 .semanticPayload(Map.of(
-                        "status", failed ? "FAILED" : "UNKNOWN",
+                        "status", "UNKNOWN",
                         "tool", firstNonBlank(toolName, ""),
-                        "fallback", true,
-                        "fallbackReason", errorMessage == null ? "" : truncate(errorMessage, 200)
+                        "raw_channel_only", true,
+                        "semantic_translation_failed", true,
+                        "failure_reason", errorMessage == null ? "" : truncate(errorMessage, 200)
                 ))
                 .build();
     }
@@ -419,14 +426,6 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
         return "type=" + (first.getType() == null ? "" : first.getType().name())
                 + ", server=" + firstNonBlank(first.getServerCode(), "local")
                 + ", name=" + firstNonBlank(first.getName(), "");
-    }
-
-    private boolean isErrorResult(String rawToolResult) {
-        String lower = nullSafe(rawToolResult).toLowerCase(Locale.ROOT);
-        return lower.contains("\"status\":\"error\"")
-                || lower.contains("\"status\":\"failed\"")
-                || lower.contains("error_code")
-                || lower.contains("\"success\":false");
     }
 
     private List<String> safeList(List<String> value) {

@@ -74,6 +74,7 @@ import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.never;
 
 class TaskOrchestratorStateRecoveryE2eTest {
 
@@ -345,6 +346,69 @@ class TaskOrchestratorStateRecoveryE2eTest {
         assertTrue(knowledgeRows.get(0).containsKey("preRankScore"));
         assertTrue(mcpRows.get(0).containsKey("preRankOrder"));
         assertTrue(mcpRows.get(0).containsKey("preRankScore"));
+    }
+
+    @Test
+    void shouldBlockNodeWorksetWhenReconstructionMissingAndSkipRetrieval() {
+        TestFixture fixture = new TestFixture();
+        StructuredContextPackage contextPackage = StructuredContextPackage.builder()
+                .sessionId("s-block")
+                .taskState(TaskRuntimeState.EXECUTING)
+                .build();
+        OrchestrationDecision decision = OrchestrationDecision.builder()
+                .sessionId("s-block")
+                .taskState(TaskRuntimeState.EXECUTING)
+                .relationalState(RelationalRuntimeState.LIGHT_CHAT)
+                .contextPackage(contextPackage)
+                .build();
+
+        NodeWorksetResult result = fixture.service.orchestrateNodeWorkset(
+                "s-block",
+                "run",
+                decision,
+                contextPackage,
+                null
+        );
+
+        assertNotNull(result);
+        assertTrue(result.getMcpDrivenInput().isBlank());
+        assertTrue(result.getRagQuery().isBlank());
+        assertTrue(result.getMemoryQuery().isBlank());
+        verify(fixture.capabilityPolicyRouterService, never()).routeForContext(anyString(), anyString(), any(), any(), anyInt());
+        verify(fixture.retrievalService, never()).retrieve(any());
+    }
+
+    @Test
+    void shouldBlockNodeWorksetWhenExplicitGoalMissingAndSkipRetrieval() {
+        TestFixture fixture = new TestFixture();
+        StructuredContextPackage contextPackage = StructuredContextPackage.builder()
+                .sessionId("s-block-goal")
+                .taskState(TaskRuntimeState.EXECUTING)
+                .build();
+        OrchestrationDecision decision = OrchestrationDecision.builder()
+                .sessionId("s-block-goal")
+                .taskState(TaskRuntimeState.EXECUTING)
+                .relationalState(RelationalRuntimeState.LIGHT_CHAT)
+                .contextPackage(contextPackage)
+                .build();
+        InputReconstructionResult reconstruction = InputReconstructionResult.builder()
+                .explicitTaskGoal(" ")
+                .reformulatedQueryForMcp("placeholder")
+                .reformulatedQueryForRag("placeholder")
+                .build();
+
+        NodeWorksetResult result = fixture.service.orchestrateNodeWorkset(
+                "s-block-goal",
+                "run",
+                decision,
+                contextPackage,
+                reconstruction
+        );
+
+        assertNotNull(result);
+        assertTrue(result.getMcpDrivenInput().isBlank());
+        verify(fixture.capabilityPolicyRouterService, never()).routeForContext(anyString(), anyString(), any(), any(), anyInt());
+        verify(fixture.retrievalService, never()).retrieve(any());
     }
 
     private static class TestFixture {

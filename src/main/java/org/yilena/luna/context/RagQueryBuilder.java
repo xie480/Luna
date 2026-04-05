@@ -12,11 +12,14 @@ import java.util.stream.Collectors;
 public class RagQueryBuilder {
 
     public String build(InputReconstructionResult reconstructionResult, TaskRuntimeState taskState) {
+        if (!isReconstructionReady(reconstructionResult)) {
+            return "";
+        }
         String base = resolveBaseQuery(reconstructionResult);
-        String entities = formatEntities(reconstructionResult == null ? Map.of() : reconstructionResult.getClarifiedEntities());
-        String constraints = formatList(reconstructionResult == null ? List.of() : reconstructionResult.getBusinessConstraints());
-        String timeScope = safe(reconstructionResult == null ? "" : reconstructionResult.getTimeScope());
-        String blueprintHint = safe(reconstructionResult == null ? "" : reconstructionResult.getBlueprintHint());
+        String entities = formatEntities(reconstructionResult.getClarifiedEntities());
+        String constraints = formatList(reconstructionResult.getBusinessConstraints());
+        String timeScope = safe(reconstructionResult.getTimeScope());
+        String blueprintHint = safe(reconstructionResult.getBlueprintHint());
         return base
                 + " | task_stage=" + (taskState == null ? "UNKNOWN" : taskState.name())
                 + " | clarified_entities=" + entities
@@ -26,8 +29,8 @@ public class RagQueryBuilder {
     }
 
     private String resolveBaseQuery(InputReconstructionResult reconstructionResult) {
-        if (reconstructionResult == null) {
-            return "reconstruction_missing_for_rag";
+        if (!isReconstructionReady(reconstructionResult)) {
+            return "";
         }
         List<String> candidates = List.of(
                 safe(reconstructionResult.getReformulatedQueryForRag()),
@@ -40,7 +43,11 @@ public class RagQueryBuilder {
                 return candidate;
             }
         }
-        return "reconstruction_missing_for_rag";
+        return "";
+    }
+
+    private boolean isReconstructionReady(InputReconstructionResult reconstructionResult) {
+        return reconstructionResult != null && !safe(reconstructionResult.getExplicitTaskGoal()).isBlank();
     }
 
     private String formatEntities(Map<String, String> entities) {

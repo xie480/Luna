@@ -365,6 +365,25 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                                                     OrchestrationDecision decision,
                                                     StructuredContextPackage contextPackage,
                                                     InputReconstructionResult reconstructionResult) {
+        if (!isReconstructionReadyForRecall(reconstructionResult)) {
+            String reason = reconstructionResult == null
+                    ? "input_reconstruction_missing"
+                    : "input_reconstruction_goal_missing";
+            persistReconstructionBlockedState(sessionId, decision, contextPackage, reconstructionResult, reason);
+            runtimeAuditService.persistDecisionRecord(
+                    sessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    "NODE_WORKSET_BLOCKED",
+                    "node workset blocked before retrieval due to reconstruction readiness check",
+                    toJsonSafe(Map.of(
+                            "reason", reason,
+                            "hasReconstruction", reconstructionResult != null,
+                            "explicitTaskGoal", reconstructionResult == null ? "" : nullSafe(reconstructionResult.getExplicitTaskGoal())
+                    ))
+            );
+            return blockedNodeWorksetResult(reason);
+        }
         String worksetTraceId = buildTraceId("NODE_WORKSET", sessionId, contextPlanId(contextPackage), contextNodeId(contextPackage));
         Map<String, Object> traceMeta = buildTraceMeta(contextPackage, contextNodeId(contextPackage), worksetTraceId, "NODE_WORKSET");
         stateTransitionTraceLogger.log(
@@ -384,6 +403,20 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 reconstructionResult,
                 decision == null ? null : decision.getTaskState()
         );
+        if (!nonBlank(mcpDrivenInput)) {
+            persistReconstructionBlockedState(sessionId, decision, contextPackage, reconstructionResult, "mcp_query_not_buildable");
+            runtimeAuditService.persistDecisionRecord(
+                    sessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    "NODE_WORKSET_BLOCKED",
+                    "node workset blocked because mcp query is not buildable",
+                    toJsonSafe(Map.of(
+                            "reason", "mcp_query_not_buildable"
+                    ))
+            );
+            return blockedNodeWorksetResult("mcp_query_not_buildable");
+        }
         if (refreshPlan.reassembleNow) {
             mcpDrivenInput = appendRefreshFlag(mcpDrivenInput, "reassembly");
         }
@@ -442,6 +475,21 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 reconstructionResult,
                 decision == null ? null : decision.getTaskState()
         );
+        if (!nonBlank(ragQuery) || !nonBlank(memoryQuery)) {
+            String blockedReason = !nonBlank(ragQuery) ? "rag_query_not_buildable" : "memory_query_not_buildable";
+            persistReconstructionBlockedState(sessionId, decision, contextPackage, reconstructionResult, blockedReason);
+            runtimeAuditService.persistDecisionRecord(
+                    sessionId,
+                    contextPlanId(contextPackage),
+                    contextNodeId(contextPackage),
+                    "NODE_WORKSET_BLOCKED",
+                    "node workset blocked because retrieval query is not buildable",
+                    toJsonSafe(Map.of(
+                            "reason", blockedReason
+                    ))
+            );
+            return blockedNodeWorksetResult(blockedReason);
+        }
         if (refreshPlan.refreshRagNow || refreshPlan.reassembleNow) {
             ragQuery = appendRefreshFlag(ragQuery, "rag");
             memoryQuery = appendRefreshFlag(memoryQuery, "memory");
@@ -1192,6 +1240,11 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         SummaryResult summaryResult = request.getSummaryResult();
         ContextRerankResult rerankResult = request.getRerankResult();
         ToolSemanticResult toolSemanticResult = request.getToolSemanticResult();
+        Map<String, Object> retrievalPlanOverrides = request.getRetrievalPlanOverrides() == null
+                ? Map.of()
+                : request.getRetrievalPlanOverrides();
+        Map<String, Object> taskStatePatch = safeMap(retrievalPlanOverrides.get("task_state_patch"));
+        Map<String, Object> retrievalStatePatch = safeMap(retrievalPlanOverrides.get("retrieval_state_patch"));
         if (toolSemanticResult != null) {
             ToolSemanticResultValidator.ValidationResult toolSemanticValidation = toolSemanticResultValidator.validate(toolSemanticResult, contextPackage);
             if (!toolSemanticValidation.valid()) {
@@ -1217,14 +1270,30 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 previousTaskState == null ? List.of() : previousTaskState.getPendingQuestions(),
                 reconstruction == null || reconstruction.getMissingSlots() == null ? List.of() : reconstruction.getMissingSlots()
         );
+        String patchedObjective = firstNonBlank(
+                stringValue(taskStatePatch.get("objective")),
+                reconstruction == null ? "" : reconstruction.getExplicitTaskGoal()
+        );
+        String patchedCurrentStage = firstNonBlank(
+                stringValue(taskStatePatch.get("current_stage")),
+                request.getDecision() == null || request.getDecision().getTaskState() == null ? "UNKNOWN" : request.getDecision().getTaskState().name()
+        );
+        String patchedCurrentNode = firstNonBlank(
+                stringValue(taskStatePatch.get("current_node")),
+                String.valueOf(contextNodeId(contextPackage))
+        );
+        List<String> patchedPendingQuestions = mergeDistinctList(
+                pendingQuestions,
+                toStringList(taskStatePatch.get("pending_questions"))
+        );
         TaskState taskState = TaskState.builder()
                 .taskId(String.valueOf(contextPlanId(contextPackage)))
                 .sessionId(sessionId)
-                .objective(reconstruction == null ? "" : reconstruction.getExplicitTaskGoal())
-                .currentStage(request.getDecision() == null || request.getDecision().getTaskState() == null ? "UNKNOWN" : request.getDecision().getTaskState().name())
-                .currentNode(String.valueOf(contextNodeId(contextPackage)))
+                .objective(patchedObjective)
+                .currentStage(patchedCurrentStage)
+                .currentNode(patchedCurrentNode)
                 .confirmedSlots(confirmedSlots)
-                .pendingQuestions(pendingQuestions)
+                .pendingQuestions(patchedPendingQuestions)
                 .finishedSteps(finishedSteps)
                 .failedSteps(failedSteps)
                 .retryCount(retryCount)
@@ -1238,8 +1307,8 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 && safeSize(finishedSteps) > safeSize(previousTaskState.getFinishedSteps());
 
         Map<String, Object> retrievalPlan = new LinkedHashMap<>();
-        if (request.getRetrievalPlanOverrides() != null && !request.getRetrievalPlanOverrides().isEmpty()) {
-            retrievalPlan.putAll(request.getRetrievalPlanOverrides());
+        if (!retrievalPlanOverrides.isEmpty()) {
+            retrievalPlan.putAll(retrievalPlanOverrides);
         } else {
             retrievalPlan.put("allowedRoutes", resolveAllowedRoutes(request.getDecision()));
             retrievalPlan.put("maxLatencyMs", resolveRetrievalOptions(
@@ -1247,8 +1316,14 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     request.getDecision()
             ).getMaxLatencyMs());
         }
+        if (!retrievalStatePatch.isEmpty()) {
+            retrievalPlan.put("retrieval_state_patch", retrievalStatePatch);
+        }
         RetrievalState retrievalState = RetrievalState.builder()
-                .reconstructedIntent(reconstruction == null ? "" : reconstruction.getNormalizedUserIntent())
+                .reconstructedIntent(firstNonBlank(
+                        stringValue(retrievalStatePatch.get("reconstructed_intent")),
+                        reconstruction == null ? "" : reconstruction.getNormalizedUserIntent()
+                ))
                 .activeQueries(mergeDistinctList(
                         previousRetrievalState == null ? List.of() : previousRetrievalState.getActiveQueries(),
                         mergeDistinct(
@@ -1958,25 +2033,119 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         return value != null && !value.isBlank();
     }
 
+    private boolean isReconstructionReadyForRecall(InputReconstructionResult reconstructionResult) {
+        return reconstructionResult != null && nonBlank(reconstructionResult.getExplicitTaskGoal());
+    }
+
+    private NodeWorksetResult blockedNodeWorksetResult(String reason) {
+        return NodeWorksetResult.builder()
+                .mcpDrivenInput("")
+                .ragQuery("")
+                .memoryQuery("")
+                .mcpPreRankedCandidates(List.of())
+                .rerankResult(null)
+                .rerankRationaleByNode(Map.of("blocked_reason", nullSafe(reason)))
+                .selectedKnowledgeEvidenceBlocks(List.of())
+                .selectedKnowledgeEvidenceRefs(List.of())
+                .selectedKnowledgeSnippets(List.of())
+                .selectedMemorySnippets(List.of())
+                .selectedPreferenceSnippets(List.of())
+                .selectedToolCandidateNames(List.of())
+                .selectedMcpToolCandidateNames(List.of())
+                .selectedPromptCandidateNames(List.of())
+                .selectedResourceCandidateNames(List.of())
+                .selectedWorkflowCandidateNames(List.of())
+                .selectedPromptResourceNames(List.of())
+                .invalidatedEvidenceRefs(List.of())
+                .invalidatedCapabilityNames(List.of())
+                .invalidationReasonsByRef(Map.of())
+                .executionCandidates(List.of())
+                .mcpResourceHints(List.of())
+                .build();
+    }
+
+    private void persistReconstructionBlockedState(String sessionId,
+                                                   OrchestrationDecision decision,
+                                                   StructuredContextPackage contextPackage,
+                                                   InputReconstructionResult reconstructionResult,
+                                                   String reason) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        try {
+            RetrievalState previousRetrieval = contextPackage == null ? null : contextPackage.getRetrievalState();
+            Map<String, Object> blockedPlan = new LinkedHashMap<>();
+            if (previousRetrieval != null && previousRetrieval.getRetrievalPlan() != null) {
+                blockedPlan.putAll(previousRetrieval.getRetrievalPlan());
+            }
+            blockedPlan.put("blocked", true);
+            blockedPlan.put("blocked_reason", reason == null ? "reconstruction_missing" : reason);
+            blockedPlan.put("blocked_stage", "NODE_WORKSET");
+            blockedPlan.put("blocked_by_reconstruction", true);
+            blockedPlan.put("refresh_rag_now", false);
+            blockedPlan.put("refresh_mcp_now", false);
+            blockedPlan.put("reassemble_now", false);
+            blockedPlan.put("refreshRagNow", false);
+            blockedPlan.put("refreshMcpNow", false);
+            blockedPlan.put("reassembleNow", false);
+            blockedPlan.put("need_rag_refresh", false);
+            blockedPlan.put("need_mcp_refresh", false);
+            blockedPlan.put("need_reassembly", false);
+            blockedPlan.put("invalidated_evidence_refs", List.of());
+            blockedPlan.put("invalidated_capability_names", List.of());
+            blockedPlan.put("invalidation_reasons_by_ref", Map.of());
+            RetrievalState blockedRetrieval = RetrievalState.builder()
+                    .reconstructedIntent(reconstructionResult == null ? "" : nullSafe(reconstructionResult.getNormalizedUserIntent()))
+                    .activeQueries(mergeDistinctList(
+                            previousRetrieval == null ? List.of() : previousRetrieval.getActiveQueries(),
+                            List.of("BLOCKED:" + nullSafe(reason))
+                    ))
+                    .retrievalPlan(blockedPlan)
+                    .selectedEvidenceRefs(previousRetrieval == null ? List.of() : previousRetrieval.getSelectedEvidenceRefs())
+                    .rerankSummary(previousRetrieval == null ? "" : nullSafe(previousRetrieval.getRerankSummary()))
+                    .build();
+            retrievalStateStore.save(sessionId, blockedRetrieval);
+
+            TaskState previousTask = contextPackage == null ? null : contextPackage.getTaskStateEntity();
+            TaskState blockedTask = TaskState.builder()
+                    .taskId(previousTask == null ? String.valueOf(contextPlanId(contextPackage)) : nullSafe(previousTask.getTaskId()))
+                    .sessionId(sessionId)
+                    .objective(reconstructionResult == null ? "" : nullSafe(reconstructionResult.getExplicitTaskGoal()))
+                    .currentStage(decision == null || decision.getTaskState() == null ? "UNKNOWN" : decision.getTaskState().name())
+                    .currentNode(previousTask == null ? String.valueOf(contextNodeId(contextPackage)) : nullSafe(previousTask.getCurrentNode()))
+                    .confirmedSlots(previousTask == null ? Map.of() : safeMap(previousTask.getConfirmedSlots()))
+                    .pendingQuestions(previousTask == null ? List.of() : toStringList(previousTask.getPendingQuestions()))
+                    .finishedSteps(previousTask == null ? List.of() : toStringList(previousTask.getFinishedSteps()))
+                    .failedSteps(mergeDistinctList(previousTask == null ? List.of() : previousTask.getFailedSteps(), List.of("NODE_WORKSET_BLOCKED")))
+                    .retryCount(previousTask == null ? 0 : previousTask.getRetryCount())
+                    .nextActionHint("reconstruct_input_then_retry")
+                    .build();
+            taskStateStore.save(sessionId, blockedTask);
+        } catch (Exception ignore) {
+        }
+    }
+
     private Map<String, Object> buildInputReconstructionAuditPayload(String rawInput,
                                                                      InputReconstructionResult reconstruction,
                                                                      StructuredContextPackage contextPackage) {
         Map<String, Object> payload = new LinkedHashMap<>();
         String raw = nullSafe(rawInput).trim();
-        payload.put("rawInput", raw);
-        payload.put("rawInputLength", raw.length());
+        payload.put("raw_input", raw);
+        payload.put("raw_input_length", raw.length());
         payload.put("reconstruction", reconstruction == null ? Map.of() : reconstruction);
-        payload.put("delta", buildReconstructionDelta(raw, reconstruction));
-        payload.put("carriedFromSnapshot", deriveCarriedFromSnapshot(raw, reconstruction, contextPackage));
+        payload.put("delta", buildReconstructionDelta(raw, reconstruction, contextPackage));
         return payload;
     }
 
-    private Map<String, Object> buildReconstructionDelta(String rawInput, InputReconstructionResult reconstruction) {
+    private Map<String, Object> buildReconstructionDelta(String rawInput,
+                                                         InputReconstructionResult reconstruction,
+                                                         StructuredContextPackage contextPackage) {
         Map<String, Object> delta = new LinkedHashMap<>();
         if (reconstruction == null) {
             delta.put("status", "missing_reconstruction");
-            delta.put("addedItems", List.of());
-            delta.put("disambiguatedItems", List.of());
+            delta.put("added_items", List.of());
+            delta.put("disambiguated_items", List.of());
+            delta.put("carried_from_snapshot", List.of());
             return delta;
         }
         String normalizedRaw = normalizeForCompare(rawInput);
@@ -2017,10 +2186,12 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
 
         LinkedHashSet<String> dedupAdded = new LinkedHashSet<>(addedItems);
         LinkedHashSet<String> dedupDisambiguated = new LinkedHashSet<>(disambiguatedItems);
+        List<String> carriedFromSnapshot = deriveCarriedFromSnapshot(rawInput, reconstruction, contextPackage);
         delta.put("status", (dedupAdded.isEmpty() && dedupDisambiguated.isEmpty()) ? "no_explicit_delta" : "delta_detected");
-        delta.put("addedItems", new ArrayList<>(dedupAdded));
-        delta.put("disambiguatedItems", new ArrayList<>(dedupDisambiguated));
-        delta.put("intentConfidence", reconstruction.getIntentConfidence());
+        delta.put("added_items", new ArrayList<>(dedupAdded));
+        delta.put("disambiguated_items", new ArrayList<>(dedupDisambiguated));
+        delta.put("carried_from_snapshot", carriedFromSnapshot == null ? List.of() : carriedFromSnapshot);
+        delta.put("intent_confidence", reconstruction.getIntentConfidence());
         return delta;
     }
 
@@ -2106,9 +2277,45 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                                                    StructuredContextPackage contextPackage) {
         String normalizedInput = nullSafe(input).trim().toLowerCase(Locale.ROOT);
         TaskRuntimeState taskState = decision == null ? null : decision.getTaskState();
+        if (taskState == null && contextPackage != null) {
+            taskState = contextPackage.getTaskState();
+        }
         boolean waitingResumeState = taskState == TaskRuntimeState.WAITING_APPROVAL
                 || taskState == TaskRuntimeState.WAITING_TOOL
                 || taskState == TaskRuntimeState.WAITING_USER;
+        Map<String, Object> promptPolicy = contextPackage == null ? Map.of() : safeMap(contextPackage.getPromptPolicy());
+        Map<String, Object> retrievalPlan = contextPackage == null || contextPackage.getRetrievalState() == null
+                ? Map.of()
+                : safeMap(contextPackage.getRetrievalState().getRetrievalPlan());
+        boolean pendingRecoveryByState = booleanValue(promptPolicy.get("recovery_required"))
+                || booleanValue(retrievalPlan.get("need_rag_refresh"))
+                || booleanValue(retrievalPlan.get("need_mcp_refresh"))
+                || booleanValue(retrievalPlan.get("need_reassembly"))
+                || booleanValue(retrievalPlan.get("refresh_rag_now"))
+                || booleanValue(retrievalPlan.get("refresh_mcp_now"))
+                || booleanValue(retrievalPlan.get("reassemble_now"))
+                || booleanValue(retrievalPlan.get("refreshRagNow"))
+                || booleanValue(retrievalPlan.get("refreshMcpNow"))
+                || booleanValue(retrievalPlan.get("reassembleNow"));
+        if (pendingRecoveryByState) {
+            return new RecoveryTrigger(
+                    true,
+                    firstNonBlank(
+                            stringValue(promptPolicy.get("recovery_event")),
+                            firstNonBlank(
+                                    contextPackage == null || contextPackage.getRecoveryState() == null ? "" : contextPackage.getRecoveryState().getRecoveryEvent(),
+                                    "RECOVERY_STATE_PENDING"
+                            )
+                    ),
+                    firstNonBlank(
+                            stringValue(promptPolicy.get("recovery_reason")),
+                            firstNonBlank(
+                                    contextPackage == null || contextPackage.getRecoveryState() == null ? "" : contextPackage.getRecoveryState().getInterruptReason(),
+                                    "RECOVERY_STATE_PENDING"
+                            )
+                    )
+            );
+        }
         boolean explicitResume = containsAny(normalizedInput,
                 "resume", "continue", "批准", "通过", "恢复", "继续", "确认", "approve", "confirmed");
         boolean explicitRetry = containsAny(normalizedInput, "retry", "重试", "再试", "重新执行");
@@ -2125,8 +2332,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         if (contextPackage != null && contextPackage.getRecoveryState() != null) {
             String previousEvent = nullSafe(contextPackage.getRecoveryState().getRecoveryEvent());
             String previousReason = nullSafe(contextPackage.getRecoveryState().getInterruptReason());
-            if (!previousEvent.isBlank() && containsAny(previousReason.toLowerCase(Locale.ROOT),
-                    "approval", "tool", "interrupt", "timeout", "failed")) {
+            if (!previousEvent.isBlank() && waitingResumeState) {
                 return new RecoveryTrigger(true, previousEvent, previousReason);
             }
         }
@@ -3071,15 +3277,26 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
 
     private Map<String, Object> buildBlueprintEntryOverrides(BlueprintDraft draft) {
         Map<String, Object> overrides = new LinkedHashMap<>();
-        overrides.put("blueprintEntry", true);
-        overrides.put("blueprintDraftReady", draft != null);
+        overrides.put("entry_type", "BLUEPRINT");
+        overrides.put("blueprint_draft_ready", draft != null);
         if (draft != null) {
-            overrides.put("normalizedUserIntent", nullSafe(draft.getNormalizedUserIntent()));
-            overrides.put("explicitTaskGoal", nullSafe(draft.getExplicitTaskGoal()));
-            overrides.put("timeScope", nullSafe(draft.getTimeScope()));
-            overrides.put("missingSlots", draft.getMissingSlots() == null ? List.of() : draft.getMissingSlots());
-            overrides.put("businessConstraints", draft.getBusinessConstraints() == null ? List.of() : draft.getBusinessConstraints());
-            overrides.put("blueprintDraft", objectMapper.convertValue(draft, Map.class));
+            overrides.put("blueprint_normalized_user_intent", nullSafe(draft.getNormalizedUserIntent()));
+            overrides.put("blueprint_explicit_task_goal", nullSafe(draft.getExplicitTaskGoal()));
+            overrides.put("blueprint_time_scope", nullSafe(draft.getTimeScope()));
+            overrides.put("blueprint_missing_slots", draft.getMissingSlots() == null ? List.of() : draft.getMissingSlots());
+            overrides.put("blueprint_business_constraints", draft.getBusinessConstraints() == null ? List.of() : draft.getBusinessConstraints());
+            overrides.put("blueprint_draft_payload", objectMapper.convertValue(draft, Map.class));
+            overrides.put("task_state_patch", Map.of(
+                    "objective", nullSafe(draft.getExplicitTaskGoal()),
+                    "current_stage", nullSafe(draft.getCurrentStage()),
+                    "current_node", nullSafe(draft.getCurrentNode()),
+                    "pending_questions", draft.getMissingSlots() == null ? List.of() : draft.getMissingSlots()
+            ));
+            overrides.put("retrieval_state_patch", Map.of(
+                    "reconstructed_intent", nullSafe(draft.getNormalizedUserIntent()),
+                    "entry_type", "BLUEPRINT",
+                    "draft_ready", true
+            ));
         }
         return overrides;
     }
@@ -3638,12 +3855,25 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         } catch (Exception ex) {
             translated = fallbackToolSemanticResult(toolName, toolDescription, request.getToolContext(), ex.getMessage());
         }
+        boolean translationFailed = translated == null
+                || Boolean.TRUE.equals(safeMap(translated.getSemanticPayload()).get("semantic_translation_failed"));
         ToolSemanticResult safeTranslated = translated == null
                 ? fallbackToolSemanticResult(toolName, toolDescription, request.getToolContext(), "tool_semantic_translation_empty")
                 : translated;
         ToolSemanticResultValidator.ValidationResult validation = toolSemanticResultValidator.validate(safeTranslated, contextPackage);
         if (validation.normalized() != null) {
             safeTranslated = validation.normalized();
+        }
+        if (translationFailed) {
+            safeTranslated = fallbackToolSemanticResult(
+                    firstNonBlank(safeTranslated.getToolName(), toolName),
+                    firstNonBlank(safeTranslated.getToolDescription(), toolDescription),
+                    request.getToolContext(),
+                    firstNonBlank(
+                            stringValue(safeMap(safeTranslated.getSemanticPayload()).get("failure_reason")),
+                            "tool_semantic_translation_failed"
+                    )
+            );
         }
         runtimeAuditService.persistDecisionRecord(
                 request.getSessionId(),
@@ -3722,34 +3952,26 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                                                           String toolDescription,
                                                           String rawToolResult,
                                                           String errorMessage) {
-        boolean failed = isErrorResult(rawToolResult);
         return ToolSemanticResult.builder()
                 .toolName(firstNonBlank(toolName, "agent_tool_chain"))
                 .toolDescription(nullSafe(toolDescription))
                 .rawResultDigest(truncate(rawToolResult, 640))
-                .toolStatus(failed ? "FAILED" : "UNKNOWN")
-                .keyFacts(List.of("tool_semantic_fallback_applied"))
-                .businessImpact(failed
-                        ? "tool call failed and requires follow-up"
-                        : "tool result available but semantic translation degraded")
-                .unresolvedIssues(errorMessage == null || errorMessage.isBlank() ? List.of() : List.of(truncate(errorMessage, 200)))
-                .nextStepHint(failed ? "retry_or_recover" : "inspect_raw_tool_result")
-                .confidence(0.15)
+                .toolStatus("UNKNOWN")
+                .keyFacts(List.of("semantic_translation_failed"))
+                .businessImpact("semantic_translation_unavailable_raw_channel_only")
+                .unresolvedIssues(errorMessage == null || errorMessage.isBlank()
+                        ? List.of("semantic_translation_failed")
+                        : List.of(truncate(errorMessage, 200)))
+                .nextStepHint("retry_or_recover")
+                .confidence(0.0)
                 .semanticPayload(Map.of(
-                        "status", failed ? "FAILED" : "UNKNOWN",
+                        "status", "UNKNOWN",
                         "tool", firstNonBlank(toolName, ""),
-                        "fallback", true,
-                        "fallbackReason", errorMessage == null ? "" : truncate(errorMessage, 200)
+                        "raw_channel_only", true,
+                        "semantic_translation_failed", true,
+                        "failure_reason", errorMessage == null ? "" : truncate(errorMessage, 200)
                 ))
                 .build();
-    }
-
-    private boolean isErrorResult(String rawToolResult) {
-        String lower = nullSafe(rawToolResult).toLowerCase(Locale.ROOT);
-        return lower.contains("\"status\":\"error\"")
-                || lower.contains("\"status\":\"failed\"")
-                || lower.contains("error_code")
-                || lower.contains("\"success\":false");
     }
 
     private String resolvePrimaryToolName(List<Resource> executionCandidates) {

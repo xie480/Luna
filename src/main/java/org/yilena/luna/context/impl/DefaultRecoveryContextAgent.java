@@ -184,13 +184,17 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
                                                ContextSnapshot snapshot) {
         String event = normalize(recoveryEvent);
         String reason = normalize(interruptReason);
-        boolean staleByTimeout = containsAny(reason, Lexicon.RECOVERY_TIMEOUT_KEYWORDS);
-        boolean staleByDataMutation = containsAny(event, "TOOL_RESULT", "APPROVAL", "SYSTEM", "TIMER")
-                || containsAny(reason, Lexicon.RECOVERY_DATA_MUTATION_KEYWORDS);
-        boolean staleByFailure = containsAny(reason, Lexicon.RECOVERY_FAILURE_KEYWORDS);
-        boolean needRagRefresh = staleByTimeout || staleByDataMutation;
-        boolean needMcpRefresh = staleByFailure || staleByDataMutation;
-        boolean needReassembly = needRagRefresh || needMcpRefresh || contextPackage == null || snapshot == null;
+        boolean eventDrivenMutation = containsAny(event, "tool_result", "approval", "system", "timer", "callback");
+        boolean reasonTimeoutSignal = containsAny(reason, Lexicon.RECOVERY_TIMEOUT_KEYWORDS);
+        boolean reasonFailureSignal = containsAny(reason, Lexicon.RECOVERY_FAILURE_KEYWORDS);
+        boolean reasonMutationSignal = containsAny(reason, Lexicon.RECOVERY_DATA_MUTATION_KEYWORDS);
+        boolean waitingRecoveryState = isWaitingRecoveryState(contextPackage);
+        boolean toolPendingOrFailed = hasPendingOrFailedToolState(contextPackage);
+        boolean snapshotDriftSignal = hasSnapshotDrift(contextPackage, snapshot);
+
+        boolean needRagRefresh = eventDrivenMutation || reasonTimeoutSignal || snapshotDriftSignal || reasonMutationSignal;
+        boolean needMcpRefresh = eventDrivenMutation || toolPendingOrFailed || reasonFailureSignal || snapshotDriftSignal;
+        boolean needReassembly = needRagRefresh || needMcpRefresh || waitingRecoveryState || contextPackage == null || snapshot == null;
         List<String> invalidatedEvidenceRefs = needRagRefresh
                 ? collectEvidenceRefs(contextPackage, snapshot)
                 : List.of();
@@ -212,6 +216,41 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
                 invalidatedCapabilityNames,
                 invalidationReasonsByRef
         );
+    }
+
+    private boolean isWaitingRecoveryState(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getTaskState() == null) {
+            return false;
+        }
+        return contextPackage.getTaskState() == org.yilena.luna.enums.TaskRuntimeState.WAITING_APPROVAL
+                || contextPackage.getTaskState() == org.yilena.luna.enums.TaskRuntimeState.WAITING_TOOL
+                || contextPackage.getTaskState() == org.yilena.luna.enums.TaskRuntimeState.WAITING_USER;
+    }
+
+    private boolean hasPendingOrFailedToolState(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getToolState() == null) {
+            return false;
+        }
+        String status = normalize(contextPackage.getToolState().getLastToolStatus());
+        return "pending".equals(status) || "failed".equals(status) || "error".equals(status);
+    }
+
+    private boolean hasSnapshotDrift(StructuredContextPackage contextPackage, ContextSnapshot snapshot) {
+        if (contextPackage == null || contextPackage.getContextState() == null || snapshot == null || snapshot.getPayload() == null) {
+            return false;
+        }
+        List<String> contextKnowledge = contextPackage.getContextState().getActiveKnowledgeRefs() == null
+                ? List.of()
+                : contextPackage.getContextState().getActiveKnowledgeRefs();
+        List<String> snapshotKnowledge = readSnapshotRefList(snapshot.getPayload(), "activeKnowledgeRefs");
+        if (!matchesRefs(contextKnowledge, snapshotKnowledge)) {
+            return true;
+        }
+        List<String> contextMcp = contextPackage.getContextState().getActiveMcpResourceRefs() == null
+                ? List.of()
+                : contextPackage.getContextState().getActiveMcpResourceRefs();
+        List<String> snapshotMcp = readSnapshotRefList(snapshot.getPayload(), "activeMcpResourceRefs");
+        return !matchesRefs(contextMcp, snapshotMcp);
     }
 
     private String resolveRecoverySnapshotId(StructuredContextPackage contextPackage) {
