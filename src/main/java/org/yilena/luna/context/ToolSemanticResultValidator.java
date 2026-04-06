@@ -3,8 +3,10 @@ package org.yilena.luna.context;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.common.utils.JsonSchemaValidator;
+import org.yilena.luna.constants.JsonFieldConstants;
 import org.yilena.luna.context.model.ToolSemanticResult;
 import org.yilena.luna.enums.TaskRuntimeState;
+import org.yilena.luna.enums.ToolStatusEnum;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 
 import java.util.ArrayList;
@@ -17,7 +19,12 @@ import java.util.Map;
 @Component
 public class ToolSemanticResultValidator {
 
-    private static final List<String> ALLOWED_STATUS = List.of("SUCCESS", "PENDING", "FAILED", "UNKNOWN");
+    private static final List<String> ALLOWED_STATUS = List.of(
+            ToolStatusEnum.SUCCESS.getCode(),
+            ToolStatusEnum.PENDING.getCode(),
+            ToolStatusEnum.FAILED.getCode(),
+            ToolStatusEnum.UNKNOWN.getCode()
+    );
     private static final int DEFAULT_SEMANTIC_TOKEN_BUDGET = 1200;
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private final ToolSemanticSchemaProvider schemaProvider;
@@ -98,7 +105,7 @@ public class ToolSemanticResultValidator {
     private ToolSemanticResult minimalFallback(ToolSemanticResult result, List<String> issues) {
         String status = normalize(result == null ? null : result.getToolStatus());
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("status", status);
+        payload.put(JsonFieldConstants.STATUS, status);
         payload.put("schema_invalid", true);
         payload.put("validationIssues", issues == null ? List.of("schema_invalid") : issues);
         payload.put("rawResultDigest", result == null ? "" : stringValue(result.getRawResultDigest()));
@@ -131,14 +138,15 @@ public class ToolSemanticResultValidator {
     private List<String> validatePayloadConsistency(ToolSemanticResult result, String status) {
         List<String> issues = new ArrayList<>();
         Map<String, Object> payload = result.getSemanticPayload() == null ? Map.of() : result.getSemanticPayload();
-        String payloadStatus = normalize(stringValue(payload.get("status")));
-        if (!payloadStatus.equals("UNKNOWN") && !payloadStatus.equals(status)) {
+        String payloadStatus = normalize(stringValue(payload.get(JsonFieldConstants.STATUS)));
+        if (!payloadStatus.equals(ToolStatusEnum.UNKNOWN.getCode()) && !payloadStatus.equals(status)) {
             issues.add("payload_status_mismatch");
         }
-        if ("SUCCESS".equals(status) && result.getUnresolvedIssues() != null && !result.getUnresolvedIssues().isEmpty()) {
+        if (ToolStatusEnum.SUCCESS.getCode().equals(status) && result.getUnresolvedIssues() != null && !result.getUnresolvedIssues().isEmpty()) {
             issues.add("success_with_unresolved_issues");
         }
-        if ("FAILED".equals(status) && (result.getUnresolvedIssues() == null || result.getUnresolvedIssues().isEmpty())) {
+        if (ToolStatusEnum.FAILED.getCode().equals(status)
+                && (result.getUnresolvedIssues() == null || result.getUnresolvedIssues().isEmpty())) {
             issues.add("failed_without_unresolved_issues");
         }
         return issues;
@@ -167,14 +175,14 @@ public class ToolSemanticResultValidator {
             return issues;
         }
         TaskRuntimeState runtimeState = contextPackage.getTaskState();
-        if (runtimeState == TaskRuntimeState.WAITING_APPROVAL && "SUCCESS".equals(status)) {
+        if (runtimeState == TaskRuntimeState.WAITING_APPROVAL && ToolStatusEnum.SUCCESS.getCode().equals(status)) {
             issues.add("status_conflict_waiting_approval");
         }
-        if (runtimeState == TaskRuntimeState.WAITING_TOOL && "UNKNOWN".equals(status)) {
+        if (runtimeState == TaskRuntimeState.WAITING_TOOL && ToolStatusEnum.UNKNOWN.getCode().equals(status)) {
             issues.add("status_conflict_waiting_tool");
         }
         String nextStep = result.getNextStepHint() == null ? "" : result.getNextStepHint().toLowerCase(Locale.ROOT);
-        if ("PENDING".equals(status) && containsAny(
+        if (ToolStatusEnum.PENDING.getCode().equals(status) && containsAny(
                 nextStep,
                 "continue reasoning",
                 "execute",
@@ -186,7 +194,7 @@ public class ToolSemanticResultValidator {
             issues.add("pending_next_step_conflict");
         }
         String lastToolName = contextPackage.getToolState() == null ? "" : stringValue(contextPackage.getToolState().getLastToolName());
-        String payloadToolName = stringValue(result.getSemanticPayload() == null ? null : result.getSemanticPayload().get("tool"));
+        String payloadToolName = stringValue(result.getSemanticPayload() == null ? null : result.getSemanticPayload().get(JsonFieldConstants.TOOL));
         if (!lastToolName.isBlank() && !payloadToolName.isBlank() && !lastToolName.equalsIgnoreCase(payloadToolName)) {
             issues.add("tool_name_conflict_with_state");
         }
@@ -198,7 +206,7 @@ public class ToolSemanticResultValidator {
         if (payload != null) {
             normalized.putAll(payload);
         }
-        normalized.put("status", normalizedStatus);
+        normalized.put(JsonFieldConstants.STATUS, normalizedStatus);
         if (issues != null && issues.contains("semantic_payload_budget_exceeded")) {
             normalized = trimPayloadForBudget(normalized);
         }
@@ -207,11 +215,14 @@ public class ToolSemanticResultValidator {
 
     private Map<String, Object> trimPayloadForBudget(Map<String, Object> payload) {
         if (payload == null || payload.isEmpty()) {
-            return Map.of("status", "UNKNOWN", "budgetTrimmed", true);
+            return Map.of(
+                    JsonFieldConstants.STATUS, ToolStatusEnum.UNKNOWN.getCode(),
+                    "budgetTrimmed", true
+            );
         }
         Map<String, Object> trimmed = new LinkedHashMap<>();
-        putIfPresent(trimmed, "status", payload);
-        putIfPresent(trimmed, "tool", payload);
+        putIfPresent(trimmed, JsonFieldConstants.STATUS, payload);
+        putIfPresent(trimmed, JsonFieldConstants.TOOL, payload);
         putIfPresent(trimmed, "workflow", payload);
         putIfPresent(trimmed, "taskId", payload);
         putIfPresent(trimmed, "keyFacts", payload);
@@ -323,17 +334,17 @@ public class ToolSemanticResultValidator {
 
     private String normalize(String status) {
         if (status == null || status.isBlank()) {
-            return "UNKNOWN";
+            return ToolStatusEnum.UNKNOWN.getCode();
         }
         String normalized = status.toUpperCase(Locale.ROOT).trim();
         if ("OK".equals(normalized)) {
-            return "SUCCESS";
+            return ToolStatusEnum.SUCCESS.getCode();
         }
         if ("RUNNING".equals(normalized)) {
-            return "PENDING";
+            return ToolStatusEnum.PENDING.getCode();
         }
         if ("ERROR".equals(normalized)) {
-            return "FAILED";
+            return ToolStatusEnum.FAILED.getCode();
         }
         return normalized;
     }

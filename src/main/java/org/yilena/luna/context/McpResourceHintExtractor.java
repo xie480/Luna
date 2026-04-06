@@ -5,8 +5,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.yilena.luna.constants.McpFieldConstants;
+import org.yilena.luna.constants.McpProtocolConstants;
 import org.yilena.luna.entity.McpPromptResult;
 import org.yilena.luna.entity.McpResourceResult;
+import org.yilena.luna.enums.CapabilityTypeEnum;
 import org.yilena.luna.service.McpService;
 
 import java.util.ArrayList;
@@ -24,6 +27,12 @@ public class McpResourceHintExtractor {
     private final McpService mcpService;
     private final ObjectMapper objectMapper;
 
+    private static final String PREFIX_PROMPT_HINT = "prompt_hint";
+    private static final String PREFIX_RESOURCE_HINT = "resource_hint";
+    private static final String PREFIX_WORKFLOW_HINT = "workflow_hint";
+    private static final String PREFIX_TOOL_HINT = "tool_hint";
+    private static final String PREFIX_GENERIC_HINT = "mcp_hint";
+
     public List<String> extract(List<Map<String, Object>> promptAndResourceCandidates, int limit) {
         if (promptAndResourceCandidates == null || promptAndResourceCandidates.isEmpty()) {
             return List.of();
@@ -33,15 +42,14 @@ public class McpResourceHintExtractor {
         List<Map<String, Object>> workflowCandidates = new ArrayList<>();
         List<Map<String, Object>> toolCandidates = new ArrayList<>();
         for (Map<String, Object> row : promptAndResourceCandidates) {
-            String type = safe(row == null ? null : row.get("capability_type")).toUpperCase(Locale.ROOT);
-            if ("PROMPT".equals(type)) {
-                promptCandidates.add(row);
-            } else if ("RESOURCE".equals(type)) {
-                resourceCandidates.add(row);
-            } else if ("WORKFLOW".equals(type)) {
-                workflowCandidates.add(row);
-            } else if ("TOOL".equals(type)) {
-                toolCandidates.add(row);
+            CapabilityTypeEnum type = CapabilityTypeEnum.fromCode(safe(row == null ? null : row.get(McpFieldConstants.CAPABILITY_TYPE)));
+            switch (type) {
+                case PROMPT -> promptCandidates.add(row);
+                case RESOURCE -> resourceCandidates.add(row);
+                case WORKFLOW -> workflowCandidates.add(row);
+                case TOOL -> toolCandidates.add(row);
+                default -> {
+                }
             }
         }
         return extract(promptCandidates, resourceCandidates, workflowCandidates, toolCandidates, limit);
@@ -62,19 +70,19 @@ public class McpResourceHintExtractor {
             if (hints.size() >= safeLimit) {
                 break;
             }
-            String type = safe(row.get("capability_type")).toUpperCase(Locale.ROOT);
-            String name = safe(row.get("capability_name"));
-            String title = safe(row.get("title"));
-            String description = safe(row.get("description"));
+            CapabilityTypeEnum type = CapabilityTypeEnum.fromCode(safe(row.get(McpFieldConstants.CAPABILITY_TYPE)));
+            String name = safe(row.get(McpFieldConstants.CAPABILITY_NAME));
+            String title = safe(row.get(McpFieldConstants.TITLE));
+            String description = safe(row.get(McpFieldConstants.DESCRIPTION));
             if (name.isBlank() && title.isBlank() && description.isBlank()) {
                 continue;
             }
             String prefix = switch (type) {
-                case "PROMPT" -> "prompt_hint";
-                case "RESOURCE" -> "resource_hint";
-                case "WORKFLOW" -> "workflow_hint";
-                case "TOOL" -> "tool_hint";
-                default -> "mcp_hint";
+                case PROMPT -> PREFIX_PROMPT_HINT;
+                case RESOURCE -> PREFIX_RESOURCE_HINT;
+                case WORKFLOW -> PREFIX_WORKFLOW_HINT;
+                case TOOL -> PREFIX_TOOL_HINT;
+                default -> PREFIX_GENERIC_HINT;
             };
             String summary = prefix + ": " + compact(name, title, description);
             String body = fetchBody(type, row);
@@ -111,8 +119,8 @@ public class McpResourceHintExtractor {
         return head + " | " + tail;
     }
 
-    private String fetchBody(String type, Map<String, Object> row) {
-        if (!"PROMPT".equals(type) && !"RESOURCE".equals(type)) {
+    private String fetchBody(CapabilityTypeEnum type, Map<String, Object> row) {
+        if (type != CapabilityTypeEnum.PROMPT && type != CapabilityTypeEnum.RESOURCE) {
             return "";
         }
         String serverCode = resolveServerCode(row);
@@ -121,8 +129,8 @@ public class McpResourceHintExtractor {
             return "";
         }
         try {
-            if ("PROMPT".equals(type)) {
-                McpPromptResult promptResult = mcpService.getPrompt(serverCode, invocationName, "{}");
+            if (type == CapabilityTypeEnum.PROMPT) {
+                McpPromptResult promptResult = mcpService.getPrompt(serverCode, invocationName, McpProtocolConstants.DEFAULT_ARGUMENTS_JSON);
                 return shorten(safe(promptResult == null ? null : promptResult.getPromptContent()), 600);
             }
             McpResourceResult resourceResult = mcpService.readResource(serverCode, invocationName);
@@ -135,16 +143,16 @@ public class McpResourceHintExtractor {
     }
 
     private String resolveServerCode(Map<String, Object> row) {
-        String serverCode = safe(row.get("server_code"));
+        String serverCode = safe(row.get(McpFieldConstants.SERVER_CODE));
         if (!serverCode.isBlank()) {
             return serverCode;
         }
         Map<String, Object> metadata = metadataOf(row);
-        serverCode = safe(metadata.get("server_code"));
+        serverCode = safe(metadata.get(McpFieldConstants.SERVER_CODE));
         if (!serverCode.isBlank()) {
             return serverCode;
         }
-        String capabilityName = safe(row.get("capability_name"));
+        String capabilityName = safe(row.get(McpFieldConstants.CAPABILITY_NAME));
         int idx = capabilityName.indexOf(':');
         if (idx > 0) {
             return capabilityName.substring(0, idx);
@@ -152,19 +160,19 @@ public class McpResourceHintExtractor {
         return "";
     }
 
-    private String resolveInvocationName(String type, Map<String, Object> row) {
+    private String resolveInvocationName(CapabilityTypeEnum type, Map<String, Object> row) {
         Map<String, Object> metadata = metadataOf(row);
-        String fromMeta = safe(metadata.get("invocation_name"));
-        if ("PROMPT".equals(type) && fromMeta.isBlank()) {
-            fromMeta = safe(metadata.get("prompt_name"));
+        String fromMeta = safe(metadata.get(McpFieldConstants.INVOCATION_NAME));
+        if (type == CapabilityTypeEnum.PROMPT && fromMeta.isBlank()) {
+            fromMeta = safe(metadata.get(McpFieldConstants.PROMPT_NAME));
         }
-        if ("RESOURCE".equals(type) && fromMeta.isBlank()) {
-            fromMeta = safe(metadata.get("resource_uri"));
+        if (type == CapabilityTypeEnum.RESOURCE && fromMeta.isBlank()) {
+            fromMeta = safe(metadata.get(McpFieldConstants.RESOURCE_URI));
         }
         if (!fromMeta.isBlank()) {
             return fromMeta;
         }
-        String capabilityName = safe(row.get("capability_name"));
+        String capabilityName = safe(row.get(McpFieldConstants.CAPABILITY_NAME));
         int idx = capabilityName.indexOf(':');
         if (idx > -1 && idx + 1 < capabilityName.length()) {
             return capabilityName.substring(idx + 1);
@@ -176,7 +184,7 @@ public class McpResourceHintExtractor {
         if (row == null || row.isEmpty()) {
             return Map.of();
         }
-        Object metadataRaw = row.get("metadata_json");
+        Object metadataRaw = row.get(McpFieldConstants.METADATA_JSON);
         if (metadataRaw instanceof Map<?, ?> map) {
             return map.entrySet().stream()
                     .collect(java.util.stream.Collectors.toMap(

@@ -7,7 +7,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.adapter.McpClientAdapter;
+import org.yilena.luna.constants.HttpConstants;
+import org.yilena.luna.constants.JsonFieldConstants;
 import org.yilena.luna.constants.McpConstant;
+import org.yilena.luna.constants.McpProtocolConstants;
 import org.yilena.luna.entity.McpPromptDescriptor;
 import org.yilena.luna.entity.McpPromptResult;
 import org.yilena.luna.entity.McpResourceDescriptor;
@@ -161,7 +164,7 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
     }
 
     private List<McpToolDescriptor> remoteListTools(McpServerRegistry registry, String serverCode) {
-        String body = remoteGet(registry, "/tools/list?serverCode=" + encode(serverCode), 10000);
+        String body = remoteGet(registry, McpProtocolConstants.PATH_TOOLS_LIST + "?serverCode=" + encode(serverCode), 10000);
         try {
             return objectMapper.readValue(body, new TypeReference<>() {});
         } catch (Exception e) {
@@ -174,9 +177,9 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
         String payload = toJson(Map.of(
                 "serverCode", serverCode,
                 "toolName", toolName == null ? "" : toolName,
-                "argumentsJson", argumentsJson == null ? "{}" : argumentsJson
+                "argumentsJson", argumentsJson == null ? McpProtocolConstants.DEFAULT_ARGUMENTS_JSON : argumentsJson
         ));
-        String body = remotePost(registry, "/tools/call", payload, 15000);
+        String body = remotePost(registry, McpProtocolConstants.PATH_TOOLS_CALL, payload, 15000);
         try {
             return objectMapper.readValue(body, McpToolCallResult.class);
         } catch (Exception e) {
@@ -191,7 +194,7 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
     }
 
     private List<McpPromptDescriptor> remoteListPrompts(McpServerRegistry registry, String serverCode) {
-        String body = remoteGet(registry, "/prompts/list?serverCode=" + encode(serverCode), 10000);
+        String body = remoteGet(registry, McpProtocolConstants.PATH_PROMPTS_LIST + "?serverCode=" + encode(serverCode), 10000);
         try {
             return objectMapper.readValue(body, new TypeReference<>() {});
         } catch (Exception e) {
@@ -204,9 +207,9 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
         String payload = toJson(Map.of(
                 "serverCode", serverCode,
                 "promptName", promptName == null ? "" : promptName,
-                "argumentsJson", argumentsJson == null ? "{}" : argumentsJson
+                "argumentsJson", argumentsJson == null ? McpProtocolConstants.DEFAULT_ARGUMENTS_JSON : argumentsJson
         ));
-        String body = remotePost(registry, "/prompts/get", payload, 10000);
+        String body = remotePost(registry, McpProtocolConstants.PATH_PROMPTS_GET, payload, 10000);
         try {
             return objectMapper.readValue(body, McpPromptResult.class);
         } catch (Exception e) {
@@ -220,7 +223,7 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
     }
 
     private List<McpResourceDescriptor> remoteListResources(McpServerRegistry registry, String serverCode) {
-        String body = remoteGet(registry, "/resources/list?serverCode=" + encode(serverCode), 10000);
+        String body = remoteGet(registry, McpProtocolConstants.PATH_RESOURCES_LIST + "?serverCode=" + encode(serverCode), 10000);
         try {
             return objectMapper.readValue(body, new TypeReference<>() {});
         } catch (Exception e) {
@@ -234,7 +237,7 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
                 "serverCode", serverCode,
                 "resourceUri", resourceUri == null ? "" : resourceUri
         ));
-        String body = remotePost(registry, "/resources/read", payload, 10000);
+        String body = remotePost(registry, McpProtocolConstants.PATH_RESOURCES_READ, payload, 10000);
         try {
             return objectMapper.readValue(body, McpResourceResult.class);
         } catch (Exception e) {
@@ -274,13 +277,13 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
             String rpcMethod = mapPathToRpcMethod(path);
             Map<String, Object> params = extractRpcParams(path, payload);
             Map<String, Object> requestBody = new java.util.LinkedHashMap<>();
-            requestBody.put("jsonrpc", "2.0");
-            requestBody.put("id", String.valueOf(System.currentTimeMillis()));
-            requestBody.put("method", rpcMethod);
-            requestBody.put("params", params);
-            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(joinUrl(registry.getBaseUrl(), "/rpc")))
+            requestBody.put(JsonFieldConstants.JSON_RPC, McpProtocolConstants.JSON_RPC_VERSION);
+            requestBody.put(JsonFieldConstants.ID, String.valueOf(System.currentTimeMillis()));
+            requestBody.put(JsonFieldConstants.METHOD, rpcMethod);
+            requestBody.put(JsonFieldConstants.PARAMS, params);
+            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(joinUrl(registry.getBaseUrl(), McpProtocolConstants.PATH_RPC)))
                     .timeout(Duration.ofMillis(timeoutMs))
-                    .header("Content-Type", "application/json")
+                    .header(HttpConstants.HEADER_CONTENT_TYPE, HttpConstants.CONTENT_TYPE_JSON)
                     .POST(HttpRequest.BodyPublishers.ofString(toJson(requestBody), StandardCharsets.UTF_8));
             applyAuth(builder, registry);
             HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -288,12 +291,12 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
                 return errorResult("REMOTE_RPC_HTTP_ERROR", "status=" + response.statusCode() + ", body=" + response.body());
             }
             Map<String, Object> rpcResponse = objectMapper.readValue(response.body(), new TypeReference<>() {});
-            Object error = rpcResponse.get("error");
+            Object error = rpcResponse.get(JsonFieldConstants.ERROR);
             if (error != null) {
                 return errorResult("REMOTE_RPC_ERROR", String.valueOf(error));
             }
-            Object result = rpcResponse.get("result");
-            return result == null ? "{}" : objectMapper.writeValueAsString(result);
+            Object result = rpcResponse.get(JsonFieldConstants.RESULT);
+            return result == null ? McpProtocolConstants.DEFAULT_ARGUMENTS_JSON : objectMapper.writeValueAsString(result);
         } catch (Exception e) {
             return errorResult("REMOTE_RPC_ERROR", e.getMessage());
         }
@@ -306,12 +309,12 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
             clean = clean.substring(0, queryIdx);
         }
         return switch (clean) {
-            case "/tools/list" -> "tools/list";
-            case "/tools/call" -> "tools/call";
-            case "/prompts/list" -> "prompts/list";
-            case "/prompts/get" -> "prompts/get";
-            case "/resources/list" -> "resources/list";
-            case "/resources/read" -> "resources/read";
+            case McpProtocolConstants.PATH_TOOLS_LIST -> McpProtocolConstants.METHOD_TOOLS_LIST;
+            case McpProtocolConstants.PATH_TOOLS_CALL -> McpProtocolConstants.METHOD_TOOLS_CALL;
+            case McpProtocolConstants.PATH_PROMPTS_LIST -> McpProtocolConstants.METHOD_PROMPTS_LIST;
+            case McpProtocolConstants.PATH_PROMPTS_GET -> McpProtocolConstants.METHOD_PROMPTS_GET;
+            case McpProtocolConstants.PATH_RESOURCES_LIST -> McpProtocolConstants.METHOD_RESOURCES_LIST;
+            case McpProtocolConstants.PATH_RESOURCES_READ -> McpProtocolConstants.METHOD_RESOURCES_READ;
             default -> clean.startsWith("/") ? clean.substring(1) : clean;
         };
     }
@@ -353,14 +356,14 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
         try {
             HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(joinUrl(registry.getBaseUrl(), path)))
                     .timeout(Duration.ofMillis(timeoutMs))
-                    .header("Accept", "application/json")
+                    .header(HttpConstants.HEADER_ACCEPT, HttpConstants.CONTENT_TYPE_JSON)
                     .GET();
             applyAuth(builder, registry);
             HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() / 100 != 2) {
                 return errorResult("REMOTE_HTTP_ERROR", "status=" + response.statusCode() + ", body=" + response.body());
             }
-            return response.body() == null ? "{}" : response.body();
+            return response.body() == null ? McpProtocolConstants.DEFAULT_ARGUMENTS_JSON : response.body();
         } catch (Exception e) {
             return errorResult("REMOTE_HTTP_ERROR", e.getMessage());
         }
@@ -370,14 +373,14 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
         try {
             HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(joinUrl(registry.getBaseUrl(), path)))
                     .timeout(Duration.ofMillis(timeoutMs))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(payload == null ? "{}" : payload, StandardCharsets.UTF_8));
+                    .header(HttpConstants.HEADER_CONTENT_TYPE, HttpConstants.CONTENT_TYPE_JSON)
+                    .POST(HttpRequest.BodyPublishers.ofString(payload == null ? McpProtocolConstants.DEFAULT_ARGUMENTS_JSON : payload, StandardCharsets.UTF_8));
             applyAuth(builder, registry);
             HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() / 100 != 2) {
                 return errorResult("REMOTE_HTTP_ERROR", "status=" + response.statusCode() + ", body=" + response.body());
             }
-            return response.body() == null ? "{}" : response.body();
+            return response.body() == null ? McpProtocolConstants.DEFAULT_ARGUMENTS_JSON : response.body();
         } catch (Exception e) {
             return errorResult("REMOTE_HTTP_ERROR", e.getMessage());
         }
@@ -393,11 +396,11 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
                     .buildAsync(target, collector)
                     .get(timeoutMs, TimeUnit.MILLISECONDS);
 
-            String frame = payload == null ? "{}" : payload;
+            String frame = payload == null ? McpProtocolConstants.DEFAULT_ARGUMENTS_JSON : payload;
             socket.sendText(frame, true).get(timeoutMs, TimeUnit.MILLISECONDS);
             String body = responseFuture.get(timeoutMs, TimeUnit.MILLISECONDS);
             socket.sendClose(WebSocket.NORMAL_CLOSURE, "done");
-            return body == null || body.isBlank() ? "{}" : body;
+            return body == null || body.isBlank() ? McpProtocolConstants.DEFAULT_ARGUMENTS_JSON : body;
         } catch (TimeoutException e) {
             return errorResult("REMOTE_WS_TIMEOUT", e.getMessage());
         } catch (InterruptedException e) {
@@ -429,9 +432,9 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
                  BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
                  BufferedReader errReader = new BufferedReader(new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
                 String request = toJson(Map.of(
-                        "method", method == null ? "POST" : method,
+                        JsonFieldConstants.METHOD, method == null ? "POST" : method,
                         "path", path == null ? "" : path,
-                        "payload", payload == null ? "{}" : payload
+                        "payload", payload == null ? McpProtocolConstants.DEFAULT_ARGUMENTS_JSON : payload
                 ));
                 writer.write(request);
                 writer.newLine();
@@ -449,7 +452,7 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
                     if (err != null && !err.isBlank()) {
                         return errorResult("REMOTE_STDIO_ERROR", err);
                     }
-                    return "{}";
+                    return McpProtocolConstants.DEFAULT_ARGUMENTS_JSON;
                 }
                 return line;
             }
@@ -517,7 +520,7 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
         if ("BEARER".equals(authType)) {
             String token = String.valueOf(config.getOrDefault("token", ""));
             if (!token.isBlank()) {
-                builder.header("Authorization", "Bearer " + token.trim());
+                builder.header(HttpConstants.HEADER_AUTHORIZATION, HttpConstants.BEARER_PREFIX + token.trim());
             }
             return;
         }
@@ -527,7 +530,7 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
             if (!user.isBlank()) {
                 String raw = user + ":" + pass;
                 String encoded = Base64.getEncoder().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
-                builder.header("Authorization", "Basic " + encoded);
+                builder.header(HttpConstants.HEADER_AUTHORIZATION, HttpConstants.BASIC_PREFIX + encoded);
             }
         }
     }
@@ -552,20 +555,20 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
         try {
             return objectMapper.writeValueAsString(obj);
         } catch (Exception e) {
-            return "{}";
+            return McpProtocolConstants.DEFAULT_ARGUMENTS_JSON;
         }
     }
 
     private String errorResult(String code, String message) {
         try {
             return objectMapper.writeValueAsString(Map.of(
-                    "status", "error",
+                    JsonFieldConstants.STATUS, "error",
                     "errorCode", code,
-                    "message", message
+                    JsonFieldConstants.MESSAGE, message
             ));
         } catch (Exception e) {
             log.warn("build error result failed", e);
-            return "{\"status\":\"error\"}";
+            return "{\"" + JsonFieldConstants.STATUS + "\":\"error\"}";
         }
     }
 

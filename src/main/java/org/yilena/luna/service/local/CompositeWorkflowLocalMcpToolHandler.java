@@ -5,7 +5,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.yilena.luna.constants.BooleanTextConstants;
+import org.yilena.luna.constants.JsonFieldConstants;
+import org.yilena.luna.constants.LocalToolConstants;
 import org.yilena.luna.constants.McpConstant;
+import org.yilena.luna.constants.McpProtocolConstants;
+import org.yilena.luna.constants.ResultStatusConstants;
 import org.yilena.luna.entity.Resource;
 import org.yilena.luna.entity.WorkflowTemplate;
 import org.yilena.luna.enums.ResourceType;
@@ -43,7 +48,7 @@ public class CompositeWorkflowLocalMcpToolHandler implements LocalMcpToolHandler
         if (context == null) {
             return false;
         }
-        if (!"LOCAL_HANDLER".equalsIgnoreCase(text(context.implType()))) {
+        if (!LocalToolConstants.IMPL_TYPE_LOCAL_HANDLER.equalsIgnoreCase(text(context.implType()))) {
             return false;
         }
         String name = text(context.toolName());
@@ -80,7 +85,9 @@ public class CompositeWorkflowLocalMcpToolHandler implements LocalMcpToolHandler
                 .runMode(RunMode.SYNC)
                 .build();
         try {
-            String argsJson = context.argumentsJson() == null || context.argumentsJson().isBlank() ? "{}" : context.argumentsJson();
+            String argsJson = context.argumentsJson() == null || context.argumentsJson().isBlank()
+                    ? McpProtocolConstants.DEFAULT_ARGUMENTS_JSON
+                    : context.argumentsJson();
             return workflowExecutor.execute(workflow, argsJson);
         } catch (Exception e) {
             log.warn("composite workflow local handler failed, workflowName={}, err={}", toolName, e.getMessage());
@@ -127,13 +134,13 @@ public class CompositeWorkflowLocalMcpToolHandler implements LocalMcpToolHandler
 
     private String error(String code, String message) {
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("status", "error");
-        payload.put("errorCode", code);
-        payload.put("message", message == null ? "" : message);
+        payload.put(JsonFieldConstants.STATUS, ResultStatusConstants.ERROR);
+        payload.put(JsonFieldConstants.ERROR_CODE, code);
+        payload.put(JsonFieldConstants.MESSAGE, message == null ? "" : message);
         try {
             return objectMapper.writeValueAsString(payload);
         } catch (Exception e) {
-            return "{\"status\":\"error\",\"errorCode\":\"TOOL_SERIALIZE_ERROR\"}";
+            return LocalToolConstants.STATUS_ERROR_JSON;
         }
     }
 
@@ -145,10 +152,14 @@ public class CompositeWorkflowLocalMcpToolHandler implements LocalMcpToolHandler
             return b;
         }
         String text = String.valueOf(raw).trim().toLowerCase(Locale.ROOT);
-        if ("true".equals(text) || "1".equals(text) || "yes".equals(text)) {
+        if (BooleanTextConstants.TRUE.equals(text)
+                || BooleanTextConstants.ONE.equals(text)
+                || BooleanTextConstants.YES.equals(text)) {
             return true;
         }
-        if ("false".equals(text) || "0".equals(text) || "no".equals(text)) {
+        if (BooleanTextConstants.FALSE.equals(text)
+                || BooleanTextConstants.ZERO.equals(text)
+                || BooleanTextConstants.NO.equals(text)) {
             return false;
         }
         return fallback;

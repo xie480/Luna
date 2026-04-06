@@ -6,18 +6,23 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.yilena.luna.constants.BooleanTextConstants;
+import org.yilena.luna.constants.JsonFieldConstants;
+import org.yilena.luna.constants.MessageConstants;
+import org.yilena.luna.constants.ResultStatusConstants;
 import org.yilena.luna.service.ApprovalService;
 
+import java.util.Locale;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/mcp/tools")
 @RequiredArgsConstructor
 @Tag(name = "MCP 审批管理", description = "处理敏感操作的人工审批回调")
-/**
- * ApprovalController ??
- */
 public class ApprovalController {
 
     private final ApprovalService approvalService;
@@ -26,29 +31,22 @@ public class ApprovalController {
     @PostMapping("/approval")
     @Operation(summary = "提交审批结果", description = "前端用户点击同意或拒绝后调用此接口")
     public ResponseEntity<Object> submitApproval(@RequestBody Map<String, Object> body) {
-        // 统一提取并规整审批任务 ID。
-        String taskId = body.get("taskId") == null ? null : String.valueOf(body.get("taskId")).trim();
-        // 兼容布尔值、数字和字符串等多种 approved 入参类型。
-        Boolean approved = parseApproved(body.get("approved"));
+        String taskId = body.get(JsonFieldConstants.TASK_ID) == null ? null : String.valueOf(body.get(JsonFieldConstants.TASK_ID)).trim();
+        Boolean approved = parseApproved(body.get(JsonFieldConstants.APPROVED));
 
-        // taskId/approved 缺失时直接返回 400，避免无效状态落库。
         if (taskId == null || taskId.isBlank() || approved == null) {
             return ResponseEntity.badRequest().body(Map.of(
-                    "status", "error",
-                    "message", "taskId and approved are required"
+                    JsonFieldConstants.STATUS, ResultStatusConstants.ERROR,
+                    JsonFieldConstants.MESSAGE, MessageConstants.APPROVAL_PARAMS_REQUIRED
             ));
         }
 
-        // 调用审批服务更新任务状态并触发后续流程。
         String result = approvalService.processApproval(taskId, approved);
-
         try {
-            // 服务层返回 JSON 字符串时转换成结构化对象回传前端。
             JsonNode node = objectMapper.readTree(result);
             return ResponseEntity.ok(node);
         } catch (Exception ignore) {
-            // 非 JSON 结果兜底按原文返回，避免响应丢失。
-            return ResponseEntity.ok(Map.of("raw", result));
+            return ResponseEntity.ok(Map.of(JsonFieldConstants.RAW, result));
         }
     }
 
@@ -61,20 +59,24 @@ public class ApprovalController {
         }
         if (approvedObj instanceof Number number) {
             int value = number.intValue();
-            if (value == 1) {
+            if (value == Integer.parseInt(BooleanTextConstants.ONE)) {
                 return true;
             }
-            if (value == 0) {
+            if (value == Integer.parseInt(BooleanTextConstants.ZERO)) {
                 return false;
             }
             return null;
         }
 
-        String text = String.valueOf(approvedObj).trim();
-        if ("true".equalsIgnoreCase(text) || "1".equals(text) || "yes".equalsIgnoreCase(text)) {
+        String text = String.valueOf(approvedObj).trim().toLowerCase(Locale.ROOT);
+        if (BooleanTextConstants.TRUE.equals(text)
+                || BooleanTextConstants.ONE.equals(text)
+                || BooleanTextConstants.YES.equals(text)) {
             return true;
         }
-        if ("false".equalsIgnoreCase(text) || "0".equals(text) || "no".equalsIgnoreCase(text)) {
+        if (BooleanTextConstants.FALSE.equals(text)
+                || BooleanTextConstants.ZERO.equals(text)
+                || BooleanTextConstants.NO.equals(text)) {
             return false;
         }
         return null;

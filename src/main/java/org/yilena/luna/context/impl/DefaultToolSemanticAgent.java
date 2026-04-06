@@ -4,11 +4,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.constants.JsonFieldConstants;
 import org.yilena.luna.context.ToolSemanticAgent;
 import org.yilena.luna.context.ToolSemanticSchemaProvider;
 import org.yilena.luna.context.model.ToolSemanticResult;
 import org.yilena.luna.enums.ModelType;
 import org.yilena.luna.enums.TaskRuntimeState;
+import org.yilena.luna.enums.ToolStatusEnum;
 import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
 import org.yilena.luna.llm.LlmResponse;
@@ -24,13 +26,15 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class DefaultToolSemanticAgent implements ToolSemanticAgent {
 
+    private static final String TOOL_STATUS_PROMPT_VALUES = String.join("|", ToolStatusEnum.codes());
+
     private static final String TOOL_SEMANTIC_PROMPT = """
             You are Tool Semantic Agent.
             Convert raw tool output into strict JSON:
             {
               "toolName":"...",
               "toolDescription":"...",
-              "toolStatus":"SUCCESS|PENDING|FAILED|UNKNOWN",
+              "toolStatus":"%s",
               "keyFacts":["..."],
               "businessImpact":"...",
               "unresolvedIssues":["..."],
@@ -43,7 +47,7 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
             taskState=%s
             currentNodeGoal=%s
             rawResult=%s
-            """;
+            """.formatted(TOOL_STATUS_PROMPT_VALUES);
 
     private final ObjectMapper objectMapper;
     private final LlmClientUtil llmClientUtil;
@@ -112,7 +116,7 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
                 errors.add("attempt_" + attempt + ":invalid_json");
                 return null;
             }
-            String status = normalizeStatus(node.path("toolStatus").asText(node.path("status").asText("UNKNOWN")));
+            String status = normalizeStatus(node.path("toolStatus").asText(node.path(JsonFieldConstants.STATUS).asText(ToolStatusEnum.UNKNOWN.getCode())));
             List<String> keyFacts = readStringArray(node.path("keyFacts"));
             List<String> unresolved = readStringArray(node.path("unresolvedIssues"));
             String impact = node.path("businessImpact").asText("");
@@ -125,7 +129,7 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
             }
 
             Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("status", status);
+            payload.put(JsonFieldConstants.STATUS, status);
             payload.put("keyFacts", keyFacts);
             payload.put("businessImpact", impact);
             payload.put("unresolvedIssues", unresolved);
@@ -171,20 +175,7 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
     }
 
     private String normalizeStatus(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return "UNKNOWN";
-        }
-        String upper = raw.trim().toUpperCase();
-        if ("SUCCESS".equals(upper) || "OK".equals(upper)) {
-            return "SUCCESS";
-        }
-        if ("PENDING".equals(upper) || "RUNNING".equals(upper)) {
-            return "PENDING";
-        }
-        if ("FAILED".equals(upper) || "ERROR".equals(upper)) {
-            return "FAILED";
-        }
-        return upper;
+        return ToolStatusEnum.fromRaw(raw).getCode();
     }
 
     private String resolveSmallAgentModel() {

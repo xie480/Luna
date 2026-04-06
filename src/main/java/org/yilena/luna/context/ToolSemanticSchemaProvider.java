@@ -1,9 +1,18 @@
 package org.yilena.luna.context;
 
 import org.springframework.stereotype.Component;
+import org.yilena.luna.enums.ToolStatusEnum;
+
+import java.util.Arrays;
+import java.util.stream.Collectors;
 
 @Component
 public class ToolSemanticSchemaProvider {
+
+    private static final String TOOL_STATUS_ENUM =
+            Arrays.stream(ToolStatusEnum.codes())
+                    .map(code -> "\"" + code + "\"")
+                    .collect(Collectors.joining(","));
 
     private static final String TOOL_SEMANTIC_SCHEMA = """
             {
@@ -21,7 +30,7 @@ public class ToolSemanticSchemaProvider {
               "properties":{
                 "toolStatus":{
                   "type":"string",
-                  "enum":["SUCCESS","PENDING","FAILED","UNKNOWN"]
+                  "enum":[%s]
                 },
                 "keyFacts":{
                   "type":"array",
@@ -37,7 +46,7 @@ public class ToolSemanticSchemaProvider {
                 "confidence":{"type":"number","minimum":0.0,"maximum":1.0}
               }
             }
-            """;
+            """.formatted(TOOL_STATUS_ENUM);
 
     public String toolSemanticSchema() {
         return TOOL_SEMANTIC_SCHEMA;

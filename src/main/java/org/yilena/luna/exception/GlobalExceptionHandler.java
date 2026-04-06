@@ -9,6 +9,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.util.ContentCachingRequestWrapper;
+import org.yilena.luna.constants.JsonFieldConstants;
+import org.yilena.luna.constants.MessageConstants;
+import org.yilena.luna.constants.ResultStatusConstants;
 import org.yilena.luna.exception.impl.AuthException;
 import org.yilena.luna.exception.impl.NeedApprovalException;
 import org.yilena.luna.service.ExceptionRetryService;
@@ -17,14 +20,12 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Map;
 
-/**
- * 全局异常处理器
- * 捕获系统异常并转交给 AI Agent 进行分析与尝试修复
- */
 @Slf4j
 @RestControllerAdvice
 @RequiredArgsConstructor
 public class GlobalExceptionHandler {
+
+    private static final String STATUS_PENDING_APPROVAL = "pending_approval";
 
     private final ExceptionRetryService exceptionRetryService;
 
@@ -33,26 +34,22 @@ public class GlobalExceptionHandler {
         if (e instanceof AuthException) {
             log.warn("用户认证失败: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
-                    "status", "unauthorized",
-                    "message", e.getMessage() != null ? e.getMessage() : "未授权，请先登录"
+                    JsonFieldConstants.STATUS, ResultStatusConstants.UNAUTHORIZED,
+                    JsonFieldConstants.MESSAGE, e.getMessage() != null ? e.getMessage() : MessageConstants.UNAUTHORIZED_DEFAULT
             ));
-        } else if (e instanceof NeedApprovalException) {
-            // 审批中断，正常返回，告知前端等待审批
-            // 前端通过 SSE 接收审批弹窗，此处的 HTTP 返回值主要用于结束当前请求
+        } else if (e instanceof NeedApprovalException approvalException) {
             log.info("触发审批中断: {}", e.getMessage());
-            NeedApprovalException approvalException = (NeedApprovalException) e;
             String taskId = approvalException.getApprovalTask() == null ? "" : approvalException.getApprovalTask().getTaskId();
             return ResponseEntity.ok(Map.of(
-                    "status", "pending_approval",
-                    "message", "操作需要审批，请在前端确认",
-                    "taskId", taskId
+                    JsonFieldConstants.STATUS, STATUS_PENDING_APPROVAL,
+                    JsonFieldConstants.MESSAGE, MessageConstants.APPROVAL_REQUIRED,
+                    JsonFieldConstants.TASK_ID, taskId
             ));
         }
 
         log.error("捕获全局异常: {}", e.getMessage(), e);
 
-        // 尝试获取用户输入的 Body 内容
-        String userInput = "无法获取";
+        String userInput = MessageConstants.UNKNOWN_INPUT;
         if (request instanceof ContentCachingRequestWrapper wrapper) {
             byte[] buf = wrapper.getContentAsByteArray();
             if (buf.length > 0) {
@@ -64,14 +61,13 @@ public class GlobalExceptionHandler {
                     userInput = new String(buf, encoding);
                 } catch (Exception ex) {
                     log.warn("解析请求体失败: {}", ex.getMessage());
-                    userInput = "解析失败";
+                    userInput = MessageConstants.REQUEST_BODY_PARSE_FAILED;
                 }
             } else {
-                userInput = "Body为空或未被读取";
+                userInput = MessageConstants.REQUEST_BODY_EMPTY;
             }
         }
 
-        // 1. 构建异常上下文
         LunaExceptionContext context = LunaExceptionContext.builder()
                 .errorType(e.getClass().getSimpleName())
                 .errorMessage(e.getMessage())
@@ -81,10 +77,9 @@ public class GlobalExceptionHandler {
                 .requestParams(request.getParameterMap())
                 .userInput(userInput)
                 .timestamp(LocalDateTime.now())
-                .retryCount(0) // 初始重试次数
+                .retryCount(0)
                 .build();
 
-        // 2. 调用 AI 修复服务
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(exceptionRetryService.handleException(context));
     }
 }

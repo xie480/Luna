@@ -7,6 +7,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.constants.ApprovalConstants;
+import org.yilena.luna.constants.JsonFieldConstants;
+import org.yilena.luna.constants.ResultStatusConstants;
 import org.yilena.luna.context.model.ContextNodeTemplatePolicy;
 import org.yilena.luna.context.model.ContextRerankResult;
 import org.yilena.luna.context.model.EvidenceBlock;
@@ -17,6 +20,7 @@ import org.yilena.luna.entity.ChatMessage;
 import org.yilena.luna.entity.McpToolCallResult;
 import org.yilena.luna.entity.Resource;
 import org.yilena.luna.entity.ToolCallingContext;
+import org.yilena.luna.enums.ApprovalTaskStatusEnum;
 import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.exception.impl.NeedApprovalException;
 import org.yilena.luna.memory.EventIngressService;
@@ -61,14 +65,6 @@ import java.util.concurrent.TimeUnit;
 @RequiredArgsConstructor
 public class ApprovalServiceImpl implements ApprovalService {
 
-    private static final String REDIS_PREFIX = "luna:approval:";
-    private static final long EXPIRE_MINUTES = 10;
-    private static final String STATUS_PENDING_APPROVAL = "PENDING_APPROVAL";
-    private static final String STATUS_RUNNING = "RUNNING";
-    private static final String STATUS_COMPLETED = "COMPLETED";
-    private static final String STATUS_REJECTED = "REJECTED";
-    private static final String STATUS_FAILED = "FAILED";
-
     private final RedisTemplate<String, Object> redisTemplate;
     private final JdbcTemplate jdbcTemplate;
     private final McpService mcpService;
@@ -96,7 +92,7 @@ public class ApprovalServiceImpl implements ApprovalService {
                 .taskId(taskId)
                 .sessionId(sessionId)
                 .resourceId(parseLong(resource == null ? null : resource.getId()))
-                .status(STATUS_PENDING_APPROVAL)
+                .status(ApprovalTaskStatusEnum.PENDING_APPROVAL.getCode())
                 .skillName(resource == null ? "" : resource.getName())
                 .serverCode(resource == null ? "" : resource.getServerCode())
                 .toolName(resource == null ? "" : resource.getName())
@@ -113,9 +109,13 @@ public class ApprovalServiceImpl implements ApprovalService {
 
         persistPendingApprovalTask(task);
         writeRecoveryStateOnInterrupt(sessionId, taskId, resource);
-        redisTemplate.opsForValue().set(REDIS_PREFIX + taskId, task, EXPIRE_MINUTES, TimeUnit.MINUTES);
-        sseSessionManager.send(LunaStatusPublisher.DEFAULT_CLIENT_ID, "APPROVAL_REQUEST", task);
-        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "PENDING_APPROVAL", "Approval required.");
+        redisTemplate.opsForValue().set(ApprovalConstants.REDIS_PREFIX + taskId, task, ApprovalConstants.EXPIRE_MINUTES, TimeUnit.MINUTES);
+        sseSessionManager.send(LunaStatusPublisher.DEFAULT_CLIENT_ID, ApprovalConstants.EVENT_APPROVAL_REQUEST, task);
+        statusPublisher.publish(
+                LunaStatusPublisher.DEFAULT_CLIENT_ID,
+                ApprovalTaskStatusEnum.PENDING_APPROVAL.getCode(),
+                ApprovalConstants.MESSAGE_APPROVAL_REQUIRED
+        );
         throw new NeedApprovalException(task);
     }
 
@@ -124,31 +124,39 @@ public class ApprovalServiceImpl implements ApprovalService {
         ApprovalTask task = loadApprovalTask(taskId);
         if (task == null) {
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "IDLE", "");
-            return errorJson("approval task not found or expired");
+            return errorJson(ApprovalConstants.MESSAGE_APPROVAL_TASK_NOT_FOUND);
         }
         if (task.getSessionId() != null && !task.getSessionId().isBlank()) {
-            eventIngressService.ingestApproval(task.getSessionId(), Map.of("taskId", taskId, "approved", approved));
+            eventIngressService.ingestApproval(task.getSessionId(), Map.of(
+                    JsonFieldConstants.TASK_ID, taskId,
+                    JsonFieldConstants.APPROVED, approved
+            ));
         }
 
         String resultJson;
         if (approved) {
-            updateTaskStatus(taskId, STATUS_RUNNING, null, null);
-            statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "THINKING", "Running approved tool...");
+            updateTaskStatus(taskId, ApprovalTaskStatusEnum.RUNNING.getCode(), null, null);
+            statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "THINKING", ApprovalConstants.MESSAGE_RUNNING_APPROVED_TOOL);
             String toolResult = executeApprovedTool(task);
             boolean toolFailed = isErrorToolResult(toolResult);
             resultJson = continueChatAfterToolDecision(task, toolResult, true);
-            updateTaskStatus(taskId, toolFailed ? STATUS_FAILED : STATUS_COMPLETED, resultJson, toolFailed ? "TOOL_EXECUTION_FAILED" : null);
+            updateTaskStatus(
+                    taskId,
+                    toolFailed ? ApprovalTaskStatusEnum.FAILED.getCode() : ApprovalTaskStatusEnum.COMPLETED.getCode(),
+                    resultJson,
+                    toolFailed ? ApprovalConstants.ERROR_TOOL_EXECUTION_FAILED : null
+            );
         } else {
-            statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "THINKING", "Approval rejected, continue without tool.");
+            statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "THINKING", ApprovalConstants.MESSAGE_REJECTED_CONTINUE);
             resultJson = continueChatAfterToolDecision(task, null, false);
-            updateTaskStatus(taskId, STATUS_REJECTED, resultJson, "USER_REJECTED");
+            updateTaskStatus(taskId, ApprovalTaskStatusEnum.REJECTED.getCode(), resultJson, ApprovalConstants.ERROR_USER_REJECTED);
         }
 
-        redisTemplate.delete(REDIS_PREFIX + taskId);
-        sseSessionManager.send(LunaStatusPublisher.DEFAULT_CLIENT_ID, "APPROVAL_RESULT", Map.of(
-                "taskId", taskId,
-                "approved", approved,
-                "result", safeToJsonNode(resultJson) != null ? safeToJsonNode(resultJson) : resultJson
+        redisTemplate.delete(ApprovalConstants.REDIS_PREFIX + taskId);
+        sseSessionManager.send(LunaStatusPublisher.DEFAULT_CLIENT_ID, ApprovalConstants.EVENT_APPROVAL_RESULT, Map.of(
+                JsonFieldConstants.TASK_ID, taskId,
+                JsonFieldConstants.APPROVED, approved,
+                JsonFieldConstants.RESULT, safeToJsonNode(resultJson) != null ? safeToJsonNode(resultJson) : resultJson
         ));
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "IDLE", "");
         return resultJson;
@@ -160,22 +168,24 @@ public class ApprovalServiceImpl implements ApprovalService {
             toolName = task.getSkillName();
         }
         if (toolName == null || toolName.isBlank()) {
-            updateTaskStatus(task.getTaskId(), STATUS_FAILED, null, "APPROVAL_TOOL_NAME_MISSING");
-            return errorJson("approval task missing tool name");
+            updateTaskStatus(task.getTaskId(), ApprovalTaskStatusEnum.FAILED.getCode(), null, ApprovalConstants.ERROR_APPROVAL_TOOL_NAME_MISSING);
+            return errorJson(ApprovalConstants.MESSAGE_MISSING_TOOL_NAME);
         }
         try {
             McpToolCallResult result = mcpService.callTool(task.getServerCode(), toolName, task.getArgsJson());
             if (result == null) {
-                updateTaskStatus(task.getTaskId(), STATUS_FAILED, null, "TOOL_EXECUTION_NULL");
-                return errorJson("tool execution returned null");
+                updateTaskStatus(task.getTaskId(), ApprovalTaskStatusEnum.FAILED.getCode(), null, ApprovalConstants.ERROR_TOOL_EXECUTION_NULL);
+                return errorJson(ApprovalConstants.MESSAGE_TOOL_NULL);
             }
             if (result.getRawResult() != null && !result.getRawResult().isBlank()) {
                 return result.getRawResult();
             }
-            return objectMapper.writeValueAsString(result.getData() == null ? Map.of("status", "success") : result.getData());
+            return objectMapper.writeValueAsString(result.getData() == null
+                    ? Map.of(JsonFieldConstants.STATUS, ResultStatusConstants.SUCCESS)
+                    : result.getData());
         } catch (Exception e) {
-            updateTaskStatus(task.getTaskId(), STATUS_FAILED, null, "TOOL_EXECUTION_FAILED");
-            return errorJson("approval execute tool failed: " + e.getMessage());
+            updateTaskStatus(task.getTaskId(), ApprovalTaskStatusEnum.FAILED.getCode(), null, ApprovalConstants.ERROR_TOOL_EXECUTION_FAILED);
+            return errorJson(ApprovalConstants.MESSAGE_EXECUTE_TOOL_FAILED_PREFIX + e.getMessage());
         }
     }
 
@@ -202,7 +212,7 @@ public class ApprovalServiceImpl implements ApprovalService {
                     """,
                     Long.parseLong(task.getTaskId()),
                     task.getResourceId(),
-                    STATUS_PENDING_APPROVAL,
+                    ApprovalTaskStatusEnum.PENDING_APPROVAL.getCode(),
                     task.getServerCode(),
                     task.getToolName(),
                     task.getTaskId(),
@@ -250,7 +260,7 @@ public class ApprovalServiceImpl implements ApprovalService {
     }
 
     private ApprovalTask loadApprovalTask(String taskId) {
-        ApprovalTask cached = (ApprovalTask) redisTemplate.opsForValue().get(REDIS_PREFIX + taskId);
+        ApprovalTask cached = (ApprovalTask) redisTemplate.opsForValue().get(ApprovalConstants.REDIS_PREFIX + taskId);
         if (cached != null) {
             return cached;
         }
@@ -343,14 +353,15 @@ public class ApprovalServiceImpl implements ApprovalService {
         if (node == null) {
             return false;
         }
-        String status = node.path("status").asText("");
-        return "error".equalsIgnoreCase(status) || "failed".equalsIgnoreCase(status);
+        String status = node.path(JsonFieldConstants.STATUS).asText("");
+        return ResultStatusConstants.ERROR.equalsIgnoreCase(status)
+                || ApprovalTaskStatusEnum.FAILED.getCode().equalsIgnoreCase(status);
     }
 
     private String continueChatAfterToolDecision(ApprovalTask task, String toolContext, boolean approved) {
         if (!canContinueChat(task)) {
             if (!approved) {
-                return errorJson("User denied the operation.");
+                return errorJson(ApprovalConstants.MESSAGE_USER_DENIED_OPERATION);
             }
             return wrapToolResultAsReply(toolContext);
         }
@@ -444,7 +455,7 @@ public class ApprovalServiceImpl implements ApprovalService {
             );
             MainModelOrchestrationResult modelResult = roundPipelineResult == null ? null : roundPipelineResult.getMainModelResult();
             if (roundPipelineResult == null || roundPipelineResult.isBlocked() || modelResult == null || modelResult.isBlocked()) {
-                return errorJson("context governance blocked: final governed workset is empty");
+                return errorJson(ApprovalConstants.MESSAGE_GOVERNANCE_BLOCKED);
             }
             memoryWritePipelineService.writeAfterTurn(
                     task.getSessionId(),
@@ -788,10 +799,10 @@ public class ApprovalServiceImpl implements ApprovalService {
             String replyText = "Operation finished.";
             JsonNode toolNode = safeToJsonNode(toolResult);
             if (toolNode != null) {
-                if (toolNode.has("message")) {
-                    replyText = toolNode.get("message").asText(replyText);
-                } else if (toolNode.has("data")) {
-                    replyText = "Operation finished: " + toolNode.get("data");
+                if (toolNode.has(JsonFieldConstants.MESSAGE)) {
+                    replyText = toolNode.get(JsonFieldConstants.MESSAGE).asText(replyText);
+                } else if (toolNode.has(JsonFieldConstants.DATA)) {
+                    replyText = "Operation finished: " + toolNode.get(JsonFieldConstants.DATA);
                 } else {
                     replyText = "Operation finished: " + toolNode;
                 }
@@ -818,8 +829,8 @@ public class ApprovalServiceImpl implements ApprovalService {
     private String errorJson(String msg) {
         try {
             return objectMapper.writeValueAsString(Map.of(
-                    "status", "error",
-                    "message", msg,
+                    JsonFieldConstants.STATUS, ResultStatusConstants.ERROR,
+                    JsonFieldConstants.MESSAGE, msg,
                     "emotion", "Solemn",
                     "reply", "Operation failed: " + msg
             ));

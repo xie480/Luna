@@ -5,6 +5,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.yilena.luna.constants.BooleanTextConstants;
+import org.yilena.luna.constants.JsonFieldConstants;
+import org.yilena.luna.constants.LocalToolConstants;
+import org.yilena.luna.constants.McpProtocolConstants;
+import org.yilena.luna.constants.ResultStatusConstants;
 import org.yilena.luna.tools.KnowledgeBaseTools;
 import org.yilena.luna.tools.LogTools;
 import org.yilena.luna.tools.MemoryTools;
@@ -23,15 +28,15 @@ import java.util.Set;
 public class CoreToolLocalMcpToolHandler implements LocalMcpToolHandler {
 
     private static final Set<String> CORE_TOOLS = Set.of(
-            "manage_memory",
-            "manage_schedule_task",
-            "manage_knowledge_base",
-            "manage_log",
-            "web_search",
-            "image_search",
-            "news_search",
-            "lens_search",
-            "web_scrape"
+            LocalToolConstants.TOOL_MANAGE_MEMORY,
+            LocalToolConstants.TOOL_MANAGE_SCHEDULE_TASK,
+            LocalToolConstants.TOOL_MANAGE_KNOWLEDGE_BASE,
+            LocalToolConstants.TOOL_MANAGE_LOG,
+            LocalToolConstants.TOOL_WEB_SEARCH,
+            LocalToolConstants.TOOL_IMAGE_SEARCH,
+            LocalToolConstants.TOOL_NEWS_SEARCH,
+            LocalToolConstants.TOOL_LENS_SEARCH,
+            LocalToolConstants.TOOL_WEB_SCRAPE
     );
 
     private final MemoryTools memoryTools;
@@ -43,12 +48,12 @@ public class CoreToolLocalMcpToolHandler implements LocalMcpToolHandler {
 
     @Override
     public String toolName() {
-        return "manage_memory";
+        return LocalToolConstants.TOOL_MANAGE_MEMORY;
     }
 
     @Override
     public List<String> aliases() {
-        return CORE_TOOLS.stream().filter(name -> !"manage_memory".equals(name)).toList();
+        return CORE_TOOLS.stream().filter(name -> !LocalToolConstants.TOOL_MANAGE_MEMORY.equals(name)).toList();
     }
 
     @Override
@@ -56,7 +61,7 @@ public class CoreToolLocalMcpToolHandler implements LocalMcpToolHandler {
         if (context == null) {
             return false;
         }
-        if (!"LOCAL_HANDLER".equalsIgnoreCase(text(context.implType()))) {
+        if (!LocalToolConstants.IMPL_TYPE_LOCAL_HANDLER.equalsIgnoreCase(text(context.implType()))) {
             return false;
         }
         return CORE_TOOLS.contains(normalize(context.toolName()));
@@ -66,9 +71,9 @@ public class CoreToolLocalMcpToolHandler implements LocalMcpToolHandler {
     public String handle(InvocationContext context) {
         try {
             String tool = normalize(context == null ? null : context.toolName());
-            Map<String, Object> args = parseArgs(context == null ? "{}" : context.argumentsJson());
+            Map<String, Object> args = parseArgs(context == null ? McpProtocolConstants.DEFAULT_ARGUMENTS_JSON : context.argumentsJson());
             return switch (tool) {
-                case "manage_memory" -> memoryTools.manageMemory(
+                case LocalToolConstants.TOOL_MANAGE_MEMORY -> memoryTools.manageMemory(
                         stringArg(args, "action"),
                         longArg(args, "id"),
                         stringArg(args, "sessionId"),
@@ -79,7 +84,7 @@ public class CoreToolLocalMcpToolHandler implements LocalMcpToolHandler {
                         stringArg(args, "content"),
                         boolArg(args, "hardDelete")
                 );
-                case "manage_schedule_task" -> scheduleTools.manageScheduleTask(
+                case LocalToolConstants.TOOL_MANAGE_SCHEDULE_TASK -> scheduleTools.manageScheduleTask(
                         stringArg(args, "action"),
                         longArg(args, "id"),
                         stringArg(args, "mode"),
@@ -89,7 +94,7 @@ public class CoreToolLocalMcpToolHandler implements LocalMcpToolHandler {
                         stringArg(args, "taskType"),
                         boolArg(args, "hardDelete")
                 );
-                case "manage_knowledge_base" -> knowledgeBaseTools.manageKnowledgeBase(
+                case LocalToolConstants.TOOL_MANAGE_KNOWLEDGE_BASE -> knowledgeBaseTools.manageKnowledgeBase(
                         stringArg(args, "action"),
                         stringArg(args, "title"),
                         stringArg(args, "content"),
@@ -97,7 +102,7 @@ public class CoreToolLocalMcpToolHandler implements LocalMcpToolHandler {
                         stringArg(args, "sourcePath"),
                         stringArg(args, "query")
                 );
-                case "manage_log" -> logTools.manageLog(
+                case LocalToolConstants.TOOL_MANAGE_LOG -> logTools.manageLog(
                         stringArg(args, "action"),
                         stringArg(args, "logType"),
                         stringArg(args, "module"),
@@ -108,11 +113,11 @@ public class CoreToolLocalMcpToolHandler implements LocalMcpToolHandler {
                         longArg(args, "id"),
                         stringArg(args, "beforeTime")
                 );
-                case "web_search" -> searchTools.web_search(stringArg(args, "query"));
-                case "image_search" -> searchTools.image_search(stringArg(args, "query"));
-                case "news_search" -> searchTools.news_search(stringArg(args, "query"));
-                case "lens_search" -> searchTools.lens_search(stringArg(args, "url"));
-                case "web_scrape" -> searchTools.web_scrape(stringArg(args, "url"));
+                case LocalToolConstants.TOOL_WEB_SEARCH -> searchTools.web_search(stringArg(args, "query"));
+                case LocalToolConstants.TOOL_IMAGE_SEARCH -> searchTools.image_search(stringArg(args, "query"));
+                case LocalToolConstants.TOOL_NEWS_SEARCH -> searchTools.news_search(stringArg(args, "query"));
+                case LocalToolConstants.TOOL_LENS_SEARCH -> searchTools.lens_search(stringArg(args, "url"));
+                case LocalToolConstants.TOOL_WEB_SCRAPE -> searchTools.web_scrape(stringArg(args, "url"));
                 default -> error("TOOL_LOCAL_HANDLER_NOT_SUPPORTED", "Unsupported core local tool: " + tool);
             };
         } catch (Exception e) {
@@ -187,10 +192,14 @@ public class CoreToolLocalMcpToolHandler implements LocalMcpToolHandler {
             return b;
         }
         String text = String.valueOf(value).trim().toLowerCase(Locale.ROOT);
-        if ("true".equals(text) || "1".equals(text) || "yes".equals(text)) {
+        if (BooleanTextConstants.TRUE.equals(text)
+                || BooleanTextConstants.ONE.equals(text)
+                || BooleanTextConstants.YES.equals(text)) {
             return true;
         }
-        if ("false".equals(text) || "0".equals(text) || "no".equals(text)) {
+        if (BooleanTextConstants.FALSE.equals(text)
+                || BooleanTextConstants.ZERO.equals(text)
+                || BooleanTextConstants.NO.equals(text)) {
             return false;
         }
         return null;
@@ -198,13 +207,13 @@ public class CoreToolLocalMcpToolHandler implements LocalMcpToolHandler {
 
     private String error(String code, String message) {
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("status", "error");
-        payload.put("errorCode", code);
-        payload.put("message", message == null ? "" : message);
+        payload.put(JsonFieldConstants.STATUS, ResultStatusConstants.ERROR);
+        payload.put(JsonFieldConstants.ERROR_CODE, code);
+        payload.put(JsonFieldConstants.MESSAGE, message == null ? "" : message);
         try {
             return objectMapper.writeValueAsString(payload);
         } catch (Exception e) {
-            return "{\"status\":\"error\",\"errorCode\":\"TOOL_SERIALIZE_ERROR\"}";
+            return LocalToolConstants.STATUS_ERROR_JSON;
         }
     }
 

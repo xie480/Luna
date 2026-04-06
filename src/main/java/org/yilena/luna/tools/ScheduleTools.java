@@ -7,11 +7,14 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.LunaState;
+import org.yilena.luna.constants.DateTimeConstant;
 import org.yilena.luna.constants.LogActionConstant;
 import org.yilena.luna.constants.LogModuleConstant;
 import org.yilena.luna.constants.LunaStateConstant;
 import org.yilena.luna.entity.ScheduleTask;
 import org.yilena.luna.enums.LogType;
+import org.yilena.luna.enums.ScheduleActionEnum;
+import org.yilena.luna.enums.ScheduleUpdateModeEnum;
 import org.yilena.luna.enums.TaskStatus;
 import org.yilena.luna.enums.TaskType;
 import org.yilena.luna.mapper.ScheduleTaskMapper;
@@ -20,15 +23,15 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.Arrays;
+import java.util.Locale;
 
 @Component
-/**
- * ScheduleTools ??
- */
 public class ScheduleTools extends BaseTool {
 
     private final ScheduleTaskMapper scheduleTaskMapper;
-    private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    private static final DateTimeFormatter DATE_TIME_FORMATTER =
+            DateTimeFormatter.ofPattern(DateTimeConstant.FORMAT_YYYYMMDDHHMMSS);
 
     public ScheduleTools(ObjectMapper objectMapper, ScheduleTaskMapper scheduleTaskMapper) {
         super(objectMapper);
@@ -47,64 +50,98 @@ public class ScheduleTools extends BaseTool {
             @RequestParam(value = "taskType", required = false) String taskType,
             @RequestParam(value = "hardDelete", required = false) Boolean hardDelete) {
         try {
-            if ("INSERT".equalsIgnoreCase(action)) {
-                if (content == null || triggerTime == null || status == null || taskType == null) {
-                    return error("INSERT 必须提供 content, triggerTime, status, taskType");
-                }
-                ScheduleTask task = ScheduleTask.builder()
-                        .content(content)
-                        .triggerTime(LocalDateTime.parse(triggerTime, DATE_TIME_FORMATTER))
-                        .status(TaskStatus.valueOf(status.toUpperCase()))
-                        .taskType(TaskType.valueOf(taskType.toUpperCase()))
-                        .build();
-                scheduleTaskMapper.insert(task);
-                return success(scheduleTaskMapper.selectById(task.getId()));
-            } else if ("QUERY".equalsIgnoreCase(action)) {
-                LambdaQueryWrapper<ScheduleTask> wrapper = new LambdaQueryWrapper<>();
-                if (status != null) wrapper.eq(ScheduleTask::getStatus, TaskStatus.valueOf(status.toUpperCase()));
-                return success(scheduleTaskMapper.selectList(wrapper));
-            } else if ("UPDATE".equalsIgnoreCase(action)) {
-                if (id == null || mode == null) return error("UPDATE 必须提供 id 和 mode");
-                ScheduleTask existing = scheduleTaskMapper.selectById(id);
-                if (existing == null) return error("未找到 id=" + id + " 的记录");
-
-                if ("PUT".equalsIgnoreCase(mode)) {
-                    existing.setContent(content);
-                    existing.setTriggerTime(triggerTime != null ? LocalDateTime.parse(triggerTime, DATE_TIME_FORMATTER) : null);
-                    existing.setStatus(status != null ? TaskStatus.valueOf(status.toUpperCase()) : null);
-                    existing.setTaskType(taskType != null ? TaskType.valueOf(taskType.toUpperCase()) : null);
-                } else if ("PATCH".equalsIgnoreCase(mode)) {
-                    if (content != null) existing.setContent(content);
-                    if (triggerTime != null) existing.setTriggerTime(LocalDateTime.parse(triggerTime, DATE_TIME_FORMATTER));
-                    if (status != null) existing.setStatus(TaskStatus.valueOf(status.toUpperCase()));
-                    if (taskType != null) existing.setTaskType(TaskType.valueOf(taskType.toUpperCase()));
-                } else {
-                    return error("未知的 mode: " + mode + "，仅支持 PUT 或 PATCH");
-                }
-                scheduleTaskMapper.updateById(existing);
-                return success(scheduleTaskMapper.selectById(id));
-            } else if ("DELETE".equalsIgnoreCase(action)) {
-                if (id == null) return error("DELETE 必须提供 id");
-                if (Boolean.TRUE.equals(hardDelete)) {
-                    SqlRunner.db().delete("DELETE FROM schedule_task WHERE id = {0}", id);
-                    return success("已执行物理删除 id=" + id);
-                } else {
-                    scheduleTaskMapper.deleteById(id);
-                    return success("已执行逻辑删除 id=" + id);
-                }
-            }
-            return error("未知的 action: " + action);
+            ScheduleActionEnum actionEnum = ScheduleActionEnum.fromCode(action);
+            return switch (actionEnum) {
+                case INSERT -> insertTask(content, triggerTime, status, taskType);
+                case QUERY -> queryTask(status);
+                case UPDATE -> updateTask(id, mode, content, triggerTime, status, taskType);
+                case DELETE -> deleteTask(id, hardDelete);
+            };
         } catch (IllegalArgumentException e) {
-            // 专门捕获枚举解析错误，提示正确的值
             if (e.getMessage() != null && e.getMessage().contains("No enum constant")) {
-                return error("枚举值无效。TaskStatus 可选值: " + Arrays.toString(TaskStatus.values()) +
-                        ", TaskType 可选值: " + Arrays.toString(TaskType.values()));
+                return error("枚举值无效。TaskStatus 可选: " + Arrays.toString(TaskStatus.values())
+                        + ", TaskType 可选: " + Arrays.toString(TaskType.values()));
             }
             return error("参数错误: " + e.getMessage());
         } catch (DateTimeParseException e) {
-            return error("时间格式错误，请使用 'yyyy-MM-dd HH:mm:ss'。输入值为: " + triggerTime);
+            return error("时间格式错误，请使用 '" + DateTimeConstant.FORMAT_YYYYMMDDHHMMSS + "'。输入值: " + triggerTime);
         } catch (Exception e) {
             return error("操作异常: " + e.getMessage());
         }
+    }
+
+    private String insertTask(String content, String triggerTime, String status, String taskType) {
+        if (content == null || triggerTime == null || status == null || taskType == null) {
+            return error("INSERT 必须提供 content, triggerTime, status, taskType");
+        }
+        ScheduleTask task = ScheduleTask.builder()
+                .content(content)
+                .triggerTime(LocalDateTime.parse(triggerTime, DATE_TIME_FORMATTER))
+                .status(TaskStatus.valueOf(status.toUpperCase(Locale.ROOT)))
+                .taskType(TaskType.valueOf(taskType.toUpperCase(Locale.ROOT)))
+                .build();
+        scheduleTaskMapper.insert(task);
+        return success(scheduleTaskMapper.selectById(task.getId()));
+    }
+
+    private String queryTask(String status) {
+        LambdaQueryWrapper<ScheduleTask> wrapper = new LambdaQueryWrapper<>();
+        if (status != null) {
+            wrapper.eq(ScheduleTask::getStatus, TaskStatus.valueOf(status.toUpperCase(Locale.ROOT)));
+        }
+        return success(scheduleTaskMapper.selectList(wrapper));
+    }
+
+    private String updateTask(Long id,
+                              String mode,
+                              String content,
+                              String triggerTime,
+                              String status,
+                              String taskType) {
+        if (id == null || mode == null) {
+            return error("UPDATE 必须提供 id 和 mode");
+        }
+        ScheduleTask existing = scheduleTaskMapper.selectById(id);
+        if (existing == null) {
+            return error("未找到 id=" + id + " 的记录");
+        }
+
+        ScheduleUpdateModeEnum updateMode = ScheduleUpdateModeEnum.fromCode(mode);
+        switch (updateMode) {
+            case PUT -> {
+                existing.setContent(content);
+                existing.setTriggerTime(triggerTime != null ? LocalDateTime.parse(triggerTime, DATE_TIME_FORMATTER) : null);
+                existing.setStatus(status != null ? TaskStatus.valueOf(status.toUpperCase(Locale.ROOT)) : null);
+                existing.setTaskType(taskType != null ? TaskType.valueOf(taskType.toUpperCase(Locale.ROOT)) : null);
+            }
+            case PATCH -> {
+                if (content != null) {
+                    existing.setContent(content);
+                }
+                if (triggerTime != null) {
+                    existing.setTriggerTime(LocalDateTime.parse(triggerTime, DATE_TIME_FORMATTER));
+                }
+                if (status != null) {
+                    existing.setStatus(TaskStatus.valueOf(status.toUpperCase(Locale.ROOT)));
+                }
+                if (taskType != null) {
+                    existing.setTaskType(TaskType.valueOf(taskType.toUpperCase(Locale.ROOT)));
+                }
+            }
+        }
+        scheduleTaskMapper.updateById(existing);
+        return success(scheduleTaskMapper.selectById(id));
+    }
+
+    private String deleteTask(Long id, Boolean hardDelete) {
+        if (id == null) {
+            return error("DELETE 必须提供 id");
+        }
+        if (Boolean.TRUE.equals(hardDelete)) {
+            SqlRunner.db().delete("DELETE FROM schedule_task WHERE id = {0}", id);
+            return success("已执行物理删除 id=" + id);
+        }
+        scheduleTaskMapper.deleteById(id);
+        return success("已执行逻辑删除 id=" + id);
     }
 }

@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.constants.AuthConstants;
+import org.yilena.luna.constants.HttpConstants;
 import org.yilena.luna.exception.impl.AuthException;
 import org.yilena.luna.properties.AuthProperty;
 import org.yilena.luna.service.AuthService;
@@ -218,8 +220,8 @@ public class AuthServiceImpl implements AuthService {
     private String normalizeToken(String token) {
         if (token == null) return null;
         String t = token.trim();
-        if (t.regionMatches(true, 0, "Bearer ", 0, 7)) {
-            t = t.substring(7).trim();
+        if (t.regionMatches(true, 0, HttpConstants.BEARER_PREFIX, 0, HttpConstants.BEARER_PREFIX.length())) {
+            t = t.substring(HttpConstants.BEARER_PREFIX.length()).trim();
         }
         return t;
     }
@@ -228,7 +230,7 @@ public class AuthServiceImpl implements AuthService {
         String secret = authProperty.getJwtSecret();
         if (secret == null || secret.isBlank()) {
             // 未配置密钥时使用默认值并明确告警。
-            secret = "change-me-in-production";
+            secret = AuthConstants.DEFAULT_JWT_SECRET;
             log.warn("auth.jwt-secret 未配置，当前使用默认值，存在安全风险");
         }
 

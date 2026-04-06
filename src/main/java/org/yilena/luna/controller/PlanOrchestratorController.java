@@ -7,7 +7,14 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.yilena.luna.constants.JsonFieldConstants;
+import org.yilena.luna.constants.ResultStatusConstants;
 import org.yilena.luna.entity.query.PlanFinalizeRequest;
 import org.yilena.luna.entity.query.PlanPhaseRunRequest;
 import org.yilena.luna.entity.query.PlanRunRequest;
@@ -17,8 +24,7 @@ import org.yilena.luna.utils.AuthContextHolder;
 import java.util.Map;
 
 /**
- * OpenClaw 计划编排控制器（MVP）
- * 对外暴露统一入口，便于前端和测试联调。
+ * OpenClaw plan orchestration controller.
  */
 @Slf4j
 @RestController
@@ -26,6 +32,15 @@ import java.util.Map;
 @RequiredArgsConstructor
 @Tag(name = "OpenClaw计划编排接口")
 public class PlanOrchestratorController {
+
+    private static final String KEY_ERROR_CODE = "errorCode";
+    private static final String PLAN_DEFAULT_SESSION_ID = "plan-default-session";
+
+    private static final String ERROR_INVALID_REQUEST = "INVALID_REQUEST";
+    private static final String ERROR_PLAN_RUN_FAILED = "PLAN_RUN_FAILED";
+    private static final String ERROR_PLAN_PHASE_RUN_FAILED = "PLAN_PHASE_RUN_FAILED";
+    private static final String ERROR_PLAN_FINALIZE_FAILED = "PLAN_FINALIZE_FAILED";
+    private static final String ERROR_PLAN_GRAPH_FAILED = "PLAN_GRAPH_FAILED";
 
     private final PlanOrchestratorService planOrchestratorService;
     private final ObjectMapper objectMapper;
@@ -35,28 +50,20 @@ public class PlanOrchestratorController {
     public ResponseEntity<Object> run(@RequestBody PlanRunRequest req) {
         try {
             if (req == null || req.getUserGoal() == null || req.getUserGoal().isBlank()) {
-                return ResponseEntity.badRequest().body(Map.of(
-                        "status", "error",
-                        "errorCode", "INVALID_REQUEST",
-                        "message", "userGoal 不能为空"
-                ));
+                return badRequest("userGoal 不能为空");
             }
 
             String jwtJti = AuthContextHolder.getSessionId();
             String sessionId = (jwtJti != null && !jwtJti.isBlank())
                     ? jwtJti
-                    : ((req.getSessionId() == null || req.getSessionId().isBlank()) ? "plan-default-session" : req.getSessionId().trim());
+                    : ((req.getSessionId() == null || req.getSessionId().isBlank()) ? PLAN_DEFAULT_SESSION_ID : req.getSessionId().trim());
 
-            log.info("收到计划执行请求, sessionId={}, userGoal={}", sessionId, req.getUserGoal());
+            log.info("plan run request, sessionId={}, userGoal={}", sessionId, req.getUserGoal());
             String result = planOrchestratorService.createAndRunPlan(sessionId, req.getUserGoal().trim());
             return ResponseEntity.ok(parseOrRaw(result));
         } catch (Exception e) {
-            log.error("run 失败", e);
-            return ResponseEntity.internalServerError().body(Map.of(
-                    "status", "error",
-                    "errorCode", "PLAN_RUN_FAILED",
-                    "message", e.getMessage() == null ? "计划执行失败" : e.getMessage()
-            ));
+            log.error("run failed", e);
+            return serverError(ERROR_PLAN_RUN_FAILED, e.getMessage(), "计划执行失败");
         }
     }
 
@@ -65,23 +72,15 @@ public class PlanOrchestratorController {
     public ResponseEntity<Object> runPhase(@RequestBody PlanPhaseRunRequest req) {
         try {
             if (req == null || isBlank(req.getPlanId()) || isBlank(req.getPhaseId())) {
-                return ResponseEntity.badRequest().body(Map.of(
-                        "status", "error",
-                        "errorCode", "INVALID_REQUEST",
-                        "message", "planId 和 phaseId 不能为空"
-                ));
+                return badRequest("planId 和 phaseId 不能为空");
             }
 
-            log.info("收到阶段执行请求, planId={}, phaseId={}", req.getPlanId(), req.getPhaseId());
+            log.info("phase run request, planId={}, phaseId={}", req.getPlanId(), req.getPhaseId());
             String result = planOrchestratorService.runPhase(req.getPlanId().trim(), req.getPhaseId().trim());
             return ResponseEntity.ok(parseOrRaw(result));
         } catch (Exception e) {
-            log.error("runPhase 失败", e);
-            return ResponseEntity.internalServerError().body(Map.of(
-                    "status", "error",
-                    "errorCode", "PLAN_PHASE_RUN_FAILED",
-                    "message", e.getMessage() == null ? "阶段执行失败" : e.getMessage()
-            ));
+            log.error("runPhase failed", e);
+            return serverError(ERROR_PLAN_PHASE_RUN_FAILED, e.getMessage(), "阶段执行失败");
         }
     }
 
@@ -90,48 +89,48 @@ public class PlanOrchestratorController {
     public ResponseEntity<Object> finalizeReport(@RequestBody PlanFinalizeRequest req) {
         try {
             if (req == null || isBlank(req.getPlanId())) {
-                return ResponseEntity.badRequest().body(Map.of(
-                        "status", "error",
-                        "errorCode", "INVALID_REQUEST",
-                        "message", "planId 不能为空"
-                ));
+                return badRequest("planId 不能为空");
             }
 
-            log.info("收到计划收尾请求, planId={}", req.getPlanId());
+            log.info("finalize request, planId={}", req.getPlanId());
             String result = planOrchestratorService.finalizeAndReport(req.getPlanId().trim());
             return ResponseEntity.ok(parseOrRaw(result));
         } catch (Exception e) {
-            log.error("finalizeReport 失败", e);
-            return ResponseEntity.internalServerError().body(Map.of(
-                    "status", "error",
-                    "errorCode", "PLAN_FINALIZE_FAILED",
-                    "message", e.getMessage() == null ? "计划收尾失败" : e.getMessage()
-            ));
+            log.error("finalizeReport failed", e);
+            return serverError(ERROR_PLAN_FINALIZE_FAILED, e.getMessage(), "计划收尾失败");
         }
     }
 
     @GetMapping("/graph/{planId}")
-    @Operation(summary = "获取计划图谱快照")
+    @Operation(summary = "获取计划图快照")
     public ResponseEntity<Object> getPlanGraph(@PathVariable("planId") String planId) {
         try {
             if (isBlank(planId)) {
-                return ResponseEntity.badRequest().body(Map.of(
-                        "status", "error",
-                        "errorCode", "INVALID_REQUEST",
-                        "message", "planId 不能为空"
-                ));
+                return badRequest("planId 不能为空");
             }
 
             String result = planOrchestratorService.getPlanGraph(planId.trim());
             return ResponseEntity.ok(parseOrRaw(result));
         } catch (Exception e) {
-            log.error("getPlanGraph 失败", e);
-            return ResponseEntity.internalServerError().body(Map.of(
-                    "status", "error",
-                    "errorCode", "PLAN_GRAPH_FAILED",
-                    "message", e.getMessage() == null ? "获取计划图谱失败" : e.getMessage()
-            ));
+            log.error("getPlanGraph failed", e);
+            return serverError(ERROR_PLAN_GRAPH_FAILED, e.getMessage(), "获取计划图失败");
         }
+    }
+
+    private ResponseEntity<Object> badRequest(String message) {
+        return ResponseEntity.badRequest().body(Map.of(
+                JsonFieldConstants.STATUS, ResultStatusConstants.ERROR,
+                KEY_ERROR_CODE, ERROR_INVALID_REQUEST,
+                JsonFieldConstants.MESSAGE, message
+        ));
+    }
+
+    private ResponseEntity<Object> serverError(String errorCode, String message, String defaultMessage) {
+        return ResponseEntity.internalServerError().body(Map.of(
+                JsonFieldConstants.STATUS, ResultStatusConstants.ERROR,
+                KEY_ERROR_CODE, errorCode,
+                JsonFieldConstants.MESSAGE, message == null ? defaultMessage : message
+        ));
     }
 
     private Object parseOrRaw(String text) {
@@ -139,7 +138,10 @@ public class PlanOrchestratorController {
             JsonNode node = objectMapper.readTree(text);
             return node;
         } catch (Exception e) {
-            return Map.of("status", "success", "raw", text == null ? "" : text);
+            return Map.of(
+                    JsonFieldConstants.STATUS, ResultStatusConstants.SUCCESS,
+                    JsonFieldConstants.RAW, text == null ? "" : text
+            );
         }
     }
 

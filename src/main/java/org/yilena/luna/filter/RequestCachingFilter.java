@@ -11,6 +11,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingRequestWrapper;
+import org.yilena.luna.constants.ApiPathConstants;
 
 import java.io.IOException;
 
@@ -27,7 +28,7 @@ public class RequestCachingFilter extends OncePerRequestFilter {
     protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
         String uri = request.getRequestURI();
         // Skip SSE stream endpoint to avoid wrapping long-lived event stream requests.
-        return uri.contains("/api/luna/status/stream");
+        return uri.contains(ApiPathConstants.LUNA_STATUS_STREAM);
     }
 
     @Override
