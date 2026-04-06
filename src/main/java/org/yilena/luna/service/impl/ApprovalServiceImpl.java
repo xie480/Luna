@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.constants.ApprovalConstants;
 import org.yilena.luna.constants.JsonFieldConstants;
@@ -28,6 +27,7 @@ import org.yilena.luna.memory.MemoryWritePipelineService;
 import org.yilena.luna.memory.RuntimeAuditService;
 import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
+import org.yilena.luna.mapper.ApprovalTaskMapper;
 import org.yilena.luna.mapper.SessionRuntimeMapper;
 import org.yilena.luna.service.ApprovalService;
 import org.yilena.luna.service.McpService;
@@ -66,7 +66,7 @@ import java.util.concurrent.TimeUnit;
 public class ApprovalServiceImpl implements ApprovalService {
 
     private final RedisTemplate<String, Object> redisTemplate;
-    private final JdbcTemplate jdbcTemplate;
+    private final ApprovalTaskMapper approvalTaskMapper;
     private final McpService mcpService;
     private final ObjectMapper objectMapper;
     private final SseSessionManager sseSessionManager;
@@ -194,23 +194,13 @@ public class ApprovalServiceImpl implements ApprovalService {
             return;
         }
         try {
+            Long numericTaskId = parseLong(task.getTaskId());
+            if (numericTaskId == null) {
+                return;
+            }
             String payloadJson = objectMapper.writeValueAsString(task);
-            jdbcTemplate.update(
-                    """
-                    insert into tasks (task_id, resource_id, status, server_code, tool_name, approval_id, session_id, input_args, approval_payload)
-                    values (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    on conflict (task_id) do update set
-                        resource_id = excluded.resource_id,
-                        status = excluded.status,
-                        server_code = excluded.server_code,
-                        tool_name = excluded.tool_name,
-                        approval_id = excluded.approval_id,
-                        session_id = excluded.session_id,
-                        input_args = excluded.input_args,
-                        approval_payload = excluded.approval_payload,
-                        updated_at = current_timestamp
-                    """,
-                    Long.parseLong(task.getTaskId()),
+            approvalTaskMapper.upsertTask(
+                    numericTaskId,
                     task.getResourceId(),
                     ApprovalTaskStatusEnum.PENDING_APPROVAL.getCode(),
                     task.getServerCode(),
@@ -269,34 +259,25 @@ public class ApprovalServiceImpl implements ApprovalService {
             return null;
         }
         try {
-            return jdbcTemplate.query(
-                    """
-                    select task_id, resource_id, status, server_code, tool_name, session_id, input_args, result, error_code, approval_payload
-                    from tasks
-                    where task_id = ?
-                    limit 1
-                    """,
-                    rs -> {
-                        if (!rs.next()) {
-                            return null;
-                        }
-                        ApprovalTask dbTask = parseApprovalPayload(rs.getString("approval_payload"));
-                        if (dbTask == null) {
-                            dbTask = new ApprovalTask();
-                        }
-                        dbTask.setTaskId(String.valueOf(rs.getLong("task_id")));
-                        dbTask.setResourceId((Long) rs.getObject("resource_id"));
-                        dbTask.setStatus(rs.getString("status"));
-                        dbTask.setServerCode(rs.getString("server_code"));
-                        dbTask.setToolName(rs.getString("tool_name"));
-                        dbTask.setSessionId(rs.getString("session_id"));
-                        dbTask.setArgsJson(rs.getString("input_args"));
-                        dbTask.setResult(rs.getString("result"));
-                        dbTask.setErrorCode(rs.getString("error_code"));
-                        return dbTask;
-                    },
-                    numericTaskId
-            );
+            Map<String, Object> row = approvalTaskMapper.selectTaskById(numericTaskId);
+            if (row == null || row.isEmpty()) {
+                return null;
+            }
+            ApprovalTask dbTask = parseApprovalPayload(nullableText(row.get("approval_payload")));
+            if (dbTask == null) {
+                dbTask = new ApprovalTask();
+            }
+            Long taskIdValue = parseLongValue(row.get("task_id"));
+            dbTask.setTaskId(taskIdValue == null ? String.valueOf(numericTaskId) : String.valueOf(taskIdValue));
+            dbTask.setResourceId(parseLongValue(row.get("resource_id")));
+            dbTask.setStatus(nullableText(row.get("status")));
+            dbTask.setServerCode(nullableText(row.get("server_code")));
+            dbTask.setToolName(nullableText(row.get("tool_name")));
+            dbTask.setSessionId(nullableText(row.get("session_id")));
+            dbTask.setArgsJson(nullableText(row.get("input_args")));
+            dbTask.setResult(nullableText(row.get("result")));
+            dbTask.setErrorCode(nullableText(row.get("error_code")));
+            return dbTask;
         } catch (Exception e) {
             return null;
         }
@@ -319,20 +300,7 @@ public class ApprovalServiceImpl implements ApprovalService {
             return;
         }
         try {
-            jdbcTemplate.update(
-                    """
-                    update tasks
-                    set status = ?,
-                        result = coalesce(?, result),
-                        error_code = ?,
-                        updated_at = current_timestamp
-                    where task_id = ?
-                    """,
-                    status,
-                    result,
-                    errorCode,
-                    numericTaskId
-            );
+            approvalTaskMapper.updateTaskStatus(numericTaskId, status, result, errorCode);
         } catch (Exception ignore) {
         }
     }
@@ -773,6 +741,10 @@ public class ApprovalServiceImpl implements ApprovalService {
 
     private String stringValue(Object value) {
         return value == null ? "" : String.valueOf(value);
+    }
+
+    private String nullableText(Object value) {
+        return value == null ? null : String.valueOf(value);
     }
 
     private String safe(Object value) {

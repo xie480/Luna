@@ -6,7 +6,6 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,6 +15,7 @@ import org.yilena.luna.entity.McpServerRegistry;
 import org.yilena.luna.entity.McpToolCatalog;
 import org.yilena.luna.entity.McpToolImplMapping;
 import org.yilena.luna.entity.WorkflowTemplate;
+import org.yilena.luna.mapper.McpLegacyMigrationMapper;
 import org.yilena.luna.service.CapabilityCatalogSyncService;
 import org.yilena.luna.service.McpService;
 
@@ -45,7 +45,7 @@ public class McpCatalogMigrationJob {
             "web_scrape"
     );
 
-    private final JdbcTemplate jdbcTemplate;
+    private final McpLegacyMigrationMapper mcpLegacyMigrationMapper;
     private final McpService mcpService;
     private final CapabilityCatalogSyncService capabilityCatalogSyncService;
     private final ObjectMapper objectMapper;
@@ -132,11 +132,7 @@ public class McpCatalogMigrationJob {
         if (!tableExists("mcp_tools")) {
             return 0;
         }
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
-                select id, name, description, version, owner, bean_name, method_name,
-                       input_schema, output_schema, embedding, requires_approval, sensitivity
-                from mcp_tools
-                """);
+        List<Map<String, Object>> rows = mcpLegacyMigrationMapper.selectLegacyTools();
         int migrated = 0;
         for (Map<String, Object> row : rows) {
             String toolName = text(row.get("name"));
@@ -182,12 +178,7 @@ public class McpCatalogMigrationJob {
         if (!tableExists("mcp_skills")) {
             return 0;
         }
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
-                select id, name, description, version, owner, bean_name, method_name,
-                       input_schema, output_schema, run_mode,
-                       required_capabilities, tool_slots, thought_chain, embedding
-                from mcp_skills
-                """);
+        List<Map<String, Object>> rows = mcpLegacyMigrationMapper.selectLegacySkills();
         int migrated = 0;
         for (Map<String, Object> row : rows) {
             if (!isPromptLike(row)) {
@@ -220,12 +211,7 @@ public class McpCatalogMigrationJob {
         if (!tableExists("mcp_skills")) {
             return 0;
         }
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
-                select id, name, description, version, owner, bean_name, method_name,
-                       input_schema, output_schema, run_mode,
-                       required_capabilities, tool_slots, thought_chain, embedding
-                from mcp_skills
-                """);
+        List<Map<String, Object>> rows = mcpLegacyMigrationMapper.selectLegacySkills();
         int migrated = 0;
         for (Map<String, Object> row : rows) {
             if (!isCompositeToolLike(row)) {
@@ -273,12 +259,7 @@ public class McpCatalogMigrationJob {
         if (!tableExists("mcp_skills")) {
             return 0;
         }
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
-                select id, name, description, version,
-                       input_schema, output_schema, run_mode,
-                       required_capabilities, tool_slots, thought_chain, embedding
-                from mcp_skills
-                """);
+        List<Map<String, Object>> rows = mcpLegacyMigrationMapper.selectLegacySkills();
         int migrated = 0;
         for (Map<String, Object> row : rows) {
             if (!isWorkflowLike(row) || isCompositeToolLike(row)) {
@@ -311,12 +292,7 @@ public class McpCatalogMigrationJob {
         if (!tableExists("mcp_tool_catalog")) {
             return;
         }
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
-                select server_code, tool_name
-                from mcp_tool_catalog
-                where lower(tool_name) in ('manage_memory','manage_schedule_task','manage_knowledge_base','manage_log',
-                                           'web_search','image_search','news_search','lens_search','web_scrape')
-                """);
+        List<Map<String, Object>> rows = mcpLegacyMigrationMapper.selectCoreLocalHandlerTools();
         for (Map<String, Object> row : rows) {
             String serverCode = defaultValue(text(row.get("server_code")), McpConstant.LOCAL_SERVER_CODE);
             String toolName = text(row.get("tool_name"));
@@ -453,11 +429,7 @@ public class McpCatalogMigrationJob {
 
     private boolean tableExists(String tableName) {
         try {
-            String table = jdbcTemplate.queryForObject(
-                    "select to_regclass(?)",
-                    String.class,
-                    "public." + tableName
-            );
+            String table = mcpLegacyMigrationMapper.selectRegclass("public." + tableName);
             return table != null && !table.isBlank();
         } catch (Exception ignore) {
             return false;
@@ -469,10 +441,22 @@ public class McpCatalogMigrationJob {
             return 0L;
         }
         try {
-            return jdbcTemplate.queryForObject("select count(1) from " + tableName, Long.class);
+            return switch (tableName) {
+                case "mcp_tools" -> safeLong(mcpLegacyMigrationMapper.countMcpTools());
+                case "mcp_skills" -> safeLong(mcpLegacyMigrationMapper.countMcpSkills());
+                case "mcp_tool_catalog" -> safeLong(mcpLegacyMigrationMapper.countMcpToolCatalog());
+                case "mcp_tool_impl_mapping" -> safeLong(mcpLegacyMigrationMapper.countMcpToolImplMapping());
+                case "mcp_prompt_catalog" -> safeLong(mcpLegacyMigrationMapper.countMcpPromptCatalog());
+                case "workflow_template" -> safeLong(mcpLegacyMigrationMapper.countWorkflowTemplate());
+                default -> 0L;
+            };
         } catch (Exception ignore) {
             return 0L;
         }
+    }
+
+    private long safeLong(Long value) {
+        return value == null ? 0L : value;
     }
 
     private Map<String, Object> parseJsonMap(Object raw) {

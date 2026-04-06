@@ -7,18 +7,31 @@ import org.apache.ibatis.annotations.Select;
 import org.yilena.luna.entity.UserPreference;
 
 import java.util.List;
+import java.util.Map;
 
-/**
- * 用戶偏好數據訪問層
- */
 @Mapper
 public interface UserPreferenceMapper extends BaseMapper<UserPreference> {
 
-    /**
-     * 向量檢索偏好
-     * @param vector 向量字符串
-     * @param topK 返回條數
-     */
+    @Select("""
+            select pref_key, pref_value, description, updated_at
+            from user_preference
+            where coalesce(deleted, 0) = 0
+            order by updated_at desc
+            limit #{limit}
+            """)
+    List<Map<String, Object>> selectResourcePreferences(@Param("limit") int limit);
+
+    @Select("""
+            select pref_key, pref_value, description, updated_at
+            from user_preference
+            where coalesce(deleted, 0) = 0
+              and pref_key = #{prefKey}
+            order by updated_at desc
+            limit #{limit}
+            """)
+    List<Map<String, Object>> selectResourcePreferencesByKey(@Param("prefKey") String prefKey,
+                                                             @Param("limit") int limit);
+
     @Select("""
             select fact_id as id,
                    fact_key as pref_key,

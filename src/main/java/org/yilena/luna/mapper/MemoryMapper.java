@@ -7,19 +7,21 @@ import org.apache.ibatis.annotations.Select;
 import org.yilena.luna.entity.Memory;
 
 import java.util.List;
+import java.util.Map;
 
-/**
- * Memory 數據訪問層
- * 繼承 BaseMapper 自動獲得 CRUD 能力
- */
 @Mapper
 public interface MemoryMapper extends BaseMapper<Memory> {
 
-    /**
-     * 向量檢索長期記憶
-     * @param vector 向量字符串
-     * @param topK 返回條數
-     */
+    @Select("""
+            select id, session_id, memory_type, content, weight, created_at, updated_at
+            from luna_memory
+            where session_id = #{sessionId}
+            order by updated_at desc
+            limit #{limit}
+            """)
+    List<Map<String, Object>> selectResourceMemoryBySessionId(@Param("sessionId") String sessionId,
+                                                              @Param("limit") int limit);
+
     @Select("""
             select * from (
                 select fact_id as id,
@@ -49,12 +51,6 @@ public interface MemoryMapper extends BaseMapper<Memory> {
             """)
     List<Memory> searchByVector(@Param("vector") String vector, @Param("topK") int topK);
 
-    /**
-     * 向量檢索長期記憶（按 session_id 過濾）
-     * @param vector 向量字符串
-     * @param sessionId 會話標識
-     * @param topK 返回條數
-     */
     @Select("""
             select * from (
                 select f.fact_id as id,

@@ -8,9 +8,28 @@ import org.yilena.luna.entity.KnowledgeChunkRecord;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 @Mapper
 public interface KnowledgeBaseMapper {
+
+    @Select("""
+            select id, title, content, source_type, source_path, created_at, updated_at
+            from knowledge_base
+            where (coalesce(#{keyword}, '') = '' or title ilike concat('%', #{keyword}, '%') or content ilike concat('%', #{keyword}, '%'))
+            order by updated_at desc
+            limit #{limit}
+            """)
+    List<Map<String, Object>> selectResourceKnowledgeByKeyword(@Param("keyword") String keyword,
+                                                               @Param("limit") int limit);
+
+    @Select("""
+            select id, title, content, source_type, source_path, created_at, updated_at
+            from knowledge_base
+            where id = #{id}
+            limit 1
+            """)
+    List<Map<String, Object>> selectResourceKnowledgeById(@Param("id") Long id);
 
     @Select("""
             select

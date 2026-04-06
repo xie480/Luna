@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.constants.McpConstant;
 import org.yilena.luna.entity.McpPromptCatalog;
@@ -19,10 +18,14 @@ import org.yilena.luna.entity.McpToolCallResult;
 import org.yilena.luna.entity.McpToolCatalog;
 import org.yilena.luna.entity.McpToolDescriptor;
 import org.yilena.luna.entity.McpToolImplMapping;
+import org.yilena.luna.mapper.KnowledgeBaseMapper;
+import org.yilena.luna.mapper.MemoryMapper;
 import org.yilena.luna.mapper.McpPromptCatalogMapper;
 import org.yilena.luna.mapper.McpResourceCatalogMapper;
 import org.yilena.luna.mapper.McpToolCatalogMapper;
 import org.yilena.luna.mapper.McpToolImplMappingMapper;
+import org.yilena.luna.mapper.ScheduleTaskMapper;
+import org.yilena.luna.mapper.UserPreferenceMapper;
 import org.yilena.luna.service.LocalMcpServerService;
 import org.yilena.luna.service.local.LocalMcpToolHandler;
 import org.yilena.luna.utils.AuthContextHolder;
@@ -51,7 +54,10 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
     private final McpPromptCatalogMapper promptCatalogMapper;
     private final McpResourceCatalogMapper resourceCatalogMapper;
     private final McpToolImplMappingMapper toolImplMappingMapper;
-    private final JdbcTemplate jdbcTemplate;
+    private final KnowledgeBaseMapper knowledgeBaseMapper;
+    private final UserPreferenceMapper userPreferenceMapper;
+    private final MemoryMapper memoryMapper;
+    private final ScheduleTaskMapper scheduleTaskMapper;
     private final List<LocalMcpToolHandler> localToolHandlers;
     private final ObjectMapper objectMapper;
 
@@ -411,26 +417,13 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
         int limit = normalizeLimit(query.get("limit"), 10, 50);
         if ("/query".equalsIgnoreCase(path)) {
             String keyword = query.getOrDefault("q", query.getOrDefault("query", ""));
-            String like = "%" + keyword + "%";
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    """
-                    select id, title, content, source_type, source_path, created_at, updated_at
-                    from knowledge_base
-                    where (? = '' or title ilike ? or content ilike ?)
-                    order by updated_at desc
-                    limit ?
-                    """,
-                    keyword == null ? "" : keyword, like, like, limit
-            );
+            List<Map<String, Object>> rows = knowledgeBaseMapper.selectResourceKnowledgeByKeyword(keyword == null ? "" : keyword, limit);
             return Map.of("domain", "knowledge", "count", rows.size(), "items", rows);
         }
         if (path != null && path.startsWith("/") && path.length() > 1) {
             String idText = path.substring(1);
             if (idText.chars().allMatch(Character::isDigit)) {
-                List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                        "select id, title, content, source_type, source_path, created_at, updated_at from knowledge_base where id = ? limit 1",
-                        Long.parseLong(idText)
-                );
+                List<Map<String, Object>> rows = knowledgeBaseMapper.selectResourceKnowledgeById(Long.parseLong(idText));
                 return Map.of("domain", "knowledge", "count", rows.size(), "items", rows);
             }
         }
@@ -440,18 +433,12 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
     private Map<String, Object> readUser(String path, Map<String, String> query) {
         int limit = normalizeLimit(query.get("limit"), 20, 100);
         if ("/preferences/current".equalsIgnoreCase(path)) {
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    "select pref_key, pref_value, description, updated_at from user_preference where coalesce(deleted,0)=0 order by updated_at desc limit ?",
-                    limit
-            );
+            List<Map<String, Object>> rows = userPreferenceMapper.selectResourcePreferences(limit);
             return Map.of("domain", "user", "count", rows.size(), "items", rows);
         }
         if (path != null && path.startsWith("/preferences/") && path.length() > "/preferences/".length()) {
             String key = decode(path.substring("/preferences/".length()));
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    "select pref_key, pref_value, description, updated_at from user_preference where coalesce(deleted,0)=0 and pref_key = ? order by updated_at desc limit ?",
-                    key, limit
-            );
+            List<Map<String, Object>> rows = userPreferenceMapper.selectResourcePreferencesByKey(key, limit);
             return Map.of("domain", "user", "count", rows.size(), "items", rows);
         }
         return null;
@@ -467,18 +454,12 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
             if (sessionId == null || sessionId.isBlank()) {
                 return Map.of("domain", "memory", "count", 0, "items", List.of(), "message", "sessionId unavailable");
             }
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    "select id, session_id, memory_type, content, weight, created_at, updated_at from luna_memory where session_id = ? order by updated_at desc limit ?",
-                    sessionId, limit
-            );
+            List<Map<String, Object>> rows = memoryMapper.selectResourceMemoryBySessionId(sessionId, limit);
             return Map.of("domain", "memory", "sessionId", sessionId, "count", rows.size(), "items", rows);
         }
         if (path != null && path.startsWith("/session/") && path.length() > "/session/".length()) {
             String sid = decode(path.substring("/session/".length()));
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    "select id, session_id, memory_type, content, weight, created_at, updated_at from luna_memory where session_id = ? order by updated_at desc limit ?",
-                    sid, limit
-            );
+            List<Map<String, Object>> rows = memoryMapper.selectResourceMemoryBySessionId(sid, limit);
             return Map.of("domain", "memory", "sessionId", sid, "count", rows.size(), "items", rows);
         }
         return null;
@@ -488,17 +469,10 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
         int limit = normalizeLimit(query.get("limit"), 20, 100);
         if ("/today".equalsIgnoreCase(path)) {
             LocalDate today = LocalDate.now();
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    """
-                    select id, content, trigger_time, status, task_type, created_at, updated_at
-                    from schedule_task
-                    where coalesce(deleted,0)=0
-                      and trigger_time >= ?
-                      and trigger_time < ?
-                    order by trigger_time asc
-                    limit ?
-                    """,
-                    today.atStartOfDay(), today.plusDays(1).atStartOfDay(), limit
+            List<Map<String, Object>> rows = scheduleTaskMapper.selectResourceScheduleByTriggerBetween(
+                    today.atStartOfDay(),
+                    today.plusDays(1).atStartOfDay(),
+                    limit
             );
             return Map.of("domain", "schedule", "date", today.toString(), "count", rows.size(), "items", rows);
         }
@@ -507,16 +481,7 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
             if (!idText.chars().allMatch(Character::isDigit)) {
                 return Map.of("domain", "schedule", "count", 0, "items", List.of(), "message", "invalid task id");
             }
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    """
-                    select id, content, trigger_time, status, task_type, created_at, updated_at
-                    from schedule_task
-                    where coalesce(deleted,0)=0
-                      and id = ?
-                    limit 1
-                    """,
-                    Long.parseLong(idText)
-            );
+            List<Map<String, Object>> rows = scheduleTaskMapper.selectResourceScheduleById(Long.parseLong(idText));
             return Map.of("domain", "schedule", "count", rows.size(), "items", rows);
         }
         return null;
