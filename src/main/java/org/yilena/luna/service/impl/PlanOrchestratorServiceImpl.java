@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.context.model.SummaryResult;
 import org.yilena.luna.context.model.InputReconstructionResult;
@@ -83,7 +84,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
     private final PlanEventTools planEventTools;
     private final PlanReportTools planReportTools;
     private final ChatService chatService;
-    private final TaskOrchestratorService taskOrchestratorService;
+    private final ObjectProvider<TaskOrchestratorService> taskOrchestratorServiceProvider;
 
     private final MasterPlanningService masterPlanningService;
     private final BlueprintValidationService blueprintValidationService;
@@ -104,7 +105,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             if (userGoal == null || userGoal.isBlank()) {
                 return error("PLAN_INVALID_INPUT", "userGoal 不能為空");
             }
-            BlueprintOrchestrationResult planInputContext = taskOrchestratorService.orchestrateBlueprintInput(sessionId, userGoal);
+            BlueprintOrchestrationResult planInputContext = taskOrchestratorService().orchestrateBlueprintInput(sessionId, userGoal);
             OrchestrationDecision planningDecision = planInputContext == null ? null : planInputContext.getDecision();
             InputReconstructionResult reconstructionResult = planInputContext == null ? null : planInputContext.getReconstructionResult();
             StructuredContextPackage planningContextPackage = planInputContext == null ? null : planInputContext.getContextPackage();
@@ -1314,7 +1315,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                             "blueprintStatus", "READY"
                     ))
                     .build();
-            taskOrchestratorService.writeRoundState(RoundStateWriteRequest.builder()
+            taskOrchestratorService().writeRoundState(RoundStateWriteRequest.builder()
                     .sessionId(sessionId)
                     .decision(planningDecision)
                     .contextPackage(planningContextPackage)
@@ -1403,6 +1404,10 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             }
         }
         return "";
+    }
+
+    private TaskOrchestratorService taskOrchestratorService() {
+        return taskOrchestratorServiceProvider.getObject();
     }
 
     private String toJsonQuiet(Object obj) {

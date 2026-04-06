@@ -2,9 +2,9 @@ package org.yilena.luna.executor;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.constants.LunaStateConstant;
 import org.yilena.luna.constants.RocketMqConstant;
@@ -33,7 +33,6 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class WorkflowExecutor {
 
     private final RocketMQTemplate rocketMQTemplate;
@@ -42,6 +41,20 @@ public class WorkflowExecutor {
     private final LlmClientUtil llmClientUtil;
     private final ObjectMapper objectMapper;
     private final LunaStatusPublisher statusPublisher;
+
+    public WorkflowExecutor(RocketMQTemplate rocketMQTemplate,
+                            ToolExecutionGateway toolExecutionGateway,
+                            @Lazy McpService mcpService,
+                            LlmClientUtil llmClientUtil,
+                            ObjectMapper objectMapper,
+                            LunaStatusPublisher statusPublisher) {
+        this.rocketMQTemplate = rocketMQTemplate;
+        this.toolExecutionGateway = toolExecutionGateway;
+        this.mcpService = mcpService;
+        this.llmClientUtil = llmClientUtil;
+        this.objectMapper = objectMapper;
+        this.statusPublisher = statusPublisher;
+    }
 
     public String execute(Resource workflow, String argsJson) {
         log.info("Workflow dispatch start, workflowName={}, runMode={}", workflow.getName(), workflow.getRunMode());

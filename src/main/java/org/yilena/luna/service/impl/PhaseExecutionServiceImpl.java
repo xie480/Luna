@@ -3,6 +3,7 @@ package org.yilena.luna.service.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.context.ContextAssembler;
 import org.yilena.luna.context.model.AssembledContext;
@@ -66,10 +67,10 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
     private final PlanNodeMapper planNodeMapper;
     private final PlanNodeTools planNodeTools;
     private final PlanEventTools planEventTools;
-    private final AgentService agentService;
+    private final ObjectProvider<AgentService> agentServiceProvider;
     private final LunaStatusPublisher statusPublisher;
     private final MemoryWritePipelineService memoryWritePipelineService;
-    private final TaskOrchestratorService taskOrchestratorService;
+    private final ObjectProvider<TaskOrchestratorService> taskOrchestratorServiceProvider;
     private final RoundPipelineOrchestrator roundPipelineOrchestrator;
     private final ContextAssembler contextAssembler;
     private final ContextSnapshotStore contextSnapshotStore;
@@ -409,11 +410,11 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         String governedAssembledDecisionContext = "";
         String governanceError = null;
         try {
-            TaskOrchestrationResult orchestrationResult = taskOrchestratorService.orchestrateUserInput(sessionId, nodeGoal);
+            TaskOrchestrationResult orchestrationResult = taskOrchestratorServiceProvider.getObject().orchestrateUserInput(sessionId, nodeGoal);
             governedDecision = orchestrationResult == null ? null : orchestrationResult.getDecision();
             governedContextPackage = orchestrationResult == null ? null : orchestrationResult.getContextPackage();
             governedReconstructionResult = orchestrationResult == null ? null : orchestrationResult.getReconstructionResult();
-            governedNodeWorksetResult = taskOrchestratorService.orchestrateNodeWorkset(
+            governedNodeWorksetResult = taskOrchestratorServiceProvider.getObject().orchestrateNodeWorkset(
                     sessionId,
                     nodeGoal,
                     governedDecision,
@@ -1400,7 +1401,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                 .toolExecutionTraces(new CopyOnWriteArrayList<>())
                 .build());
         try {
-            return agentService.processToolCallingWithGovernance(
+            return agentServiceProvider.getObject().processToolCallingWithGovernance(
                     ToolDecisionCommand.builder()
                             .sessionId(sessionId)
                             .rawUserInput(rawUserInput)

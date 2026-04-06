@@ -1,6 +1,7 @@
 package org.yilena.luna.context.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.context.Lexicon;
 import org.yilena.luna.context.RecoveryContextAgent;
@@ -69,6 +70,7 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
         this(recoveryStateStore, contextSnapshotStore, objectMapper, llmClientUtil, geminiProperty, null);
     }
 
+    @Autowired
     public DefaultRecoveryContextAgent(RecoveryStateStore recoveryStateStore,
                                        ContextSnapshotStore contextSnapshotStore,
                                        ObjectMapper objectMapper,

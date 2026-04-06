@@ -3,6 +3,7 @@ package org.yilena.luna.service.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.context.ToolSemanticAgent;
 import org.yilena.luna.context.ToolSemanticResultValidator;
@@ -38,7 +39,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator {
 
-    private final TaskOrchestratorService taskOrchestratorService;
+    private final ObjectProvider<TaskOrchestratorService> taskOrchestratorServiceProvider;
     private final ToolSemanticAgent toolSemanticAgent;
     private final ToolSemanticResultValidator toolSemanticResultValidator;
     private final ToolSemanticTraceLogger toolSemanticTraceLogger;
@@ -153,7 +154,7 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
         String finalSnapshotId = nullSafe(request.getLatestSnapshotId());
 
         if (request.isRunMainModel()) {
-            SummaryOrchestrationResult preSummaryResult = taskOrchestratorService.orchestrateSummary(
+            SummaryOrchestrationResult preSummaryResult = taskOrchestratorService().orchestrateSummary(
                     sessionId,
                     nullSafe(request.getUserInput()),
                     "",
@@ -165,7 +166,7 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                     firstNonBlank(request.getPreAssemblyTriggerSource(), "ROUND_PRE_ASSEMBLY")
             );
             preAssemblySummary = preSummaryResult == null ? null : preSummaryResult.getSummaryResult();
-            modelResult = taskOrchestratorService.orchestrateMainModel(
+            modelResult = taskOrchestratorService().orchestrateMainModel(
                     MainModelExecutionRequest.builder()
                             .sessionId(sessionId)
                             .userInput(nullSafe(request.getUserInput()))
@@ -223,7 +224,7 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
             finalSnapshotId = firstNonBlank(modelResult.getFinalSnapshotId(), finalSnapshotId);
         }
 
-        SummaryOrchestrationResult postSummary = taskOrchestratorService.orchestrateSummary(
+        SummaryOrchestrationResult postSummary = taskOrchestratorService().orchestrateSummary(
                 sessionId,
                 nullSafe(request.getUserInput()),
                 assistantReply,
@@ -237,7 +238,7 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
         SummaryResult summaryResult = postSummary == null ? null : postSummary.getSummaryResult();
 
         if (request.isWriteRoundState()) {
-            taskOrchestratorService.writeRoundState(RoundStateWriteRequest.builder()
+            taskOrchestratorService().writeRoundState(RoundStateWriteRequest.builder()
                     .sessionId(sessionId)
                     .decision(request.getDecision())
                     .contextPackage(contextPackage)
@@ -356,6 +357,10 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
         );
         toolSemanticTraceLogger.log(sessionId, planId, nodeId, safeTranslated);
         return safeTranslated;
+    }
+
+    private TaskOrchestratorService taskOrchestratorService() {
+        return taskOrchestratorServiceProvider.getObject();
     }
 
     @SuppressWarnings("unchecked")

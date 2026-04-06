@@ -4,9 +4,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.annotation.LunaLogRecord;
 import org.yilena.luna.annotation.aspect.LunaLogAspect;
@@ -65,7 +65,6 @@ import java.util.Optional;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ChatServiceImpl implements ChatService {
 
     private static final DateTimeFormatter SESSION_KEY_FORMATTER = DateTimeFormatter.ofPattern("yyyy:MM:dd");
@@ -79,6 +78,26 @@ public class ChatServiceImpl implements ChatService {
     private final TaskOrchestratorService taskOrchestratorService;
     private final StateDrivenContextPipeline stateDrivenContextPipeline;
     private final ObjectMapper mapper = new ObjectMapper();
+
+    public ChatServiceImpl(SessionService sessionService,
+                           LunaStatusPublisher statusPublisher,
+                           MemoryHotLayerService memoryHotLayerService,
+                           MemoryWritePipelineService memoryWritePipelineService,
+                           ThreeStageResponseService threeStageResponseService,
+                           RuntimeAuditService runtimeAuditService,
+                           SessionRuntimeMapper sessionRuntimeMapper,
+                           @Lazy TaskOrchestratorService taskOrchestratorService,
+                           StateDrivenContextPipeline stateDrivenContextPipeline) {
+        this.sessionService = sessionService;
+        this.statusPublisher = statusPublisher;
+        this.memoryHotLayerService = memoryHotLayerService;
+        this.memoryWritePipelineService = memoryWritePipelineService;
+        this.threeStageResponseService = threeStageResponseService;
+        this.runtimeAuditService = runtimeAuditService;
+        this.sessionRuntimeMapper = sessionRuntimeMapper;
+        this.taskOrchestratorService = taskOrchestratorService;
+        this.stateDrivenContextPipeline = stateDrivenContextPipeline;
+    }
 
     @Override
     @LunaLogRecord(module = LogModuleConstant.CHAT, action = LogActionConstant.CHAT, type = LogType.LUNA_OUTPUT, content = "chat")

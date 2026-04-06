@@ -2,6 +2,7 @@ package org.yilena.luna.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.context.model.ContextNodeTemplatePolicy;
 import org.yilena.luna.context.model.InputReconstructionResult;
@@ -32,7 +33,7 @@ public class StateDrivenContextPipelineImpl implements StateDrivenContextPipelin
 
     private final RoundPipelineOrchestrator roundPipelineOrchestrator;
     private final RuntimeAuditService runtimeAuditService;
-    private final TaskOrchestratorService taskOrchestratorService;
+    private final ObjectProvider<TaskOrchestratorService> taskOrchestratorServiceProvider;
     private final SessionRuntimeMapper sessionRuntimeMapper;
     private final ObjectMapper objectMapper;
     private final StateTransitionTraceLogger stateTransitionTraceLogger;
@@ -127,7 +128,7 @@ public class StateDrivenContextPipelineImpl implements StateDrivenContextPipelin
         InputReconstructionResult reconstructionResult = input.getReconstructionResult();
 
         if ((decision == null || contextPackage == null || reconstructionResult == null) && !userInput.isBlank()) {
-            TaskOrchestrationResult orchestration = taskOrchestratorService.orchestrateUserInput(sessionId, userInput);
+            TaskOrchestrationResult orchestration = taskOrchestratorService().orchestrateUserInput(sessionId, userInput);
             if (decision == null) {
                 decision = orchestration == null ? null : orchestration.getDecision();
             }
@@ -162,7 +163,7 @@ public class StateDrivenContextPipelineImpl implements StateDrivenContextPipelin
                 && decision != null
                 && contextPackage != null
                 && reconstructionResult != null) {
-            nodeWorksetResult = taskOrchestratorService.orchestrateNodeWorkset(
+            nodeWorksetResult = taskOrchestratorService().orchestrateNodeWorkset(
                     sessionId,
                     userInput,
                     decision,
@@ -498,6 +499,10 @@ public class StateDrivenContextPipelineImpl implements StateDrivenContextPipelin
             return first;
         }
         return second == null ? "" : second;
+    }
+
+    private TaskOrchestratorService taskOrchestratorService() {
+        return taskOrchestratorServiceProvider.getObject();
     }
 
     private String safe(String value) {

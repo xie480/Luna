@@ -1,7 +1,8 @@
 package org.yilena.luna.gate;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.adapter.McpClientAdapter;
 import org.yilena.luna.common.utils.JsonSchemaValidator;
@@ -17,7 +18,6 @@ import java.util.Map;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
 /**
  * McpToolExecutionGateway ??
  */
@@ -25,7 +25,15 @@ public class McpToolExecutionGateway implements ToolExecutionGateway {
 
     private final ExecutionGate executionGate;
     private final ApprovalService approvalService;
-    private final McpClientAdapter mcpClientAdapter;
+    private final ObjectProvider<McpClientAdapter> mcpClientAdapterProvider;
+
+    public McpToolExecutionGateway(ExecutionGate executionGate,
+                                   @Lazy ApprovalService approvalService,
+                                   ObjectProvider<McpClientAdapter> mcpClientAdapterProvider) {
+        this.executionGate = executionGate;
+        this.approvalService = approvalService;
+        this.mcpClientAdapterProvider = mcpClientAdapterProvider;
+    }
 
     @Override
     public ExecutionResult executeTool(String sessionId, Resource resource, String argsJson) {
@@ -63,6 +71,15 @@ public class McpToolExecutionGateway implements ToolExecutionGateway {
             approvalService.createTaskAndInterrupt(sessionId, resource, arguments);
         }
 
+        McpClientAdapter mcpClientAdapter = mcpClientAdapterProvider.getIfAvailable();
+        if (mcpClientAdapter == null) {
+            return ExecutionResult.builder()
+                    .status("error")
+                    .message("mcp client unavailable")
+                    .rawResult("{\"status\":\"error\",\"message\":\"mcp client unavailable\"}")
+                    .data(Map.of("errorCode", "MCP_CLIENT_UNAVAILABLE"))
+                    .build();
+        }
         McpToolCallResult result = mcpClientAdapter.callTool(resource.getServerCode(), resource.getName(), arguments);
         Map<String, Object> data = result.getData() == null ? Collections.emptyMap() : result.getData();
         String status = normalizeStatus(result.getStatus());

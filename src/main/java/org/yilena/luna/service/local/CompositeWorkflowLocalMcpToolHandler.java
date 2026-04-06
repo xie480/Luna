@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 import org.yilena.luna.constants.BooleanTextConstants;
 import org.yilena.luna.constants.JsonFieldConstants;
@@ -30,7 +31,7 @@ import java.util.Map;
 public class CompositeWorkflowLocalMcpToolHandler implements LocalMcpToolHandler {
 
     private final WorkflowTemplateMapper workflowTemplateMapper;
-    private final WorkflowExecutor workflowExecutor;
+    private final ObjectProvider<WorkflowExecutor> workflowExecutorProvider;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -85,6 +86,10 @@ public class CompositeWorkflowLocalMcpToolHandler implements LocalMcpToolHandler
                 .runMode(RunMode.SYNC)
                 .build();
         try {
+            WorkflowExecutor workflowExecutor = workflowExecutorProvider.getIfAvailable();
+            if (workflowExecutor == null) {
+                return error("WORKFLOW_EXECUTOR_UNAVAILABLE", "workflow executor unavailable");
+            }
             String argsJson = context.argumentsJson() == null || context.argumentsJson().isBlank()
                     ? McpProtocolConstants.DEFAULT_ARGUMENTS_JSON
                     : context.argumentsJson();

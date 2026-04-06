@@ -47,7 +47,7 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
             taskState=%s
             currentNodeGoal=%s
             rawResult=%s
-            """.formatted(TOOL_STATUS_PROMPT_VALUES);
+            """;
 
     private final ObjectMapper objectMapper;
     private final LlmClientUtil llmClientUtil;
@@ -90,6 +90,7 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
                                                    List<String> errors) {
         try {
             String prompt = TOOL_SEMANTIC_PROMPT.formatted(
+                    TOOL_STATUS_PROMPT_VALUES,
                     safe(toolName),
                     safe(toolDescription),
                     taskState == null ? "UNKNOWN" : taskState.name(),

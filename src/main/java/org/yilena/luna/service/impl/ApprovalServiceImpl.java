@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.constants.ApprovalConstants;
@@ -67,7 +68,7 @@ public class ApprovalServiceImpl implements ApprovalService {
 
     private final RedisTemplate<String, Object> redisTemplate;
     private final ApprovalTaskMapper approvalTaskMapper;
-    private final McpService mcpService;
+    private final ObjectProvider<McpService> mcpServiceProvider;
     private final ObjectMapper objectMapper;
     private final SseSessionManager sseSessionManager;
     private final LunaStatusPublisher statusPublisher;
@@ -172,6 +173,11 @@ public class ApprovalServiceImpl implements ApprovalService {
             return errorJson(ApprovalConstants.MESSAGE_MISSING_TOOL_NAME);
         }
         try {
+            McpService mcpService = mcpServiceProvider.getIfAvailable();
+            if (mcpService == null) {
+                updateTaskStatus(task.getTaskId(), ApprovalTaskStatusEnum.FAILED.getCode(), null, ApprovalConstants.ERROR_TOOL_EXECUTION_FAILED);
+                return errorJson("mcpService unavailable");
+            }
             McpToolCallResult result = mcpService.callTool(task.getServerCode(), toolName, task.getArgsJson());
             if (result == null) {
                 updateTaskStatus(task.getTaskId(), ApprovalTaskStatusEnum.FAILED.getCode(), null, ApprovalConstants.ERROR_TOOL_EXECUTION_NULL);
