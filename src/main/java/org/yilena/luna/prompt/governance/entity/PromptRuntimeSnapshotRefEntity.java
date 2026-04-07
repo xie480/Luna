@@ -29,6 +29,9 @@ public class PromptRuntimeSnapshotRefEntity implements Serializable {
     @TableField("round_id")
     private Long roundId;
 
+    @TableField("node_id")
+    private Long nodeId;
+
     @TableField("snapshot_id")
     private String snapshotId;
 

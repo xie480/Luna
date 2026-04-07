@@ -1178,7 +1178,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     "final model context snapshot persisted by runtime audit service",
                     toJsonSafe(Map.of("snapshotId", finalSnapshotId))
             );
-            persistPromptSnapshotRefs(sessionId, nodeId, finalSnapshotId, assembledContext);
+            persistPromptSnapshotRefs(sessionId, resolveRoundId(contextPackage), nodeId, finalSnapshotId, assembledContext);
         }
 
         AssembledContext assembledWithSnapshot = assembledContext;
@@ -4207,6 +4207,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
     @SuppressWarnings("unchecked")
     private void persistPromptSnapshotRefs(String sessionId,
                                            Long roundId,
+                                           Long nodeId,
                                            String snapshotId,
                                            AssembledContext assembledContext) {
         if (promptSnapshotBridgeService == null || assembledContext == null || assembledContext.getPromptAssemblyMeta() == null) {
@@ -4245,10 +4246,58 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     .matchedItems(items)
                     .slotMapping(Map.of())
                     .build();
-            promptSnapshotBridgeService.persistSnapshotRefs(sessionId, roundId, snapshotId, policyId, resolveResult);
+            promptSnapshotBridgeService.persistSnapshotRefs(sessionId, roundId, nodeId, snapshotId, policyId, resolveResult);
         } catch (Exception ignore) {
             // must not break main model flow
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Long resolveRoundId(StructuredContextPackage contextPackage) {
+        if (contextPackage == null) {
+            return null;
+        }
+        try {
+            Map<String, Object> runtime = contextPackage.getRuntime();
+            if (runtime != null && !runtime.isEmpty()) {
+                Object session = runtime.get("session");
+                if (session instanceof Map<?, ?> row) {
+                    Long roundId = toLong(row.get("current_round_id"));
+                    if (roundId != null) {
+                        return roundId;
+                    }
+                    roundId = toLong(row.get("round_id"));
+                    if (roundId != null) {
+                        return roundId;
+                    }
+                }
+                Long direct = toLong(runtime.get("current_round_id"));
+                if (direct != null) {
+                    return direct;
+                }
+                direct = toLong(runtime.get("round_id"));
+                if (direct != null) {
+                    return direct;
+                }
+            }
+            Map<String, Object> taskContext = contextPackage.getTaskContext();
+            if (taskContext != null && !taskContext.isEmpty()) {
+                Long roundId = toLong(taskContext.get("round_id"));
+                if (roundId != null) {
+                    return roundId;
+                }
+                Object working = taskContext.get("working_memory");
+                if (working instanceof Map<?, ?> row) {
+                    roundId = toLong(row.get("round_id"));
+                    if (roundId != null) {
+                        return roundId;
+                    }
+                }
+            }
+        } catch (Exception ignore) {
+            return null;
+        }
+        return null;
     }
 
     private ToolSemanticResult fallbackToolSemanticResult(String toolName,

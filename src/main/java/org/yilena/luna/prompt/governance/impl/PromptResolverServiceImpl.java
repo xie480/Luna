@@ -2,6 +2,7 @@ package org.yilena.luna.prompt.governance.impl;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.prompt.governance.PromptCategoryService;
 import org.yilena.luna.prompt.governance.PromptPolicyService;
 import org.yilena.luna.prompt.governance.PromptRegistryService;
 import org.yilena.luna.prompt.governance.PromptResolverService;
@@ -9,6 +10,7 @@ import org.yilena.luna.prompt.governance.model.PromptAssemblyMode;
 import org.yilena.luna.prompt.governance.model.PromptItemRecord;
 import org.yilena.luna.prompt.governance.model.PromptResolveContext;
 import org.yilena.luna.prompt.governance.model.PromptResolveResult;
+import org.yilena.luna.prompt.governance.model.RejectedPromptItem;
 import org.yilena.luna.prompt.governance.model.ResolvedPromptItem;
 
 import java.util.ArrayList;
@@ -25,6 +27,7 @@ public class PromptResolverServiceImpl implements PromptResolverService {
 
     private final PromptRegistryService promptRegistryService;
     private final PromptPolicyService promptPolicyService;
+    private final PromptCategoryService promptCategoryService;
 
     @Override
     public PromptResolveResult resolve(PromptResolveContext context) {
@@ -32,12 +35,21 @@ public class PromptResolverServiceImpl implements PromptResolverService {
         Set<String> policyIncludes = promptPolicyService.resolveIncludedPromptKeys(ctx.getPolicyId());
         Set<String> policyExcludes = promptPolicyService.resolveExcludedPromptKeys(ctx.getPolicyId());
         List<ResolvedPromptItem> matched = new ArrayList<>();
+        List<RejectedPromptItem> rejected = new ArrayList<>();
         for (PromptItemRecord item : promptRegistryService.listAllActive()) {
             if (!item.isEnabled()) {
+                rejected.add(RejectedPromptItem.builder()
+                        .key(item.getKey())
+                        .rejectedReason("ITEM_DISABLED")
+                        .build());
                 continue;
             }
-            String reason = matchReason(item, ctx, policyIncludes, policyExcludes);
-            if (reason.isBlank()) {
+            MatchDecision decision = matchDecision(item, ctx, policyIncludes, policyExcludes);
+            if (!decision.matched()) {
+                rejected.add(RejectedPromptItem.builder()
+                        .key(item.getKey())
+                        .rejectedReason(decision.rejectedReason())
+                        .build());
                 continue;
             }
             matched.add(ResolvedPromptItem.builder()
@@ -51,7 +63,7 @@ public class PromptResolverServiceImpl implements PromptResolverService {
                     .description(item.getDescription())
                     .runtimeSlot(item.getRuntimeSlot())
                     .assemblyMode(item.getAssemblyMode())
-                    .matchReason(reason)
+                    .matchReason(decision.matchReason())
                     .hasTemplateVariables(item.isHasTemplateVariables())
                     .keywordMatchEnabled(item.isKeywordMatchEnabled())
                     .priority(item.getPriority())
@@ -72,6 +84,7 @@ public class PromptResolverServiceImpl implements PromptResolverService {
         }
         return PromptResolveResult.builder()
                 .matchedItems(deduped)
+                .rejectedItems(rejected)
                 .slotMapping(slotMapping)
                 .policyId(ctx.getPolicyId())
                 .build();
@@ -94,33 +107,54 @@ public class PromptResolverServiceImpl implements PromptResolverService {
         return new ArrayList<>(dedup.values());
     }
 
-    private String matchReason(PromptItemRecord item,
-                               PromptResolveContext context,
-                               Set<String> policyIncludes,
-                               Set<String> policyExcludes) {
+    private MatchDecision matchDecision(PromptItemRecord item,
+                                        PromptResolveContext context,
+                                        Set<String> policyIncludes,
+                                        Set<String> policyExcludes) {
         if (policyExcludes.contains(item.getKey())) {
-            return "";
+            return MatchDecision.rejected("POLICY_EXCLUDED");
         }
         PromptAssemblyMode mode = PromptAssemblyMode.from(item.getAssemblyMode());
         boolean keyword = keywordMatched(item, context == null ? "" : context.getUserInput());
         boolean agent = agentMatched(item, context);
         boolean policy = policyIncludes.contains(item.getKey());
+        boolean hasScope = hasScopeConstraint(item);
         boolean manual = context != null
                 && context.getManualPromptKeys() != null
                 && context.getManualPromptKeys().stream().anyMatch(key -> key != null && key.equalsIgnoreCase(item.getKey()));
+
+        if ((mode == PromptAssemblyMode.AGENT_ONLY || promptCategoryService.isExecutionCategory(item.getCategory())) && !hasScope) {
+            return MatchDecision.rejected("MISSING_MATCH_SCOPE");
+        }
+
         return switch (mode) {
-            case ALWAYS -> "ALWAYS";
-            case KEYWORD_ONLY -> keyword ? "KEYWORD_ONLY" : "";
-            case AGENT_ONLY -> agent ? "AGENT_ONLY" : "";
-            case KEYWORD_AND_AGENT -> keyword && agent ? "KEYWORD_AND_AGENT" : "";
-            case KEYWORD_OR_AGENT -> keyword || agent ? "KEYWORD_OR_AGENT" : "";
-            case POLICY_ONLY -> policy ? "POLICY_ONLY" : "";
-            case MANUAL_ONLY -> manual ? "MANUAL_ONLY" : "";
-            case DISABLED -> "";
+            case ALWAYS -> MatchDecision.matched("ALWAYS");
+            case KEYWORD_ONLY -> keyword && agent
+                    ? MatchDecision.matched("KEYWORD_ONLY")
+                    : MatchDecision.rejected(keyword ? "SCOPE_NOT_MATCHED" : "KEYWORD_NOT_MATCHED");
+            case AGENT_ONLY -> agent
+                    ? MatchDecision.matched("AGENT_ONLY")
+                    : MatchDecision.rejected("SCOPE_NOT_MATCHED");
+            case KEYWORD_AND_AGENT -> keyword && agent
+                    ? MatchDecision.matched("KEYWORD_AND_AGENT")
+                    : MatchDecision.rejected(keyword ? "SCOPE_NOT_MATCHED" : "KEYWORD_NOT_MATCHED");
+            case KEYWORD_OR_AGENT -> keyword || agent
+                    ? MatchDecision.matched("KEYWORD_OR_AGENT")
+                    : MatchDecision.rejected("KEYWORD_OR_SCOPE_NOT_MATCHED");
+            case POLICY_ONLY -> policy
+                    ? MatchDecision.matched("POLICY_ONLY")
+                    : MatchDecision.rejected("POLICY_NOT_INCLUDED");
+            case MANUAL_ONLY -> manual
+                    ? MatchDecision.matched("MANUAL_ONLY")
+                    : MatchDecision.rejected("MANUAL_NOT_INCLUDED");
+            case DISABLED -> MatchDecision.rejected("ASSEMBLY_DISABLED");
         };
     }
 
     private boolean keywordMatched(PromptItemRecord item, String userInput) {
+        if (!promptCategoryService.isKeywordMatchAllowed(item.getCategory())) {
+            return false;
+        }
         if (item.isHasTemplateVariables()) {
             return false;
         }
@@ -140,6 +174,16 @@ public class PromptResolverServiceImpl implements PromptResolverService {
             }
         }
         return false;
+    }
+
+    private boolean hasScopeConstraint(PromptItemRecord item) {
+        Map<String, Object> scope = item.getMatchScope() == null ? Map.of() : item.getMatchScope();
+        return !toList(scope.get("agents")).isEmpty()
+                || !toList(scope.get("nodeKinds")).isEmpty()
+                || !toList(scope.get("taskStates")).isEmpty()
+                || !toList(scope.get("modelFamilies")).isEmpty()
+                || !toList(scope.get("personaIds")).isEmpty()
+                || !toList(scope.get("sceneIds")).isEmpty();
     }
 
     @SuppressWarnings("unchecked")
@@ -219,5 +263,15 @@ public class PromptResolverServiceImpl implements PromptResolverService {
             }
         }
         return out.stream().toList();
+    }
+
+    private record MatchDecision(boolean matched, String matchReason, String rejectedReason) {
+        private static MatchDecision matched(String reason) {
+            return new MatchDecision(true, reason, "");
+        }
+
+        private static MatchDecision rejected(String reason) {
+            return new MatchDecision(false, "", reason);
+        }
     }
 }

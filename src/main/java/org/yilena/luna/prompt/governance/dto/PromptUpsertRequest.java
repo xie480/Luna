@@ -1,5 +1,6 @@
 package org.yilena.luna.prompt.governance.dto;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import lombok.Data;
 
 import java.util.List;
@@ -10,7 +11,9 @@ public class PromptUpsertRequest {
     private String key;
     private String promptName;
     private String value;
+    @JsonAlias({"category_key"})
     private String category;
+    private String categoryKey;
     private String subCategory;
     private String description;
     private String runtimeSlot;

@@ -39,8 +39,9 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         if (promptRegistryService.getByKey(request.getKey()).isPresent()) {
             throw new IllegalArgumentException("prompt key already exists");
         }
+        String targetCategory = resolveRequestCategory(request);
         PromptItemEntity item = PromptItemEntity.builder()
-                .category(request.getCategory())
+                .category(targetCategory)
                 .subCategory(request.getSubCategory())
                 .promptKey(request.getKey())
                 .promptName(safe(request.getPromptName(), request.getKey()))
@@ -93,10 +94,12 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         String nextAssemblyMode = executionCategory
                 ? normalizeExecutionAssemblyMode(requestedAssemblyMode, item.getAssemblyMode())
                 : requestedAssemblyMode;
+        String requestedCategory = resolveRequestCategory(request);
         promptItemMapper.update(null,
                 new LambdaUpdateWrapper<PromptItemEntity>()
                         .eq(PromptItemEntity::getId, item.getId())
-                        .set(request.getCategory() != null, PromptItemEntity::getCategory, request.getCategory())
+                        .set(requestedCategory != null && !requestedCategory.isBlank(),
+                                PromptItemEntity::getCategory, requestedCategory)
                         .set(request.getSubCategory() != null, PromptItemEntity::getSubCategory, request.getSubCategory())
                         .set(request.getPromptName() != null, PromptItemEntity::getPromptName, request.getPromptName())
                         .set(request.getDescription() != null, PromptItemEntity::getDescription, request.getDescription())
@@ -175,9 +178,11 @@ public class PromptMutationServiceImpl implements PromptMutationService {
             throw new IllegalArgumentException("key is required");
         }
         if (request.getCategory() == null || request.getCategory().isBlank()) {
-            throw new IllegalArgumentException("category is required");
+            if (request.getCategoryKey() == null || request.getCategoryKey().isBlank()) {
+                throw new IllegalArgumentException("category is required");
+            }
         }
-        if (isExecutionCategory(request.getCategory())) {
+        if (isExecutionCategory(resolveRequestCategory(request))) {
             throw new IllegalArgumentException("create only supports content prompt category");
         }
         if (bool(request.getHasTemplateVariables(), false)) {
@@ -258,8 +263,9 @@ public class PromptMutationServiceImpl implements PromptMutationService {
     }
 
     private String resolveTargetCategory(PromptItemEntity item, PromptUpsertRequest request) {
-        if (request != null && request.getCategory() != null && !request.getCategory().isBlank()) {
-            return request.getCategory();
+        String requestCategory = resolveRequestCategory(request);
+        if (requestCategory != null && !requestCategory.isBlank()) {
+            return requestCategory;
         }
         return item == null ? "" : item.getCategory();
     }
@@ -268,11 +274,21 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         if (request == null) {
             return true;
         }
-        boolean categoryAllowed = promptCategoryService.isKeywordMatchAllowed(request.getCategory());
+        boolean categoryAllowed = promptCategoryService.isKeywordMatchAllowed(resolveRequestCategory(request));
         if (!categoryAllowed) {
             return false;
         }
         return bool(request.getKeywordMatchEnabled(), true);
+    }
+
+    private String resolveRequestCategory(PromptUpsertRequest request) {
+        if (request == null) {
+            return "";
+        }
+        if (request.getCategory() != null && !request.getCategory().isBlank()) {
+            return request.getCategory();
+        }
+        return request.getCategoryKey() == null ? "" : request.getCategoryKey();
     }
 
     private String normalizeExecutionAssemblyMode(String requested, String existing) {

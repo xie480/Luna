@@ -35,12 +35,14 @@ public class PromptQueryServiceImpl implements PromptQueryService {
     @Override
     public List<PromptItemRecord> search(PromptSearchRequest request) {
         PromptSearchRequest effective = request == null ? new PromptSearchRequest() : request;
+        String category = firstNonBlank(effective.getCategory(), effective.getCategoryKey());
         long pageNo = effective.getPageNo() == null || effective.getPageNo() <= 0 ? 1L : effective.getPageNo();
         long pageSize = effective.getPageSize() == null || effective.getPageSize() <= 0 ? 20L : Math.min(200L, effective.getPageSize());
         List<PromptItemRecord> filtered = promptRegistryService.listAllActive().stream()
-                .filter(item -> matchText(item.getCategory(), effective.getCategory()))
+                .filter(item -> matchText(item.getCategory(), category))
                 .filter(item -> matchText(item.getSubCategory(), effective.getSubCategory()))
                 .filter(item -> containsText(item.getKey(), effective.getKeyLike()))
+                .filter(item -> containsText(item.getName(), effective.getNameLike()))
                 .filter(item -> containsText(item.getValue(), effective.getValueLike()))
                 .filter(item -> effective.getHasTemplateVariables() == null || item.isHasTemplateVariables() == effective.getHasTemplateVariables())
                 .filter(item -> effective.getKeywordMatchEnabled() == null || item.isKeywordMatchEnabled() == effective.getKeywordMatchEnabled())
@@ -73,5 +75,11 @@ public class PromptQueryServiceImpl implements PromptQueryService {
         }
         return value != null && value.toLowerCase().contains(like.trim().toLowerCase());
     }
-}
 
+    private String firstNonBlank(String first, String second) {
+        if (first != null && !first.isBlank()) {
+            return first;
+        }
+        return second == null ? "" : second;
+    }
+}

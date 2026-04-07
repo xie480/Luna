@@ -15,6 +15,7 @@ import org.yilena.luna.prompt.governance.dto.PromptPolicySaveRequest;
 import org.yilena.luna.prompt.governance.dto.PromptPreviewRequest;
 import org.yilena.luna.prompt.governance.dto.PromptSearchRequest;
 import org.yilena.luna.prompt.governance.dto.PromptUpsertRequest;
+import org.yilena.luna.prompt.governance.dto.PromptVersionDiffRequest;
 import org.yilena.luna.prompt.governance.dto.PromptVersionSwitchRequest;
 import org.yilena.luna.prompt.governance.model.PromptResolveContext;
 
@@ -112,6 +113,29 @@ public class PromptAdminController {
     public ResponseEntity<?> rollback(@RequestBody PromptVersionSwitchRequest request) {
         promptVersionService.rollbackToVersion(request.getKey(), request.getVersionId());
         return ResponseEntity.ok(Map.of("success", true, "versionId", request.getVersionId(), "key", request.getKey()));
+    }
+
+    @PostMapping("/item/draft")
+    @Operation(summary = "Save one draft prompt version")
+    public ResponseEntity<?> draft(@RequestBody PromptUpsertRequest request) {
+        String key = request == null ? "" : request.getKey();
+        return ResponseEntity.ok(promptVersionService.saveDraft(key, request));
+    }
+
+    @PostMapping("/item/archive")
+    @Operation(summary = "Archive one prompt version")
+    public ResponseEntity<?> archive(@RequestBody PromptVersionSwitchRequest request) {
+        promptVersionService.archiveVersion(request.getVersionId());
+        return ResponseEntity.ok(Map.of("success", true, "versionId", request.getVersionId()));
+    }
+
+    @PostMapping("/item/diff")
+    @Operation(summary = "Diff two prompt versions")
+    public ResponseEntity<?> diff(@RequestBody PromptVersionDiffRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("request is required");
+        }
+        return ResponseEntity.ok(promptVersionService.diff(request.getLeftVersionId(), request.getRightVersionId()));
     }
 
     @PostMapping("/preview/match")

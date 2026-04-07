@@ -23,7 +23,8 @@ public class PromptPreviewServiceImpl implements PromptPreviewService {
         PromptResolveResult result = promptResolverService.resolve(context);
         return Map.of(
                 "policyId", result.getPolicyId() == null ? "" : result.getPolicyId(),
-                "matchedItems", result.getMatchedItems()
+                "matchedItems", result.getMatchedItems(),
+                "rejectedItems", result.getRejectedItems() == null ? List.of() : result.getRejectedItems()
         );
     }
 
@@ -40,9 +41,10 @@ public class PromptPreviewServiceImpl implements PromptPreviewService {
         }
         return Map.of(
                 "policyId", result.getPolicyId() == null ? "" : result.getPolicyId(),
+                "matchedItems", result.getMatchedItems(),
+                "rejectedItems", result.getRejectedItems() == null ? List.of() : result.getRejectedItems(),
                 "slotMapping", result.getSlotMapping(),
                 "assembled", assembled
         );
     }
 }
-

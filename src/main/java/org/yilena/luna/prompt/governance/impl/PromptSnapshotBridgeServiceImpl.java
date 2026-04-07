@@ -45,6 +45,7 @@ public class PromptSnapshotBridgeServiceImpl implements PromptSnapshotBridgeServ
     @Override
     public void persistSnapshotRefs(String sessionId,
                                     Long roundId,
+                                    Long nodeId,
                                     String snapshotId,
                                     String policyId,
                                     PromptResolveResult resolveResult) {
@@ -56,6 +57,7 @@ public class PromptSnapshotBridgeServiceImpl implements PromptSnapshotBridgeServ
                 PromptRuntimeSnapshotRefEntity row = PromptRuntimeSnapshotRefEntity.builder()
                         .sessionId(sessionId)
                         .roundId(roundId)
+                        .nodeId(nodeId)
                         .snapshotId(snapshotId)
                         .promptItemId(item.getItemId())
                         .promptItemVersionId(item.getVersionId())

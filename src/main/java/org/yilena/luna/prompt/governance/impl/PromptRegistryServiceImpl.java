@@ -2,6 +2,7 @@ package org.yilena.luna.prompt.governance.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.prompt.governance.PromptCategoryService;
 import org.yilena.luna.prompt.governance.PromptRegistryService;
@@ -28,6 +29,8 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
     private final PromptItemMapper promptItemMapper;
     private final PromptItemVersionMapper promptItemVersionMapper;
     private final PromptCategoryService promptCategoryService;
+    @Value("${prompt.governance.builtin-fallback-enabled:false}")
+    private boolean builtinFallbackEnabled;
 
     private final Map<String, PromptItemRecord> builtins = BuiltinPromptCatalog.all();
 
@@ -43,21 +46,24 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
                             .last("limit 1")
             );
             if (item == null) {
-                return Optional.ofNullable(builtins.get(key));
+                return builtinFallbackEnabled ? Optional.ofNullable(builtins.get(key)) : Optional.empty();
             }
             PromptItemRecord merged = merge(item, loadCurrentVersion(item.getCurrentVersionId()));
             if (merged == null) {
-                return Optional.ofNullable(builtins.get(key));
+                return builtinFallbackEnabled ? Optional.ofNullable(builtins.get(key)) : Optional.empty();
             }
             return Optional.of(merged);
         } catch (Exception ignore) {
-            return Optional.ofNullable(builtins.get(key));
+            return builtinFallbackEnabled ? Optional.ofNullable(builtins.get(key)) : Optional.empty();
         }
     }
 
     @Override
     public List<PromptItemRecord> listAllActive() {
-        Map<String, PromptItemRecord> merged = new LinkedHashMap<>(builtins);
+        Map<String, PromptItemRecord> merged = new LinkedHashMap<>();
+        if (builtinFallbackEnabled) {
+            merged.putAll(builtins);
+        }
         try {
             List<PromptItemEntity> items = promptItemMapper.selectList(
                     new LambdaQueryWrapper<PromptItemEntity>()
@@ -71,7 +77,7 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
                 }
             }
         } catch (Exception ignore) {
-            // ignore and fallback to builtins only
+            // ignore and return current merged view
         }
         return merged.values().stream()
                 .filter(PromptItemRecord::isEnabled)
@@ -100,6 +106,17 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
             }
         } catch (Exception ignore) {
             // fallback to item-driven categories
+        }
+        if (builtinFallbackEnabled) {
+            List<String> builtinCategories = builtins.values().stream()
+                    .map(PromptItemRecord::getCategory)
+                    .filter(item -> item != null && !item.isBlank())
+                    .distinct()
+                    .sorted()
+                    .toList();
+            if (!builtinCategories.isEmpty()) {
+                return builtinCategories;
+            }
         }
         return listAllActive().stream()
                 .map(PromptItemRecord::getCategory)
@@ -144,7 +161,7 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
         if (item == null) {
             return null;
         }
-        PromptItemRecord fallback = builtins.get(item.getPromptKey());
+        PromptItemRecord fallback = builtinFallbackEnabled ? builtins.get(item.getPromptKey()) : null;
         return PromptItemRecord.builder()
                 .itemId(item.getId())
                 .versionId(version == null ? null : version.getId())

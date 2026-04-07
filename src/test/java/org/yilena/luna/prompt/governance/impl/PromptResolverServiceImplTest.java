@@ -2,8 +2,10 @@ package org.yilena.luna.prompt.governance.impl;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.yilena.luna.prompt.governance.PromptCategoryService;
 import org.yilena.luna.prompt.governance.PromptPolicyService;
 import org.yilena.luna.prompt.governance.PromptRegistryService;
+import org.yilena.luna.prompt.governance.entity.PromptCategoryEntity;
 import org.yilena.luna.prompt.governance.model.PromptItemRecord;
 import org.yilena.luna.prompt.governance.model.PromptResolveContext;
 import org.yilena.luna.prompt.governance.model.PromptResolveResult;
@@ -59,7 +61,8 @@ class PromptResolverServiceImplTest {
                 .build();
         PromptRegistryService registry = new StubRegistry(List.of(content, execution));
         PromptPolicyService policy = new StubPolicy();
-        PromptResolverServiceImpl resolver = new PromptResolverServiceImpl(registry, policy);
+        PromptCategoryService categoryService = new StubCategoryService();
+        PromptResolverServiceImpl resolver = new PromptResolverServiceImpl(registry, policy, categoryService);
         PromptResolveResult result = resolver.resolve(PromptResolveContext.builder()
                 .userInput("我想和温柔女仆聊天")
                 .agent("MAIN_CHAT_AGENT")
@@ -113,5 +116,31 @@ class PromptResolverServiceImplTest {
             return List.of();
         }
     }
-}
 
+    private static class StubCategoryService implements PromptCategoryService {
+        @Override
+        public List<PromptCategoryEntity> listEnabledOrdered() {
+            return List.of();
+        }
+
+        @Override
+        public Optional<PromptCategoryEntity> findByKey(String categoryKey) {
+            return Optional.empty();
+        }
+
+        @Override
+        public boolean isExecutionCategory(String categoryKey) {
+            return "repair".equalsIgnoreCase(categoryKey)
+                    || "tool".equalsIgnoreCase(categoryKey)
+                    || "summary".equalsIgnoreCase(categoryKey)
+                    || "agent-local".equalsIgnoreCase(categoryKey)
+                    || "task".equalsIgnoreCase(categoryKey)
+                    || "system".equalsIgnoreCase(categoryKey);
+        }
+
+        @Override
+        public boolean isKeywordMatchAllowed(String categoryKey) {
+            return !isExecutionCategory(categoryKey);
+        }
+    }
+}

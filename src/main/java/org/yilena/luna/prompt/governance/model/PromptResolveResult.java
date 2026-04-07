@@ -10,7 +10,7 @@ import java.util.Map;
 @Builder
 public class PromptResolveResult {
     List<ResolvedPromptItem> matchedItems;
+    List<RejectedPromptItem> rejectedItems;
     Map<String, List<ResolvedPromptItem>> slotMapping;
     String policyId;
 }
-
