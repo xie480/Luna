@@ -3,6 +3,7 @@ package org.yilena.luna.context.impl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.context.GlobalContextRerankAgent;
 import org.yilena.luna.context.model.ContextRerankResult;
@@ -14,6 +15,7 @@ import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
 import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.memory.model.StructuredContextPackage;
+import org.yilena.luna.prompt.governance.PromptRegistryService;
 import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.rag.models.Evidence;
 import org.yilena.luna.rag.models.RetrievalResponse;
@@ -64,6 +66,8 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
     private final LlmClientUtil llmClientUtil;
     private final GeminiProperty geminiProperty;
     private final ObjectMapper objectMapper;
+    @Autowired(required = false)
+    private PromptRegistryService promptRegistryService;
 
     @Override
     public ContextRerankResult rerank(InputReconstructionResult reconstructionResult,
@@ -499,7 +503,10 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
                                              List<Evidence> memory,
                                              List<Evidence> preference) {
         try {
-            String prompt = GLOBAL_RERANK_PROMPT.formatted(
+            String promptTemplate = promptRegistryService == null
+                    ? GLOBAL_RERANK_PROMPT
+                    : promptRegistryService.resolvePromptValue("agent.rerank.default_v1", GLOBAL_RERANK_PROMPT);
+            String prompt = promptTemplate.formatted(
                     stage,
                     nodeGoal == null ? "" : nodeGoal,
                     reconstructionResult == null ? "" : String.valueOf(reconstructionResult.getNormalizedUserIntent()),

@@ -11,6 +11,7 @@ import org.yilena.luna.llm.LlmRequest;
 import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.memory.RuntimeAuditService;
+import org.yilena.luna.prompt.governance.PromptRegistryService;
 import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.state.model.ContextState;
 import org.yilena.luna.state.model.ContextSnapshot;
@@ -61,6 +62,8 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
     private final LlmClientUtil llmClientUtil;
     private final GeminiProperty geminiProperty;
     private final RuntimeAuditService runtimeAuditService;
+    @Autowired(required = false)
+    private PromptRegistryService promptRegistryService;
 
     public DefaultRecoveryContextAgent(RecoveryStateStore recoveryStateStore,
                                        ContextSnapshotStore contextSnapshotStore,
@@ -134,7 +137,10 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
                                               StructuredContextPackage contextPackage,
                                               ContextSnapshot snapshot) {
         try {
-            String prompt = RECOVERY_DECISION_PROMPT.formatted(
+            String promptTemplate = promptRegistryService == null
+                    ? RECOVERY_DECISION_PROMPT
+                    : promptRegistryService.resolvePromptValue("agent.recovery.default_v1", RECOVERY_DECISION_PROMPT);
+            String prompt = promptTemplate.formatted(
                     recoveryEvent == null ? "" : recoveryEvent,
                     interruptReason == null ? "" : interruptReason,
                     buildContextDigest(contextPackage),

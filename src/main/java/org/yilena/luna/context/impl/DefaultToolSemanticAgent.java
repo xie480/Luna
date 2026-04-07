@@ -3,6 +3,7 @@ package org.yilena.luna.context.impl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.constants.JsonFieldConstants;
 import org.yilena.luna.context.ToolSemanticAgent;
@@ -14,6 +15,7 @@ import org.yilena.luna.enums.ToolStatusEnum;
 import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
 import org.yilena.luna.llm.LlmResponse;
+import org.yilena.luna.prompt.governance.PromptRegistryService;
 import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.utils.LlmClientUtil;
 
@@ -53,6 +55,8 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
     private final LlmClientUtil llmClientUtil;
     private final GeminiProperty geminiProperty;
     private final ToolSemanticSchemaProvider schemaProvider;
+    @Autowired(required = false)
+    private PromptRegistryService promptRegistryService;
 
     @Override
     public ToolSemanticResult translate(String toolName,
@@ -89,7 +93,10 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
                                                    int attempt,
                                                    List<String> errors) {
         try {
-            String prompt = TOOL_SEMANTIC_PROMPT.formatted(
+            String promptTemplate = promptRegistryService == null
+                    ? TOOL_SEMANTIC_PROMPT
+                    : promptRegistryService.resolvePromptValue("agent.tool_semantic.default_v1", TOOL_SEMANTIC_PROMPT);
+            String prompt = promptTemplate.formatted(
                     TOOL_STATUS_PROMPT_VALUES,
                     safe(toolName),
                     safe(toolDescription),

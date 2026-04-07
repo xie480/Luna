@@ -14,7 +14,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 @Slf4j
 @EnableAsync
 @EnableScheduling
-@MapperScan("org.yilena.luna.mapper")
+@MapperScan({"org.yilena.luna.mapper", "org.yilena.luna.prompt.governance.mapper"})
 @EnableCaching
 @EnableLogRecord(tenant = "RunaApplication")
 @SpringBootApplication(exclude = {RedissonAutoConfigurationV2.class})

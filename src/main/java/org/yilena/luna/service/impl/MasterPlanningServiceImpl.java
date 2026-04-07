@@ -11,6 +11,7 @@ import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
 import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.prompt.PromptTemplates;
+import org.yilena.luna.prompt.governance.PromptRegistryService;
 import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.service.MasterPlanningService;
 import org.yilena.luna.utils.LlmClientUtil;
@@ -30,6 +31,7 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
     private final LlmClientUtil llmClientUtil;
     private final GeminiProperty geminiProperty;
     private final ObjectMapper objectMapper;
+    private final PromptRegistryService promptRegistryService;
 
     @Override
     public Map<String, Object> generateBlueprint(String planId,
@@ -102,7 +104,8 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
                                        Map<String, Object> planningMeta,
                                        List<Map<String, Object>> knowledgeEvidence,
                                        List<Map<String, Object>> workflowHints) {
-        StringBuilder prompt = new StringBuilder(PromptTemplates.MASTER_PLANNING_PROMPT.formatted(planId, sessionId, effectiveGoal));
+        String template = promptRegistryService.resolvePromptValue("planner.master_v1", PromptTemplates.MASTER_PLANNING_PROMPT);
+        StringBuilder prompt = new StringBuilder(template.formatted(planId, sessionId, effectiveGoal));
         if (planningMeta != null && !planningMeta.isEmpty()) {
             prompt.append("\n\nreconstructed_intent_context (must be used for blueprint generation):\n")
                     .append(planningMeta);

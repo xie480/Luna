@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.constants.ModelHintConstant;
 import org.yilena.luna.context.ContextAssembler;
@@ -46,6 +47,12 @@ import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.memory.model.GovernedSignal;
 import org.yilena.luna.memory.support.ToolRawRefResolver;
 import org.yilena.luna.prompt.PromptTemplates;
+import org.yilena.luna.prompt.governance.PromptRegistryService;
+import org.yilena.luna.prompt.governance.PromptResolverService;
+import org.yilena.luna.prompt.governance.PromptSnapshotBridgeService;
+import org.yilena.luna.prompt.governance.model.PromptResolveContext;
+import org.yilena.luna.prompt.governance.model.PromptResolveResult;
+import org.yilena.luna.prompt.governance.model.ResolvedPromptItem;
 import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.rag.api.RetrievalService;
 import org.yilena.luna.rag.models.ConversationMessage;
@@ -155,6 +162,12 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
     private final GeminiProperty geminiProperty;
     private final SessionService sessionService;
     private final ObjectMapper objectMapper;
+    @Autowired(required = false)
+    private PromptSnapshotBridgeService promptSnapshotBridgeService;
+    @Autowired(required = false)
+    private PromptRegistryService promptRegistryService;
+    @Autowired(required = false)
+    private PromptResolverService promptResolverService;
 
     @Override
     public TaskOrchestrationResult orchestrateUserInput(String sessionId, String userInput) {
@@ -757,6 +770,16 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 contextNodeId(contextPackage)
         );
         String assembledDecisionContext = assembledDecision == null ? "" : nullSafe(assembledDecision.getPrompt());
+        String resolvedToolDecisionContext = applyToolDecisionResolverContext(
+                assembledDecisionContext,
+                safeSessionId,
+                safeUserInput,
+                contextPackage,
+                toolDecisionPolicy == null ? "" : toolDecisionPolicy.getNodeKind()
+        );
+        if (!resolvedToolDecisionContext.isBlank()) {
+            assembledDecisionContext = resolvedToolDecisionContext;
+        }
 
         ToolCallingContextHolder.set(ToolCallingContext.builder()
                 .chatSessionKey(safeSessionId)
@@ -1155,6 +1178,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     "final model context snapshot persisted by runtime audit service",
                     toJsonSafe(Map.of("snapshotId", finalSnapshotId))
             );
+            persistPromptSnapshotRefs(sessionId, nodeId, finalSnapshotId, assembledContext);
         }
 
         AssembledContext assembledWithSnapshot = assembledContext;
@@ -1662,7 +1686,10 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         JsonNode node = tryParseJsonNode(valid);
         if (!isValidReplyNode(node)) {
             try {
-                String repairPrompt = PromptTemplates.REPAIR_PROMPT.formatted(
+                String repairTemplate = promptRegistryService == null
+                        ? PromptTemplates.REPAIR_PROMPT
+                        : promptRegistryService.resolvePromptValue("repair.main_json_v1", PromptTemplates.REPAIR_PROMPT);
+                String repairPrompt = repairTemplate.formatted(
                         repairSeed == null || repairSeed.isBlank() ? valid : repairSeed
                 );
                 LlmRequest repairRequest = LlmRequest.builder()
@@ -4080,6 +4107,148 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             return fallbackRef;
         }
         return "tool_execution_trace:latest";
+    }
+
+    private String applyToolDecisionResolverContext(String fallbackContext,
+                                                    String sessionId,
+                                                    String userInput,
+                                                    StructuredContextPackage contextPackage,
+                                                    String nodeKind) {
+        if (promptResolverService == null) {
+            return fallbackContext;
+        }
+        try {
+            PromptResolveResult resolveResult = promptResolverService.resolve(
+                    PromptResolveContext.builder()
+                            .sessionId(sessionId)
+                            .userInput(userInput)
+                            .policyId(resolvePolicyId(contextPackage))
+                            .personaId(resolveContextBinding(contextPackage, "personaId", "persona_id"))
+                            .sceneId(resolveContextBinding(contextPackage, "sceneId", "scene_id"))
+                            .agent("TOOL_DECISION_AGENT")
+                            .nodeKind(nodeKind == null ? "" : nodeKind)
+                            .taskState(contextPackage == null || contextPackage.getTaskState() == null ? "" : contextPackage.getTaskState().name())
+                            .modelFamily(resolveModelFamily(contextPackage))
+                            .build()
+            );
+            if (resolveResult == null || resolveResult.getMatchedItems() == null || resolveResult.getMatchedItems().isEmpty()) {
+                return fallbackContext;
+            }
+            String resolvedPrefix = resolveResult.getMatchedItems().stream()
+                    .map(ResolvedPromptItem::getValue)
+                    .filter(value -> value != null && !value.isBlank())
+                    .reduce("", (a, b) -> a.isBlank() ? b : a + "\n\n" + b);
+            if (resolvedPrefix.isBlank()) {
+                return fallbackContext;
+            }
+            if (fallbackContext == null || fallbackContext.isBlank()) {
+                return resolvedPrefix;
+            }
+            return resolvedPrefix + "\n\n" + fallbackContext;
+        } catch (Exception ignore) {
+            return fallbackContext;
+        }
+    }
+
+    private String resolvePolicyId(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getPromptPolicy() == null) {
+            return "";
+        }
+        Object byCamel = contextPackage.getPromptPolicy().get("policyId");
+        if (byCamel != null && !String.valueOf(byCamel).isBlank()) {
+            return String.valueOf(byCamel);
+        }
+        Object bySnake = contextPackage.getPromptPolicy().get("policy_id");
+        return bySnake == null ? "" : String.valueOf(bySnake);
+    }
+
+    private String resolveModelFamily(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getRuntime() == null) {
+            return "";
+        }
+        Object model = contextPackage.getRuntime().get("modelFamily");
+        if (model != null && !String.valueOf(model).isBlank()) {
+            return String.valueOf(model);
+        }
+        model = contextPackage.getRuntime().get("model_family");
+        return model == null ? "" : String.valueOf(model);
+    }
+
+    private String resolveContextBinding(StructuredContextPackage contextPackage, String camelKey, String snakeKey) {
+        if (contextPackage == null) {
+            return "";
+        }
+        String value = readFromMap(contextPackage.getPromptPolicy(), camelKey, snakeKey);
+        if (!value.isBlank()) {
+            return value;
+        }
+        value = readFromMap(contextPackage.getTaskContext(), camelKey, snakeKey);
+        if (!value.isBlank()) {
+            return value;
+        }
+        return readFromMap(contextPackage.getRelationalContext(), camelKey, snakeKey);
+    }
+
+    private String readFromMap(Map<String, Object> map, String camelKey, String snakeKey) {
+        if (map == null || map.isEmpty()) {
+            return "";
+        }
+        Object camel = map.get(camelKey);
+        if (camel != null && !String.valueOf(camel).isBlank()) {
+            return String.valueOf(camel);
+        }
+        Object snake = map.get(snakeKey);
+        if (snake != null && !String.valueOf(snake).isBlank()) {
+            return String.valueOf(snake);
+        }
+        return "";
+    }
+
+    @SuppressWarnings("unchecked")
+    private void persistPromptSnapshotRefs(String sessionId,
+                                           Long roundId,
+                                           String snapshotId,
+                                           AssembledContext assembledContext) {
+        if (promptSnapshotBridgeService == null || assembledContext == null || assembledContext.getPromptAssemblyMeta() == null) {
+            return;
+        }
+        try {
+            Map<String, Object> meta = assembledContext.getPromptAssemblyMeta();
+            String policyId = stringValue(meta.get("policyId"));
+            String assemblerVersion = stringValue(meta.get("assemblerVersion"));
+            Object refsRaw = meta.get("promptRefs");
+            if (!(refsRaw instanceof List<?> refs) || refs.isEmpty()) {
+                return;
+            }
+            List<ResolvedPromptItem> items = new ArrayList<>();
+            for (Object ref : refs) {
+                if (!(ref instanceof Map<?, ?> row)) {
+                    continue;
+                }
+                items.add(ResolvedPromptItem.builder()
+                        .itemId(toLong(row.get("itemId")))
+                        .versionId(toLong(row.get("versionId")))
+                        .key(stringValue(row.get("key")))
+                        .value(stringValue(row.get("value")))
+                        .version(stringValue(row.get("version")))
+                        .runtimeSlot(stringValue(row.get("runtimeSlot")))
+                        .matchReason(stringValue(row.get("matchReason")))
+                        .category(stringValue(row.get("category")))
+                        .assemblerVersion(firstNonBlank(stringValue(row.get("assemblerVersion")), assemblerVersion))
+                        .build());
+            }
+            if (items.isEmpty()) {
+                return;
+            }
+            PromptResolveResult resolveResult = PromptResolveResult.builder()
+                    .policyId(policyId)
+                    .matchedItems(items)
+                    .slotMapping(Map.of())
+                    .build();
+            promptSnapshotBridgeService.persistSnapshotRefs(sessionId, roundId, snapshotId, policyId, resolveResult);
+        } catch (Exception ignore) {
+            // must not break main model flow
+        }
     }
 
     private ToolSemanticResult fallbackToolSemanticResult(String toolName,

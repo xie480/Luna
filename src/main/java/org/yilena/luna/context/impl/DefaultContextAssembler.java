@@ -1,5 +1,6 @@
 package org.yilena.luna.context.impl;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.context.ContextAssembler;
 import org.yilena.luna.context.ContextSnapshotWriter;
@@ -18,6 +19,11 @@ import org.yilena.luna.memory.RelationalMemoryRetriever;
 import org.yilena.luna.memory.TaskMemoryRetriever;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.prompt.PromptTemplates;
+import org.yilena.luna.prompt.governance.PromptRegistryService;
+import org.yilena.luna.prompt.governance.PromptResolverService;
+import org.yilena.luna.prompt.governance.model.PromptResolveContext;
+import org.yilena.luna.prompt.governance.model.PromptResolveResult;
+import org.yilena.luna.prompt.governance.model.ResolvedPromptItem;
 import org.yilena.luna.state.model.TaskState;
 
 import java.util.ArrayList;
@@ -35,6 +41,10 @@ public class DefaultContextAssembler implements ContextAssembler {
     private final SummaryAgent summaryAgent;
     private final ToolSemanticAgent toolSemanticAgent;
     private final ContextSnapshotWriter contextSnapshotWriter;
+    @Autowired(required = false)
+    private PromptResolverService promptResolverService;
+    @Autowired(required = false)
+    private PromptRegistryService promptRegistryService;
 
     public DefaultContextAssembler(SemanticPreservingPruner semanticPreservingPruner,
                                    TaskMemoryRetriever taskMemoryRetriever,
@@ -118,8 +128,10 @@ public class DefaultContextAssembler implements ContextAssembler {
                 effectiveRoundSummaryInput,
                 policy
         );
+        PromptResolveResult promptResolveResult = resolvePromptAssembly(userInput, contextPackage, policy);
+        String systemPrompt = resolveSystemPrompt(promptResolveResult);
         Map<String, List<String>> sections = new LinkedHashMap<>();
-        sections.put("Instructions", lines(PromptTemplates.SYSTEM_PROMPT));
+        sections.put("Instructions", lines(systemPrompt));
         sections.put("Current Task State", lines(buildCurrentTaskState(contextPackage, policy)));
         sections.put("Reconstructed User Intent", lines(buildReconstructedIntent(userInput, reconstructionResult)));
         sections.put("Relevant Knowledge Evidence", candidatePool.getOrDefault("knowledge", List.of()));
@@ -143,6 +155,7 @@ public class DefaultContextAssembler implements ContextAssembler {
                 candidatePool.getOrDefault("summary", List.of())
         ));
         sections.put("Output Constraints", buildOutputConstraints(policy, contextPackage, reconstructionResult, effectiveToolSemanticResult, effectiveRoundSummaryInput));
+        applyResolvedPromptSlots(sections, promptResolveResult);
 
         SemanticPreservingPruner.PruneResult pruneResult = semanticPreservingPruner.prune(
                 sections,
@@ -158,8 +171,13 @@ public class DefaultContextAssembler implements ContextAssembler {
                     sectionBudget(contextPackage == null ? Map.of() : contextPackage.getTokenBudgetPlan(), policy)
             );
         }
-        String prompt = toPrompt(pruneResult.getSections(), buildRuntimePromptInput(userInput, reconstructionResult));
+        String prompt = toPrompt(
+                pruneResult.getSections(),
+                buildRuntimePromptInput(userInput, reconstructionResult),
+                resolveRuntimePromptTemplate(promptResolveResult)
+        );
         Map<String, List<String>> canonicalSections = toCanonicalSections(pruneResult.getSections());
+        Map<String, Object> promptAssemblyMeta = buildPromptAssemblyMeta(promptResolveResult);
         AssembledContext preSnapshotContext = AssembledContext.builder()
                 .prompt(prompt)
                 .sections(pruneResult.getSections())
@@ -167,6 +185,7 @@ public class DefaultContextAssembler implements ContextAssembler {
                 .candidatePool(candidatePool)
                 .sectionTokenCounts(pruneResult.getSectionTokenCounts())
                 .sectionTokenRatios(pruneResult.getSectionTokenRatios())
+                .promptAssemblyMeta(promptAssemblyMeta)
                 .snapshotId("")
                 .build();
         return AssembledContext.builder()
@@ -176,6 +195,7 @@ public class DefaultContextAssembler implements ContextAssembler {
                 .candidatePool(preSnapshotContext.getCandidatePool())
                 .sectionTokenCounts(preSnapshotContext.getSectionTokenCounts())
                 .sectionTokenRatios(preSnapshotContext.getSectionTokenRatios())
+                .promptAssemblyMeta(preSnapshotContext.getPromptAssemblyMeta())
                 .snapshotId("")
                 .build();
     }
@@ -242,6 +262,7 @@ public class DefaultContextAssembler implements ContextAssembler {
                 .candidatePool(assembled == null ? Map.of() : assembled.getCandidatePool())
                 .sectionTokenCounts(assembled == null ? Map.of() : assembled.getSectionTokenCounts())
                 .sectionTokenRatios(assembled == null ? Map.of() : assembled.getSectionTokenRatios())
+                .promptAssemblyMeta(assembled == null ? Map.of() : assembled.getPromptAssemblyMeta())
                 .snapshotId(snapshotId == null ? "" : snapshotId)
                 .build();
     }
@@ -846,7 +867,7 @@ public class DefaultContextAssembler implements ContextAssembler {
         return new ArrayList<>(merged);
     }
 
-    private String toPrompt(Map<String, List<String>> sections, String runtimePromptInput) {
+    private String toPrompt(Map<String, List<String>> sections, String runtimePromptInput, String runtimeTemplate) {
         StringBuilder sb = new StringBuilder();
         for (Map.Entry<String, List<String>> entry : sections.entrySet()) {
             sb.append("## ").append(entry.getKey()).append("\n");
@@ -861,8 +882,177 @@ public class DefaultContextAssembler implements ContextAssembler {
             sb.append("\n");
         }
         sb.append("## Runtime Prompt\n");
-        sb.append(PromptTemplates.RUNTIME_PROMPT.formatted(runtimePromptInput == null ? "" : runtimePromptInput.trim()));
+        String runtimePrompt = runtimeTemplate == null || runtimeTemplate.isBlank()
+                ? PromptTemplates.RUNTIME_PROMPT
+                : runtimeTemplate;
+        sb.append(runtimePrompt.formatted(runtimePromptInput == null ? "" : runtimePromptInput.trim()));
         return sb.toString();
+    }
+
+    private PromptResolveResult resolvePromptAssembly(String userInput,
+                                                      StructuredContextPackage contextPackage,
+                                                      ContextNodeTemplatePolicy policy) {
+        if (promptResolverService == null) {
+            return null;
+        }
+        try {
+            PromptResolveContext context = PromptResolveContext.builder()
+                    .sessionId(contextPackage == null ? "" : safe(contextPackage.getSessionId()))
+                    .userInput(userInput)
+                    .policyId(resolvePolicyId(contextPackage))
+                    .personaId(resolveContextBinding(contextPackage, "personaId", "persona_id"))
+                    .sceneId(resolveContextBinding(contextPackage, "sceneId", "scene_id"))
+                    .agent("MAIN_CHAT_AGENT")
+                    .nodeKind(policy == null ? "" : safe(policy.getNodeKind()))
+                    .taskState(contextPackage == null || contextPackage.getTaskState() == null ? "" : contextPackage.getTaskState().name())
+                    .modelFamily(resolveModelFamily(contextPackage))
+                    .build();
+            return promptResolverService.resolve(context);
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    private String resolvePolicyId(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getPromptPolicy() == null) {
+            return "";
+        }
+        Object byCamel = contextPackage.getPromptPolicy().get("policyId");
+        if (byCamel != null && !String.valueOf(byCamel).isBlank()) {
+            return String.valueOf(byCamel);
+        }
+        Object bySnake = contextPackage.getPromptPolicy().get("policy_id");
+        return bySnake == null ? "" : String.valueOf(bySnake);
+    }
+
+    private String resolveModelFamily(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getRuntime() == null) {
+            return "";
+        }
+        Object model = contextPackage.getRuntime().get("modelFamily");
+        if (model != null && !String.valueOf(model).isBlank()) {
+            return String.valueOf(model);
+        }
+        model = contextPackage.getRuntime().get("model_family");
+        return model == null ? "" : String.valueOf(model);
+    }
+
+    private String resolveSystemPrompt(PromptResolveResult resolveResult) {
+        String fallback = promptRegistryService == null
+                ? PromptTemplates.SYSTEM_PROMPT
+                : promptRegistryService.resolvePromptValue("system.base_v1", PromptTemplates.SYSTEM_PROMPT);
+        if (resolveResult == null || resolveResult.getSlotMapping() == null) {
+            return fallback;
+        }
+        List<ResolvedPromptItem> items = resolveResult.getSlotMapping().getOrDefault("instructions.system", List.of());
+        if (items.isEmpty()) {
+            return fallback;
+        }
+        String resolved = items.stream()
+                .map(ResolvedPromptItem::getValue)
+                .filter(value -> value != null && !value.isBlank())
+                .reduce("", (a, b) -> a.isBlank() ? b : a + "\n\n" + b);
+        return resolved.isBlank() ? fallback : resolved;
+    }
+
+    private String resolveRuntimePromptTemplate(PromptResolveResult resolveResult) {
+        String fallback = promptRegistryService == null
+                ? PromptTemplates.RUNTIME_PROMPT
+                : promptRegistryService.resolvePromptValue("runtime.main_v1", PromptTemplates.RUNTIME_PROMPT);
+        if (resolveResult == null || resolveResult.getSlotMapping() == null) {
+            return fallback;
+        }
+        List<ResolvedPromptItem> items = resolveResult.getSlotMapping().getOrDefault("runtime.prompt", List.of());
+        if (items.isEmpty()) {
+            return fallback;
+        }
+        String resolved = items.stream()
+                .map(ResolvedPromptItem::getValue)
+                .filter(value -> value != null && !value.isBlank())
+                .findFirst()
+                .orElse("");
+        return resolved.isBlank() ? fallback : resolved;
+    }
+
+    private void applyResolvedPromptSlots(Map<String, List<String>> sections, PromptResolveResult resolveResult) {
+        if (sections == null || sections.isEmpty() || resolveResult == null || resolveResult.getSlotMapping() == null) {
+            return;
+        }
+        for (Map.Entry<String, List<ResolvedPromptItem>> entry : resolveResult.getSlotMapping().entrySet()) {
+            String slot = entry.getKey();
+            if (slot == null || slot.isBlank() || "instructions.system".equalsIgnoreCase(slot) || "runtime.prompt".equalsIgnoreCase(slot)) {
+                continue;
+            }
+            List<String> values = entry.getValue().stream()
+                    .map(ResolvedPromptItem::getValue)
+                    .filter(value -> value != null && !value.isBlank())
+                    .toList();
+            if (values.isEmpty()) {
+                continue;
+            }
+            if (slot.startsWith("instructions.")) {
+                sections.put("Instructions", mergeDistinct(sections.getOrDefault("Instructions", List.of()), values));
+            } else if ("memory.hints".equalsIgnoreCase(slot)) {
+                sections.put("Memory Hints", mergeDistinct(sections.getOrDefault("Memory Hints", List.of()), values));
+            } else if ("output.constraints".equalsIgnoreCase(slot)) {
+                sections.put("Output Constraints", mergeDistinct(sections.getOrDefault("Output Constraints", List.of()), values));
+            } else if ("knowledge.evidence".equalsIgnoreCase(slot)) {
+                sections.put("Relevant Knowledge Evidence", mergeDistinct(sections.getOrDefault("Relevant Knowledge Evidence", List.of()), values));
+            }
+        }
+    }
+
+    private Map<String, Object> buildPromptAssemblyMeta(PromptResolveResult resolveResult) {
+        if (resolveResult == null || resolveResult.getMatchedItems() == null) {
+            return Map.of();
+        }
+        List<Map<String, Object>> refs = resolveResult.getMatchedItems().stream().map(item -> {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("itemId", item.getItemId());
+            row.put("versionId", item.getVersionId());
+            row.put("key", item.getKey());
+            row.put("version", item.getVersion());
+            row.put("runtimeSlot", item.getRuntimeSlot());
+            row.put("matchReason", item.getMatchReason());
+            row.put("category", item.getCategory());
+            row.put("value", item.getValue());
+            return row;
+        }).toList();
+        return Map.of(
+                "policyId", resolveResult.getPolicyId() == null ? "" : resolveResult.getPolicyId(),
+                "assemblerVersion", "assembler.v1",
+                "promptRefs", refs
+        );
+    }
+
+    private String resolveContextBinding(StructuredContextPackage contextPackage, String camelKey, String snakeKey) {
+        if (contextPackage == null) {
+            return "";
+        }
+        String value = readFromMap(contextPackage.getPromptPolicy(), camelKey, snakeKey);
+        if (!value.isBlank()) {
+            return value;
+        }
+        value = readFromMap(contextPackage.getTaskContext(), camelKey, snakeKey);
+        if (!value.isBlank()) {
+            return value;
+        }
+        return readFromMap(contextPackage.getRelationalContext(), camelKey, snakeKey);
+    }
+
+    private String readFromMap(Map<String, Object> map, String camelKey, String snakeKey) {
+        if (map == null || map.isEmpty()) {
+            return "";
+        }
+        Object camel = map.get(camelKey);
+        if (camel != null && !String.valueOf(camel).isBlank()) {
+            return String.valueOf(camel);
+        }
+        Object snake = map.get(snakeKey);
+        if (snake != null && !String.valueOf(snake).isBlank()) {
+            return String.valueOf(snake);
+        }
+        return "";
     }
 
     private String buildRuntimePromptInput(String userInput, InputReconstructionResult reconstructionResult) {

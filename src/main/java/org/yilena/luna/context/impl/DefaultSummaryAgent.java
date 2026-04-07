@@ -3,6 +3,7 @@ package org.yilena.luna.context.impl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.context.SummaryAgent;
 import org.yilena.luna.context.model.EvidenceBlock;
@@ -13,6 +14,7 @@ import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
 import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.memory.model.StructuredContextPackage;
+import org.yilena.luna.prompt.governance.PromptRegistryService;
 import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.utils.LlmClientUtil;
 
@@ -65,6 +67,8 @@ public class DefaultSummaryAgent implements SummaryAgent {
     private final LlmClientUtil llmClientUtil;
     private final GeminiProperty geminiProperty;
     private final ObjectMapper objectMapper;
+    @Autowired(required = false)
+    private PromptRegistryService promptRegistryService;
 
     @Override
     public SummaryResult summarize(String userInput,
@@ -106,7 +110,10 @@ public class DefaultSummaryAgent implements SummaryAgent {
                                           List<String> activeMcpResourceHints,
                                           ToolSemanticResult latestToolSemanticResult) {
         try {
-            String prompt = SUMMARY_PROMPT.formatted(
+            String promptTemplate = promptRegistryService == null
+                    ? SUMMARY_PROMPT
+                    : promptRegistryService.resolvePromptValue("agent.summary.default_v1", SUMMARY_PROMPT);
+            String prompt = promptTemplate.formatted(
                     safe(userInput),
                     safe(assistantReply),
                     contextPackage == null || contextPackage.getTaskState() == null ? "UNKNOWN" : contextPackage.getTaskState().name(),

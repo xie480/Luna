@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.context.InputReconstructionAgent;
 import org.yilena.luna.context.Lexicon;
@@ -15,6 +16,7 @@ import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
 import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.memory.model.StructuredContextPackage;
+import org.yilena.luna.prompt.governance.PromptRegistryService;
 import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.utils.LlmClientUtil;
 
@@ -66,6 +68,8 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
     private final LlmClientUtil llmClientUtil;
     private final GeminiProperty geminiProperty;
     private final ObjectMapper objectMapper;
+    @Autowired(required = false)
+    private PromptRegistryService promptRegistryService;
 
     @Override
     public InputReconstructionResult reconstruct(String sessionId,
@@ -109,7 +113,10 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
                                                              RelationalRuntimeState relationalState,
                                                              ContextSignals signals) {
         try {
-            String prompt = RECONSTRUCTION_PROMPT.formatted(
+            String promptTemplate = promptRegistryService == null
+                    ? RECONSTRUCTION_PROMPT
+                    : promptRegistryService.resolvePromptValue("agent.reconstruction.default_v1", RECONSTRUCTION_PROMPT);
+            String prompt = promptTemplate.formatted(
                     normalize(sessionId),
                     safeName(taskState),
                     safeName(relationalState),

@@ -15,5 +15,6 @@ public class AssembledContext {
     Map<String, List<String>> candidatePool;
     Map<String, Integer> sectionTokenCounts;
     Map<String, Double> sectionTokenRatios;
+    Map<String, Object> promptAssemblyMeta;
     String snapshotId;
 }

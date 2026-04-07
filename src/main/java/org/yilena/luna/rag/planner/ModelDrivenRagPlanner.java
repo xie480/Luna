@@ -12,6 +12,7 @@ import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
 import org.yilena.luna.llm.LlmResponse;
 import org.yilena.luna.properties.GeminiProperty;
+import org.yilena.luna.prompt.governance.PromptRegistryService;
 import org.yilena.luna.rag.models.Evidence;
 import org.yilena.luna.rag.models.RetrievalRequest;
 import org.yilena.luna.rag.models.RetrievalRoute;
@@ -37,6 +38,7 @@ public class ModelDrivenRagPlanner {
     private final LlmClientUtil llmClientUtil;
     private final GeminiProperty geminiProperty;
     private final ObjectMapper objectMapper;
+    private final PromptRegistryService promptRegistryService;
 
     public QueryPlanDecision planQuery(String original, String normalized, RetrievalRequest request) {
         List<RetrievalRoute> allowedRoutes = request.getAllowedRoutes() == null || request.getAllowedRoutes().isEmpty()
@@ -46,7 +48,7 @@ public class ModelDrivenRagPlanner {
                 ? RetrievalSource.all()
                 : request.getSourceScope();
 
-        String prompt = """
+        String prompt = resolvePrompt("rag.planner.query_v1", """
                 You are a RAG query planner. Return strict one-line JSON only.
                 Required schema:
                 {
@@ -66,7 +68,7 @@ public class ModelDrivenRagPlanner {
                 safe(normalized),
                 allowedRoutes.stream().map(RetrievalRoute::value).collect(Collectors.joining(",")),
                 sourceScope.stream().map(RetrievalSource::value).collect(Collectors.joining(","))
-        );
+        ));
 
         JsonNode node = callJson(prompt, selectSmallModel());
         if (node == null || !node.isObject()) {
@@ -108,7 +110,7 @@ public class ModelDrivenRagPlanner {
                     .build();
         }
 
-        String prompt = """
+        String prompt = resolvePrompt("rag.planner.source_process_v1", """
                 You are a retrieval post-processing policy planner.
                 Return strict one-line JSON only.
                 Required schema:
@@ -135,7 +137,7 @@ public class ModelDrivenRagPlanner {
                 defaultTopK,
                 allowRerank,
                 allowCompress
-        );
+        ));
 
         JsonNode node = callJson(prompt, selectSmallModel());
         if (node == null || !node.isObject()) {
@@ -161,7 +163,7 @@ public class ModelDrivenRagPlanner {
         List<RetrievalSource> safeScope = sourceScope == null || sourceScope.isEmpty() ? RetrievalSource.all() : sourceScope;
         int boundedMaxStages = clamp(maxStages, 1, 5);
 
-        String prompt = """
+        String prompt = resolvePrompt("rag.planner.agent_stage_v1", """
                 You are an agentic retrieval planner for multi-stage decomposition.
                 Return strict one-line JSON only.
                 Required schema:
@@ -185,7 +187,7 @@ public class ModelDrivenRagPlanner {
                 boundedMaxStages,
                 safeScope.stream().map(RetrievalSource::value).collect(Collectors.joining(",")),
                 safe(query)
-        );
+        ));
 
         JsonNode node = callJson(prompt, selectMidModel());
         if (node == null || !node.isObject() || !node.path("stages").isArray()) {
@@ -224,7 +226,7 @@ public class ModelDrivenRagPlanner {
                 .map(it -> "id=" + it.getId() + " | source=" + it.getSource().value() + " | content=" + trimForPrompt(it.getContent(), 200))
                 .collect(Collectors.joining("\n"));
 
-        String prompt = """
+        String prompt = resolvePrompt("rag.planner.global_rerank_v1", """
                 You are a cross-source reranker.
                 Return strict one-line JSON only.
                 Required schema: {"ordered_ids": ["evidence_id_1", "evidence_id_2", ...]}
@@ -233,7 +235,7 @@ public class ModelDrivenRagPlanner {
                 Top limit: %d
                 Candidate evidences:
                 %s
-                """.formatted(safe(query), safeLimit, docs);
+                """.formatted(safe(query), safeLimit, docs));
 
         JsonNode node = callJson(prompt, preferMidModel ? selectMidModel() : selectSmallModel());
         if (node == null || !node.path("ordered_ids").isArray()) {
@@ -383,6 +385,10 @@ public class ModelDrivenRagPlanner {
 
     private int clamp(int value, int min, int max) {
         return Math.min(max, Math.max(min, value));
+    }
+
+    private String resolvePrompt(String key, String fallback) {
+        return promptRegistryService.resolvePromptValue(key, fallback);
     }
 
     @Value

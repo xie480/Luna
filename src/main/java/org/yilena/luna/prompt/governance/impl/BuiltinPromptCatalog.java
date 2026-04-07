@@ -1,0 +1,257 @@
+package org.yilena.luna.prompt.governance.impl;
+
+import org.yilena.luna.prompt.PromptTemplates;
+import org.yilena.luna.prompt.governance.model.PromptItemRecord;
+
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+final class BuiltinPromptCatalog {
+
+    private BuiltinPromptCatalog() {
+    }
+
+    static Map<String, PromptItemRecord> all() {
+        Map<String, PromptItemRecord> out = new LinkedHashMap<>();
+        out.put("system.base_v1", item(
+                "system.base_v1",
+                "System Base",
+                PromptTemplates.SYSTEM_PROMPT,
+                "system",
+                "base",
+                "instructions.system",
+                false,
+                false,
+                List.of(),
+                "ALWAYS",
+                "1.0.0",
+                "System prompt fallback"
+        ));
+        out.put("runtime.main_v1", item(
+                "runtime.main_v1",
+                "Runtime Main",
+                PromptTemplates.RUNTIME_PROMPT,
+                "task",
+                "runtime",
+                "runtime.prompt",
+                true,
+                false,
+                List.of("runtimePromptInput"),
+                "ALWAYS",
+                "1.0.0",
+                "Runtime prompt fallback"
+        ));
+        out.put("repair.main_json_v1", item(
+                "repair.main_json_v1",
+                "Repair Main Json",
+                PromptTemplates.REPAIR_PROMPT,
+                "repair",
+                "json",
+                "repair.main",
+                true,
+                false,
+                List.of("invalidJson"),
+                "AGENT_ONLY",
+                "1.0.0",
+                "Repair prompt fallback"
+        ));
+        out.put("agent.reconstruction.default_v1", item(
+                "agent.reconstruction.default_v1",
+                "Agent Reconstruction",
+                "",
+                "agent-local",
+                "reconstruction",
+                "agent.reconstruction",
+                true,
+                false,
+                List.of(),
+                "AGENT_ONLY",
+                "1.0.0",
+                "Agent reconstruction fallback"
+        ));
+        out.put("agent.rerank.default_v1", item(
+                "agent.rerank.default_v1",
+                "Agent Rerank",
+                "",
+                "agent-local",
+                "rerank",
+                "agent.rerank",
+                true,
+                false,
+                List.of(),
+                "AGENT_ONLY",
+                "1.0.0",
+                "Agent rerank fallback"
+        ));
+        out.put("agent.recovery.default_v1", item(
+                "agent.recovery.default_v1",
+                "Agent Recovery",
+                "",
+                "agent-local",
+                "recovery",
+                "agent.recovery",
+                true,
+                false,
+                List.of(),
+                "AGENT_ONLY",
+                "1.0.0",
+                "Agent recovery fallback"
+        ));
+        out.put("agent.tool_semantic.default_v1", item(
+                "agent.tool_semantic.default_v1",
+                "Agent Tool Semantic",
+                "",
+                "agent-local",
+                "tool-semantic",
+                "agent.tool_semantic",
+                true,
+                false,
+                List.of(),
+                "AGENT_ONLY",
+                "1.0.0",
+                "Tool semantic fallback"
+        ));
+        out.put("agent.summary.default_v1", item(
+                "agent.summary.default_v1",
+                "Agent Summary",
+                "",
+                "summary",
+                "default",
+                "agent.summary",
+                true,
+                false,
+                List.of(),
+                "AGENT_ONLY",
+                "1.0.0",
+                "Summary fallback"
+        ));
+        out.put("tool.args_v1", item(
+                "tool.args_v1",
+                "Tool Args",
+                PromptTemplates.TOOL_ARGS_PROMPT,
+                "tool",
+                "args",
+                "agent.tool_args",
+                true,
+                false,
+                List.of(),
+                "AGENT_ONLY",
+                "1.0.0",
+                "Tool args fallback"
+        ));
+        out.put("planner.master_v1", item(
+                "planner.master_v1",
+                "Master Planning",
+                PromptTemplates.MASTER_PLANNING_PROMPT,
+                "task",
+                "planner",
+                "agent.master_planning",
+                true,
+                false,
+                List.of(),
+                "AGENT_ONLY",
+                "1.0.0",
+                "Master planning fallback"
+        ));
+        out.put("rag.planner.query_v1", item(
+                "rag.planner.query_v1",
+                "Rag Planner Query",
+                "",
+                "rag-hint",
+                "planner",
+                "rag.planner.query",
+                true,
+                false,
+                List.of(),
+                "AGENT_ONLY",
+                "1.0.0",
+                "Rag query planner fallback"
+        ));
+        out.put("rag.planner.source_process_v1", item(
+                "rag.planner.source_process_v1",
+                "Rag Source Process Planner",
+                "",
+                "rag-hint",
+                "planner",
+                "rag.planner.source_process",
+                true,
+                false,
+                List.of(),
+                "AGENT_ONLY",
+                "1.0.0",
+                "Rag source process planner fallback"
+        ));
+        out.put("rag.planner.agent_stage_v1", item(
+                "rag.planner.agent_stage_v1",
+                "Rag Agent Stage Planner",
+                "",
+                "rag-hint",
+                "planner",
+                "rag.planner.agent_stage",
+                true,
+                false,
+                List.of(),
+                "AGENT_ONLY",
+                "1.0.0",
+                "Rag agent stage planner fallback"
+        ));
+        out.put("rag.planner.global_rerank_v1", item(
+                "rag.planner.global_rerank_v1",
+                "Rag Global Rerank Planner",
+                "",
+                "rag-hint",
+                "planner",
+                "rag.planner.global_rerank",
+                true,
+                false,
+                List.of(),
+                "AGENT_ONLY",
+                "1.0.0",
+                "Rag global rerank planner fallback"
+        ));
+        return out;
+    }
+
+    private static PromptItemRecord item(String key,
+                                         String name,
+                                         String value,
+                                         String category,
+                                         String subCategory,
+                                         String runtimeSlot,
+                                         boolean hasTemplateVariables,
+                                         boolean keywordMatchEnabled,
+                                         List<String> templateVariables,
+                                         String assemblyMode,
+                                         String version,
+                                         String description) {
+        return PromptItemRecord.builder()
+                .itemId(-1L)
+                .versionId(-1L)
+                .key(key)
+                .name(name)
+                .value(value)
+                .category(category)
+                .subCategory(subCategory)
+                .description(description)
+                .runtimeSlot(runtimeSlot)
+                .hasTemplateVariables(hasTemplateVariables)
+                .templateVariables(templateVariables)
+                .keywordMatchEnabled(keywordMatchEnabled)
+                .matchKeywords(List.of())
+                .assemblyMode(assemblyMode)
+                .matchScope(Map.of())
+                .editPolicy(Map.of(
+                        "create", !hasTemplateVariables,
+                        "update", true,
+                        "delete", !hasTemplateVariables
+                ))
+                .enabled(true)
+                .priority(hasTemplateVariables ? 100 : 80)
+                .status("active")
+                .version(version)
+                .versionLabel(version)
+                .changeNote("builtin_fallback")
+                .build();
+    }
+}

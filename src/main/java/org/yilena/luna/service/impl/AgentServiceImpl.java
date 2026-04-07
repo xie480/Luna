@@ -20,6 +20,7 @@ import org.yilena.luna.gate.ExecutionGate;
 import org.yilena.luna.gate.ToolExecutionGateway;
 import org.yilena.luna.memory.RuntimeAuditService;
 import org.yilena.luna.prompt.PromptTemplates;
+import org.yilena.luna.prompt.governance.PromptRegistryService;
 import org.yilena.luna.router.CapabilityPolicyRouterService;
 import org.yilena.luna.router.ToolRouter;
 import org.yilena.luna.service.AgentService;
@@ -30,6 +31,7 @@ import org.yilena.luna.service.model.ToolDecisionCommand;
 import org.yilena.luna.utils.AuthContextHolder;
 import org.yilena.luna.utils.ToolDecisionInputSignatureUtil;
 import org.yilena.luna.utils.ToolCallingContextHolder;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -54,6 +56,8 @@ public class AgentServiceImpl implements AgentService {
     private final CapabilityPolicyRouterService capabilityPolicyRouterService;
     private final PlanOrchestratorService planOrchestratorService;
     private final RuntimeAuditService runtimeAuditService;
+    @Autowired(required = false)
+    private PromptRegistryService promptRegistryService;
     @Value("${luna.governance.strict-tool-decision:true}")
     private boolean strictToolDecision = true;
     private static final String WORKFLOW_ARGS_PROMPT_TEMPLATE = PromptTemplates.SKILL_ARGS_PROMPT;
@@ -287,13 +291,20 @@ public class AgentServiceImpl implements AgentService {
             );
         }
         return String.format(
-                PromptTemplates.TOOL_ARGS_PROMPT,
+                resolvePrompt("tool.args_v1", PromptTemplates.TOOL_ARGS_PROMPT),
                 input,
                 historyText,
                 resource.getName(),
                 resource.getDescription(),
                 resource.getInputSchema()
         );
+    }
+
+    private String resolvePrompt(String key, String fallback) {
+        if (promptRegistryService == null) {
+            return fallback;
+        }
+        return promptRegistryService.resolvePromptValue(key, fallback);
     }
 
     private String buildWorkflowHint(Resource resource) {
