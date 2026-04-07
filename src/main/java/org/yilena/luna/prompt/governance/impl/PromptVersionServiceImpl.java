@@ -44,6 +44,14 @@ public class PromptVersionServiceImpl implements PromptVersionService {
     }
 
     @Override
+    public PromptItemVersionEntity getVersionDetail(Long versionId) {
+        if (versionId == null || versionId <= 0) {
+            return null;
+        }
+        return promptItemVersionMapper.selectById(versionId);
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public void activateVersion(Long versionId) {
         if (versionId == null || versionId <= 0) {
@@ -66,7 +74,8 @@ public class PromptVersionServiceImpl implements PromptVersionService {
                 new LambdaUpdateWrapper<PromptItemEntity>()
                         .eq(PromptItemEntity::getId, version.getPromptItemId())
                         .set(PromptItemEntity::getCurrentVersionId, versionId)
-                        .set(PromptItemEntity::getStatus, "active"));
+                        .set(PromptItemEntity::getEnabled, true)
+                        .set(PromptItemEntity::getStatus, "enabled"));
     }
 
     @Override
@@ -150,6 +159,7 @@ public class PromptVersionServiceImpl implements PromptVersionService {
                     new LambdaUpdateWrapper<PromptItemEntity>()
                             .eq(PromptItemEntity::getId, item.getId())
                             .set(PromptItemEntity::getCurrentVersionId, null)
+                            .set(PromptItemEntity::getEnabled, false)
                             .set(PromptItemEntity::getStatus, "disabled"));
         }
     }

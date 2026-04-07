@@ -24,6 +24,22 @@ public class PromptPolicyServiceImpl implements PromptPolicyService {
     private final PromptPolicyVersionMapper promptPolicyVersionMapper;
 
     @Override
+    public PromptPolicyEntity getByPolicyId(String policyId) {
+        if (policyId == null || policyId.isBlank()) {
+            return null;
+        }
+        try {
+            return promptPolicyMapper.selectOne(
+                    new LambdaQueryWrapper<PromptPolicyEntity>()
+                            .eq(PromptPolicyEntity::getPolicyKey, policyId.trim())
+                            .last("limit 1")
+            );
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    @Override
     public Set<String> resolveIncludedPromptKeys(String policyId) {
         PromptPolicyVersionEntity current = findCurrent(policyId);
         if (current == null || current.getIncludePromptKeys() == null) {

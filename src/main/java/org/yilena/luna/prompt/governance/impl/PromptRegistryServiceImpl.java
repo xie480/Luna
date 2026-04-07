@@ -48,13 +48,53 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
             if (item == null) {
                 return builtinFallbackEnabled ? Optional.ofNullable(builtins.get(key)) : Optional.empty();
             }
-            PromptItemRecord merged = merge(item, loadCurrentVersion(item.getCurrentVersionId()));
+            PromptItemVersionEntity version = loadCurrentVersion(item.getCurrentVersionId());
+            if (!isCurrentVersionActive(version)) {
+                return builtinFallbackEnabled ? Optional.ofNullable(builtins.get(key)) : Optional.empty();
+            }
+            PromptItemRecord merged = merge(item, version);
             if (merged == null) {
                 return builtinFallbackEnabled ? Optional.ofNullable(builtins.get(key)) : Optional.empty();
             }
             return Optional.of(merged);
         } catch (Exception ignore) {
             return builtinFallbackEnabled ? Optional.ofNullable(builtins.get(key)) : Optional.empty();
+        }
+    }
+
+    @Override
+    public Optional<PromptItemRecord> getById(Long id) {
+        if (id == null || id <= 0) {
+            return Optional.empty();
+        }
+        try {
+            PromptItemEntity item = promptItemMapper.selectById(id);
+            if (item == null) {
+                return Optional.empty();
+            }
+            PromptItemVersionEntity version = loadCurrentVersion(item.getCurrentVersionId());
+            if (!isCurrentVersionActive(version)) {
+                return Optional.empty();
+            }
+            return Optional.ofNullable(merge(item, version));
+        } catch (Exception ignore) {
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public boolean existsByKey(String key) {
+        if (key == null || key.isBlank()) {
+            return false;
+        }
+        try {
+            Long count = promptItemMapper.selectCount(
+                    new LambdaQueryWrapper<PromptItemEntity>()
+                            .eq(PromptItemEntity::getPromptKey, key.trim())
+            );
+            return count != null && count > 0;
+        } catch (Exception ignore) {
+            return builtinFallbackEnabled && builtins.containsKey(key.trim());
         }
     }
 
@@ -71,7 +111,11 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
             );
             Map<Long, PromptItemVersionEntity> versionById = loadVersionMap(items);
             for (PromptItemEntity item : items) {
-                PromptItemRecord record = merge(item, versionById.get(item.getCurrentVersionId()));
+                PromptItemVersionEntity version = versionById.get(item.getCurrentVersionId());
+                if (!isCurrentVersionActive(version)) {
+                    continue;
+                }
+                PromptItemRecord record = merge(item, version);
                 if (record != null) {
                     merged.put(record.getKey(), record);
                 }
@@ -83,6 +127,15 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
                 .filter(PromptItemRecord::isEnabled)
                 .sorted(Comparator.comparingInt((PromptItemRecord item) -> item.getPriority() == null ? 0 : item.getPriority()).reversed())
                 .toList();
+    }
+
+    @Override
+    public Map<String, String> listKeyValueByCategory(String category) {
+        Map<String, String> out = new LinkedHashMap<>();
+        for (PromptItemRecord item : listByCategory(category, null)) {
+            out.put(item.getKey(), item.getValue());
+        }
+        return out;
     }
 
     @Override
@@ -162,13 +215,14 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
             return null;
         }
         PromptItemRecord fallback = builtinFallbackEnabled ? builtins.get(item.getPromptKey()) : null;
+        boolean enabled = bool(item.getEnabled(), true);
         return PromptItemRecord.builder()
                 .itemId(item.getId())
                 .versionId(version == null ? null : version.getId())
                 .key(item.getPromptKey())
                 .name(safe(item.getPromptName(), fallback == null ? item.getPromptKey() : fallback.getName()))
                 .value(version == null ? (fallback == null ? "" : fallback.getValue()) : safe(version.getPromptValue()))
-                .category(safe(item.getCategory(), fallback == null ? "" : fallback.getCategory()))
+                .category(firstNonBlank(item.getCategory(), item.getCategoryKey(), fallback == null ? "" : fallback.getCategory()))
                 .subCategory(safe(item.getSubCategory(), fallback == null ? "" : fallback.getSubCategory()))
                 .description(safe(item.getDescription(), fallback == null ? "" : fallback.getDescription()))
                 .runtimeSlot(safe(item.getRuntimeSlot(), fallback == null ? "" : fallback.getRuntimeSlot()))
@@ -179,13 +233,31 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
                 .assemblyMode(safe(item.getAssemblyMode(), fallback == null ? "ALWAYS" : fallback.getAssemblyMode()))
                 .matchScope(version == null || version.getMatchScope() == null ? Map.of() : version.getMatchScope())
                 .editPolicy(version == null || version.getEditPolicy() == null ? Map.of() : version.getEditPolicy())
-                .enabled(bool(item.getEnabled(), true))
+                .enabled(enabled)
                 .priority(item.getPriority() == null ? (fallback == null ? 80 : fallback.getPriority()) : item.getPriority())
-                .status(safe(item.getStatus(), version == null ? "active" : version.getStatus()))
+                .status(safe(item.getStatus(), enabled ? "enabled" : "disabled"))
                 .version(version == null ? (fallback == null ? "1.0.0" : fallback.getVersion()) : safe(version.getVersionNo()))
                 .versionLabel(version == null ? (fallback == null ? "" : fallback.getVersionLabel()) : safe(version.getVersionLabel()))
                 .changeNote(version == null ? (fallback == null ? "" : fallback.getChangeNote()) : safe(version.getChangeNote()))
                 .build();
+    }
+
+    private boolean isCurrentVersionActive(PromptItemVersionEntity version) {
+        return version != null
+                && bool(version.getIsActive(), false)
+                && "active".equalsIgnoreCase(safe(version.getStatus()));
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null || values.length == 0) {
+            return "";
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
     }
 
     private String safe(String value) {

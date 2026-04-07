@@ -140,6 +140,34 @@ final class BuiltinPromptCatalog {
                 "1.0.0",
                 "Tool args fallback"
         ));
+        out.put("tool.decision_v1", item(
+                "tool.decision_v1",
+                "Tool Decision",
+                """
+                        You are a tool decision agent. Decide the next action strictly from the assembled decision workset.
+                        The workset already contains node state, MCP hints, constraints and recent tool semantics.
+                        Return exactly one JSON object, no markdown.
+
+                        Action JSON:
+                        {"action_type":"tool_call|prompt_get|resource_read|workflow_start|direct_answer","target_name":"...","arguments":{...}}
+                        or
+                        {"action_type":"direct_answer","answer":"..."}
+                        or
+                        {"action_type":"none","target_name":"none"}
+
+                        Assembled Decision Workset:
+                        %s
+                        """,
+                "tool",
+                "decision",
+                "agent.tool_decision",
+                true,
+                false,
+                List.of("assembledDecisionContext"),
+                "AGENT_ONLY",
+                "1.0.0",
+                "Tool decision fallback"
+        ));
         out.put("planner.master_v1", item(
                 "planner.master_v1",
                 "Master Planning",
@@ -248,7 +276,7 @@ final class BuiltinPromptCatalog {
                 ))
                 .enabled(true)
                 .priority(hasTemplateVariables ? 100 : 80)
-                .status("active")
+                .status("enabled")
                 .version(version)
                 .versionLabel(version)
                 .changeNote("builtin_fallback")

@@ -57,6 +57,7 @@ create table if not exists prompt_item
 (
     id                     bigint       not null primary key,
     category               varchar(100) not null,
+    category_key           varchar(100),
     sub_category           varchar(100),
     prompt_key             varchar(200) not null,
     prompt_name            varchar(255),
@@ -66,7 +67,7 @@ create table if not exists prompt_item
     assembly_mode          varchar(40)  not null default 'ALWAYS',
     enabled                boolean      not null default true,
     priority               integer      not null default 80,
-    status                 varchar(30)  not null default 'active',
+    status                 varchar(30)  not null default 'enabled',
     current_version_id     bigint,
     is_builtin             boolean      not null default false,
     description            text,
@@ -78,8 +79,19 @@ create table if not exists prompt_item
 create index if not exists idx_prompt_item_category_enabled
     on prompt_item (category, enabled);
 
+create index if not exists idx_prompt_item_category_key_enabled
+    on prompt_item (category_key, enabled);
+
 create index if not exists idx_prompt_item_current_version
     on prompt_item (current_version_id);
+
+alter table prompt_item
+    add column if not exists category_key varchar(100);
+
+update prompt_item
+set category_key = category
+where (category_key is null or category_key = '')
+  and category is not null;
 
 create table if not exists prompt_item_version
 (

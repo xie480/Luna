@@ -209,6 +209,11 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
             payload.put("prompt", prompt == null ? "" : prompt);
             payload.put("sections", assembledContext == null ? Map.of() : assembledContext.getSections());
             payload.put("canonicalSections", assembledContext == null ? Map.of() : assembledContext.getCanonicalSections());
+            Map<String, Object> promptAssemblyMeta = assembledContext == null ? Map.of() : normalizePromptAssemblyMeta(assembledContext.getPromptAssemblyMeta());
+            payload.put("promptRefs", promptAssemblyMeta.getOrDefault("promptRefs", List.of()));
+            payload.put("policyId", promptAssemblyMeta.getOrDefault("policyId", ""));
+            payload.put("assemblerVersion", promptAssemblyMeta.getOrDefault("assemblerVersion", ""));
+            payload.put("promptAssemblyMeta", promptAssemblyMeta);
             payload.put("sectionTokenCounts", sectionTokenCounts == null ? Map.of() : sectionTokenCounts);
             payload.put("sectionTokenRatios", sectionTokenRatios == null ? Map.of() : sectionTokenRatios);
             payload.put("rawToolResultChannel", rawToolResultChannel == null ? Map.of() : rawToolResultChannel);
@@ -242,6 +247,29 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
         } catch (Exception ignore) {
             return "";
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> normalizePromptAssemblyMeta(Map<String, Object> promptAssemblyMeta) {
+        if (promptAssemblyMeta == null || promptAssemblyMeta.isEmpty()) {
+            return Map.of(
+                    "promptRefs", List.of(),
+                    "policyId", "",
+                    "assemblerVersion", ""
+            );
+        }
+        Object refsRaw = promptAssemblyMeta.get("promptRefs");
+        List<Map<String, Object>> refs = refsRaw instanceof List<?> list
+                ? list.stream()
+                .filter(item -> item instanceof Map<?, ?>)
+                .map(item -> (Map<String, Object>) item)
+                .toList()
+                : List.of();
+        Map<String, Object> normalized = new LinkedHashMap<>();
+        normalized.put("promptRefs", refs);
+        normalized.put("policyId", stringValue(promptAssemblyMeta.get("policyId")));
+        normalized.put("assemblerVersion", stringValue(promptAssemblyMeta.get("assemblerVersion")));
+        return normalized;
     }
 
     private Map<String, List<String>> normalizeActiveRefs(Map<String, List<String>> activeRefs) {

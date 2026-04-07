@@ -40,8 +40,10 @@ public class PromptMutationServiceImpl implements PromptMutationService {
             throw new IllegalArgumentException("prompt key already exists");
         }
         String targetCategory = resolveRequestCategory(request);
+        boolean enabled = resolveItemEnabled(request.getEnabled(), request.getStatus(), true);
         PromptItemEntity item = PromptItemEntity.builder()
                 .category(targetCategory)
+                .categoryKey(targetCategory)
                 .subCategory(request.getSubCategory())
                 .promptKey(request.getKey())
                 .promptName(safe(request.getPromptName(), request.getKey()))
@@ -49,16 +51,16 @@ public class PromptMutationServiceImpl implements PromptMutationService {
                 .hasTemplateVariables(false)
                 .keywordMatchEnabled(resolveContentKeywordEnabled(request))
                 .assemblyMode(safe(request.getAssemblyMode(), "KEYWORD_ONLY"))
-                .enabled(bool(request.getEnabled(), true))
+                .enabled(enabled)
                 .priority(request.getPriority() == null ? 80 : request.getPriority())
-                .status(safe(request.getStatus(), "active"))
+                .status(normalizeItemStatus(request.getStatus(), enabled))
                 .isBuiltin(false)
                 .description(safe(request.getDescription()))
                 .build();
         promptItemMapper.insert(item);
         PromptItemVersionEntity version = buildVersion(item.getId(), request);
         version.setIsActive(true);
-        version.setStatus(safe(version.getStatus(), "active"));
+        version.setStatus(normalizeVersionStatus(version.getStatus(), "active"));
         promptItemVersionMapper.insert(version);
         promptItemMapper.update(null,
                 new LambdaUpdateWrapper<PromptItemEntity>()
@@ -95,23 +97,28 @@ public class PromptMutationServiceImpl implements PromptMutationService {
                 ? normalizeExecutionAssemblyMode(requestedAssemblyMode, item.getAssemblyMode())
                 : requestedAssemblyMode;
         String requestedCategory = resolveRequestCategory(request);
+        Boolean requestedEnabled = resolveItemEnabledForUpdate(request.getEnabled(), request.getStatus());
+        boolean finalEnabled = requestedEnabled == null ? bool(item.getEnabled(), true) : requestedEnabled;
         promptItemMapper.update(null,
                 new LambdaUpdateWrapper<PromptItemEntity>()
                         .eq(PromptItemEntity::getId, item.getId())
                         .set(requestedCategory != null && !requestedCategory.isBlank(),
                                 PromptItemEntity::getCategory, requestedCategory)
+                        .set(requestedCategory != null && !requestedCategory.isBlank(),
+                                PromptItemEntity::getCategoryKey, requestedCategory)
                         .set(request.getSubCategory() != null, PromptItemEntity::getSubCategory, request.getSubCategory())
                         .set(request.getPromptName() != null, PromptItemEntity::getPromptName, request.getPromptName())
                         .set(request.getDescription() != null, PromptItemEntity::getDescription, request.getDescription())
                         .set(request.getRuntimeSlot() != null, PromptItemEntity::getRuntimeSlot, request.getRuntimeSlot())
                         .set(nextKeywordEnabled != null, PromptItemEntity::getKeywordMatchEnabled, nextKeywordEnabled)
                         .set(nextAssemblyMode != null, PromptItemEntity::getAssemblyMode, nextAssemblyMode)
-                        .set(request.getEnabled() != null, PromptItemEntity::getEnabled, request.getEnabled())
+                        .set(requestedEnabled != null, PromptItemEntity::getEnabled, requestedEnabled)
                         .set(request.getPriority() != null, PromptItemEntity::getPriority, request.getPriority())
-                        .set(request.getStatus() != null, PromptItemEntity::getStatus, request.getStatus()));
+                        .set(request.getStatus() != null || requestedEnabled != null,
+                                PromptItemEntity::getStatus, normalizeItemStatus(request.getStatus(), finalEnabled)));
 
         PromptItemVersionEntity version = buildVersion(item.getId(), request);
-        version.setStatus(safe(request.getStatus(), "active"));
+        version.setStatus(normalizeVersionStatus(request.getStatus(), "active"));
         version.setIsActive(true);
         promptItemVersionMapper.insert(version);
         promptVersionService.activateVersion(version.getId());
@@ -133,6 +140,9 @@ public class PromptMutationServiceImpl implements PromptMutationService {
             return;
         }
         PromptItemVersionEntity current = item.getCurrentVersionId() == null ? null : promptItemVersionMapper.selectById(item.getCurrentVersionId());
+        if (isExecutionCategory(resolveItemCategory(item))) {
+            throw new IllegalArgumentException("execution prompt category cannot be deleted");
+        }
         if (bool(item.getHasTemplateVariables(), false)) {
             throw new IllegalArgumentException("execution prompt cannot be deleted");
         }
@@ -157,7 +167,7 @@ public class PromptMutationServiceImpl implements PromptMutationService {
                 .matchScope(request.getMatchScope() == null ? Map.of() : request.getMatchScope())
                 .editPolicy(request.getEditPolicy() == null ? defaultEditPolicy(request) : request.getEditPolicy())
                 .changeNote(safe(request.getChangeNote()))
-                .status(safe(request.getStatus(), "active"))
+                .status(normalizeVersionStatus(request == null ? null : request.getStatus(), "active"))
                 .build();
     }
 
@@ -267,7 +277,7 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         if (requestCategory != null && !requestCategory.isBlank()) {
             return requestCategory;
         }
-        return item == null ? "" : item.getCategory();
+        return resolveItemCategory(item);
     }
 
     private Boolean resolveContentKeywordEnabled(PromptUpsertRequest request) {
@@ -289,6 +299,75 @@ public class PromptMutationServiceImpl implements PromptMutationService {
             return request.getCategory();
         }
         return request.getCategoryKey() == null ? "" : request.getCategoryKey();
+    }
+
+    private String resolveItemCategory(PromptItemEntity item) {
+        if (item == null) {
+            return "";
+        }
+        if (item.getCategory() != null && !item.getCategory().isBlank()) {
+            return item.getCategory();
+        }
+        return safe(item.getCategoryKey());
+    }
+
+    private boolean resolveItemEnabled(Boolean enabled, String status, boolean fallback) {
+        if (enabled != null) {
+            return enabled;
+        }
+        if (status == null || status.isBlank()) {
+            return fallback;
+        }
+        String normalized = status.trim().toLowerCase();
+        if ("enabled".equals(normalized) || "active".equals(normalized) || "true".equals(normalized)) {
+            return true;
+        }
+        if ("disabled".equals(normalized) || "inactive".equals(normalized) || "false".equals(normalized)) {
+            return false;
+        }
+        return fallback;
+    }
+
+    private Boolean resolveItemEnabledForUpdate(Boolean enabled, String status) {
+        if (enabled != null) {
+            return enabled;
+        }
+        if (status == null || status.isBlank()) {
+            return null;
+        }
+        String normalized = status.trim().toLowerCase();
+        if ("enabled".equals(normalized) || "active".equals(normalized) || "true".equals(normalized)) {
+            return true;
+        }
+        if ("disabled".equals(normalized) || "inactive".equals(normalized) || "false".equals(normalized)) {
+            return false;
+        }
+        return null;
+    }
+
+    private String normalizeItemStatus(String status, boolean enabled) {
+        if (status == null || status.isBlank()) {
+            return enabled ? "enabled" : "disabled";
+        }
+        String normalized = status.trim().toLowerCase();
+        if ("enabled".equals(normalized) || "active".equals(normalized) || "true".equals(normalized)) {
+            return "enabled";
+        }
+        if ("disabled".equals(normalized) || "inactive".equals(normalized) || "false".equals(normalized)) {
+            return "disabled";
+        }
+        return enabled ? "enabled" : "disabled";
+    }
+
+    private String normalizeVersionStatus(String status, String fallback) {
+        if (status == null || status.isBlank()) {
+            return fallback;
+        }
+        String normalized = status.trim().toLowerCase();
+        if ("draft".equals(normalized) || "active".equals(normalized) || "archived".equals(normalized)) {
+            return normalized;
+        }
+        return fallback;
     }
 
     private String normalizeExecutionAssemblyMode(String requested, String existing) {

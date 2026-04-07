@@ -10,6 +10,7 @@ import org.yilena.luna.prompt.governance.PromptMutationService;
 import org.yilena.luna.prompt.governance.PromptPolicyService;
 import org.yilena.luna.prompt.governance.PromptPreviewService;
 import org.yilena.luna.prompt.governance.PromptQueryService;
+import org.yilena.luna.prompt.governance.PromptRegistryService;
 import org.yilena.luna.prompt.governance.PromptVersionService;
 import org.yilena.luna.prompt.governance.dto.PromptPolicySaveRequest;
 import org.yilena.luna.prompt.governance.dto.PromptPreviewRequest;
@@ -33,6 +34,7 @@ public class PromptAdminController {
     private final PromptPreviewService promptPreviewService;
     private final PromptFrontendAdapter promptFrontendAdapter;
     private final PromptPolicyService promptPolicyService;
+    private final PromptRegistryService promptRegistryService;
 
     @GetMapping("/categories")
     @Operation(summary = "List prompt categories")
@@ -56,6 +58,25 @@ public class PromptAdminController {
     public ResponseEntity<?> detail(@RequestParam String key) {
         Object payload = promptQueryService.detailByKey(key).<Object>map(item -> item).orElse(Map.of());
         return ResponseEntity.ok(payload);
+    }
+
+    @GetMapping("/item/detail-by-id")
+    @Operation(summary = "Get prompt detail by id")
+    public ResponseEntity<?> detailById(@RequestParam Long id) {
+        Object payload = promptRegistryService.getById(id).<Object>map(item -> item).orElse(Map.of());
+        return ResponseEntity.ok(payload);
+    }
+
+    @GetMapping("/item/exists")
+    @Operation(summary = "Check prompt exists by key")
+    public ResponseEntity<?> exists(@RequestParam String key) {
+        return ResponseEntity.ok(Map.of("key", key, "exists", promptRegistryService.existsByKey(key)));
+    }
+
+    @GetMapping("/item/key-values")
+    @Operation(summary = "List prompt key/value by category")
+    public ResponseEntity<?> keyValues(@RequestParam String category) {
+        return ResponseEntity.ok(promptRegistryService.listKeyValueByCategory(category));
     }
 
     @PostMapping("/search")
@@ -99,6 +120,13 @@ public class PromptAdminController {
     @Operation(summary = "List prompt versions by key")
     public ResponseEntity<?> versions(@RequestParam String key) {
         return ResponseEntity.ok(promptVersionService.listVersions(key));
+    }
+
+    @GetMapping("/item/version/detail")
+    @Operation(summary = "Get prompt version detail by versionId")
+    public ResponseEntity<?> versionDetail(@RequestParam Long versionId) {
+        Object payload = promptVersionService.getVersionDetail(versionId);
+        return ResponseEntity.ok(payload == null ? Map.of() : payload);
     }
 
     @PostMapping("/item/activate")
@@ -154,6 +182,13 @@ public class PromptAdminController {
     @Operation(summary = "List policy packages")
     public ResponseEntity<?> policies() {
         return ResponseEntity.ok(promptPolicyService.listPolicies());
+    }
+
+    @GetMapping("/policy/detail")
+    @Operation(summary = "Get policy package by policyId")
+    public ResponseEntity<?> policyDetail(@RequestParam String policyId) {
+        Object payload = promptPolicyService.getByPolicyId(policyId);
+        return ResponseEntity.ok(payload == null ? Map.of() : payload);
     }
 
     @PostMapping("/policy/save")

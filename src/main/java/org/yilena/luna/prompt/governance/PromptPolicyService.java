@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.Set;
 
 public interface PromptPolicyService {
+    PromptPolicyEntity getByPolicyId(String policyId);
+
     Set<String> resolveIncludedPromptKeys(String policyId);
 
     Set<String> resolveExcludedPromptKeys(String policyId);

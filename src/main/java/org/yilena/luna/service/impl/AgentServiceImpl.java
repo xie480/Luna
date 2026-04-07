@@ -61,6 +61,21 @@ public class AgentServiceImpl implements AgentService {
     @Value("${luna.governance.strict-tool-decision:true}")
     private boolean strictToolDecision = true;
     private static final String WORKFLOW_ARGS_PROMPT_TEMPLATE = PromptTemplates.SKILL_ARGS_PROMPT;
+    private static final String TOOL_DECISION_PROMPT_FALLBACK = """
+            You are a tool decision agent. Decide the next action strictly from the assembled decision workset.
+            The workset already contains node state, MCP hints, constraints and recent tool semantics.
+            Return exactly one JSON object, no markdown.
+
+            Action JSON:
+            {"action_type":"tool_call|prompt_get|resource_read|workflow_start|direct_answer","target_name":"...","arguments":{...}}
+            or
+            {"action_type":"direct_answer","answer":"..."}
+            or
+            {"action_type":"none","target_name":"none"}
+
+            Assembled Decision Workset:
+            %s
+            """;
 
     @Override
     public String processToolCallingWithGovernance(ToolDecisionCommand command) {
@@ -261,20 +276,12 @@ public class AgentServiceImpl implements AgentService {
     }
 
     private String buildDecisionPrompt(String assembledDecisionContext) {
-        return """
-                You are a tool decision agent. Decide the next action strictly from the assembled decision workset.
-                The workset already contains node state, MCP hints, constraints and recent tool semantics.
-                Return exactly one JSON object, no markdown.
-
-                Action JSON:
-                {"action_type":"tool_call|prompt_get|resource_read|workflow_start|direct_answer","target_name":"...","arguments":{...}}
-                or
-                {"action_type":"direct_answer","answer":"..."}
-                or
-                {"action_type":"none","target_name":"none"}
-
-                Assembled Decision Workset:
-                """ + assembledDecisionContext;
+        String template = resolvePrompt("tool.decision_v1", TOOL_DECISION_PROMPT_FALLBACK);
+        String workset = assembledDecisionContext == null ? "" : assembledDecisionContext;
+        if (template.contains("%s")) {
+            return template.replace("%s", workset);
+        }
+        return template + System.lineSeparator() + workset;
     }
 
     private String buildArgsPrompt(String input, List<String> history, Resource resource) {

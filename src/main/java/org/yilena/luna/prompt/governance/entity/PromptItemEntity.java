@@ -26,6 +26,9 @@ public class PromptItemEntity implements Serializable {
     @TableField("category")
     private String category;
 
+    @TableField("category_key")
+    private String categoryKey;
+
     @TableField("sub_category")
     private String subCategory;
 

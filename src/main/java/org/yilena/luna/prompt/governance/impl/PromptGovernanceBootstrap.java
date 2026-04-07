@@ -111,6 +111,7 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
         if (item == null) {
             item = PromptItemEntity.builder()
                     .category(row.getCategory())
+                    .categoryKey(row.getCategory())
                     .subCategory(row.getSubCategory())
                     .promptKey(row.getKey())
                     .promptName(row.getName())
@@ -120,11 +121,15 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
                     .assemblyMode(row.getAssemblyMode())
                     .enabled(row.isEnabled())
                     .priority(row.getPriority() == null ? 80 : row.getPriority())
-                    .status("active")
+                    .status("enabled")
                     .isBuiltin(true)
                     .description(row.getDescription())
                     .build();
             promptItemMapper.insert(item);
+        } else if (item.getCategoryKey() == null || item.getCategoryKey().isBlank()) {
+            promptItemMapper.update(null, new LambdaUpdateWrapper<PromptItemEntity>()
+                    .eq(PromptItemEntity::getId, item.getId())
+                    .set(PromptItemEntity::getCategoryKey, row.getCategory()));
         }
 
         PromptItemVersionEntity activeVersion = findActiveVersion(item.getId());
@@ -145,8 +150,9 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
             promptItemVersionMapper.insert(version);
             promptItemMapper.update(null, new LambdaUpdateWrapper<PromptItemEntity>()
                     .eq(PromptItemEntity::getId, item.getId())
+                    .set(PromptItemEntity::getCategoryKey, row.getCategory())
                     .set(PromptItemEntity::getCurrentVersionId, version.getId())
-                    .set(PromptItemEntity::getStatus, "active")
+                    .set(PromptItemEntity::getStatus, "enabled")
                     .set(PromptItemEntity::getEnabled, true)
                     .set(PromptItemEntity::getIsBuiltin, true));
         }
@@ -228,6 +234,9 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
                     "agents", List.of("MAIN_MODEL_REPAIR_AGENT")
             );
             case "tool.args_v1" -> Map.of(
+                    "agents", List.of("TOOL_DECISION_AGENT")
+            );
+            case "tool.decision_v1" -> Map.of(
                     "agents", List.of("TOOL_DECISION_AGENT")
             );
             case "planner.master_v1" -> Map.of(
