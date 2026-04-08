@@ -498,13 +498,14 @@ Agent 局部执行 Prompt
 {
   "category": "persona",
   "items": {
-    "maid_gentle_v1": "你是一名温柔、克制、善于照顾用户情绪的女仆角色。",
-    "maid_strict_v1": "你是一名严谨、注重礼仪与秩序的女仆角色。"
+    "persona.maid.gentle_v1": "你是一名温柔、克制、善于照顾用户情绪的女仆角色。",
+    "persona.maid.strict_v1": "你是一名严谨、注重礼仪与秩序的女仆角色。"
   }
 }
 ```
 
 此结构适合快速浏览与编辑。
+示例 key 使用主规范；对应兼容别名分别为 `maid_gentle_v1` / `persona.maid_gentle_v1` 与 `maid_strict_v1` / `persona.maid_strict_v1`。
 
 ---
 
@@ -519,7 +520,7 @@ Agent 局部执行 Prompt
   "id": "prompt_2001",
   "category": "persona",
   "subCategory": "maid",
-  "key": "maid_gentle_v1",
+  "key": "persona.maid.gentle_v1",
   "name": "温柔女仆人设",
   "value": "你是一名温柔、克制、善于照顾用户情绪的女仆角色。",
   "runtimeSlot": "instructions.persona",
@@ -697,8 +698,8 @@ Agent 局部执行 Prompt
 
 可以命中：
 
-- `persona.maid_gentle_v1`
-- `style.soft_companion_v1`
+- `persona.maid.gentle_v1`（兼容别名：`maid_gentle_v1` / `persona.maid_gentle_v1`）
+- `style.soft.companion_v1`（兼容别名：`soft_companion_v1` / `style.soft_companion_v1`）
 
 ---
 
@@ -939,9 +940,9 @@ Prompt条目 -> runtimeSlot -> assembler section
 例如：
 
 - `system.base_v1` -> `instructions.system` -> `Instructions`
-- `persona.maid_gentle_v1` -> `instructions.persona` -> `Instructions`
+- `persona.maid.gentle_v1` -> `instructions.persona` -> `Instructions`
 - `memory-hint.default_v1` -> `memory.hints` -> `Memory Hints`
-- `format.chat_json_v2` -> `output.constraints` -> `Output Constraints`
+- `format.chat.json_v2` -> `output.constraints` -> `Output Constraints`（别名：`format.chat_json_v2`）
 
 因此：
 
@@ -993,8 +994,8 @@ Resolver 可接受如下输入：
 ```json
 {
   "sessionId": "s_001",
-  "personaId": "maid_gentle_v1",
-  "sceneId": "tavern_night_v1",
+  "personaId": "persona.maid.gentle_v1",
+  "sceneId": "scene.tavern.night_v1",
   "policyId": "chat_default_v1",
   "userInput": "我想和你安静聊聊天",
   "agent": "MAIN_CHAT_AGENT",
@@ -1021,10 +1022,10 @@ Resolver 应输出：
 {
   "matchedItems": [
     { "key": "system.base_v1", "reason": "ALWAYS" },
-    { "key": "guardrail.safe_chat_v1", "reason": "ALWAYS" },
-    { "key": "maid_gentle_v1", "reason": "KEYWORD_ONLY" },
-    { "key": "tavern_night_v1", "reason": "POLICY_ONLY" },
-    { "key": "format.chat_json_v2", "reason": "AGENT_ONLY" }
+    { "key": "guardrail.safe.chat_v1", "reason": "ALWAYS" },
+    { "key": "persona.maid.gentle_v1", "reason": "KEYWORD_ONLY" },
+    { "key": "scene.tavern.night_v1", "reason": "POLICY_ONLY" },
+    { "key": "format.chat.json_v2", "reason": "AGENT_ONLY" }
   ]
 }
 ```
@@ -1043,8 +1044,8 @@ Resolver 应输出：
   "name": "酒馆默认闲聊策略",
   "include": [
     "system.base_v1",
-    "guardrail.safe_chat_v1",
-    "format.chat_json_v2",
+    "guardrail.safe.chat_v1",
+    "format.chat.json_v2",
     "memory-hint.default_v1",
     "rag-hint.default_v1"
   ]
@@ -1250,8 +1251,8 @@ Prompt 新架构不接管这些职责，只提供更干净的 Prompt 输入源�
 {
   "promptRefs": [
     { "key": "system.base_v1", "version": "1.0.0" },
-    { "key": "maid_gentle_v1", "version": "1.1.0" },
-    { "key": "format.chat_json_v2", "version": "2.0.0" }
+    { "key": "persona.maid.gentle_v1", "version": "1.1.0" },
+    { "key": "format.chat.json_v2", "version": "2.0.0" }
   ],
   "policyId": "chat_default_v1",
   "assemblerVersion": "2.1.0"
@@ -1315,8 +1316,8 @@ GET /api/prompt/items?category=persona
 {
   "category": "persona",
   "items": {
-    "maid_gentle_v1": "你是一名温柔、克制、善于照顾用户情绪的女仆角色。",
-    "maid_strict_v1": "你是一名严谨、注重礼仪与秩序的女仆角色。"
+    "persona.maid.gentle_v1": "你是一名温柔、克制、善于照顾用户情绪的女仆角色。",
+    "persona.maid.strict_v1": "你是一名严谨、注重礼仪与秩序的女仆角色。"
   }
 }
 ```
@@ -1326,7 +1327,7 @@ GET /api/prompt/items?category=persona
 ### 21.3 查询条目详情
 
 ```http
-GET /api/prompt/item/detail?key=maid_gentle_v1
+GET /api/prompt/item/detail?key=persona.maid.gentle_v1
 ```
 
 ---
@@ -1391,7 +1392,7 @@ POST /api/prompt/item/rollback
 {
   "category": "persona",
   "subCategory": "maid",
-  "key": "maid_gentle_v1",
+  "key": "persona.maid.gentle_v1",
   "name": "温柔女仆人设",
   "value": "你是一名温柔、克制、善于观察情绪变化的女仆角色。你说话礼貌、自然，不要机械重复设定。你需要在陪伴感、真实感和分寸感之间保持平衡。",
   "runtimeSlot": "instructions.persona",
@@ -1425,7 +1426,7 @@ POST /api/prompt/item/rollback
 {
   "category": "scene",
   "subCategory": "tavern",
-  "key": "tavern_night_v1",
+  "key": "scene.tavern.night_v1",
   "name": "夜晚酒馆大厅",
   "value": "当前场景为夜晚的酒馆大厅，空气中有淡淡酒香，木制桌椅在暖黄色灯光下显得安静而温暖。回复应自然融入环境，而不是机械叙述背景。",
   "runtimeSlot": "instructions.scene",
@@ -1445,10 +1446,12 @@ POST /api/prompt/item/rollback
     "delete": true
   },
   "priority": 70,
-  "status": "active",
+  "status": "enabled",
   "version": "1.0.0"
 }
 ```
+
+注：`scene.tavern.night_v1` 的兼容别名为 `tavern_night_v1`。
 
 ---
 
@@ -1458,7 +1461,7 @@ POST /api/prompt/item/rollback
 {
   "category": "agent-local",
   "subCategory": "reconstruction",
-  "key": "reconstruction_default_v1",
+  "key": "agent-local.reconstruction.default_v1",
   "name": "输入重构模板",
   "value": "请根据原始输入、上下文和缺失槽位，输出规范化意图：${normalizedIntent}。同时识别缺失信息：${missingSlots}。",
   "runtimeSlot": "agent.reconstruction",
@@ -1479,10 +1482,12 @@ POST /api/prompt/item/rollback
     "delete": false
   },
   "priority": 100,
-  "status": "active",
+  "status": "enabled",
   "version": "1.0.0"
 }
 ```
+
+注：`agent-local.reconstruction.default_v1` 的兼容别名为 `agent.reconstruction.default_v1` / `reconstruction_default_v1`。
 
 ---
 
@@ -1492,7 +1497,7 @@ POST /api/prompt/item/rollback
 {
   "category": "repair",
   "subCategory": "json-repair",
-  "key": "repair_main_json_v1",
+  "key": "repair.main.json_v1",
   "name": "主模型 JSON 修复模板",
   "value": "你需要修复以下不符合 schema 的输出，并严格返回可解析 JSON：${invalidJson}",
   "runtimeSlot": "repair.main",
@@ -1512,10 +1517,12 @@ POST /api/prompt/item/rollback
     "delete": false
   },
   "priority": 100,
-  "status": "active",
+  "status": "enabled",
   "version": "1.0.0"
 }
 ```
+
+注：`repair.main.json_v1` 的兼容别名为 `repair_main_json_v1`。
 
 ---
 
@@ -1673,5 +1680,9 @@ POST /api/prompt/item/rollback
 2) PromptSnapshotBridge 时机口径统一
 - 主模型执行前完成 snapshot bridge payload 构建并进入上下文快照。
 - 主模型执行完成后写入 prompt_runtime_snapshot_ref（运行时引用落表）。
+
+3) prompt_key 口径统一（主规范 + 兼容别名）
+- 主规范：`{category}.{subCategory}.{name}_{versionTag}`，示例：`persona.maid.gentle_v1`、`agent-local.reconstruction.default_v1`。
+- 兼容别名：运行时继续兼容历史 key（例如 `maid_gentle_v1`、`persona.maid_gentle_v1`、`agent.reconstruction.default_v1`），但文档示例默认展示主规范 key，并在示例处标注对应别名。
 
 说明：若历史段落与本节冲突，以本节为准。

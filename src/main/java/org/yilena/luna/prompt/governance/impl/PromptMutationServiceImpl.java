@@ -103,6 +103,9 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         if (!isExecutionCategory(currentCategory) && isExecutionCategory(targetCategory)) {
             throw new IllegalArgumentException("content prompt cannot be migrated to execution category");
         }
+        if (isExecutionCategory(currentCategory) && !isExecutionCategory(targetCategory)) {
+            throw new IllegalArgumentException("execution prompt category cannot be migrated to content category");
+        }
         boolean hasTemplateVariables = bool(item.getHasTemplateVariables(), false);
         boolean executionCategory = isExecutionCategory(targetCategory);
         boolean executionPrompt = hasTemplateVariables || executionCategory;

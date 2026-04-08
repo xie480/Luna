@@ -790,25 +790,27 @@ GET /api/prompt/items?category=persona
 {
   "category": "persona",
   "items": {
-    "maid_gentle_v1": "你是一名温柔、克制、善于照顾用户情绪的女仆角色。",
-    "maid_strict_v1": "你是一名严谨、注重礼仪与秩序的女仆角色。"
+    "persona.maid.gentle_v1": "你是一名温柔、克制、善于照顾用户情绪的女仆角色。",
+    "persona.maid.strict_v1": "你是一名严谨、注重礼仪与秩序的女仆角色。"
   }
 }
 ```
+
+注：以上为主 key；兼容别名分别为 `maid_gentle_v1` / `persona.maid_gentle_v1` 与 `maid_strict_v1` / `persona.maid_strict_v1`。
 
 ---
 
 ## 8.3 条目详情接口
 
 ```http
-GET /api/prompt/item/detail?key=maid_gentle_v1
+GET /api/prompt/item/detail?key=persona.maid.gentle_v1
 ```
 
 返回：
 
 ```json
 {
-  "key": "maid_gentle_v1",
+  "key": "persona.maid.gentle_v1",
   "name": "温柔女仆人设",
   "category": "persona",
   "value": "你是一名温柔、克制、善于照顾用户情绪的女仆角色。",
@@ -888,7 +890,7 @@ POST /api/prompt/search
 ## 8.8 版本列表接口
 
 ```http
-GET /api/prompt/item/versions?key=maid_gentle_v1
+GET /api/prompt/item/versions?key=persona.maid.gentle_v1
 ```
 
 ---
@@ -933,11 +935,13 @@ POST /api/prompt/preview/match
 {
   "matchedItems": [
     {"key": "system.base_v1", "reason": "ALWAYS"},
-    {"key": "maid_gentle_v1", "reason": "KEYWORD_ONLY"},
-    {"key": "soft_companion_v1", "reason": "KEYWORD_ONLY"}
+    {"key": "persona.maid.gentle_v1", "reason": "KEYWORD_ONLY"},
+    {"key": "style.soft.companion_v1", "reason": "KEYWORD_ONLY"}
   ]
 }
 ```
+
+注：`persona.maid.gentle_v1` 的兼容别名为 `maid_gentle_v1` / `persona.maid_gentle_v1`；`style.soft.companion_v1` 的兼容别名为 `soft_companion_v1` / `style.soft_companion_v1`。
 
 ---
 
@@ -1135,4 +1139,9 @@ prompt/
 - 主模型执行前完成 snapshot bridge payload 构建并进入上下文快照。
 - 主模型执行完成后写入 prompt_runtime_snapshot_ref（运行时引用落表）。
 
+3) prompt_key 口径统一（主规范 + 兼容别名）
+- 主规范：`{category}.{subCategory}.{name}_{versionTag}`，示例：`persona.maid.gentle_v1`、`agent-local.reconstruction.default_v1`。
+- 兼容别名：运行时继续兼容历史 key（例如 `maid_gentle_v1`、`persona.maid_gentle_v1`、`agent.reconstruction.default_v1`），但文档示例默认展示主规范 key，并在示例处标注对应别名。
+
 说明：若历史段落与本节冲突，以本节为准。
+

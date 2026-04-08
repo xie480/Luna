@@ -184,6 +184,51 @@ class PromptMutationServiceImplUpdateValidationTest {
     }
 
     @Test
+    void updateShouldRejectMigratingExecutionCategoryToContentCategory() {
+        PromptItemMapper itemMapper = Mockito.mock(PromptItemMapper.class);
+        PromptItemVersionMapper versionMapper = Mockito.mock(PromptItemVersionMapper.class);
+        PromptCategoryService categoryService = Mockito.mock(PromptCategoryService.class);
+        PromptMutationServiceImpl service = new PromptMutationServiceImpl(
+                itemMapper,
+                versionMapper,
+                Mockito.mock(PromptVersionService.class),
+                Mockito.mock(PromptRegistryService.class),
+                categoryService
+        );
+
+        Mockito.when(itemMapper.selectOne(Mockito.any()))
+                .thenReturn(PromptItemEntity.builder()
+                        .id(320L)
+                        .promptKey("agent.repair.main")
+                        .category("repair")
+                        .hasTemplateVariables(false)
+                        .currentVersionId(321L)
+                        .enabled(true)
+                        .status("enabled")
+                        .build());
+        Mockito.when(versionMapper.selectById(321L))
+                .thenReturn(PromptItemVersionEntity.builder()
+                        .id(321L)
+                        .templateVariables(List.of())
+                        .build());
+        Mockito.when(categoryService.findByKey("persona"))
+                .thenReturn(Optional.of(PromptCategoryEntity.builder()
+                        .categoryKey("persona")
+                        .isExecutionCategory(false)
+                        .build()));
+        Mockito.when(categoryService.isExecutionCategory("repair")).thenReturn(true);
+        Mockito.when(categoryService.isExecutionCategory("persona")).thenReturn(false);
+
+        PromptUpsertRequest request = new PromptUpsertRequest();
+        request.setKey("agent.repair.main");
+        request.setCategory("persona");
+
+        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class, () -> service.update(request));
+        Assertions.assertTrue(ex.getMessage().contains("execution prompt category cannot be migrated to content category"));
+        Mockito.verify(itemMapper, Mockito.never()).update(Mockito.isNull(), Mockito.any());
+    }
+
+    @Test
     void updateShouldKeepExecutionStructureFieldsWhenRequestFieldsMissing() {
         PromptItemMapper itemMapper = Mockito.mock(PromptItemMapper.class);
         PromptItemVersionMapper versionMapper = Mockito.mock(PromptItemVersionMapper.class);

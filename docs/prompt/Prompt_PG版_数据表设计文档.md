@@ -277,9 +277,9 @@ Prompt 条目主表，负责承载 Prompt 的“身份”和“稳定元信息�
 #### `prompt_key`
 Prompt 条目唯一 key，例如：
 
-- `maid_gentle_v1`
-- `repair_main_json_v1`
-- `reconstruction_default_v1`
+- 主 key：`persona.maid.gentle_v1`（兼容别名：`maid_gentle_v1` / `persona.maid_gentle_v1`）
+- 主 key：`repair.main.json_v1`（兼容别名：`repair_main_json_v1`）
+- 主 key：`agent-local.reconstruction.default_v1`（兼容别名：`reconstruction_default_v1` / `agent.reconstruction.default_v1`）
 
 这是前端展示和运行时引用的核心字段。
 
@@ -498,8 +498,8 @@ Prompt 实际内容，即前端所看到的 value。
 例如一个策略包：
 
 - 永远包含 `system.base_v1`
-- 永远包含 `guardrail.safe_chat_v1`
-- 永远包含 `format.chat_json_v2`
+- 永远包含 `guardrail.safe.chat_v1`（别名：`guardrail.safe_chat_v1`）
+- 永远包含 `format.chat.json_v2`（别名：`format.chat_json_v2`）
 - 永远包含 `memory-hint.default_v1`
 
 这样运行时不必每次都从零拼长期稳定规则。
@@ -537,8 +537,8 @@ Prompt 实际内容，即前端所看到的 value。
 ```json
 [
   "system.base_v1",
-  "guardrail.safe_chat_v1",
-  "format.chat_json_v2",
+  "guardrail.safe.chat_v1",
+  "format.chat.json_v2",
   "memory-hint.default_v1"
 ]
 ```
@@ -717,7 +717,12 @@ prompt_item_version 1 --- n prompt_runtime_snapshot_ref
 - `repair.main.json_v1`
 - `agent-local.reconstruction.default_v1`
 
-如果你嫌太长，也可使用短格式，但必须全局唯一。
+兼容别名规范（仅用于历史兼容，不作为主规范）：
+
+- 允许短 key / 下划线 key：如 `maid_gentle_v1`、`persona.maid_gentle_v1`
+- 允许 `agent-local.*` 与 `agent.*` 互为别名：如 `agent-local.reconstruction.default_v1` <-> `agent.reconstruction.default_v1`
+
+文档示例默认展示主 key，并在示例处标注对应别名 key。
 
 ---
 
@@ -940,7 +945,7 @@ prompt_item_version 1 --- n prompt_runtime_snapshot_ref
 
 - `category_key`: `persona`
 - `sub_category`: `maid`
-- `prompt_key`: `persona.maid.gentle_v1`
+- `prompt_key`: `persona.maid.gentle_v1`（别名：`maid_gentle_v1` / `persona.maid_gentle_v1`）
 - `runtime_slot`: `instructions.persona`
 - `has_template_variables`: `false`
 - `keyword_match_enabled`: `true`
@@ -982,7 +987,7 @@ prompt_item_version 1 --- n prompt_runtime_snapshot_ref
 
 - `category_key`: `agent-local`
 - `sub_category`: `reconstruction`
-- `prompt_key`: `agent-local.reconstruction.default_v1`
+- `prompt_key`: `agent-local.reconstruction.default_v1`（别名：`agent.reconstruction.default_v1` / `reconstruction_default_v1`）
 - `runtime_slot`: `agent.reconstruction`
 - `has_template_variables`: `true`
 - `keyword_match_enabled`: `false`
@@ -1200,5 +1205,9 @@ prompt_item_version 1 --- n prompt_runtime_snapshot_ref
 2) PromptSnapshotBridge 时机口径统一
 - 主模型执行前完成 snapshot bridge payload 构建并进入上下文快照。
 - 主模型执行完成后写入 prompt_runtime_snapshot_ref（运行时引用落表）。
+
+3) prompt_key 口径统一（主规范 + 兼容别名）
+- 主规范：`{category}.{subCategory}.{name}_{versionTag}`，示例：`persona.maid.gentle_v1`、`agent-local.reconstruction.default_v1`。
+- 兼容别名：运行时继续兼容历史 key（例如 `maid_gentle_v1`、`persona.maid_gentle_v1`、`agent.reconstruction.default_v1`），但文档示例默认展示主规范 key，并在示例处标注对应别名。
 
 说明：若历史段落与本节冲突，以本节为准。
