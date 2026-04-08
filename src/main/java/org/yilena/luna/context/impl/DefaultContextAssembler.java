@@ -991,19 +991,21 @@ public class DefaultContextAssembler implements ContextAssembler {
 
     private Map<String, Object> buildPromptAssemblyMeta(PromptResolveResult resolveResult, List<Map<String, Object>> fallbackRefs) {
         List<Map<String, Object>> refs = new ArrayList<>();
+        Map<String, List<Map<String, Object>>> slotMapping = new LinkedHashMap<>();
         if (resolveResult != null && resolveResult.getMatchedItems() != null) {
-            refs.addAll(resolveResult.getMatchedItems().stream().map(item -> {
-                Map<String, Object> row = new LinkedHashMap<>();
-                row.put("itemId", item.getItemId());
-                row.put("versionId", item.getVersionId());
-                row.put("key", item.getKey());
-                row.put("version", item.getVersion());
-                row.put("runtimeSlot", item.getRuntimeSlot());
-                row.put("matchReason", item.getMatchReason());
-                row.put("category", item.getCategory());
-                row.put("value", item.getValue());
-                return row;
-            }).toList());
+            refs.addAll(resolveResult.getMatchedItems().stream().map(this::toPromptRefRow).toList());
+        }
+        if (resolveResult != null && resolveResult.getSlotMapping() != null) {
+            for (Map.Entry<String, List<ResolvedPromptItem>> entry : resolveResult.getSlotMapping().entrySet()) {
+                String slot = safe(entry.getKey());
+                if (slot.isBlank()) {
+                    continue;
+                }
+                List<Map<String, Object>> items = entry.getValue() == null
+                        ? List.of()
+                        : entry.getValue().stream().map(this::toPromptRefRow).toList();
+                slotMapping.put(slot, items);
+            }
         }
         if (fallbackRefs != null) {
             refs.addAll(fallbackRefs.stream()
@@ -1016,8 +1018,25 @@ public class DefaultContextAssembler implements ContextAssembler {
         return Map.of(
                 "policyId", resolveResult == null || resolveResult.getPolicyId() == null ? "" : resolveResult.getPolicyId(),
                 "assemblerVersion", "assembler.v1",
-                "promptRefs", refs
+                "promptRefs", refs,
+                "slotMapping", slotMapping
         );
+    }
+
+    private Map<String, Object> toPromptRefRow(ResolvedPromptItem item) {
+        if (item == null) {
+            return Map.of();
+        }
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("itemId", item.getItemId());
+        row.put("versionId", item.getVersionId());
+        row.put("key", item.getKey());
+        row.put("version", item.getVersion());
+        row.put("runtimeSlot", item.getRuntimeSlot());
+        row.put("matchReason", item.getMatchReason());
+        row.put("category", item.getCategory());
+        row.put("value", item.getValue());
+        return row;
     }
 
     private Map<String, Object> buildFallbackRef(String key, String runtimeSlot) {

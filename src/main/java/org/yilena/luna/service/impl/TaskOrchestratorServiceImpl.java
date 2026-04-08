@@ -1178,7 +1178,6 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     "final model context snapshot persisted by runtime audit service",
                     toJsonSafe(Map.of("snapshotId", finalSnapshotId))
             );
-            persistPromptSnapshotRefs(sessionId, resolveRoundId(contextPackage), nodeId, finalSnapshotId, assembledContext);
         }
 
         AssembledContext assembledWithSnapshot = assembledContext;
@@ -1238,6 +1237,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 finalSnapshotId,
                 contextPackage == null || contextPackage.getRecoveryState() == null ? "" : nullSafe(contextPackage.getRecoveryState().getRecoveryEvent())
         );
+        if (!sessionId.isBlank()) {
+            persistPromptSnapshotRefs(sessionId, resolveRoundId(contextPackage), nodeId, finalSnapshotId, assembledContext);
+        }
         return MainModelOrchestrationResult.builder()
                 .blocked(false)
                 .blockedReason("")

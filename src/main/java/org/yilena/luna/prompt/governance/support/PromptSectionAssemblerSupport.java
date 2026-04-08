@@ -9,6 +9,15 @@ import java.util.List;
 import java.util.Map;
 
 public final class PromptSectionAssemblerSupport {
+    private static final String SECTION_INSTRUCTIONS = "Instructions";
+    private static final String SECTION_CURRENT_TASK_STATE = "Current Task State";
+    private static final String SECTION_RECONSTRUCTED_USER_INTENT = "Reconstructed User Intent";
+    private static final String SECTION_RELEVANT_KNOWLEDGE_EVIDENCE = "Relevant Knowledge Evidence";
+    private static final String SECTION_MCP_HINTS = "MCP Resource / Prompt Hints";
+    private static final String SECTION_TOOL_EVIDENCE = "Tool Evidence";
+    private static final String SECTION_RECENT_INTERACTION = "Recent Interaction Context";
+    private static final String SECTION_MEMORY_HINTS = "Memory Hints";
+    private static final String SECTION_OUTPUT_CONSTRAINTS = "Output Constraints";
 
     private PromptSectionAssemblerSupport() {
     }
@@ -30,24 +39,16 @@ public final class PromptSectionAssemblerSupport {
             if (values.isEmpty()) {
                 continue;
             }
-            if (slot.startsWith("instructions.")) {
-                sections.put("Instructions", mergeDistinct(sections.getOrDefault("Instructions", List.of()), values));
-            } else if ("memory.hints".equalsIgnoreCase(slot)) {
-                sections.put("Memory Hints", mergeDistinct(sections.getOrDefault("Memory Hints", List.of()), values));
-            } else if ("output.constraints".equalsIgnoreCase(slot)) {
-                sections.put("Output Constraints", mergeDistinct(sections.getOrDefault("Output Constraints", List.of()), values));
-            } else if ("knowledge.evidence".equalsIgnoreCase(slot)) {
-                sections.put("Relevant Knowledge Evidence", mergeDistinct(sections.getOrDefault("Relevant Knowledge Evidence", List.of()), values));
+            String targetSection = mapRuntimeSlotToSection(slot);
+            if (targetSection != null) {
+                sections.put(targetSection, mergeDistinct(sections.getOrDefault(targetSection, List.of()), values));
             }
         }
     }
 
     public static Map<String, List<String>> buildSectionPreview(Map<String, List<ResolvedPromptItem>> slotMapping) {
-        Map<String, List<String>> sections = new LinkedHashMap<>();
-        sections.put("Instructions", slotValues(slotMapping, "instructions.system"));
-        sections.put("Relevant Knowledge Evidence", slotValues(slotMapping, "knowledge.evidence"));
-        sections.put("Memory Hints", slotValues(slotMapping, "memory.hints"));
-        sections.put("Output Constraints", slotValues(slotMapping, "output.constraints"));
+        Map<String, List<String>> sections = initRuntimeSections();
+        sections.put(SECTION_INSTRUCTIONS, slotValues(slotMapping, "instructions.system"));
         applyResolvedPromptSlots(sections, slotMapping);
         return sections;
     }
@@ -99,5 +100,54 @@ public final class PromptSectionAssemblerSupport {
             merged.addAll(right);
         }
         return new ArrayList<>(merged);
+    }
+
+    private static Map<String, List<String>> initRuntimeSections() {
+        Map<String, List<String>> sections = new LinkedHashMap<>();
+        sections.put(SECTION_INSTRUCTIONS, List.of());
+        sections.put(SECTION_CURRENT_TASK_STATE, List.of());
+        sections.put(SECTION_RECONSTRUCTED_USER_INTENT, List.of());
+        sections.put(SECTION_RELEVANT_KNOWLEDGE_EVIDENCE, List.of());
+        sections.put(SECTION_MCP_HINTS, List.of());
+        sections.put(SECTION_TOOL_EVIDENCE, List.of());
+        sections.put(SECTION_RECENT_INTERACTION, List.of());
+        sections.put(SECTION_MEMORY_HINTS, List.of());
+        sections.put(SECTION_OUTPUT_CONSTRAINTS, List.of());
+        return sections;
+    }
+
+    private static String mapRuntimeSlotToSection(String slot) {
+        String normalized = slot == null ? "" : slot.trim().toLowerCase();
+        if (normalized.isBlank()) {
+            return null;
+        }
+        if (normalized.startsWith("instructions.")) {
+            return SECTION_INSTRUCTIONS;
+        }
+        if ("memory.hints".equals(normalized) || normalized.startsWith("memory.")) {
+            return SECTION_MEMORY_HINTS;
+        }
+        if ("output.constraints".equals(normalized) || normalized.startsWith("output.")) {
+            return SECTION_OUTPUT_CONSTRAINTS;
+        }
+        if ("knowledge.evidence".equals(normalized) || normalized.startsWith("knowledge.")) {
+            return SECTION_RELEVANT_KNOWLEDGE_EVIDENCE;
+        }
+        if (normalized.startsWith("task.state")) {
+            return SECTION_CURRENT_TASK_STATE;
+        }
+        if (normalized.startsWith("intent.") || normalized.startsWith("reconstruction.")) {
+            return SECTION_RECONSTRUCTED_USER_INTENT;
+        }
+        if (normalized.startsWith("mcp.resource") || normalized.startsWith("mcp.prompt") || normalized.startsWith("mcp.hint")) {
+            return SECTION_MCP_HINTS;
+        }
+        if (normalized.startsWith("tool.evidence") || normalized.startsWith("mcp.tool")) {
+            return SECTION_TOOL_EVIDENCE;
+        }
+        if (normalized.startsWith("recent.interaction") || normalized.startsWith("raw_input.") || "raw_input".equals(normalized)) {
+            return SECTION_RECENT_INTERACTION;
+        }
+        return null;
     }
 }

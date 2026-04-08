@@ -213,6 +213,7 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
             payload.put("promptRefs", promptAssemblyMeta.getOrDefault("promptRefs", List.of()));
             payload.put("policyId", promptAssemblyMeta.getOrDefault("policyId", ""));
             payload.put("assemblerVersion", promptAssemblyMeta.getOrDefault("assemblerVersion", ""));
+            payload.put("slotMapping", promptAssemblyMeta.getOrDefault("slotMapping", Map.of()));
             payload.put("promptAssemblyMeta", promptAssemblyMeta);
             payload.put("sectionTokenCounts", sectionTokenCounts == null ? Map.of() : sectionTokenCounts);
             payload.put("sectionTokenRatios", sectionTokenRatios == null ? Map.of() : sectionTokenRatios);
@@ -255,7 +256,8 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
             return Map.of(
                     "promptRefs", List.of(),
                     "policyId", "",
-                    "assemblerVersion", ""
+                    "assemblerVersion", "",
+                    "slotMapping", Map.of()
             );
         }
         Object refsRaw = promptAssemblyMeta.get("promptRefs");
@@ -265,11 +267,34 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
                 .map(item -> (Map<String, Object>) item)
                 .toList()
                 : List.of();
+        Object slotMappingRaw = promptAssemblyMeta.get("slotMapping");
+        Map<String, List<Map<String, Object>>> slotMapping = slotMappingRaw instanceof Map<?, ?> rawMap
+                ? rawMap.entrySet().stream()
+                .filter(entry -> entry.getKey() != null && !String.valueOf(entry.getKey()).isBlank())
+                .collect(java.util.stream.Collectors.toMap(
+                        entry -> String.valueOf(entry.getKey()),
+                        entry -> toMapList(entry.getValue()),
+                        (left, right) -> left,
+                        LinkedHashMap::new
+                ))
+                : Map.of();
         Map<String, Object> normalized = new LinkedHashMap<>();
         normalized.put("promptRefs", refs);
         normalized.put("policyId", stringValue(promptAssemblyMeta.get("policyId")));
         normalized.put("assemblerVersion", stringValue(promptAssemblyMeta.get("assemblerVersion")));
+        normalized.put("slotMapping", slotMapping);
         return normalized;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> toMapList(Object value) {
+        if (!(value instanceof List<?> list)) {
+            return List.of();
+        }
+        return list.stream()
+                .filter(item -> item instanceof Map<?, ?>)
+                .map(item -> (Map<String, Object>) item)
+                .toList();
     }
 
     private Map<String, List<String>> normalizeActiveRefs(Map<String, List<String>> activeRefs) {

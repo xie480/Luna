@@ -32,18 +32,19 @@ public class PromptPreviewServiceImpl implements PromptPreviewService {
     @Override
     public Map<String, Object> previewAssemble(PromptResolveContext context) {
         PromptResolveResult result = promptResolverService.resolve(context);
+        Map<String, List<ResolvedPromptItem>> slotMapping = result.getSlotMapping() == null ? Map.of() : result.getSlotMapping();
         Map<String, String> assembled = new LinkedHashMap<>();
-        for (Map.Entry<String, List<ResolvedPromptItem>> entry : result.getSlotMapping().entrySet()) {
+        for (Map.Entry<String, List<ResolvedPromptItem>> entry : slotMapping.entrySet()) {
             String text = PromptSectionAssemblerSupport.joinSlotValues(entry.getValue());
             assembled.put(entry.getKey(), text);
         }
-        Map<String, List<String>> sectionMapping = PromptSectionAssemblerSupport.buildSectionPreview(result.getSlotMapping());
+        Map<String, List<String>> sectionMapping = PromptSectionAssemblerSupport.buildSectionPreview(slotMapping);
         Map<String, String> sectionAssembled = PromptSectionAssemblerSupport.toAssembledText(sectionMapping);
         return Map.of(
                 "policyId", result.getPolicyId() == null ? "" : result.getPolicyId(),
                 "matchedItems", result.getMatchedItems(),
                 "rejectedItems", result.getRejectedItems() == null ? List.of() : result.getRejectedItems(),
-                "slotMapping", result.getSlotMapping(),
+                "slotMapping", slotMapping,
                 "assembled", assembled,
                 "sectionMapping", sectionMapping,
                 "sectionAssembled", sectionAssembled

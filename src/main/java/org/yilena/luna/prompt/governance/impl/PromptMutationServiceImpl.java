@@ -85,8 +85,13 @@ public class PromptMutationServiceImpl implements PromptMutationService {
             throw new IllegalArgumentException("prompt not found");
         }
         PromptItemVersionEntity current = item.getCurrentVersionId() == null ? null : promptItemVersionMapper.selectById(item.getCurrentVersionId());
+        String currentCategory = resolveItemCategory(item);
+        String targetCategory = resolveTargetCategory(item, request);
+        if (!isExecutionCategory(currentCategory) && isExecutionCategory(targetCategory)) {
+            throw new IllegalArgumentException("content prompt cannot be migrated to execution category");
+        }
         boolean hasTemplateVariables = bool(item.getHasTemplateVariables(), false);
-        boolean executionCategory = isExecutionCategory(resolveTargetCategory(item, request));
+        boolean executionCategory = isExecutionCategory(targetCategory);
         if (hasTemplateVariables || executionCategory) {
             validateExecutionPromptUpdate(current, request);
         }

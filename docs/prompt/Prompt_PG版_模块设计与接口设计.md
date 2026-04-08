@@ -849,6 +849,12 @@ POST /api/prompt/item/update
 
 ---
 
+## 8.5.1 兼容路由说明（2026-04-08）
+
+- 主接口口径：`POST /api/prompt/item/create` 与 `POST /api/prompt/item/update`
+- 兼容保留：`POST /api/prompt/item/save` 作为历史路由，语义上等价于 create/update 的兼容入口
+- 验收口径以 create/update 为准，`save` 仅用于存量客户端兼容
+
 ## 8.6 删除条目接口
 
 ```http

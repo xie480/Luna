@@ -39,6 +39,8 @@ import java.security.MessageDigest;
 @Service
 @RequiredArgsConstructor
 public class DefaultContextCompilerService implements ContextCompilerService {
+    private static final String DEFAULT_PROMPT_POLICY_ID = "chat_default_v1";
+    private static final String DEFAULT_COMPANION_PROMPT_POLICY_ID = "chat_tavern_default_v1";
 
     private final RuntimeRetriever runtimeRetriever;
     private final MemoryHotLayerService memoryHotLayerService;
@@ -411,9 +413,12 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                                                   Map<String, Object> socialDraft,
                                                   Map<String, Object> synthesisPolicy) {
         Map<String, Object> policy = new LinkedHashMap<>();
+        String policyId = resolvePromptPolicyId(sessionType, socialDraft, synthesisPolicy);
         policy.put("task_mode", taskState == null ? "UNKNOWN" : taskState.name());
         policy.put("social_mode", relationalState == null ? "UNKNOWN" : relationalState.name());
         policy.put("session_type", sessionType.name());
+        policy.put("policyId", policyId);
+        policy.put("policy_id", policyId);
         policy.put("planner_enabled", taskState == TaskRuntimeState.PLANNING || taskState == TaskRuntimeState.REPLANNING);
         policy.put("executor_enabled", taskState == TaskRuntimeState.EXECUTING || taskState == TaskRuntimeState.REPORTING);
         policy.put("social_reasoner_enabled", true);
@@ -421,6 +426,22 @@ public class DefaultContextCompilerService implements ContextCompilerService {
         policy.put("social_draft", socialDraft == null ? Map.of() : socialDraft);
         policy.put("response_synthesis", synthesisPolicy == null ? Map.of() : synthesisPolicy);
         return policy;
+    }
+
+    private String resolvePromptPolicyId(SessionType sessionType,
+                                         Map<String, Object> socialDraft,
+                                         Map<String, Object> synthesisPolicy) {
+        String bySynthesis = readStringByAlias(synthesisPolicy, "policyId", "policy_id", "promptPolicyId", "prompt_policy_id");
+        if (!bySynthesis.isBlank()) {
+            return bySynthesis;
+        }
+        String bySocial = readStringByAlias(socialDraft, "policyId", "policy_id", "promptPolicyId", "prompt_policy_id");
+        if (!bySocial.isBlank()) {
+            return bySocial;
+        }
+        return sessionType == SessionType.COMPANION
+                ? DEFAULT_COMPANION_PROMPT_POLICY_ID
+                : DEFAULT_PROMPT_POLICY_ID;
     }
 
     private Map<String, Integer> buildTokenBudget(TaskRuntimeState taskState,
@@ -481,6 +502,25 @@ public class DefaultContextCompilerService implements ContextCompilerService {
 
     private String str(Object value) {
         return value == null ? "" : String.valueOf(value);
+    }
+
+    private String readStringByAlias(Map<String, Object> source, String... keys) {
+        if (source == null || source.isEmpty() || keys == null) {
+            return "";
+        }
+        for (String key : keys) {
+            if (key == null || key.isBlank()) {
+                continue;
+            }
+            Object raw = source.get(key);
+            if (raw != null) {
+                String value = String.valueOf(raw).trim();
+                if (!value.isBlank()) {
+                    return value;
+                }
+            }
+        }
+        return "";
     }
 
     private String normalizeJsonString(Object value) {

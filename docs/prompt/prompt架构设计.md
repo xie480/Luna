@@ -1337,6 +1337,11 @@ GET /api/prompt/item/detail?key=maid_gentle_v1
 POST /api/prompt/item/save
 ```
 
+兼容路由说明（2026-04-08）：
+- 主接口口径：`POST /api/prompt/item/create` 与 `POST /api/prompt/item/update`
+- `POST /api/prompt/item/save` 作为历史兼容路由保留，语义等价于 create/update
+- 验收与后续演进默认按 create/update 对照，save 仅用于存量客户端兼容
+
 ---
 
 ### 21.5 删除条目
