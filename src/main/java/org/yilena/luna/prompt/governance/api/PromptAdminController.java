@@ -14,6 +14,7 @@ import org.yilena.luna.prompt.governance.PromptQueryService;
 import org.yilena.luna.prompt.governance.PromptRegistryService;
 import org.yilena.luna.prompt.governance.PromptVersionService;
 import org.yilena.luna.prompt.governance.dto.PromptPolicySaveRequest;
+import org.yilena.luna.prompt.governance.dto.PromptPolicyVersionSwitchRequest;
 import org.yilena.luna.prompt.governance.dto.PromptPreviewRequest;
 import org.yilena.luna.prompt.governance.dto.PromptSearchRequest;
 import org.yilena.luna.prompt.governance.dto.PromptUpsertRequest;
@@ -216,6 +217,19 @@ public class PromptAdminController {
         String policyId = request == null ? "" : request.getOrDefault("policyId", "");
         promptPolicyService.deletePolicy(policyId);
         return ResponseEntity.ok(Map.of("success", true, "policyId", policyId));
+    }
+
+    @GetMapping("/policy/versions")
+    @Operation(summary = "List policy package versions")
+    public ResponseEntity<?> policyVersions(@RequestParam String policyId) {
+        return ResponseEntity.ok(promptPolicyService.listPolicyVersions(policyId));
+    }
+
+    @PostMapping("/policy/activate")
+    @Operation(summary = "Activate policy package version")
+    public ResponseEntity<?> activatePolicy(@RequestBody PromptPolicyVersionSwitchRequest request) {
+        promptPolicyService.activatePolicyVersion(request.getPolicyId(), request.getVersionId());
+        return ResponseEntity.ok(Map.of("success", true, "policyId", request.getPolicyId(), "versionId", request.getVersionId()));
     }
 
     private PromptResolveContext toResolveContext(PromptPreviewRequest request) {

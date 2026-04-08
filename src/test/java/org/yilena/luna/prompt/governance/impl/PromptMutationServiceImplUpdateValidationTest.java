@@ -41,6 +41,7 @@ class PromptMutationServiceImplUpdateValidationTest {
                         .id(600L)
                         .promptKey("persona.policy.locked_v1")
                         .category("persona")
+                        .subCategory("policy")
                         .hasTemplateVariables(false)
                         .currentVersionId(601L)
                         .enabled(true)
@@ -81,6 +82,7 @@ class PromptMutationServiceImplUpdateValidationTest {
                         .id(100L)
                         .promptKey("repair.main.exec_v1")
                         .category("repair")
+                        .subCategory("main")
                         .hasTemplateVariables(true)
                         .currentVersionId(200L)
                         .enabled(true)
@@ -122,6 +124,7 @@ class PromptMutationServiceImplUpdateValidationTest {
                         .id(101L)
                         .promptKey("summary.agent.default_v1")
                         .category("summary")
+                        .subCategory("agent")
                         .hasTemplateVariables(false)
                         .currentVersionId(201L)
                         .enabled(true)
@@ -162,6 +165,7 @@ class PromptMutationServiceImplUpdateValidationTest {
                         .id(300L)
                         .promptKey("persona.maid.gentle_v1")
                         .category("persona")
+                        .subCategory("maid")
                         .hasTemplateVariables(false)
                         .currentVersionId(301L)
                         .enabled(true)
@@ -201,6 +205,7 @@ class PromptMutationServiceImplUpdateValidationTest {
                         .id(330L)
                         .promptKey("persona.template.forbidden_v1")
                         .category("persona")
+                        .subCategory("template")
                         .hasTemplateVariables(false)
                         .currentVersionId(331L)
                         .enabled(true)
@@ -240,6 +245,7 @@ class PromptMutationServiceImplUpdateValidationTest {
                         .id(332L)
                         .promptKey("persona.placeholder.forbidden_v1")
                         .category("persona")
+                        .subCategory("placeholder")
                         .hasTemplateVariables(false)
                         .currentVersionId(333L)
                         .enabled(true)
@@ -279,6 +285,7 @@ class PromptMutationServiceImplUpdateValidationTest {
                         .id(334L)
                         .promptKey("persona.mode.forbidden_v1")
                         .category("persona")
+                        .subCategory("mode")
                         .hasTemplateVariables(false)
                         .currentVersionId(335L)
                         .enabled(true)
@@ -318,6 +325,7 @@ class PromptMutationServiceImplUpdateValidationTest {
                         .id(320L)
                         .promptKey("repair.main.exec_v1")
                         .category("repair")
+                        .subCategory("main")
                         .hasTemplateVariables(false)
                         .currentVersionId(321L)
                         .enabled(true)
@@ -364,7 +372,8 @@ class PromptMutationServiceImplUpdateValidationTest {
                 .thenReturn(PromptItemEntity.builder()
                         .id(700L)
                         .promptKey("tool.agent.decision_v1")
-                        .category("tooling")
+                        .category("tool")
+                        .subCategory("agent")
                         .hasTemplateVariables(true)
                         .currentVersionId(701L)
                         .enabled(true)
@@ -378,7 +387,7 @@ class PromptMutationServiceImplUpdateValidationTest {
                         .matchScope(Map.of("agents", List.of("TOOL_DECISION_AGENT")))
                         .editPolicy(Map.of("create", false, "update", true, "delete", false))
                         .build());
-        Mockito.when(categoryService.isExecutionCategory("tooling")).thenReturn(true);
+        Mockito.when(categoryService.isExecutionCategory("tool")).thenReturn(true);
         Mockito.when(registryService.getByKey("tool.agent.decision_v1")).thenReturn(Optional.of(sampleRecord("tool.agent.decision_v1")));
 
         PromptUpsertRequest request = new PromptUpsertRequest();
@@ -393,6 +402,56 @@ class PromptMutationServiceImplUpdateValidationTest {
         Assertions.assertEquals(List.of("runtimePromptInput"), saved.getTemplateVariables());
         Assertions.assertEquals(List.of("tool", "decision"), saved.getMatchKeywords());
         Assertions.assertEquals(List.of("TOOL_DECISION_AGENT"), saved.getMatchScope().get("agents"));
+    }
+
+    @Test
+    void updateShouldSaveDraftWithoutActivateWhenExecutionPreviewOnly() {
+        PromptItemMapper itemMapper = Mockito.mock(PromptItemMapper.class);
+        PromptItemVersionMapper versionMapper = Mockito.mock(PromptItemVersionMapper.class);
+        PromptCategoryService categoryService = Mockito.mock(PromptCategoryService.class);
+        PromptRegistryService registryService = Mockito.mock(PromptRegistryService.class);
+        PromptVersionService promptVersionService = Mockito.mock(PromptVersionService.class);
+        PromptMutationServiceImpl service = new PromptMutationServiceImpl(
+                itemMapper,
+                versionMapper,
+                promptVersionService,
+                registryService,
+                categoryService
+        );
+
+        Mockito.when(itemMapper.selectOne(Mockito.any()))
+                .thenReturn(PromptItemEntity.builder()
+                        .id(702L)
+                        .promptKey("repair.main.exec_v1")
+                        .category("repair")
+                        .subCategory("main")
+                        .hasTemplateVariables(true)
+                        .currentVersionId(703L)
+                        .enabled(true)
+                        .status("enabled")
+                        .build());
+        Mockito.when(versionMapper.selectById(703L))
+                .thenReturn(PromptItemVersionEntity.builder()
+                        .id(703L)
+                        .templateVariables(List.of("invalidJson"))
+                        .editPolicy(Map.of("create", false, "update", true, "delete", false))
+                        .build());
+        Mockito.when(categoryService.isExecutionCategory("repair")).thenReturn(true);
+        Mockito.when(registryService.getByKey("repair.main.exec_v1")).thenReturn(Optional.of(sampleRecord("repair.main.exec_v1")));
+
+        PromptUpsertRequest request = new PromptUpsertRequest();
+        request.setKey("repair.main.exec_v1");
+        request.setValue("new value");
+        request.setPreviewOnly(true);
+
+        service.update(request);
+
+        ArgumentCaptor<PromptItemVersionEntity> versionCaptor = ArgumentCaptor.forClass(PromptItemVersionEntity.class);
+        Mockito.verify(versionMapper).insert(versionCaptor.capture());
+        PromptItemVersionEntity saved = versionCaptor.getValue();
+        Assertions.assertEquals("draft", saved.getStatus());
+        Assertions.assertEquals(false, saved.getIsActive());
+        Mockito.verify(promptVersionService, Mockito.never()).activateVersion(Mockito.anyLong());
     }
 
     @Test
@@ -413,6 +472,7 @@ class PromptMutationServiceImplUpdateValidationTest {
                         .id(800L)
                         .promptKey("persona.test.demo_v1")
                         .category("persona")
+                        .subCategory("test")
                         .hasTemplateVariables(false)
                         .currentVersionId(null)
                         .enabled(true)

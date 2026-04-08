@@ -180,6 +180,55 @@ public class PromptPolicyServiceImpl implements PromptPolicyService {
                 .set(PromptPolicyEntity::getDescription, mergeDeleteMarker(policy.getDescription())));
     }
 
+    @Override
+    public List<PromptPolicyVersionEntity> listPolicyVersions(String policyId) {
+        PromptPolicyEntity policy = getByPolicyId(policyId);
+        if (policy == null) {
+            return List.of();
+        }
+        return promptPolicyVersionMapper.selectList(
+                new LambdaQueryWrapper<PromptPolicyVersionEntity>()
+                        .eq(PromptPolicyVersionEntity::getPromptPolicyId, policy.getId())
+                        .orderByDesc(PromptPolicyVersionEntity::getCreatedAt)
+        );
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void activatePolicyVersion(String policyId, Long versionId) {
+        if (policyId == null || policyId.isBlank()) {
+            throw new IllegalArgumentException("policyId is required");
+        }
+        if (versionId == null || versionId <= 0) {
+            throw new IllegalArgumentException("versionId is required");
+        }
+        PromptPolicyEntity policy = promptPolicyMapper.selectOne(
+                new LambdaQueryWrapper<PromptPolicyEntity>()
+                        .eq(PromptPolicyEntity::getPolicyKey, policyId.trim())
+                        .last("limit 1")
+        );
+        if (policy == null) {
+            throw new IllegalArgumentException("policy not found");
+        }
+        PromptPolicyVersionEntity target = promptPolicyVersionMapper.selectById(versionId);
+        if (target == null || !policy.getId().equals(target.getPromptPolicyId())) {
+            throw new IllegalArgumentException("policy version not found");
+        }
+        promptPolicyVersionMapper.update(null, new LambdaUpdateWrapper<PromptPolicyVersionEntity>()
+                .eq(PromptPolicyVersionEntity::getPromptPolicyId, policy.getId())
+                .eq(PromptPolicyVersionEntity::getIsActive, true)
+                .set(PromptPolicyVersionEntity::getIsActive, false)
+                .set(PromptPolicyVersionEntity::getStatus, "archived"));
+        promptPolicyVersionMapper.update(null, new LambdaUpdateWrapper<PromptPolicyVersionEntity>()
+                .eq(PromptPolicyVersionEntity::getId, versionId)
+                .set(PromptPolicyVersionEntity::getIsActive, true)
+                .set(PromptPolicyVersionEntity::getStatus, "active"));
+        promptPolicyMapper.update(null, new LambdaUpdateWrapper<PromptPolicyEntity>()
+                .eq(PromptPolicyEntity::getId, policy.getId())
+                .set(PromptPolicyEntity::getCurrentVersionId, versionId)
+                .set(PromptPolicyEntity::getEnabled, true));
+    }
+
     private PromptPolicyVersionEntity findCurrent(String policyId) {
         if (policyId == null || policyId.isBlank()) {
             return null;

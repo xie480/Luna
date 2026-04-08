@@ -2,6 +2,7 @@ package org.yilena.luna.prompt.governance;
 
 import org.yilena.luna.prompt.governance.dto.PromptPolicySaveRequest;
 import org.yilena.luna.prompt.governance.entity.PromptPolicyEntity;
+import org.yilena.luna.prompt.governance.entity.PromptPolicyVersionEntity;
 import org.yilena.luna.prompt.governance.model.PromptPolicyDetailView;
 
 import java.util.List;
@@ -44,5 +45,13 @@ public interface PromptPolicyService {
 
     default void deletePolicy(String policyId) {
         throw new UnsupportedOperationException("deletePolicy is not implemented");
+    }
+
+    default List<PromptPolicyVersionEntity> listPolicyVersions(String policyId) {
+        return List.of();
+    }
+
+    default void activatePolicyVersion(String policyId, Long versionId) {
+        throw new UnsupportedOperationException("activatePolicyVersion is not implemented");
     }
 }

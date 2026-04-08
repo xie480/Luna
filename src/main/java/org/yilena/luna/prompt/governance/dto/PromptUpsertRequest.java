@@ -30,4 +30,5 @@ public class PromptUpsertRequest {
     private String version;
     private String versionLabel;
     private String changeNote;
+    private Boolean previewOnly;
 }

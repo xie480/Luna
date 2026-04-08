@@ -104,6 +104,8 @@ public class PromptMutationServiceImpl implements PromptMutationService {
             ensureCategoryExists(requestedCategory);
         }
         String targetCategory = resolveTargetCategory(item, request);
+        String targetSubCategory = resolveTargetSubCategory(item, request);
+        validateKeyCategoryConsistency(request.getKey(), targetCategory, targetSubCategory);
         if (!isExecutionCategory(currentCategory) && isExecutionCategory(targetCategory)) {
             throw new IllegalArgumentException("content prompt cannot be migrated to execution category");
         }
@@ -152,10 +154,13 @@ public class PromptMutationServiceImpl implements PromptMutationService {
                         .set(updateStatusField, PromptItemEntity::getStatus, effectiveStatus));
 
         PromptItemVersionEntity version = buildVersion(item.getId(), request, item, current);
-        version.setStatus(normalizeVersionStatus(request.getStatus(), "active"));
-        version.setIsActive(true);
+        boolean previewOnly = executionPrompt && Boolean.TRUE.equals(request.getPreviewOnly());
+        version.setStatus(previewOnly ? "draft" : normalizeVersionStatus(request.getStatus(), "active"));
+        version.setIsActive(!previewOnly);
         promptItemVersionMapper.insert(version);
-        promptVersionService.activateVersion(version.getId());
+        if (!previewOnly) {
+            promptVersionService.activateVersion(version.getId());
+        }
         return promptRegistryService.getByKey(request.getKey()).orElseThrow();
     }
 
@@ -253,6 +258,7 @@ public class PromptMutationServiceImpl implements PromptMutationService {
             }
         }
         String categoryKey = resolveRequestCategory(request);
+        validateKeyCategoryConsistency(request.getKey(), categoryKey, request.getSubCategory());
         Optional<PromptCategoryEntity> category = promptCategoryService.findByKey(categoryKey);
         if (category.isEmpty()) {
             throw new IllegalArgumentException("category must exist in prompt_category");
@@ -434,6 +440,24 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         }
     }
 
+    private void validateKeyCategoryConsistency(String key, String category, String subCategory) {
+        PromptKeyPrefix prefix = parsePromptKeyPrefix(key);
+        if (category == null || category.isBlank()) {
+            throw new IllegalArgumentException("category must be consistent with prompt key");
+        }
+        if (subCategory == null || subCategory.isBlank()) {
+            throw new IllegalArgumentException("subCategory must be consistent with prompt key");
+        }
+        String normalizedCategory = category.trim();
+        String normalizedSubCategory = subCategory.trim();
+        if (!prefix.category.equalsIgnoreCase(normalizedCategory)) {
+            throw new IllegalArgumentException("prompt key category prefix must match category");
+        }
+        if (!prefix.subCategory.equalsIgnoreCase(normalizedSubCategory)) {
+            throw new IllegalArgumentException("prompt key subCategory prefix must match subCategory");
+        }
+    }
+
     private void validateExecutionEnabledStatusMutation(boolean executionPrompt, Boolean requestedEnabled, String requestedStatus) {
         if (!executionPrompt) {
             return;
@@ -456,6 +480,13 @@ public class PromptMutationServiceImpl implements PromptMutationService {
             return requestCategory;
         }
         return resolveItemCategory(item);
+    }
+
+    private String resolveTargetSubCategory(PromptItemEntity item, PromptUpsertRequest request) {
+        if (request != null && request.getSubCategory() != null && !request.getSubCategory().isBlank()) {
+            return request.getSubCategory();
+        }
+        return item == null ? "" : safe(item.getSubCategory());
     }
 
     private Boolean resolveContentKeywordEnabled(PromptUpsertRequest request) {
@@ -554,5 +585,24 @@ public class PromptMutationServiceImpl implements PromptMutationService {
             throw new IllegalArgumentException("execution prompt assembly_mode is not allowed");
         }
         return target;
+    }
+
+    private PromptKeyPrefix parsePromptKeyPrefix(String key) {
+        String normalized = safe(key).trim();
+        String[] parts = normalized.split("\\.", 3);
+        if (parts.length < 3 || parts[0].isBlank() || parts[1].isBlank()) {
+            throw new IllegalArgumentException("prompt key must match {category}.{subCategory}.{name}_{versionTag}");
+        }
+        return new PromptKeyPrefix(parts[0], parts[1]);
+    }
+
+    private static final class PromptKeyPrefix {
+        private final String category;
+        private final String subCategory;
+
+        private PromptKeyPrefix(String category, String subCategory) {
+            this.category = category;
+            this.subCategory = subCategory;
+        }
     }
 }

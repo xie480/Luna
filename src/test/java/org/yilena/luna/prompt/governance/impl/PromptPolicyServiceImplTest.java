@@ -100,4 +100,51 @@ class PromptPolicyServiceImplTest {
         Assertions.assertEquals("active", inserted.getStatus());
         Assertions.assertEquals(true, inserted.getIsActive());
     }
+
+    @Test
+    void listPolicyVersionsShouldQueryByPolicyId() {
+        PromptPolicyMapper policyMapper = Mockito.mock(PromptPolicyMapper.class);
+        PromptPolicyVersionMapper versionMapper = Mockito.mock(PromptPolicyVersionMapper.class);
+        PromptPolicyServiceImpl service = new PromptPolicyServiceImpl(policyMapper, versionMapper);
+
+        Mockito.when(policyMapper.selectOne(Mockito.any()))
+                .thenReturn(PromptPolicyEntity.builder()
+                        .id(20L)
+                        .policyKey("stable")
+                        .enabled(true)
+                        .build());
+        Mockito.when(versionMapper.selectList(Mockito.any()))
+                .thenReturn(List.of(PromptPolicyVersionEntity.builder().id(201L).promptPolicyId(20L).build()));
+
+        List<PromptPolicyVersionEntity> versions = service.listPolicyVersions("stable");
+        Assertions.assertEquals(1, versions.size());
+        Assertions.assertEquals(201L, versions.get(0).getId());
+    }
+
+    @Test
+    void activatePolicyVersionShouldSwitchCurrentVersion() {
+        PromptPolicyMapper policyMapper = Mockito.mock(PromptPolicyMapper.class);
+        PromptPolicyVersionMapper versionMapper = Mockito.mock(PromptPolicyVersionMapper.class);
+        PromptPolicyServiceImpl service = new PromptPolicyServiceImpl(policyMapper, versionMapper);
+
+        Mockito.when(policyMapper.selectOne(Mockito.any()))
+                .thenReturn(PromptPolicyEntity.builder()
+                        .id(30L)
+                        .policyKey("baseline")
+                        .enabled(true)
+                        .currentVersionId(301L)
+                        .build());
+        Mockito.when(versionMapper.selectById(302L))
+                .thenReturn(PromptPolicyVersionEntity.builder()
+                        .id(302L)
+                        .promptPolicyId(30L)
+                        .status("archived")
+                        .isActive(false)
+                        .build());
+
+        service.activatePolicyVersion("baseline", 302L);
+
+        Mockito.verify(versionMapper, Mockito.times(2)).update(Mockito.isNull(), Mockito.any(LambdaUpdateWrapper.class));
+        Mockito.verify(policyMapper).update(Mockito.isNull(), Mockito.any(LambdaUpdateWrapper.class));
+    }
 }
