@@ -18,6 +18,7 @@ import org.yilena.luna.prompt.governance.mapper.PromptItemVersionMapper;
 import org.yilena.luna.prompt.governance.model.EditPolicy;
 import org.yilena.luna.prompt.governance.model.MatchScope;
 import org.yilena.luna.prompt.governance.model.PromptItemRecord;
+import org.yilena.luna.prompt.governance.support.PromptKeyAliasSupport;
 
 import java.util.List;
 import java.util.Map;
@@ -38,6 +39,8 @@ public class PromptMutationServiceImpl implements PromptMutationService {
     private static final Set<String> EXECUTION_ALLOWED_MODES = Set.of("ALWAYS", "AGENT_ONLY", "POLICY_ONLY", "MANUAL_ONLY", "DISABLED");
     private static final Set<String> CONTENT_ALLOWED_MODES = Set.of("ALWAYS", "KEYWORD_ONLY", "KEYWORD_AND_AGENT", "KEYWORD_OR_AGENT", "DISABLED");
     private static final Pattern TEMPLATE_PLACEHOLDER_PATTERN = Pattern.compile("\\$\\{[^}]+}");
+    private static final Pattern PROMPT_KEY_MAIN_PATTERN =
+            Pattern.compile("^[a-z0-9][a-z0-9-]*\\.[a-z0-9][a-z0-9_-]*\\.[a-z0-9][a-z0-9_-]*_[a-z0-9][a-z0-9._-]*$");
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -82,6 +85,7 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         if (request == null || request.getKey() == null || request.getKey().isBlank()) {
             throw new IllegalArgumentException("key is required");
         }
+        validatePromptKeyForWrite(request.getKey());
         PromptItemEntity item = promptItemMapper.selectOne(
                 new LambdaQueryWrapper<PromptItemEntity>()
                         .eq(PromptItemEntity::getPromptKey, request.getKey())
@@ -242,6 +246,7 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         if (request.getKey() == null || request.getKey().isBlank()) {
             throw new IllegalArgumentException("key is required");
         }
+        validatePromptKeyForWrite(request.getKey());
         if (request.getCategory() == null || request.getCategory().isBlank()) {
             if (request.getCategoryKey() == null || request.getCategoryKey().isBlank()) {
                 throw new IllegalArgumentException("category is required");
@@ -415,6 +420,17 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         Optional<PromptCategoryEntity> category = promptCategoryService.findByKey(categoryKey);
         if (category.isEmpty()) {
             throw new IllegalArgumentException("category must exist in prompt_category");
+        }
+    }
+
+    private void validatePromptKeyForWrite(String key) {
+        String normalized = safe(key).trim();
+        if (!PROMPT_KEY_MAIN_PATTERN.matcher(normalized).matches()) {
+            throw new IllegalArgumentException("prompt key must match {category}.{subCategory}.{name}_{versionTag}");
+        }
+        String canonical = PromptKeyAliasSupport.canonicalKeyOf(normalized);
+        if (!canonical.equalsIgnoreCase(normalized)) {
+            throw new IllegalArgumentException("prompt key alias is not allowed for write, use canonical key");
         }
     }
 

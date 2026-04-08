@@ -31,11 +31,17 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
     private final PromptCategoryMapper promptCategoryMapper;
     private final PromptItemMapper promptItemMapper;
     private final PromptItemVersionMapper promptItemVersionMapper;
+    private static final Map<String, String> LEGACY_BUILTIN_KEY_MAPPING = Map.of(
+            "system.base_v1", "system.base.default_v1",
+            "runtime.main_v1", "task.runtime.main_v1",
+            "planner.master_v1", "task.planner.master_v1"
+    );
 
     @Override
     public void run(ApplicationArguments args) {
         try {
             migrateLegacyItemStatus();
+            migrateLegacyBuiltinPromptKeys();
             seedCategories();
             seedBuiltinPrompts();
         } catch (Exception ex) {
@@ -49,6 +55,35 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
                 .set(PromptItemEntity::getStatus, "enabled"));
         if (updated > 0) {
             log.info("prompt governance migrated legacy prompt_item.status active->enabled, rows={}", updated);
+        }
+    }
+
+    private void migrateLegacyBuiltinPromptKeys() {
+        for (Map.Entry<String, String> mapping : LEGACY_BUILTIN_KEY_MAPPING.entrySet()) {
+            String legacyKey = mapping.getKey();
+            String canonicalKey = mapping.getValue();
+            PromptItemEntity legacy = promptItemMapper.selectOne(
+                    new LambdaQueryWrapper<PromptItemEntity>()
+                            .eq(PromptItemEntity::getPromptKey, legacyKey)
+                            .last("limit 1")
+            );
+            if (legacy == null) {
+                continue;
+            }
+            PromptItemEntity canonical = promptItemMapper.selectOne(
+                    new LambdaQueryWrapper<PromptItemEntity>()
+                            .eq(PromptItemEntity::getPromptKey, canonicalKey)
+                            .last("limit 1")
+            );
+            if (canonical == null) {
+                promptItemMapper.update(null, new LambdaUpdateWrapper<PromptItemEntity>()
+                        .eq(PromptItemEntity::getId, legacy.getId())
+                        .set(PromptItemEntity::getPromptKey, canonicalKey));
+                log.info("prompt governance migrated builtin key {} -> {}", legacyKey, canonicalKey);
+                continue;
+            }
+            log.info("prompt governance builtin key migration skipped because canonical already exists: {} -> {}",
+                    legacyKey, canonicalKey);
         }
     }
 
@@ -248,7 +283,7 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
             case "tool.args.default_v1", "tool.args_v1", "tool.decision.default_v1", "tool.decision_v1" -> MatchScope.builder()
                     .agents(List.of("TOOL_DECISION_AGENT"))
                     .build();
-            case "planner.master_v1" -> MatchScope.builder()
+            case "planner.master_v1", "task.planner.master_v1" -> MatchScope.builder()
                     .agents(List.of("MASTER_PLANNING_AGENT"))
                     .build();
             case "rag.planner.query_v1", "rag.planner.source_process_v1", "rag.planner.agent_stage_v1", "rag.planner.global_rerank_v1" -> MatchScope.builder()

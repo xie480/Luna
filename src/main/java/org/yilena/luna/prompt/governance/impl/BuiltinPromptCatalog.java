@@ -16,8 +16,8 @@ final class BuiltinPromptCatalog {
 
     static Map<String, PromptItemRecord> all() {
         Map<String, PromptItemRecord> out = new LinkedHashMap<>();
-        out.put("system.base_v1", item(
-                "system.base_v1",
+        out.put("system.base.default_v1", item(
+                "system.base.default_v1",
                 "System Base",
                 PromptTemplates.SYSTEM_PROMPT,
                 "system",
@@ -30,8 +30,8 @@ final class BuiltinPromptCatalog {
                 "1.0.0",
                 "System prompt fallback"
         ));
-        out.put("runtime.main_v1", item(
-                "runtime.main_v1",
+        out.put("task.runtime.main_v1", item(
+                "task.runtime.main_v1",
                 "Runtime Main",
                 PromptTemplates.RUNTIME_PROMPT,
                 "task",
@@ -170,8 +170,8 @@ final class BuiltinPromptCatalog {
                 "1.0.0",
                 "Tool decision fallback"
         ));
-        out.put("planner.master_v1", item(
-                "planner.master_v1",
+        out.put("task.planner.master_v1", item(
+                "task.planner.master_v1",
                 "Master Planning",
                 PromptTemplates.MASTER_PLANNING_PROMPT,
                 "task",

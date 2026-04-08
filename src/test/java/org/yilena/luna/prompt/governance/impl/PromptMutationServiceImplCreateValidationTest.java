@@ -36,7 +36,7 @@ class PromptMutationServiceImplCreateValidationTest {
         );
 
         PromptUpsertRequest request = new PromptUpsertRequest();
-        request.setKey("persona.template_placeholder");
+        request.setKey("persona.template.placeholder_v1");
         request.setCategory("persona");
         request.setValue("hello ${user_name}");
 
@@ -47,5 +47,38 @@ class PromptMutationServiceImplCreateValidationTest {
         InvocationTargetException ex = Assertions.assertThrows(InvocationTargetException.class, () -> method.invoke(service, request));
         Assertions.assertNotNull(ex.getCause());
         Assertions.assertTrue(ex.getCause().getMessage().contains("content prompt create value cannot carry template placeholder"));
+    }
+
+    @Test
+    void createShouldRejectAliasKeyForWrite() throws Exception {
+        PromptCategoryService categoryService = Mockito.mock(PromptCategoryService.class);
+        Mockito.when(categoryService.findByKey("task"))
+                .thenReturn(Optional.of(PromptCategoryEntity.builder()
+                        .categoryKey("task")
+                        .isExecutionCategory(false)
+                        .build()));
+        Mockito.when(categoryService.isExecutionCategory("task")).thenReturn(false);
+        Mockito.when(categoryService.isKeywordMatchAllowed("task")).thenReturn(true);
+
+        PromptMutationServiceImpl service = new PromptMutationServiceImpl(
+                Mockito.mock(PromptItemMapper.class),
+                Mockito.mock(PromptItemVersionMapper.class),
+                Mockito.mock(PromptVersionService.class),
+                Mockito.mock(PromptRegistryService.class),
+                categoryService
+        );
+
+        PromptUpsertRequest request = new PromptUpsertRequest();
+        request.setKey("runtime.main_v1");
+        request.setCategory("task");
+        request.setValue("ok");
+
+        Method method = PromptMutationServiceImpl.class
+                .getDeclaredMethod("validateCreateRequest", PromptUpsertRequest.class);
+        method.setAccessible(true);
+
+        InvocationTargetException ex = Assertions.assertThrows(InvocationTargetException.class, () -> method.invoke(service, request));
+        Assertions.assertNotNull(ex.getCause());
+        Assertions.assertTrue(ex.getCause().getMessage().contains("prompt key must match"));
     }
 }

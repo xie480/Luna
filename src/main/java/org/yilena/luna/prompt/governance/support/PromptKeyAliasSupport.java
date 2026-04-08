@@ -7,6 +7,9 @@ import java.util.Set;
 public final class PromptKeyAliasSupport {
 
     private static final Map<String, String> LEGACY_TO_CANONICAL = Map.ofEntries(
+            Map.entry("system.base_v1", "system.base.default_v1"),
+            Map.entry("runtime.main_v1", "task.runtime.main_v1"),
+            Map.entry("planner.master_v1", "task.planner.master_v1"),
             Map.entry("repair.main_json_v1", "repair.main.json_v1"),
             Map.entry("agent.reconstruction.default_v1", "agent-local.reconstruction.default_v1"),
             Map.entry("agent.rerank.default_v1", "agent-local.rerank.default_v1"),
@@ -18,6 +21,10 @@ public final class PromptKeyAliasSupport {
     );
 
     private PromptKeyAliasSupport() {
+    }
+
+    public static String canonicalKeyOf(String key) {
+        return toCanonical(key);
     }
 
     public static Set<String> aliasesOf(String key) {

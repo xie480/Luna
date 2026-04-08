@@ -39,7 +39,7 @@ class PromptMutationServiceImplUpdateValidationTest {
         Mockito.when(itemMapper.selectOne(Mockito.any()))
                 .thenReturn(PromptItemEntity.builder()
                         .id(600L)
-                        .promptKey("persona.policy.locked")
+                        .promptKey("persona.policy.locked_v1")
                         .category("persona")
                         .hasTemplateVariables(false)
                         .currentVersionId(601L)
@@ -54,7 +54,7 @@ class PromptMutationServiceImplUpdateValidationTest {
                         .build());
 
         PromptUpsertRequest request = new PromptUpsertRequest();
-        request.setKey("persona.policy.locked");
+        request.setKey("persona.policy.locked_v1");
         request.setValue("new value");
 
         IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class, () -> service.update(request));
@@ -79,7 +79,7 @@ class PromptMutationServiceImplUpdateValidationTest {
         Mockito.when(itemMapper.selectOne(Mockito.any()))
                 .thenReturn(PromptItemEntity.builder()
                         .id(100L)
-                        .promptKey("agent.repair.main")
+                        .promptKey("repair.main.exec_v1")
                         .category("repair")
                         .hasTemplateVariables(true)
                         .currentVersionId(200L)
@@ -93,10 +93,10 @@ class PromptMutationServiceImplUpdateValidationTest {
                         .editPolicy(Map.of("create", false, "update", true, "delete", false))
                         .build());
         Mockito.when(categoryService.isExecutionCategory("repair")).thenReturn(true);
-        Mockito.when(registryService.getByKey("agent.repair.main")).thenReturn(Optional.of(sampleRecord("agent.repair.main")));
+        Mockito.when(registryService.getByKey("repair.main.exec_v1")).thenReturn(Optional.of(sampleRecord("repair.main.exec_v1")));
 
         PromptUpsertRequest request = new PromptUpsertRequest();
-        request.setKey("agent.repair.main");
+        request.setKey("repair.main.exec_v1");
         request.setEnabled(false);
 
         IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class, () -> service.update(request));
@@ -120,7 +120,7 @@ class PromptMutationServiceImplUpdateValidationTest {
         Mockito.when(itemMapper.selectOne(Mockito.any()))
                 .thenReturn(PromptItemEntity.builder()
                         .id(101L)
-                        .promptKey("agent.summary.default")
+                        .promptKey("summary.agent.default_v1")
                         .category("summary")
                         .hasTemplateVariables(false)
                         .currentVersionId(201L)
@@ -134,10 +134,10 @@ class PromptMutationServiceImplUpdateValidationTest {
                         .editPolicy(Map.of("create", false, "update", true, "delete", false))
                         .build());
         Mockito.when(categoryService.isExecutionCategory("summary")).thenReturn(true);
-        Mockito.when(registryService.getByKey("agent.summary.default")).thenReturn(Optional.of(sampleRecord("agent.summary.default")));
+        Mockito.when(registryService.getByKey("summary.agent.default_v1")).thenReturn(Optional.of(sampleRecord("summary.agent.default_v1")));
 
         PromptUpsertRequest request = new PromptUpsertRequest();
-        request.setKey("agent.summary.default");
+        request.setKey("summary.agent.default_v1");
         request.setStatus("disabled");
 
         IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class, () -> service.update(request));
@@ -160,7 +160,7 @@ class PromptMutationServiceImplUpdateValidationTest {
         Mockito.when(itemMapper.selectOne(Mockito.any()))
                 .thenReturn(PromptItemEntity.builder()
                         .id(300L)
-                        .promptKey("persona.maid.gentle")
+                        .promptKey("persona.maid.gentle_v1")
                         .category("persona")
                         .hasTemplateVariables(false)
                         .currentVersionId(301L)
@@ -176,7 +176,7 @@ class PromptMutationServiceImplUpdateValidationTest {
         Mockito.when(categoryService.isExecutionCategory("persona")).thenReturn(false);
 
         PromptUpsertRequest request = new PromptUpsertRequest();
-        request.setKey("persona.maid.gentle");
+        request.setKey("persona.maid.gentle_v1");
         request.setCategory("not-registered");
 
         IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class, () -> service.update(request));
@@ -199,7 +199,7 @@ class PromptMutationServiceImplUpdateValidationTest {
         Mockito.when(itemMapper.selectOne(Mockito.any()))
                 .thenReturn(PromptItemEntity.builder()
                         .id(330L)
-                        .promptKey("persona.template.forbidden")
+                        .promptKey("persona.template.forbidden_v1")
                         .category("persona")
                         .hasTemplateVariables(false)
                         .currentVersionId(331L)
@@ -214,7 +214,7 @@ class PromptMutationServiceImplUpdateValidationTest {
         Mockito.when(categoryService.isExecutionCategory("persona")).thenReturn(false);
 
         PromptUpsertRequest request = new PromptUpsertRequest();
-        request.setKey("persona.template.forbidden");
+        request.setKey("persona.template.forbidden_v1");
         request.setTemplateVariables(List.of("userName"));
 
         IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class, () -> service.update(request));
@@ -238,7 +238,7 @@ class PromptMutationServiceImplUpdateValidationTest {
         Mockito.when(itemMapper.selectOne(Mockito.any()))
                 .thenReturn(PromptItemEntity.builder()
                         .id(332L)
-                        .promptKey("persona.placeholder.forbidden")
+                        .promptKey("persona.placeholder.forbidden_v1")
                         .category("persona")
                         .hasTemplateVariables(false)
                         .currentVersionId(333L)
@@ -253,7 +253,7 @@ class PromptMutationServiceImplUpdateValidationTest {
         Mockito.when(categoryService.isExecutionCategory("persona")).thenReturn(false);
 
         PromptUpsertRequest request = new PromptUpsertRequest();
-        request.setKey("persona.placeholder.forbidden");
+        request.setKey("persona.placeholder.forbidden_v1");
         request.setValue("hello ${user_name}");
 
         IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class, () -> service.update(request));
@@ -277,7 +277,7 @@ class PromptMutationServiceImplUpdateValidationTest {
         Mockito.when(itemMapper.selectOne(Mockito.any()))
                 .thenReturn(PromptItemEntity.builder()
                         .id(334L)
-                        .promptKey("persona.mode.forbidden")
+                        .promptKey("persona.mode.forbidden_v1")
                         .category("persona")
                         .hasTemplateVariables(false)
                         .currentVersionId(335L)
@@ -292,7 +292,7 @@ class PromptMutationServiceImplUpdateValidationTest {
         Mockito.when(categoryService.isExecutionCategory("persona")).thenReturn(false);
 
         PromptUpsertRequest request = new PromptUpsertRequest();
-        request.setKey("persona.mode.forbidden");
+        request.setKey("persona.mode.forbidden_v1");
         request.setAssemblyMode("AGENT_ONLY");
 
         IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class, () -> service.update(request));
@@ -316,7 +316,7 @@ class PromptMutationServiceImplUpdateValidationTest {
         Mockito.when(itemMapper.selectOne(Mockito.any()))
                 .thenReturn(PromptItemEntity.builder()
                         .id(320L)
-                        .promptKey("agent.repair.main")
+                        .promptKey("repair.main.exec_v1")
                         .category("repair")
                         .hasTemplateVariables(false)
                         .currentVersionId(321L)
@@ -337,7 +337,7 @@ class PromptMutationServiceImplUpdateValidationTest {
         Mockito.when(categoryService.isExecutionCategory("persona")).thenReturn(false);
 
         PromptUpsertRequest request = new PromptUpsertRequest();
-        request.setKey("agent.repair.main");
+        request.setKey("repair.main.exec_v1");
         request.setCategory("persona");
 
         IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class, () -> service.update(request));
@@ -363,7 +363,7 @@ class PromptMutationServiceImplUpdateValidationTest {
         Mockito.when(itemMapper.selectOne(Mockito.any()))
                 .thenReturn(PromptItemEntity.builder()
                         .id(700L)
-                        .promptKey("agent.tool.decision")
+                        .promptKey("tool.agent.decision_v1")
                         .category("tooling")
                         .hasTemplateVariables(true)
                         .currentVersionId(701L)
@@ -379,10 +379,10 @@ class PromptMutationServiceImplUpdateValidationTest {
                         .editPolicy(Map.of("create", false, "update", true, "delete", false))
                         .build());
         Mockito.when(categoryService.isExecutionCategory("tooling")).thenReturn(true);
-        Mockito.when(registryService.getByKey("agent.tool.decision")).thenReturn(Optional.of(sampleRecord("agent.tool.decision")));
+        Mockito.when(registryService.getByKey("tool.agent.decision_v1")).thenReturn(Optional.of(sampleRecord("tool.agent.decision_v1")));
 
         PromptUpsertRequest request = new PromptUpsertRequest();
-        request.setKey("agent.tool.decision");
+        request.setKey("tool.agent.decision_v1");
         request.setValue("new value");
 
         service.update(request);
@@ -411,7 +411,7 @@ class PromptMutationServiceImplUpdateValidationTest {
         Mockito.when(itemMapper.selectOne(Mockito.any()))
                 .thenReturn(PromptItemEntity.builder()
                         .id(800L)
-                        .promptKey("persona.test")
+                        .promptKey("persona.test.demo_v1")
                         .category("persona")
                         .hasTemplateVariables(false)
                         .currentVersionId(null)
@@ -420,7 +420,7 @@ class PromptMutationServiceImplUpdateValidationTest {
                         .build());
         Mockito.when(categoryService.isExecutionCategory("persona")).thenReturn(false);
 
-        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class, () -> service.deleteByKey("persona.test"));
+        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class, () -> service.deleteByKey("persona.test.demo_v1"));
         Assertions.assertTrue(ex.getMessage().contains("prompt delete policy denied"));
         Mockito.verify(itemMapper, Mockito.never()).update(Mockito.isNull(), Mockito.any());
     }
@@ -451,3 +451,4 @@ class PromptMutationServiceImplUpdateValidationTest {
                 .build();
     }
 }
+
