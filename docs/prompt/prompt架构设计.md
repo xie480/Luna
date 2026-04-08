@@ -1659,3 +1659,19 @@ POST /api/prompt/item/rollback
 一句话总结：
 
 > 该方案不是重写当前 Prompt 系统，而是在现有“状态驱动的多 Prompt 协同编排架构”之上，新增一个基于 PostgreSQL 真源的 Prompt 分类治理层，让 Prompt 资产能够以酒馆式方式被管理、匹配、装配和回放，同时不破坏当前主链路的稳定性 [1][2]。
+
+---
+
+## 规范冲突统一说明（生效日期：2026-04-08）
+
+以下为跨文档冲突点统一口径，仅用于验收与实施对齐：
+
+1) prompt_item.status 口径统一
+- 统一为：enabled / disabled（条目启停状态）。
+- active 仅用于版本语义（例如 prompt_item_version 当前生效版本），不再作为 prompt_item.status 示例值。
+
+2) PromptSnapshotBridge 时机口径统一
+- 主模型执行前完成 snapshot bridge payload 构建并进入上下文快照。
+- 主模型执行完成后写入 prompt_runtime_snapshot_ref（运行时引用落表）。
+
+说明：若历史段落与本节冲突，以本节为准。

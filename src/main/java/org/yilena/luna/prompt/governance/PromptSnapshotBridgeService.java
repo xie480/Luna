@@ -11,6 +11,12 @@ public interface PromptSnapshotBridgeService {
                              Long roundId,
                              Long nodeId,
                              String snapshotId,
+                             Map<String, Object> snapshotPayload);
+
+    void persistSnapshotRefs(String sessionId,
+                             Long roundId,
+                             Long nodeId,
+                             String snapshotId,
                              String policyId,
                              PromptResolveResult resolveResult);
 }

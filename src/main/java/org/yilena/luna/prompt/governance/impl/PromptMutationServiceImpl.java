@@ -12,6 +12,7 @@ import org.yilena.luna.prompt.governance.PromptVersionService;
 import org.yilena.luna.prompt.governance.dto.PromptUpsertRequest;
 import org.yilena.luna.prompt.governance.entity.PromptItemEntity;
 import org.yilena.luna.prompt.governance.entity.PromptItemVersionEntity;
+import org.yilena.luna.prompt.governance.entity.PromptCategoryEntity;
 import org.yilena.luna.prompt.governance.mapper.PromptItemMapper;
 import org.yilena.luna.prompt.governance.mapper.PromptItemVersionMapper;
 import org.yilena.luna.prompt.governance.model.PromptItemRecord;
@@ -19,6 +20,7 @@ import org.yilena.luna.prompt.governance.model.PromptItemRecord;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 @Service
@@ -168,12 +170,13 @@ public class PromptMutationServiceImpl implements PromptMutationService {
                                                  PromptItemVersionEntity currentVersion) {
         boolean executionCategory = isExecutionCategory(resolveItemCategory(item));
         boolean hasTemplateVariables = bool(item == null ? null : item.getHasTemplateVariables(), false);
+        boolean contentCreate = currentVersion == null && !executionCategory && !hasTemplateVariables;
         return PromptItemVersionEntity.builder()
                 .promptItemId(itemId)
                 .versionNo(safe(request.getVersion(), nextVersion(itemId)))
                 .versionLabel(safe(request.getVersionLabel(), safe(request.getVersion())))
                 .promptValue(safe(request.getValue()))
-                .templateVariables(request.getTemplateVariables() == null ? List.of() : request.getTemplateVariables())
+                .templateVariables(contentCreate ? List.of() : (request.getTemplateVariables() == null ? List.of() : request.getTemplateVariables()))
                 .matchKeywords(request.getMatchKeywords() == null ? List.of() : request.getMatchKeywords())
                 .matchScope(request.getMatchScope() == null ? Map.of() : request.getMatchScope())
                 .editPolicy(resolveEditPolicy(request, currentVersion, hasTemplateVariables, executionCategory))
@@ -216,11 +219,19 @@ public class PromptMutationServiceImpl implements PromptMutationService {
                 throw new IllegalArgumentException("category is required");
             }
         }
-        if (isExecutionCategory(resolveRequestCategory(request))) {
+        String categoryKey = resolveRequestCategory(request);
+        Optional<PromptCategoryEntity> category = promptCategoryService.findByKey(categoryKey);
+        if (category.isEmpty()) {
+            throw new IllegalArgumentException("category must exist in prompt_category");
+        }
+        if (Boolean.TRUE.equals(category.get().getIsExecutionCategory()) || isExecutionCategory(categoryKey)) {
             throw new IllegalArgumentException("create only supports content prompt category");
         }
         if (bool(request.getHasTemplateVariables(), false)) {
             throw new IllegalArgumentException("create only supports content prompt");
+        }
+        if (hasTemplateVariablesInRequest(request.getTemplateVariables())) {
+            throw new IllegalArgumentException("content prompt create cannot carry templateVariables");
         }
         String mode = request.getAssemblyMode();
         if (mode != null && !mode.isBlank()) {
@@ -297,6 +308,10 @@ public class PromptMutationServiceImpl implements PromptMutationService {
 
     private boolean bool(Boolean value, boolean fallback) {
         return value == null ? fallback : value;
+    }
+
+    private boolean hasTemplateVariablesInRequest(List<String> templateVariables) {
+        return templateVariables != null && !templateVariables.isEmpty();
     }
 
     private boolean isExecutionCategory(String category) {

@@ -14,6 +14,7 @@ public class ContextNodeTemplatePolicy {
     String nodeKind;
     String templateKey;
     String currentNodeId;
+    String promptAgent;
     boolean includeWorkingMemory;
     boolean includeRuntimeMemory;
     boolean includeRetrievedMemory;
@@ -40,6 +41,7 @@ public class ContextNodeTemplatePolicy {
                 .nodeKind("TOOL_DECISION")
                 .templateKey("TOOL_DECISION")
                 .currentNodeId(currentNodeId == null ? "" : currentNodeId)
+                .promptAgent("TOOL_DECISION_AGENT")
                 .includeWorkingMemory(true)
                 .includeRuntimeMemory(true)
                 .includeRetrievedMemory(true)
@@ -66,6 +68,7 @@ public class ContextNodeTemplatePolicy {
                 .nodeKind(normalizedNodeKind)
                 .templateKey(templateKey)
                 .currentNodeId(currentNodeId == null ? "" : currentNodeId)
+                .promptAgent("MAIN_CHAT_AGENT")
                 .includeWorkingMemory(true)
                 .includeRuntimeMemory(true)
                 .includeRetrievedMemory(false)

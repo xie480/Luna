@@ -1185,3 +1185,20 @@ prompt_item_version 1 --- n prompt_runtime_snapshot_ref
 一句话总结：
 
 > PG 版 Prompt 数据表设计，不是把 Prompt 简单搬进数据库，而是为当前已有的编排式 Prompt 主链路补上一层结构化真源和版本治理能力，让 Prompt 具备分类、匹配、装配、回放和演进的系统属性 [1][2]。
+
+
+---
+
+## 规范冲突统一说明（生效日期：2026-04-08）
+
+以下为跨文档冲突点统一口径，仅用于验收与实施对齐：
+
+1) prompt_item.status 口径统一
+- 统一为：enabled / disabled（条目启停状态）。
+- active 仅用于版本语义（例如 prompt_item_version 当前生效版本），不再作为 prompt_item.status 示例值。
+
+2) PromptSnapshotBridge 时机口径统一
+- 主模型执行前完成 snapshot bridge payload 构建并进入上下文快照。
+- 主模型执行完成后写入 prompt_runtime_snapshot_ref（运行时引用落表）。
+
+说明：若历史段落与本节冲突，以本节为准。

@@ -911,7 +911,7 @@ public class DefaultContextAssembler implements ContextAssembler {
                     .policyId(resolvePolicyId(contextPackage))
                     .personaId(resolveContextBinding(contextPackage, "personaId", "persona_id"))
                     .sceneId(resolveContextBinding(contextPackage, "sceneId", "scene_id"))
-                    .agent("MAIN_CHAT_AGENT")
+                    .agent(resolvePromptAgent(policy))
                     .nodeKind(policy == null ? "" : safe(policy.getNodeKind()))
                     .taskState(contextPackage == null || contextPackage.getTaskState() == null ? "" : contextPackage.getTaskState().name())
                     .modelFamily(resolveModelFamily(contextPackage))
@@ -920,6 +920,13 @@ public class DefaultContextAssembler implements ContextAssembler {
         } catch (Exception ignore) {
             return null;
         }
+    }
+
+    private String resolvePromptAgent(ContextNodeTemplatePolicy policy) {
+        if (policy != null && policy.getPromptAgent() != null && !policy.getPromptAgent().isBlank()) {
+            return policy.getPromptAgent();
+        }
+        return "MAIN_CHAT_AGENT";
     }
 
     private String resolvePolicyId(StructuredContextPackage contextPackage) {

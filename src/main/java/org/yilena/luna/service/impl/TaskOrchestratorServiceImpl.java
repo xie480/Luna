@@ -770,16 +770,6 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 contextNodeId(contextPackage)
         );
         String assembledDecisionContext = assembledDecision == null ? "" : nullSafe(assembledDecision.getPrompt());
-        String resolvedToolDecisionContext = applyToolDecisionResolverContext(
-                assembledDecisionContext,
-                safeSessionId,
-                safeUserInput,
-                contextPackage,
-                toolDecisionPolicy == null ? "" : toolDecisionPolicy.getNodeKind()
-        );
-        if (!resolvedToolDecisionContext.isBlank()) {
-            assembledDecisionContext = resolvedToolDecisionContext;
-        }
 
         ToolCallingContextHolder.set(ToolCallingContext.builder()
                 .chatSessionKey(safeSessionId)
@@ -4111,101 +4101,6 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         return "tool_execution_trace:latest";
     }
 
-    private String applyToolDecisionResolverContext(String fallbackContext,
-                                                    String sessionId,
-                                                    String userInput,
-                                                    StructuredContextPackage contextPackage,
-                                                    String nodeKind) {
-        if (promptResolverService == null) {
-            return fallbackContext;
-        }
-        try {
-            PromptResolveResult resolveResult = promptResolverService.resolve(
-                    PromptResolveContext.builder()
-                            .sessionId(sessionId)
-                            .userInput(userInput)
-                            .policyId(resolvePolicyId(contextPackage))
-                            .personaId(resolveContextBinding(contextPackage, "personaId", "persona_id"))
-                            .sceneId(resolveContextBinding(contextPackage, "sceneId", "scene_id"))
-                            .agent("TOOL_DECISION_AGENT")
-                            .nodeKind(nodeKind == null ? "" : nodeKind)
-                            .taskState(contextPackage == null || contextPackage.getTaskState() == null ? "" : contextPackage.getTaskState().name())
-                            .modelFamily(resolveModelFamily(contextPackage))
-                            .build()
-            );
-            if (resolveResult == null || resolveResult.getMatchedItems() == null || resolveResult.getMatchedItems().isEmpty()) {
-                return fallbackContext;
-            }
-            String resolvedPrefix = resolveResult.getMatchedItems().stream()
-                    .map(ResolvedPromptItem::getValue)
-                    .filter(value -> value != null && !value.isBlank())
-                    .reduce("", (a, b) -> a.isBlank() ? b : a + "\n\n" + b);
-            if (resolvedPrefix.isBlank()) {
-                return fallbackContext;
-            }
-            if (fallbackContext == null || fallbackContext.isBlank()) {
-                return resolvedPrefix;
-            }
-            return resolvedPrefix + "\n\n" + fallbackContext;
-        } catch (Exception ignore) {
-            return fallbackContext;
-        }
-    }
-
-    private String resolvePolicyId(StructuredContextPackage contextPackage) {
-        if (contextPackage == null || contextPackage.getPromptPolicy() == null) {
-            return "";
-        }
-        Object byCamel = contextPackage.getPromptPolicy().get("policyId");
-        if (byCamel != null && !String.valueOf(byCamel).isBlank()) {
-            return String.valueOf(byCamel);
-        }
-        Object bySnake = contextPackage.getPromptPolicy().get("policy_id");
-        return bySnake == null ? "" : String.valueOf(bySnake);
-    }
-
-    private String resolveModelFamily(StructuredContextPackage contextPackage) {
-        if (contextPackage == null || contextPackage.getRuntime() == null) {
-            return "";
-        }
-        Object model = contextPackage.getRuntime().get("modelFamily");
-        if (model != null && !String.valueOf(model).isBlank()) {
-            return String.valueOf(model);
-        }
-        model = contextPackage.getRuntime().get("model_family");
-        return model == null ? "" : String.valueOf(model);
-    }
-
-    private String resolveContextBinding(StructuredContextPackage contextPackage, String camelKey, String snakeKey) {
-        if (contextPackage == null) {
-            return "";
-        }
-        String value = readFromMap(contextPackage.getPromptPolicy(), camelKey, snakeKey);
-        if (!value.isBlank()) {
-            return value;
-        }
-        value = readFromMap(contextPackage.getTaskContext(), camelKey, snakeKey);
-        if (!value.isBlank()) {
-            return value;
-        }
-        return readFromMap(contextPackage.getRelationalContext(), camelKey, snakeKey);
-    }
-
-    private String readFromMap(Map<String, Object> map, String camelKey, String snakeKey) {
-        if (map == null || map.isEmpty()) {
-            return "";
-        }
-        Object camel = map.get(camelKey);
-        if (camel != null && !String.valueOf(camel).isBlank()) {
-            return String.valueOf(camel);
-        }
-        Object snake = map.get(snakeKey);
-        if (snake != null && !String.valueOf(snake).isBlank()) {
-            return String.valueOf(snake);
-        }
-        return "";
-    }
-
     @SuppressWarnings("unchecked")
     private void persistPromptSnapshotRefs(String sessionId,
                                            Long roundId,
@@ -4243,15 +4138,57 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             if (items.isEmpty()) {
                 return;
             }
+            Map<String, List<ResolvedPromptItem>> slotMapping = parseSnapshotSlotMapping(
+                    meta.get("slotMapping"),
+                    assemblerVersion
+            );
             PromptResolveResult resolveResult = PromptResolveResult.builder()
                     .policyId(policyId)
                     .matchedItems(items)
-                    .slotMapping(Map.of())
+                    .slotMapping(slotMapping)
                     .build();
-            promptSnapshotBridgeService.persistSnapshotRefs(sessionId, roundId, nodeId, snapshotId, policyId, resolveResult);
+            Map<String, Object> snapshotPayload = promptSnapshotBridgeService.buildSnapshotPayload(resolveResult, policyId);
+            promptSnapshotBridgeService.persistSnapshotRefs(sessionId, roundId, nodeId, snapshotId, snapshotPayload);
         } catch (Exception ignore) {
             // must not break main model flow
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, List<ResolvedPromptItem>> parseSnapshotSlotMapping(Object slotMappingRaw, String defaultAssemblerVersion) {
+        if (!(slotMappingRaw instanceof Map<?, ?> rawMapping) || rawMapping.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, List<ResolvedPromptItem>> slotMapping = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : rawMapping.entrySet()) {
+            String slot = stringValue(entry.getKey());
+            if (slot.isBlank()) {
+                continue;
+            }
+            if (!(entry.getValue() instanceof List<?> itemsRaw) || itemsRaw.isEmpty()) {
+                slotMapping.put(slot, List.of());
+                continue;
+            }
+            List<ResolvedPromptItem> items = new ArrayList<>();
+            for (Object itemRaw : itemsRaw) {
+                if (!(itemRaw instanceof Map<?, ?> row)) {
+                    continue;
+                }
+                items.add(ResolvedPromptItem.builder()
+                        .itemId(toLong(row.get("itemId")))
+                        .versionId(toLong(row.get("versionId")))
+                        .key(stringValue(row.get("key")))
+                        .value(stringValue(row.get("value")))
+                        .version(stringValue(row.get("version")))
+                        .runtimeSlot(stringValue(row.get("runtimeSlot")))
+                        .matchReason(stringValue(row.get("matchReason")))
+                        .category(stringValue(row.get("category")))
+                        .assemblerVersion(firstNonBlank(stringValue(row.get("assemblerVersion")), defaultAssemblerVersion))
+                        .build());
+            }
+            slotMapping.put(slot, items);
+        }
+        return slotMapping;
     }
 
     @SuppressWarnings("unchecked")

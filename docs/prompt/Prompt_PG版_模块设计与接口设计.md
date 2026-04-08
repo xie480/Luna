@@ -1118,3 +1118,21 @@ prompt/
 一句话总结：
 
 > PG 版 Prompt 模块设计的重点，不是把 Prompt 简单存进数据库，而是围绕现有编排架构建立一套统一的 Prompt 访问、匹配、装配、版本和预览体系，让 Prompt 真正成为系统级资产，而不是分散在代码中的文本片段 [1][2]。
+
+---
+
+---
+
+## 规范冲突统一说明（生效日期：2026-04-08）
+
+以下为跨文档冲突点统一口径，仅用于验收与实施对齐：
+
+1) prompt_item.status 口径统一
+- 统一为：enabled / disabled（条目启停状态）。
+- active 仅用于版本语义（例如 prompt_item_version 当前生效版本），不再作为 prompt_item.status 示例值。
+
+2) PromptSnapshotBridge 时机口径统一
+- 主模型执行前完成 snapshot bridge payload 构建并进入上下文快照。
+- 主模型执行完成后写入 prompt_runtime_snapshot_ref（运行时引用落表）。
+
+说明：若历史段落与本节冲突，以本节为准。
