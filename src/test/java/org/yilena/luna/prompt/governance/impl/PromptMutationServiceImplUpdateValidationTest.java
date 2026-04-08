@@ -23,6 +23,45 @@ import java.util.Optional;
 class PromptMutationServiceImplUpdateValidationTest {
 
     @Test
+    void updateShouldRejectWhenEditPolicyUpdateDenied() {
+        PromptItemMapper itemMapper = Mockito.mock(PromptItemMapper.class);
+        PromptItemVersionMapper versionMapper = Mockito.mock(PromptItemVersionMapper.class);
+        PromptCategoryService categoryService = Mockito.mock(PromptCategoryService.class);
+        PromptMutationServiceImpl service = new PromptMutationServiceImpl(
+                itemMapper,
+                versionMapper,
+                Mockito.mock(PromptVersionService.class),
+                Mockito.mock(PromptRegistryService.class),
+                categoryService
+        );
+
+        Mockito.when(itemMapper.selectOne(Mockito.any()))
+                .thenReturn(PromptItemEntity.builder()
+                        .id(600L)
+                        .promptKey("persona.policy.locked")
+                        .category("persona")
+                        .hasTemplateVariables(false)
+                        .currentVersionId(601L)
+                        .enabled(true)
+                        .status("enabled")
+                        .build());
+        Mockito.when(versionMapper.selectById(601L))
+                .thenReturn(PromptItemVersionEntity.builder()
+                        .id(601L)
+                        .templateVariables(List.of())
+                        .editPolicy(Map.of("create", true, "update", false, "delete", true))
+                        .build());
+
+        PromptUpsertRequest request = new PromptUpsertRequest();
+        request.setKey("persona.policy.locked");
+        request.setValue("new value");
+
+        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class, () -> service.update(request));
+        Assertions.assertTrue(ex.getMessage().contains("prompt update policy denied"));
+        Mockito.verify(itemMapper, Mockito.never()).update(Mockito.isNull(), Mockito.any());
+    }
+
+    @Test
     void updateShouldRejectDisablingExecutionPromptByEnabledFlag() {
         PromptItemMapper itemMapper = Mockito.mock(PromptItemMapper.class);
         PromptItemVersionMapper versionMapper = Mockito.mock(PromptItemVersionMapper.class);

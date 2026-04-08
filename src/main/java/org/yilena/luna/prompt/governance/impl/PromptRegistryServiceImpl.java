@@ -122,8 +122,17 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
             return false;
         }
         String normalized = key.trim();
-        if (getByKeyIncludingDisabled(normalized).isPresent()) {
-            return true;
+        try {
+            PromptItemEntity item = promptItemMapper.selectOne(
+                    new LambdaQueryWrapper<PromptItemEntity>()
+                            .eq(PromptItemEntity::getPromptKey, normalized)
+                            .last("limit 1")
+            );
+            if (item != null) {
+                return true;
+            }
+        } catch (Exception ignore) {
+            // fallback below
         }
         return builtinFallbackEnabled && builtins.containsKey(normalized);
     }
@@ -133,7 +142,8 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
         return listAll(false);
     }
 
-    private List<PromptItemRecord> listAll(boolean includeDisabled) {
+    @Override
+    public List<PromptItemRecord> listAll(boolean includeDisabled) {
         Map<String, PromptItemRecord> merged = new LinkedHashMap<>();
         if (builtinFallbackEnabled) {
             merged.putAll(builtins);
@@ -146,11 +156,9 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
                     merged.remove(item.getPromptKey());
                     continue;
                 }
-                PromptItemVersionEntity version = versionById.get(item.getCurrentVersionId());
-                if (!isCurrentVersionActive(version)) {
-                    if (!includeDisabled) {
-                        merged.remove(item.getPromptKey());
-                    }
+                PromptItemVersionEntity version = resolveVersionForDisplay(item, versionById, includeDisabled);
+                if (version == null && !includeDisabled) {
+                    merged.remove(item.getPromptKey());
                     continue;
                 }
                 PromptItemRecord record = merge(item, version);
@@ -287,11 +295,47 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
         if (!includeDisabled && !isItemActive(item)) {
             return null;
         }
-        PromptItemVersionEntity version = loadCurrentVersion(item.getCurrentVersionId());
-        if (!isCurrentVersionActive(version)) {
+        PromptItemVersionEntity version = resolveVersionForDisplay(item, null, includeDisabled);
+        if (version == null && !includeDisabled) {
             return null;
         }
         return merge(item, version);
+    }
+
+    private PromptItemVersionEntity resolveVersionForDisplay(PromptItemEntity item,
+                                                             Map<Long, PromptItemVersionEntity> preloaded,
+                                                             boolean includeDisabled) {
+        if (item == null) {
+            return null;
+        }
+        PromptItemVersionEntity current = null;
+        Long currentVersionId = item.getCurrentVersionId();
+        if (currentVersionId != null && currentVersionId > 0) {
+            current = preloaded != null ? preloaded.get(currentVersionId) : loadCurrentVersion(currentVersionId);
+        }
+        if (!includeDisabled) {
+            return isCurrentVersionActive(current) ? current : null;
+        }
+        if (current != null) {
+            return current;
+        }
+        return loadLatestVersion(item.getId());
+    }
+
+    private PromptItemVersionEntity loadLatestVersion(Long itemId) {
+        if (itemId == null || itemId <= 0) {
+            return null;
+        }
+        List<PromptItemVersionEntity> rows = promptItemVersionMapper.selectList(
+                new LambdaQueryWrapper<PromptItemVersionEntity>()
+                        .eq(PromptItemVersionEntity::getPromptItemId, itemId)
+                        .orderByDesc(PromptItemVersionEntity::getCreatedAt)
+                        .last("limit 1")
+        );
+        if (rows == null || rows.isEmpty()) {
+            return null;
+        }
+        return rows.get(0);
     }
 
     private boolean isItemActive(PromptItemEntity item) {

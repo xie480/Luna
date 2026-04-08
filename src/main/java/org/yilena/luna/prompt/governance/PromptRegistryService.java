@@ -23,6 +23,10 @@ public interface PromptRegistryService {
 
     List<PromptItemRecord> listAllActive();
 
+    default List<PromptItemRecord> listAll(boolean includeDisabled) {
+        return listAllActive();
+    }
+
     List<PromptItemRecord> listByCategory(String category, String subCategory);
 
     Map<String, String> listKeyValueByCategory(String category);

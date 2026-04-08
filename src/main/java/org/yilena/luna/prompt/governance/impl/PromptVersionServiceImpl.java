@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.yilena.luna.prompt.governance.PromptCategoryService;
 import org.yilena.luna.prompt.governance.PromptVersionService;
 import org.yilena.luna.prompt.governance.dto.PromptUpsertRequest;
 import org.yilena.luna.prompt.governance.entity.PromptItemEntity;
@@ -22,6 +23,7 @@ public class PromptVersionServiceImpl implements PromptVersionService {
 
     private final PromptItemMapper promptItemMapper;
     private final PromptItemVersionMapper promptItemVersionMapper;
+    private final PromptCategoryService promptCategoryService;
 
     @Override
     public List<PromptItemVersionEntity> listVersions(String key) {
@@ -148,12 +150,18 @@ public class PromptVersionServiceImpl implements PromptVersionService {
         if (version == null) {
             throw new IllegalArgumentException("version not found");
         }
+        PromptItemEntity item = promptItemMapper.selectById(version.getPromptItemId());
+        boolean archivingCurrentVersion = item != null
+                && item.getCurrentVersionId() != null
+                && item.getCurrentVersionId().equals(versionId);
+        if (archivingCurrentVersion && isExecutionPrompt(item)) {
+            throw new IllegalArgumentException("execution prompt current version cannot be archived");
+        }
         promptItemVersionMapper.update(null,
                 new LambdaUpdateWrapper<PromptItemVersionEntity>()
                         .eq(PromptItemVersionEntity::getId, versionId)
                         .set(PromptItemVersionEntity::getStatus, "archived")
                         .set(PromptItemVersionEntity::getIsActive, false));
-        PromptItemEntity item = promptItemMapper.selectById(version.getPromptItemId());
         if (item != null && item.getCurrentVersionId() != null && item.getCurrentVersionId().equals(versionId)) {
             promptItemMapper.update(null,
                     new LambdaUpdateWrapper<PromptItemEntity>()
@@ -233,6 +241,26 @@ public class PromptVersionServiceImpl implements PromptVersionService {
 
     private Map<String, Object> defaultEditPolicy() {
         return Map.of("create", true, "update", true, "delete", true);
+    }
+
+    private boolean isExecutionPrompt(PromptItemEntity item) {
+        if (item == null) {
+            return false;
+        }
+        if (Boolean.TRUE.equals(item.getHasTemplateVariables())) {
+            return true;
+        }
+        return promptCategoryService.isExecutionCategory(resolveItemCategory(item));
+    }
+
+    private String resolveItemCategory(PromptItemEntity item) {
+        if (item == null) {
+            return "";
+        }
+        if (item.getCategory() != null && !item.getCategory().isBlank()) {
+            return item.getCategory();
+        }
+        return item.getCategoryKey() == null ? "" : item.getCategoryKey();
     }
 
     private String safe(String value) {

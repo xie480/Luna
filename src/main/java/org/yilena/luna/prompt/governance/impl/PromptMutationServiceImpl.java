@@ -91,6 +91,9 @@ public class PromptMutationServiceImpl implements PromptMutationService {
             throw new IllegalArgumentException("prompt not found");
         }
         PromptItemVersionEntity current = item.getCurrentVersionId() == null ? null : promptItemVersionMapper.selectById(item.getCurrentVersionId());
+        if (current != null && current.getEditPolicy() != null && !readPolicy(current.getEditPolicy(), "update")) {
+            throw new IllegalArgumentException("prompt update policy denied");
+        }
         String currentCategory = resolveItemCategory(item);
         String requestedCategory = resolveRequestCategory(request);
         if (requestedCategory != null && !requestedCategory.isBlank()) {
