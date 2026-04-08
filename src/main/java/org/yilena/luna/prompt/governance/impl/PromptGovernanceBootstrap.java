@@ -35,10 +35,20 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         try {
+            migrateLegacyItemStatus();
             seedCategories();
             seedBuiltinPrompts();
         } catch (Exception ex) {
             log.debug("prompt governance bootstrap skipped: {}", ex.getMessage());
+        }
+    }
+
+    private void migrateLegacyItemStatus() {
+        int updated = promptItemMapper.update(null, new LambdaUpdateWrapper<PromptItemEntity>()
+                .apply("lower(status) = {0}", "active")
+                .set(PromptItemEntity::getStatus, "enabled"));
+        if (updated > 0) {
+            log.info("prompt governance migrated legacy prompt_item.status active->enabled, rows={}", updated);
         }
     }
 

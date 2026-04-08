@@ -396,7 +396,8 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
         }
         String status = safe(item.getStatus()).trim().toLowerCase();
         return status.isBlank()
-                || "enabled".equals(status);
+                || "enabled".equals(status)
+                || "active".equals(status);
     }
 
     private boolean isCurrentVersionActive(PromptItemVersionEntity version) {

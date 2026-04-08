@@ -111,6 +111,8 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         boolean executionPrompt = hasTemplateVariables || executionCategory;
         if (hasTemplateVariables || executionCategory) {
             validateExecutionPromptUpdate(current, request);
+        } else {
+            validateContentPromptUpdate(request);
         }
         Boolean nextKeywordEnabled = executionCategory
                 ? Boolean.FALSE
@@ -285,6 +287,28 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         }
         if (request.getAssemblyMode() != null && !EXECUTION_ALLOWED_MODES.contains(request.getAssemblyMode().trim().toUpperCase())) {
             throw new IllegalArgumentException("execution prompt assembly_mode is not allowed");
+        }
+    }
+
+    private void validateContentPromptUpdate(PromptUpsertRequest request) {
+        if (request == null) {
+            return;
+        }
+        if (bool(request.getHasTemplateVariables(), false)) {
+            throw new IllegalArgumentException("content prompt update cannot carry hasTemplateVariables");
+        }
+        if (hasTemplateVariablesInRequest(request.getTemplateVariables())) {
+            throw new IllegalArgumentException("content prompt update cannot carry templateVariables");
+        }
+        if (containsTemplatePlaceholder(request.getValue())) {
+            throw new IllegalArgumentException("content prompt update value cannot carry template placeholder");
+        }
+        if (request.getAssemblyMode() == null || request.getAssemblyMode().isBlank()) {
+            return;
+        }
+        String normalizedMode = request.getAssemblyMode().trim().toUpperCase();
+        if (!CONTENT_ALLOWED_MODES.contains(normalizedMode)) {
+            throw new IllegalArgumentException("content prompt assembly_mode is not allowed");
         }
     }
 

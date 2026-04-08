@@ -149,7 +149,9 @@ public class PromptPolicyServiceImpl implements PromptPolicyService {
                 .build();
         promptPolicyVersionMapper.update(null, new LambdaUpdateWrapper<PromptPolicyVersionEntity>()
                 .eq(PromptPolicyVersionEntity::getPromptPolicyId, policy.getId())
-                .set(PromptPolicyVersionEntity::getIsActive, false));
+                .eq(PromptPolicyVersionEntity::getIsActive, true)
+                .set(PromptPolicyVersionEntity::getIsActive, false)
+                .set(PromptPolicyVersionEntity::getStatus, "archived"));
         promptPolicyVersionMapper.insert(version);
         promptPolicyMapper.update(null, new LambdaUpdateWrapper<PromptPolicyEntity>()
                 .eq(PromptPolicyEntity::getId, policy.getId())
@@ -192,7 +194,13 @@ public class PromptPolicyServiceImpl implements PromptPolicyService {
             if (policy == null || policy.getCurrentVersionId() == null) {
                 return null;
             }
-            return promptPolicyVersionMapper.selectById(policy.getCurrentVersionId());
+            return promptPolicyVersionMapper.selectOne(
+                    new LambdaQueryWrapper<PromptPolicyVersionEntity>()
+                            .eq(PromptPolicyVersionEntity::getId, policy.getCurrentVersionId())
+                            .eq(PromptPolicyVersionEntity::getIsActive, true)
+                            .eq(PromptPolicyVersionEntity::getStatus, "active")
+                            .last("limit 1")
+            );
         } catch (Exception ignore) {
             return null;
         }

@@ -184,6 +184,123 @@ class PromptMutationServiceImplUpdateValidationTest {
     }
 
     @Test
+    void updateShouldRejectTemplateVariablesForContentPrompt() {
+        PromptItemMapper itemMapper = Mockito.mock(PromptItemMapper.class);
+        PromptItemVersionMapper versionMapper = Mockito.mock(PromptItemVersionMapper.class);
+        PromptCategoryService categoryService = Mockito.mock(PromptCategoryService.class);
+        PromptMutationServiceImpl service = new PromptMutationServiceImpl(
+                itemMapper,
+                versionMapper,
+                Mockito.mock(PromptVersionService.class),
+                Mockito.mock(PromptRegistryService.class),
+                categoryService
+        );
+
+        Mockito.when(itemMapper.selectOne(Mockito.any()))
+                .thenReturn(PromptItemEntity.builder()
+                        .id(330L)
+                        .promptKey("persona.template.forbidden")
+                        .category("persona")
+                        .hasTemplateVariables(false)
+                        .currentVersionId(331L)
+                        .enabled(true)
+                        .status("enabled")
+                        .build());
+        Mockito.when(versionMapper.selectById(331L))
+                .thenReturn(PromptItemVersionEntity.builder()
+                        .id(331L)
+                        .templateVariables(List.of())
+                        .build());
+        Mockito.when(categoryService.isExecutionCategory("persona")).thenReturn(false);
+
+        PromptUpsertRequest request = new PromptUpsertRequest();
+        request.setKey("persona.template.forbidden");
+        request.setTemplateVariables(List.of("userName"));
+
+        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class, () -> service.update(request));
+        Assertions.assertTrue(ex.getMessage().contains("content prompt update cannot carry templateVariables"));
+        Mockito.verify(itemMapper, Mockito.never()).update(Mockito.isNull(), Mockito.any());
+    }
+
+    @Test
+    void updateShouldRejectTemplatePlaceholderForContentPrompt() {
+        PromptItemMapper itemMapper = Mockito.mock(PromptItemMapper.class);
+        PromptItemVersionMapper versionMapper = Mockito.mock(PromptItemVersionMapper.class);
+        PromptCategoryService categoryService = Mockito.mock(PromptCategoryService.class);
+        PromptMutationServiceImpl service = new PromptMutationServiceImpl(
+                itemMapper,
+                versionMapper,
+                Mockito.mock(PromptVersionService.class),
+                Mockito.mock(PromptRegistryService.class),
+                categoryService
+        );
+
+        Mockito.when(itemMapper.selectOne(Mockito.any()))
+                .thenReturn(PromptItemEntity.builder()
+                        .id(332L)
+                        .promptKey("persona.placeholder.forbidden")
+                        .category("persona")
+                        .hasTemplateVariables(false)
+                        .currentVersionId(333L)
+                        .enabled(true)
+                        .status("enabled")
+                        .build());
+        Mockito.when(versionMapper.selectById(333L))
+                .thenReturn(PromptItemVersionEntity.builder()
+                        .id(333L)
+                        .templateVariables(List.of())
+                        .build());
+        Mockito.when(categoryService.isExecutionCategory("persona")).thenReturn(false);
+
+        PromptUpsertRequest request = new PromptUpsertRequest();
+        request.setKey("persona.placeholder.forbidden");
+        request.setValue("hello ${user_name}");
+
+        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class, () -> service.update(request));
+        Assertions.assertTrue(ex.getMessage().contains("content prompt update value cannot carry template placeholder"));
+        Mockito.verify(itemMapper, Mockito.never()).update(Mockito.isNull(), Mockito.any());
+    }
+
+    @Test
+    void updateShouldRejectExecutionAssemblyModeForContentPrompt() {
+        PromptItemMapper itemMapper = Mockito.mock(PromptItemMapper.class);
+        PromptItemVersionMapper versionMapper = Mockito.mock(PromptItemVersionMapper.class);
+        PromptCategoryService categoryService = Mockito.mock(PromptCategoryService.class);
+        PromptMutationServiceImpl service = new PromptMutationServiceImpl(
+                itemMapper,
+                versionMapper,
+                Mockito.mock(PromptVersionService.class),
+                Mockito.mock(PromptRegistryService.class),
+                categoryService
+        );
+
+        Mockito.when(itemMapper.selectOne(Mockito.any()))
+                .thenReturn(PromptItemEntity.builder()
+                        .id(334L)
+                        .promptKey("persona.mode.forbidden")
+                        .category("persona")
+                        .hasTemplateVariables(false)
+                        .currentVersionId(335L)
+                        .enabled(true)
+                        .status("enabled")
+                        .build());
+        Mockito.when(versionMapper.selectById(335L))
+                .thenReturn(PromptItemVersionEntity.builder()
+                        .id(335L)
+                        .templateVariables(List.of())
+                        .build());
+        Mockito.when(categoryService.isExecutionCategory("persona")).thenReturn(false);
+
+        PromptUpsertRequest request = new PromptUpsertRequest();
+        request.setKey("persona.mode.forbidden");
+        request.setAssemblyMode("AGENT_ONLY");
+
+        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class, () -> service.update(request));
+        Assertions.assertTrue(ex.getMessage().contains("content prompt assembly_mode is not allowed"));
+        Mockito.verify(itemMapper, Mockito.never()).update(Mockito.isNull(), Mockito.any());
+    }
+
+    @Test
     void updateShouldRejectMigratingExecutionCategoryToContentCategory() {
         PromptItemMapper itemMapper = Mockito.mock(PromptItemMapper.class);
         PromptItemVersionMapper versionMapper = Mockito.mock(PromptItemVersionMapper.class);

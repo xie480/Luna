@@ -17,7 +17,7 @@ import java.util.Optional;
 class PromptRegistryServiceImplStatusTest {
 
     @Test
-    void itemActiveJudgeShouldOnlyTreatEnabledOrBlankAsActive() throws Exception {
+    void itemActiveJudgeShouldTreatEnabledBlankAndLegacyActiveAsActive() throws Exception {
         PromptRegistryServiceImpl service = new PromptRegistryServiceImpl(
                 Mockito.mock(PromptItemMapper.class),
                 Mockito.mock(PromptItemVersionMapper.class),
@@ -34,7 +34,7 @@ class PromptRegistryServiceImplStatusTest {
 
         Assertions.assertEquals(true, isItemActive.invoke(service, enabled));
         Assertions.assertEquals(true, isItemActive.invoke(service, blank));
-        Assertions.assertEquals(false, isItemActive.invoke(service, active));
+        Assertions.assertEquals(true, isItemActive.invoke(service, active));
         Assertions.assertEquals(false, isItemActive.invoke(service, disabled));
     }
 

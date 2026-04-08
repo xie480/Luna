@@ -93,6 +93,10 @@ set category_key = category
 where (category_key is null or category_key = '')
   and category is not null;
 
+update prompt_item
+set status = 'enabled'
+where lower(status) = 'active';
+
 create table if not exists prompt_item_version
 (
     id                 bigint      not null primary key,
