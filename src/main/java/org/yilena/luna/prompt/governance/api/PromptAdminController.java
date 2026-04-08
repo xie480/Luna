@@ -238,6 +238,7 @@ public class PromptAdminController {
         PromptSearchRequest request = new PromptSearchRequest();
         request.setCategory(category);
         request.setSubCategory(subCategory);
+        request.setEnabled(true);
         request.setPageNo(1L);
         request.setPageSize(500L);
         return request;

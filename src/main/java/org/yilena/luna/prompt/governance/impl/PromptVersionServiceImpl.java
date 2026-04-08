@@ -66,7 +66,9 @@ public class PromptVersionServiceImpl implements PromptVersionService {
         promptItemVersionMapper.update(null,
                 new LambdaUpdateWrapper<PromptItemVersionEntity>()
                         .eq(PromptItemVersionEntity::getPromptItemId, version.getPromptItemId())
-                        .set(PromptItemVersionEntity::getIsActive, false));
+                        .eq(PromptItemVersionEntity::getIsActive, true)
+                        .set(PromptItemVersionEntity::getIsActive, false)
+                        .set(PromptItemVersionEntity::getStatus, "archived"));
         promptItemVersionMapper.update(null,
                 new LambdaUpdateWrapper<PromptItemVersionEntity>()
                         .eq(PromptItemVersionEntity::getId, versionId)

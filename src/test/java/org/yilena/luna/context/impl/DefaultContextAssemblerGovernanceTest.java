@@ -14,9 +14,11 @@ import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.prompt.governance.PromptSnapshotBridgeService;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -143,5 +145,66 @@ class DefaultContextAssemblerGovernanceTest {
         verify(bridgeService).buildSnapshotPayload(Mockito.isNull(), eq("policy-1"));
         assertTrue(assembled.getPromptAssemblyMeta() != null);
         assertTrue(assembled.getPromptAssemblyMeta().containsKey("promptRefs"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldDeduplicatePromptRefsAndPreferResolverHit() throws Exception {
+        SemanticPreservingPruner pruner = new SemanticPreservingPruner();
+        TaskMemoryRetriever taskMemoryRetriever = mock(TaskMemoryRetriever.class);
+        RelationalMemoryRetriever relationalMemoryRetriever = mock(RelationalMemoryRetriever.class);
+        PromptSnapshotBridgeService bridgeService = mock(PromptSnapshotBridgeService.class);
+        when(bridgeService.buildSnapshotPayload(Mockito.isNull(), eq("policy-1")))
+                .thenReturn(Map.of(
+                        "policyId", "policy-1",
+                        "assemblerVersion", "assembler.v1",
+                        "promptRefs", List.of(
+                                Map.of(
+                                        "key", "system.base_v1",
+                                        "versionId", 11L,
+                                        "runtimeSlot", "instructions.system",
+                                        "matchReason", "RESOLVER_HIT",
+                                        "value", "resolved"
+                                )
+                        ),
+                        "slotMapping", Map.of()
+                ));
+
+        DefaultContextAssembler assembler = new DefaultContextAssembler(
+                pruner,
+                taskMemoryRetriever,
+                relationalMemoryRetriever,
+                mock(org.yilena.luna.context.SummaryAgent.class),
+                mock(org.yilena.luna.context.ToolSemanticAgent.class),
+                mock(org.yilena.luna.context.ContextSnapshotWriter.class)
+        );
+        Field bridgeField = DefaultContextAssembler.class.getDeclaredField("promptSnapshotBridgeService");
+        bridgeField.setAccessible(true);
+        bridgeField.set(assembler, bridgeService);
+
+        Method method = DefaultContextAssembler.class.getDeclaredMethod(
+                "buildPromptAssemblyMeta",
+                org.yilena.luna.prompt.governance.model.PromptResolveResult.class,
+                List.class,
+                String.class
+        );
+        method.setAccessible(true);
+        Map<String, Object> meta = (Map<String, Object>) method.invoke(
+                assembler,
+                null,
+                List.of(
+                        Map.of(
+                                "key", "system.base_v1",
+                                "versionId", 11L,
+                                "runtimeSlot", "instructions.system",
+                                "matchReason", "FALLBACK",
+                                "value", "fallback"
+                        )
+                ),
+                "policy-1"
+        );
+        List<Map<String, Object>> refs = (List<Map<String, Object>>) meta.get("promptRefs");
+        assertEquals(1, refs.size());
+        assertEquals("RESOLVER_HIT", refs.get(0).get("matchReason"));
     }
 }

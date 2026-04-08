@@ -1257,6 +1257,7 @@ public class DefaultContextAssembler implements ContextAssembler {
             refs.addAll(fallbackRefs.stream()
                     .filter(item -> item != null && !item.isEmpty())
                     .toList());
+            refs = deduplicatePromptRefs(refs);
             if (!refs.isEmpty()) {
                 merged.put("promptRefs", refs);
             }
@@ -1285,6 +1286,7 @@ public class DefaultContextAssembler implements ContextAssembler {
                     .filter(item -> item != null && !item.isEmpty())
                     .toList());
         }
+        refs = deduplicatePromptRefs(refs);
         if (refs.isEmpty()) {
             return Map.of();
         }
@@ -1296,6 +1298,24 @@ public class DefaultContextAssembler implements ContextAssembler {
                 "promptRefs", refs,
                 "slotMapping", slotMapping
         );
+    }
+
+    private List<Map<String, Object>> deduplicatePromptRefs(List<Map<String, Object>> refs) {
+        if (refs == null || refs.isEmpty()) {
+            return List.of();
+        }
+        Map<String, Map<String, Object>> deduped = new LinkedHashMap<>();
+        for (Map<String, Object> ref : refs) {
+            if (ref == null || ref.isEmpty()) {
+                continue;
+            }
+            String key = safe(ref.get("key"));
+            String runtimeSlot = safe(ref.get("runtimeSlot"));
+            Long versionId = toLong(ref.get("versionId"));
+            String dedupeKey = key + "|" + (versionId == null ? "" : versionId) + "|" + runtimeSlot;
+            deduped.putIfAbsent(dedupeKey, ref);
+        }
+        return new ArrayList<>(deduped.values());
     }
 
     private Map<String, Object> toPromptRefRow(ResolvedPromptItem item) {
@@ -1417,6 +1437,20 @@ public class DefaultContextAssembler implements ContextAssembler {
 
     private String safe(Object value) {
         return value == null ? "" : String.valueOf(value);
+    }
+
+    private Long toLong(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (Exception ignore) {
+            return null;
+        }
     }
 
     private Map<String, List<String>> toCanonicalSections(Map<String, List<String>> sections) {

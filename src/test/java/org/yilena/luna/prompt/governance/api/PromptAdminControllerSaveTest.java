@@ -2,6 +2,7 @@ package org.yilena.luna.prompt.governance.api;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.http.ResponseEntity;
 import org.yilena.luna.prompt.governance.PromptCategoryService;
@@ -18,6 +19,7 @@ import org.yilena.luna.prompt.governance.model.MatchScope;
 import org.yilena.luna.prompt.governance.model.PromptItemRecord;
 
 import java.util.List;
+import java.util.Map;
 
 class PromptAdminControllerSaveTest {
 
@@ -69,5 +71,32 @@ class PromptAdminControllerSaveTest {
         Mockito.verify(mutationService).update(request);
         Mockito.verify(mutationService, Mockito.never()).create(request);
         Mockito.verifyNoInteractions(queryService);
+    }
+
+    @Test
+    void itemsShouldForceEnabledFilterForCategoryView() {
+        PromptQueryService queryService = Mockito.mock(PromptQueryService.class);
+        PromptFrontendAdapter frontendAdapter = Mockito.mock(PromptFrontendAdapter.class);
+        PromptAdminController controller = new PromptAdminController(
+                queryService,
+                Mockito.mock(PromptMutationService.class),
+                Mockito.mock(PromptVersionService.class),
+                Mockito.mock(PromptPreviewService.class),
+                frontendAdapter,
+                Mockito.mock(PromptPolicyService.class),
+                Mockito.mock(PromptRegistryService.class),
+                Mockito.mock(PromptCategoryService.class)
+        );
+        Mockito.when(queryService.search(Mockito.any())).thenReturn(List.of());
+        Mockito.when(frontendAdapter.toCategoryKeyValueView(Mockito.anyString(), Mockito.any(), Mockito.anyList()))
+                .thenReturn(Map.of("items", List.of()));
+
+        controller.items("persona", "default");
+
+        ArgumentCaptor<org.yilena.luna.prompt.governance.dto.PromptSearchRequest> requestCaptor = ArgumentCaptor.forClass(org.yilena.luna.prompt.governance.dto.PromptSearchRequest.class);
+        Mockito.verify(queryService).search(requestCaptor.capture());
+        Assertions.assertEquals("persona", requestCaptor.getValue().getCategory());
+        Assertions.assertEquals("default", requestCaptor.getValue().getSubCategory());
+        Assertions.assertEquals(true, requestCaptor.getValue().getEnabled());
     }
 }
