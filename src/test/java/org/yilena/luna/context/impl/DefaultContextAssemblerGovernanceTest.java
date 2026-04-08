@@ -2,6 +2,7 @@ package org.yilena.luna.context.impl;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
 import org.yilena.luna.context.SemanticPreservingPruner;
 import org.yilena.luna.context.model.AssembledContext;
 import org.yilena.luna.context.model.ContextNodeTemplatePolicy;
@@ -10,7 +11,9 @@ import org.yilena.luna.enums.TaskRuntimeState;
 import org.yilena.luna.memory.RelationalMemoryRetriever;
 import org.yilena.luna.memory.TaskMemoryRetriever;
 import org.yilena.luna.memory.model.StructuredContextPackage;
+import org.yilena.luna.prompt.governance.PromptSnapshotBridgeService;
 
+import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
 
@@ -52,7 +55,7 @@ class DefaultContextAssemblerGovernanceTest {
                 null,
                 null,
                 null,
-                "敏感原文请不要直驱下游",
+                "sensitive raw input should not be used directly",
                 List.of(),
                 List.of(),
                 List.of(),
@@ -75,7 +78,70 @@ class DefaultContextAssemblerGovernanceTest {
         String semanticQuery = queryCaptor.getValue();
         assertTrue(semanticQuery.contains("goal=goal_unavailable"));
         assertTrue(semanticQuery.contains("query_source=governed_structured_signal"));
-        assertFalse(semanticQuery.contains("敏感原文请不要直驱下游"));
+        assertFalse(semanticQuery.contains("sensitive raw input should not be used directly"));
         assertTrue(assembled.getPrompt() != null && !assembled.getPrompt().isBlank());
+    }
+
+    @Test
+    void shouldBuildPromptAssemblyMetaViaSnapshotBridgeService() throws Exception {
+        SemanticPreservingPruner pruner = new SemanticPreservingPruner();
+        TaskMemoryRetriever taskMemoryRetriever = mock(TaskMemoryRetriever.class);
+        RelationalMemoryRetriever relationalMemoryRetriever = mock(RelationalMemoryRetriever.class);
+        PromptSnapshotBridgeService bridgeService = mock(PromptSnapshotBridgeService.class);
+        when(taskMemoryRetriever.retrieve(anyString(), anyString(), any())).thenReturn(Map.of());
+        when(bridgeService.buildSnapshotPayload(Mockito.isNull(), eq("policy-1")))
+                .thenReturn(Map.of(
+                        "policyId", "policy-1",
+                        "assemblerVersion", "assembler.v1",
+                        "promptRefs", List.of(),
+                        "slotMapping", Map.of()
+                ));
+
+        DefaultContextAssembler assembler = new DefaultContextAssembler(
+                pruner,
+                taskMemoryRetriever,
+                relationalMemoryRetriever,
+                mock(org.yilena.luna.context.SummaryAgent.class),
+                mock(org.yilena.luna.context.ToolSemanticAgent.class),
+                mock(org.yilena.luna.context.ContextSnapshotWriter.class)
+        );
+        Field bridgeField = DefaultContextAssembler.class.getDeclaredField("promptSnapshotBridgeService");
+        bridgeField.setAccessible(true);
+        bridgeField.set(assembler, bridgeService);
+
+        StructuredContextPackage contextPackage = StructuredContextPackage.builder()
+                .sessionId("s-2")
+                .taskState(TaskRuntimeState.CONTEXT_BUILDING)
+                .relationalState(RelationalRuntimeState.LIGHT_CHAT)
+                .tokenBudgetPlan(Map.of())
+                .promptPolicy(Map.of("policyId", "policy-1"))
+                .build();
+
+        AssembledContext assembled = assembler.assemble(
+                contextPackage,
+                null,
+                null,
+                null,
+                "hello",
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                "",
+                ContextNodeTemplatePolicy.defaultPolicy(),
+                null,
+                "s-2",
+                10L,
+                20L
+        );
+
+        verify(bridgeService).buildSnapshotPayload(Mockito.isNull(), eq("policy-1"));
+        assertTrue(assembled.getPromptAssemblyMeta() != null);
+        assertTrue(assembled.getPromptAssemblyMeta().containsKey("promptRefs"));
     }
 }

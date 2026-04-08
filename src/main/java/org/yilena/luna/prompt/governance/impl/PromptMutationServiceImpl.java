@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -34,6 +35,7 @@ public class PromptMutationServiceImpl implements PromptMutationService {
     private final PromptCategoryService promptCategoryService;
     private static final Set<String> EXECUTION_ALLOWED_MODES = Set.of("ALWAYS", "AGENT_ONLY", "POLICY_ONLY", "MANUAL_ONLY", "DISABLED");
     private static final Set<String> CONTENT_ALLOWED_MODES = Set.of("ALWAYS", "KEYWORD_ONLY", "KEYWORD_AND_AGENT", "KEYWORD_OR_AGENT", "DISABLED");
+    private static final Pattern TEMPLATE_PLACEHOLDER_PATTERN = Pattern.compile("\\$\\{[^}]+}");
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -233,6 +235,9 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         if (hasTemplateVariablesInRequest(request.getTemplateVariables())) {
             throw new IllegalArgumentException("content prompt create cannot carry templateVariables");
         }
+        if (containsTemplatePlaceholder(request.getValue())) {
+            throw new IllegalArgumentException("content prompt create value cannot carry template placeholder");
+        }
         String mode = request.getAssemblyMode();
         if (mode != null && !mode.isBlank()) {
             String normalizedMode = mode.trim().toUpperCase();
@@ -312,6 +317,13 @@ public class PromptMutationServiceImpl implements PromptMutationService {
 
     private boolean hasTemplateVariablesInRequest(List<String> templateVariables) {
         return templateVariables != null && !templateVariables.isEmpty();
+    }
+
+    private boolean containsTemplatePlaceholder(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        return TEMPLATE_PLACEHOLDER_PATTERN.matcher(value).find();
     }
 
     private boolean isExecutionCategory(String category) {

@@ -129,16 +129,22 @@ public class PromptResolverServiceImpl implements PromptResolverService {
 
         return switch (mode) {
             case ALWAYS -> MatchDecision.matched("ALWAYS");
-            case KEYWORD_ONLY -> keyword
-                    ? MatchDecision.matched("KEYWORD_ONLY")
-                    : MatchDecision.rejected("KEYWORD_NOT_MATCHED");
+            case KEYWORD_ONLY -> {
+                if (!keyword) {
+                    yield MatchDecision.rejected("KEYWORD_NOT_MATCHED");
+                }
+                if (hasScope && !agent) {
+                    yield MatchDecision.rejected("SCOPE_NOT_MATCHED");
+                }
+                yield MatchDecision.matched("KEYWORD_ONLY");
+            }
             case AGENT_ONLY -> agent
                     ? MatchDecision.matched("AGENT_ONLY")
                     : MatchDecision.rejected("SCOPE_NOT_MATCHED");
             case KEYWORD_AND_AGENT -> keyword && agent
                     ? MatchDecision.matched("KEYWORD_AND_AGENT")
                     : MatchDecision.rejected(keyword ? "SCOPE_NOT_MATCHED" : "KEYWORD_NOT_MATCHED");
-            case KEYWORD_OR_AGENT -> keyword || agent
+            case KEYWORD_OR_AGENT -> keyword || (hasScope && agent)
                     ? MatchDecision.matched("KEYWORD_OR_AGENT")
                     : MatchDecision.rejected("KEYWORD_OR_SCOPE_NOT_MATCHED");
             case POLICY_ONLY -> policy

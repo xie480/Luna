@@ -21,6 +21,7 @@ import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.prompt.governance.PromptRegistryService;
 import org.yilena.luna.prompt.governance.PromptResolverService;
+import org.yilena.luna.prompt.governance.PromptSnapshotBridgeService;
 import org.yilena.luna.prompt.governance.model.PromptResolveContext;
 import org.yilena.luna.prompt.governance.model.PromptResolveResult;
 import org.yilena.luna.prompt.governance.model.ResolvedPromptItem;
@@ -46,6 +47,8 @@ public class DefaultContextAssembler implements ContextAssembler {
     private PromptResolverService promptResolverService;
     @Autowired(required = false)
     private PromptRegistryService promptRegistryService;
+    @Autowired(required = false)
+    private PromptSnapshotBridgeService promptSnapshotBridgeService;
 
     public DefaultContextAssembler(SemanticPreservingPruner semanticPreservingPruner,
                                    TaskMemoryRetriever taskMemoryRetriever,
@@ -185,7 +188,8 @@ public class DefaultContextAssembler implements ContextAssembler {
         Map<String, List<String>> canonicalSections = toCanonicalSections(pruneResult.getSections());
         Map<String, Object> promptAssemblyMeta = buildPromptAssemblyMeta(
                 promptResolveResult,
-                List.of(systemPromptSelection.ref(), runtimePromptSelection.ref())
+                List.of(systemPromptSelection.ref(), runtimePromptSelection.ref()),
+                resolvePolicyId(contextPackage)
         );
         AssembledContext preSnapshotContext = AssembledContext.builder()
                 .prompt(prompt)
@@ -996,7 +1000,38 @@ public class DefaultContextAssembler implements ContextAssembler {
         return PromptValueSelection.of(resolved, Map.of());
     }
 
-    private Map<String, Object> buildPromptAssemblyMeta(PromptResolveResult resolveResult, List<Map<String, Object>> fallbackRefs) {
+    private Map<String, Object> buildPromptAssemblyMeta(PromptResolveResult resolveResult,
+                                                        List<Map<String, Object>> fallbackRefs,
+                                                        String policyId) {
+        if (promptSnapshotBridgeService != null) {
+            Map<String, Object> payload = promptSnapshotBridgeService.buildSnapshotPayload(resolveResult, policyId);
+            if (fallbackRefs == null || fallbackRefs.isEmpty()) {
+                return payload == null ? Map.of() : payload;
+            }
+            Map<String, Object> merged = new LinkedHashMap<>();
+            if (payload != null && !payload.isEmpty()) {
+                merged.putAll(payload);
+            }
+            List<Map<String, Object>> refs = new ArrayList<>();
+            Object promptRefs = merged.get("promptRefs");
+            if (promptRefs instanceof List<?> list) {
+                for (Object row : list) {
+                    if (row instanceof Map<?, ?> map && !map.isEmpty()) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> casted = (Map<String, Object>) map;
+                        refs.add(casted);
+                    }
+                }
+            }
+            refs.addAll(fallbackRefs.stream()
+                    .filter(item -> item != null && !item.isEmpty())
+                    .toList());
+            if (!refs.isEmpty()) {
+                merged.put("promptRefs", refs);
+            }
+            return merged.isEmpty() ? Map.of() : merged;
+        }
+
         List<Map<String, Object>> refs = new ArrayList<>();
         Map<String, List<Map<String, Object>>> slotMapping = new LinkedHashMap<>();
         if (resolveResult != null && resolveResult.getMatchedItems() != null) {
@@ -1023,7 +1058,9 @@ public class DefaultContextAssembler implements ContextAssembler {
             return Map.of();
         }
         return Map.of(
-                "policyId", resolveResult == null || resolveResult.getPolicyId() == null ? "" : resolveResult.getPolicyId(),
+                "policyId", policyId == null || policyId.isBlank()
+                        ? (resolveResult == null || resolveResult.getPolicyId() == null ? "" : resolveResult.getPolicyId())
+                        : policyId,
                 "assemblerVersion", "assembler.v1",
                 "promptRefs", refs,
                 "slotMapping", slotMapping
