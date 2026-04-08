@@ -365,10 +365,10 @@ public class PromptMutationServiceImpl implements PromptMutationService {
             return fallback;
         }
         String normalized = status.trim().toLowerCase();
-        if ("enabled".equals(normalized) || "active".equals(normalized) || "true".equals(normalized)) {
+        if ("enabled".equals(normalized)) {
             return true;
         }
-        if ("disabled".equals(normalized) || "inactive".equals(normalized) || "false".equals(normalized)) {
+        if ("disabled".equals(normalized)) {
             return false;
         }
         return fallback;
@@ -382,10 +382,10 @@ public class PromptMutationServiceImpl implements PromptMutationService {
             return null;
         }
         String normalized = status.trim().toLowerCase();
-        if ("enabled".equals(normalized) || "active".equals(normalized) || "true".equals(normalized)) {
+        if ("enabled".equals(normalized)) {
             return true;
         }
-        if ("disabled".equals(normalized) || "inactive".equals(normalized) || "false".equals(normalized)) {
+        if ("disabled".equals(normalized)) {
             return false;
         }
         return null;
@@ -396,10 +396,10 @@ public class PromptMutationServiceImpl implements PromptMutationService {
             return enabled ? "enabled" : "disabled";
         }
         String normalized = status.trim().toLowerCase();
-        if ("enabled".equals(normalized) || "active".equals(normalized) || "true".equals(normalized)) {
+        if ("enabled".equals(normalized)) {
             return "enabled";
         }
-        if ("disabled".equals(normalized) || "inactive".equals(normalized) || "false".equals(normalized)) {
+        if ("disabled".equals(normalized)) {
             return "disabled";
         }
         return enabled ? "enabled" : "disabled";

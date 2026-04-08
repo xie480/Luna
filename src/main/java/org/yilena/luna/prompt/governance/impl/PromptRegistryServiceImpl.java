@@ -301,9 +301,7 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
         }
         String status = safe(item.getStatus()).trim().toLowerCase();
         return status.isBlank()
-                || "enabled".equals(status)
-                || "active".equals(status)
-                || "true".equals(status);
+                || "enabled".equals(status);
     }
 
     private boolean isKeyAliasMatch(String requested, String stored) {

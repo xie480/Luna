@@ -109,6 +109,78 @@ class PromptResolverServiceImplTest {
         Assertions.assertTrue(result.getMatchedItems().stream().anyMatch(item -> "system.guardrail_v1".equals(item.getKey())));
     }
 
+    @Test
+    void keywordOnlyShouldIgnoreScopeConstraint() {
+        PromptItemRecord item = PromptItemRecord.builder()
+                .itemId(4L)
+                .versionId(44L)
+                .key("persona.keyword_only_scope_ignored")
+                .value("v")
+                .category("persona")
+                .subCategory("maid")
+                .runtimeSlot("instructions.persona")
+                .hasTemplateVariables(false)
+                .templateVariables(List.of())
+                .keywordMatchEnabled(true)
+                .matchKeywords(List.of("gentle"))
+                .assemblyMode("KEYWORD_ONLY")
+                .matchScope(Map.of("agents", List.of("OTHER_AGENT")))
+                .editPolicy(Map.of())
+                .enabled(true)
+                .priority(80)
+                .status("enabled")
+                .version("1.0.0")
+                .build();
+
+        PromptResolverServiceImpl resolver = new PromptResolverServiceImpl(
+                new StubRegistry(List.of(item)),
+                new StubPolicy(),
+                new StubCategoryService()
+        );
+        PromptResolveResult result = resolver.resolve(PromptResolveContext.builder()
+                .userInput("gentle and calm")
+                .agent("MAIN_CHAT_AGENT")
+                .build());
+        Assertions.assertTrue(result.getMatchedItems().stream()
+                .anyMatch(row -> "persona.keyword_only_scope_ignored".equals(row.getKey())));
+    }
+
+    @Test
+    void keywordOrAgentShouldNotRequireScopeConstraint() {
+        PromptItemRecord item = PromptItemRecord.builder()
+                .itemId(5L)
+                .versionId(55L)
+                .key("persona.keyword_or_agent_without_scope")
+                .value("v")
+                .category("persona")
+                .subCategory("maid")
+                .runtimeSlot("instructions.persona")
+                .hasTemplateVariables(false)
+                .templateVariables(List.of())
+                .keywordMatchEnabled(true)
+                .matchKeywords(List.of("gentle"))
+                .assemblyMode("KEYWORD_OR_AGENT")
+                .matchScope(Map.of())
+                .editPolicy(Map.of())
+                .enabled(true)
+                .priority(80)
+                .status("enabled")
+                .version("1.0.0")
+                .build();
+
+        PromptResolverServiceImpl resolver = new PromptResolverServiceImpl(
+                new StubRegistry(List.of(item)),
+                new StubPolicy(),
+                new StubCategoryService()
+        );
+        PromptResolveResult result = resolver.resolve(PromptResolveContext.builder()
+                .userInput("gentle and calm")
+                .agent("MAIN_CHAT_AGENT")
+                .build());
+        Assertions.assertTrue(result.getMatchedItems().stream()
+                .anyMatch(row -> "persona.keyword_or_agent_without_scope".equals(row.getKey())));
+    }
+
     private record StubRegistry(List<PromptItemRecord> rows) implements PromptRegistryService {
         @Override
         public Optional<PromptItemRecord> getByKey(String key) {

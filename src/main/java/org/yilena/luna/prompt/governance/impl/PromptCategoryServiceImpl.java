@@ -16,7 +16,8 @@ import java.util.Set;
 public class PromptCategoryServiceImpl implements PromptCategoryService {
 
     private static final Set<String> EXECUTION_CATEGORY_FALLBACK = Set.of(
-            "tool", "repair", "summary", "guardrail", "agent-local", "task", "system"
+            "tool", "repair", "summary", "guardrail", "agent-local", "task", "system",
+            "memory-hint", "rag-hint", "format"
     );
 
     private final PromptCategoryMapper promptCategoryMapper;

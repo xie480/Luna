@@ -129,9 +129,9 @@ public class PromptResolverServiceImpl implements PromptResolverService {
 
         return switch (mode) {
             case ALWAYS -> MatchDecision.matched("ALWAYS");
-            case KEYWORD_ONLY -> keyword && agent
+            case KEYWORD_ONLY -> keyword
                     ? MatchDecision.matched("KEYWORD_ONLY")
-                    : MatchDecision.rejected(keyword ? "SCOPE_NOT_MATCHED" : "KEYWORD_NOT_MATCHED");
+                    : MatchDecision.rejected("KEYWORD_NOT_MATCHED");
             case AGENT_ONLY -> agent
                     ? MatchDecision.matched("AGENT_ONLY")
                     : MatchDecision.rejected("SCOPE_NOT_MATCHED");
@@ -153,8 +153,7 @@ public class PromptResolverServiceImpl implements PromptResolverService {
 
     private boolean requiresScope(PromptAssemblyMode mode) {
         return mode == PromptAssemblyMode.AGENT_ONLY
-                || mode == PromptAssemblyMode.KEYWORD_AND_AGENT
-                || mode == PromptAssemblyMode.KEYWORD_OR_AGENT;
+                || mode == PromptAssemblyMode.KEYWORD_AND_AGENT;
     }
 
     private boolean keywordMatched(PromptItemRecord item, String userInput) {
