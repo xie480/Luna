@@ -66,6 +66,7 @@ public class PromptResolverServiceImpl implements PromptResolverService {
                     .runtimeSlot(item.getRuntimeSlot())
                     .assemblyMode(item.getAssemblyMode())
                     .matchReason(decision.matchReason())
+                    .policyApplied(decision.policyApplied())
                     .hasTemplateVariables(item.isHasTemplateVariables())
                     .keywordMatchEnabled(item.isKeywordMatchEnabled())
                     .priority(item.getPriority())
@@ -124,7 +125,7 @@ public class PromptResolverServiceImpl implements PromptResolverService {
         boolean manual = setContainsAlias(toKeySet(context == null ? null : context.getManualPromptKeys()), item.getKey());
 
         if (policy && mode != PromptAssemblyMode.POLICY_ONLY && mode != PromptAssemblyMode.DISABLED) {
-            return MatchDecision.matched("POLICY_INCLUDED");
+            return MatchDecision.matched(mode.name(), true);
         }
 
         if (requiresScope(mode) && !hasScope) {
@@ -152,7 +153,7 @@ public class PromptResolverServiceImpl implements PromptResolverService {
                     ? MatchDecision.matched("KEYWORD_OR_AGENT")
                     : MatchDecision.rejected("KEYWORD_OR_SCOPE_NOT_MATCHED");
             case POLICY_ONLY -> policy
-                    ? MatchDecision.matched("POLICY_ONLY")
+                    ? MatchDecision.matched("POLICY_ONLY", true)
                     : MatchDecision.rejected("POLICY_NOT_INCLUDED");
             case MANUAL_ONLY -> manual
                     ? MatchDecision.matched("MANUAL_ONLY")
@@ -290,13 +291,17 @@ public class PromptResolverServiceImpl implements PromptResolverService {
         return out;
     }
 
-    private record MatchDecision(boolean matched, String matchReason, String rejectedReason) {
+    private record MatchDecision(boolean matched, String matchReason, String rejectedReason, boolean policyApplied) {
         private static MatchDecision matched(String reason) {
-            return new MatchDecision(true, reason, "");
+            return new MatchDecision(true, reason, "", false);
+        }
+
+        private static MatchDecision matched(String reason, boolean policyApplied) {
+            return new MatchDecision(true, reason, "", policyApplied);
         }
 
         private static MatchDecision rejected(String reason) {
-            return new MatchDecision(false, "", reason);
+            return new MatchDecision(false, "", reason, false);
         }
     }
 }

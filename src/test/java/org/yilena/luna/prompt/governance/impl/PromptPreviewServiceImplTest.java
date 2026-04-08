@@ -27,7 +27,8 @@ class PromptPreviewServiceImplTest {
                                 .itemId(1L)
                                 .versionId(11L)
                                 .key("persona.maid.gentle_v1")
-                                .matchReason("POLICY_INCLUDED")
+                                .matchReason("KEYWORD_ONLY")
+                                .policyApplied(true)
                                 .build()))
                         .rejectedItems(List.of())
                         .slotMapping(Map.of())
@@ -38,7 +39,8 @@ class PromptPreviewServiceImplTest {
         List<Map<String, Object>> matchedItems = (List<Map<String, Object>>) payload.get("matchedItems");
         assertNotNull(matchedItems);
         assertEquals(1, matchedItems.size());
-        assertEquals("POLICY_INCLUDED", matchedItems.get(0).get("matchReason"));
-        assertEquals("POLICY_INCLUDED", matchedItems.get(0).get("reason"));
+        assertEquals("KEYWORD_ONLY", matchedItems.get(0).get("matchReason"));
+        assertEquals("KEYWORD_ONLY", matchedItems.get(0).get("reason"));
+        assertEquals(true, matchedItems.get(0).get("policyApplied"));
     }
 }

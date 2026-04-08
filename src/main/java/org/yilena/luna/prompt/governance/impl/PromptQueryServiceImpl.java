@@ -38,7 +38,8 @@ public class PromptQueryServiceImpl implements PromptQueryService {
         String category = firstNonBlank(effective.getCategory(), effective.getCategoryKey());
         long pageNo = effective.getPageNo() == null || effective.getPageNo() <= 0 ? 1L : effective.getPageNo();
         long pageSize = effective.getPageSize() == null || effective.getPageSize() <= 0 ? 20L : Math.min(200L, effective.getPageSize());
-        boolean includeDisabled = effective.getEnabled() == null || !effective.getEnabled();
+        boolean includeDisabled = Boolean.TRUE.equals(effective.getIncludeDisabled())
+                || Boolean.FALSE.equals(effective.getEnabled());
         List<PromptItemRecord> filtered = promptRegistryService.listAll(includeDisabled).stream()
                 .filter(item -> matchText(item.getCategory(), category))
                 .filter(item -> matchText(item.getSubCategory(), effective.getSubCategory()))

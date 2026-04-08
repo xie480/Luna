@@ -2,7 +2,9 @@ package org.yilena.luna.prompt.governance.impl;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.prompt.governance.PromptPolicyService;
 import org.yilena.luna.prompt.governance.PromptSnapshotBridgeService;
+import org.yilena.luna.prompt.governance.entity.PromptPolicyEntity;
 import org.yilena.luna.prompt.governance.entity.PromptRuntimeSnapshotRefEntity;
 import org.yilena.luna.prompt.governance.mapper.PromptRuntimeSnapshotRefMapper;
 import org.yilena.luna.prompt.governance.model.PromptResolveResult;
@@ -17,6 +19,7 @@ import java.util.Map;
 public class PromptSnapshotBridgeServiceImpl implements PromptSnapshotBridgeService {
 
     private final PromptRuntimeSnapshotRefMapper promptRuntimeSnapshotRefMapper;
+    private final PromptPolicyService promptPolicyService;
 
     @Override
     public Map<String, Object> buildSnapshotPayload(PromptResolveResult resolveResult, String policyId) {
@@ -42,6 +45,7 @@ public class PromptSnapshotBridgeServiceImpl implements PromptSnapshotBridgeServ
         }
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("policyId", safe(effectivePolicyId));
+        payload.put("policyKey", safe(effectivePolicyId));
         payload.put("assemblerVersion", "assembler.v1");
         payload.put("promptRefs", refs);
         payload.put("slotMapping", slotMapping);
@@ -61,7 +65,8 @@ public class PromptSnapshotBridgeServiceImpl implements PromptSnapshotBridgeServ
         if (!(refsRaw instanceof List<?> refs) || refs.isEmpty()) {
             return;
         }
-        String policyId = safe(snapshotPayload.get("policyId"));
+        String policyKey = firstNonBlank(safe(snapshotPayload.get("policyKey")), safe(snapshotPayload.get("policyId")));
+        Long policyId = resolvePolicyDbId(policyKey);
         String assemblerVersion = safe(snapshotPayload.get("assemblerVersion"));
         try {
             for (Object ref : refs) {
@@ -77,10 +82,12 @@ public class PromptSnapshotBridgeServiceImpl implements PromptSnapshotBridgeServ
                         .promptItemVersionId(toLong(row.get("versionId")))
                         .promptKey(safe(row.get("key")))
                         .promptVersionNo(safe(row.get("version")))
+                        .policyKey(policyKey)
                         .policyId(policyId)
                         .assemblerVersion(firstNonBlank(safe(row.get("assemblerVersion")), assemblerVersion))
                         .runtimeSlot(safe(row.get("runtimeSlot")))
                         .matchReason(safe(row.get("matchReason")))
+                        .policyApplied(readBoolean(row.get("policyApplied")))
                         .resolvedValue(safe(row.get("value")))
                         .build();
                 promptRuntimeSnapshotRefMapper.insert(entity);
@@ -104,6 +111,7 @@ public class PromptSnapshotBridgeServiceImpl implements PromptSnapshotBridgeServ
     private Map<String, Object> emptyPayload(String policyId) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("policyId", safe(policyId));
+        payload.put("policyKey", safe(policyId));
         payload.put("assemblerVersion", "assembler.v1");
         payload.put("promptRefs", List.of());
         payload.put("slotMapping", Map.of());
@@ -123,6 +131,7 @@ public class PromptSnapshotBridgeServiceImpl implements PromptSnapshotBridgeServ
         row.put("runtimeSlot", safe(item.getRuntimeSlot()));
         row.put("matchReason", safe(item.getMatchReason()));
         row.put("reason", safe(item.getMatchReason()));
+        row.put("policyApplied", item.isPolicyApplied());
         row.put("category", safe(item.getCategory()));
         row.put("value", safe(item.getValue()));
         return row;
@@ -151,5 +160,28 @@ public class PromptSnapshotBridgeServiceImpl implements PromptSnapshotBridgeServ
         } catch (Exception ignore) {
             return null;
         }
+    }
+
+    private Long resolvePolicyDbId(String policyKey) {
+        if (policyKey == null || policyKey.isBlank()) {
+            return null;
+        }
+        try {
+            PromptPolicyEntity policy = promptPolicyService.getByPolicyId(policyKey);
+            return policy == null ? null : policy.getId();
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    private boolean readBoolean(Object value) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        if (value == null) {
+            return false;
+        }
+        String text = String.valueOf(value).trim();
+        return "true".equalsIgnoreCase(text) || "1".equals(text) || "yes".equalsIgnoreCase(text);
     }
 }

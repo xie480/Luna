@@ -17,6 +17,7 @@ public class ResolvedPromptItem {
     String runtimeSlot;
     String assemblyMode;
     String matchReason;
+    boolean policyApplied;
     boolean hasTemplateVariables;
     boolean keywordMatchEnabled;
     Integer priority;

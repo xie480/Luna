@@ -48,7 +48,10 @@ public class PromptRuntimeSnapshotRefEntity implements Serializable {
     private String promptVersionNo;
 
     @TableField("policy_id")
-    private String policyId;
+    private Long policyId;
+
+    @TableField("policy_key")
+    private String policyKey;
 
     @TableField("assembler_version")
     private String assemblerVersion;
@@ -58,6 +61,9 @@ public class PromptRuntimeSnapshotRefEntity implements Serializable {
 
     @TableField("match_reason")
     private String matchReason;
+
+    @TableField("policy_applied")
+    private Boolean policyApplied;
 
     @TableField("resolved_value")
     private String resolvedValue;

@@ -30,14 +30,30 @@ class PromptQueryServiceImplSearchTest {
     }
 
     @Test
-    void searchShouldUseIncludeDisabledSourceWhenEnabledNotProvided() {
+    void searchShouldUseActiveSourceWhenEnabledNotProvided() {
+        PromptRegistryService registryService = Mockito.mock(PromptRegistryService.class);
+        PromptQueryServiceImpl service = new PromptQueryServiceImpl(registryService);
+        PromptItemRecord enabledItem = sampleRecord("persona.enabled", true);
+        Mockito.when(registryService.listAll(false)).thenReturn(List.of(enabledItem));
+
+        List<PromptItemRecord> rows = service.search(new PromptSearchRequest());
+        Assertions.assertEquals(1, rows.size());
+        Assertions.assertTrue(rows.get(0).isEnabled());
+        Mockito.verify(registryService).listAll(false);
+    }
+
+    @Test
+    void searchShouldUseIncludeDisabledSourceWhenIncludeDisabledTrue() {
         PromptRegistryService registryService = Mockito.mock(PromptRegistryService.class);
         PromptQueryServiceImpl service = new PromptQueryServiceImpl(registryService);
         PromptItemRecord enabledItem = sampleRecord("persona.enabled", true);
         PromptItemRecord disabledItem = sampleRecord("persona.disabled", false);
         Mockito.when(registryService.listAll(true)).thenReturn(List.of(enabledItem, disabledItem));
 
-        List<PromptItemRecord> rows = service.search(new PromptSearchRequest());
+        PromptSearchRequest request = new PromptSearchRequest();
+        request.setIncludeDisabled(true);
+
+        List<PromptItemRecord> rows = service.search(request);
         Assertions.assertEquals(2, rows.size());
         Mockito.verify(registryService).listAll(true);
     }

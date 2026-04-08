@@ -259,7 +259,8 @@ class PromptResolverServiceImplTest {
                 .build());
         Assertions.assertTrue(result.getMatchedItems().stream()
                 .anyMatch(row -> "persona.policy_included_v1".equals(row.getKey())
-                        && "POLICY_INCLUDED".equals(row.getMatchReason())));
+                        && "KEYWORD_ONLY".equals(row.getMatchReason())
+                        && row.isPolicyApplied()));
     }
 
     @Test
@@ -295,7 +296,8 @@ class PromptResolverServiceImplTest {
                 .build());
         Assertions.assertTrue(result.getMatchedItems().stream()
                 .anyMatch(row -> "repair.main.json_v1".equals(row.getKey())
-                        && "POLICY_INCLUDED".equals(row.getMatchReason())));
+                        && "KEYWORD_ONLY".equals(row.getMatchReason())
+                        && row.isPolicyApplied()));
     }
 
     @Test
@@ -329,7 +331,8 @@ class PromptResolverServiceImplTest {
         PromptResolveResult result = resolver.resolve(PromptResolveContext.builder().build());
         Assertions.assertTrue(result.getMatchedItems().stream()
                 .anyMatch(row -> "persona.policy_only_v1".equals(row.getKey())
-                        && "POLICY_ONLY".equals(row.getMatchReason())));
+                        && "POLICY_ONLY".equals(row.getMatchReason())
+                        && row.isPolicyApplied()));
     }
 
     private record StubRegistry(List<PromptItemRecord> rows) implements PromptRegistryService {

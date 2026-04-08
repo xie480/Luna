@@ -130,16 +130,55 @@ create table if not exists prompt_runtime_snapshot_ref
     prompt_item_version_id bigint,
     prompt_key             varchar(200),
     prompt_version_no      varchar(50),
-    policy_id              varchar(120),
+    policy_id              bigint,
+    policy_key             varchar(120),
     assembler_version      varchar(80),
     runtime_slot           varchar(200),
     match_reason           varchar(120),
+    policy_applied         boolean      not null default false,
     resolved_value         text,
     created_at             timestamp   not null default current_timestamp
 );
 
 alter table prompt_runtime_snapshot_ref
     add column if not exists node_id bigint;
+
+alter table prompt_runtime_snapshot_ref
+    add column if not exists policy_key varchar(120);
+
+update prompt_runtime_snapshot_ref
+set policy_key = policy_id::text
+where (policy_key is null or policy_key = '')
+  and policy_id is not null;
+
+do
+$$
+begin
+    if exists (
+        select 1
+        from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'prompt_runtime_snapshot_ref'
+          and column_name = 'policy_id'
+          and data_type <> 'bigint'
+    ) then
+        execute $sql$
+            alter table prompt_runtime_snapshot_ref
+                alter column policy_id type bigint
+                using (
+                    case
+                        when policy_id is null then null
+                        when trim(policy_id::text) ~ '^[0-9]+$' then trim(policy_id::text)::bigint
+                        else null
+                    end
+                )
+        $sql$;
+    end if;
+end
+$$;
+
+alter table prompt_runtime_snapshot_ref
+    add column if not exists policy_applied boolean not null default false;
 
 create index if not exists idx_prompt_snapshot_ref_round
     on prompt_runtime_snapshot_ref (session_id, round_id, created_at desc);

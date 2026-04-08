@@ -73,6 +73,7 @@ public class PromptPreviewServiceImpl implements PromptPreviewService {
             row.put("assemblyMode", item.getAssemblyMode());
             row.put("matchReason", item.getMatchReason());
             row.put("reason", item.getMatchReason());
+            row.put("policyApplied", item.isPolicyApplied());
             row.put("hasTemplateVariables", item.isHasTemplateVariables());
             row.put("keywordMatchEnabled", item.isKeywordMatchEnabled());
             row.put("priority", item.getPriority());

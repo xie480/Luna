@@ -16,6 +16,8 @@ public class PromptSearchRequest {
     private Boolean keywordMatchEnabled;
     private String assemblyMode;
     private Boolean enabled;
+    @JsonAlias({"include_disabled"})
+    private Boolean includeDisabled;
     private Long pageNo = 1L;
     private Long pageSize = 20L;
 }
