@@ -4,10 +4,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.adapter.LlmAdapter;
 import org.yilena.luna.exception.LunaExceptionContext;
 import org.yilena.luna.prompt.PromptTemplates;
+import org.yilena.luna.prompt.governance.PromptRegistryService;
 import org.yilena.luna.service.ExceptionAgentService;
 
 /**
@@ -20,12 +22,14 @@ public class ExceptionAgentServiceImpl implements ExceptionAgentService {
 
     private final LlmAdapter llmAdapter;
     private final ObjectMapper objectMapper;
+    @Autowired(required = false)
+    private PromptRegistryService promptRegistryService;
 
     @Override
     public JsonNode analyzeException(LunaExceptionContext context) {
         try {
             // 1. 構建分析 Prompt
-            String prompt = String.format(PromptTemplates.EXCEPTION_ANALYSIS_PROMPT,
+            String prompt = String.format(resolvePromptValue("task.exception.analysis_v1", PromptTemplates.EXCEPTION_ANALYSIS_PROMPT),
                     context.getErrorMessage(),
                     context.getErrorType(),
                     context.getRequestUri(),
@@ -42,7 +46,7 @@ public class ExceptionAgentServiceImpl implements ExceptionAgentService {
             // 4. 如果解析失敗，嘗試修復
             if (result == null) {
                 log.warn("異常分析結果 JSON 解析失敗，嘗試修復...");
-                String repairPrompt = String.format(PromptTemplates.EXCEPTION_JSON_REPAIR_PROMPT, response);
+                String repairPrompt = String.format(resolvePromptValue("repair.exception.json_v1", PromptTemplates.EXCEPTION_JSON_REPAIR_PROMPT), response);
                 String repairedResponse = llmAdapter.generate(repairPrompt);
                 result = parseJson(repairedResponse);
             }
@@ -63,5 +67,12 @@ public class ExceptionAgentServiceImpl implements ExceptionAgentService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private String resolvePromptValue(String key, String fallback) {
+        if (promptRegistryService == null) {
+            return fallback;
+        }
+        return promptRegistryService.resolvePromptValue(key, fallback);
     }
 }

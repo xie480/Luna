@@ -67,7 +67,6 @@ public class AgentServiceImpl implements AgentService {
     private PromptResolverService promptResolverService;
     @Value("${luna.governance.strict-tool-decision:true}")
     private boolean strictToolDecision = true;
-    private static final String WORKFLOW_ARGS_PROMPT_TEMPLATE = PromptTemplates.SKILL_ARGS_PROMPT;
     private static final String TOOL_DECISION_PROMPT_FALLBACK = """
             You are a tool decision agent. Decide the next action strictly from the assembled decision workset.
             The workset already contains node state, MCP hints, constraints and recent tool semantics.
@@ -133,7 +132,11 @@ public class AgentServiceImpl implements AgentService {
             generatedArgsJson = llmAdapter.generate(buildArgsPrompt(command, decisionInput, history, target));
         }
         if (!JsonSchemaValidator.validate(target.getInputSchema(), generatedArgsJson)) {
-            generatedArgsJson = llmAdapter.generate(String.format(PromptTemplates.TOOL_ARGS_REPAIR_PROMPT, target.getInputSchema(), generatedArgsJson));
+            generatedArgsJson = llmAdapter.generate(String.format(
+                    resolvePrompt("tool.args.repair.json_v1", PromptTemplates.TOOL_ARGS_REPAIR_PROMPT),
+                    target.getInputSchema(),
+                    generatedArgsJson
+            ));
         }
         final String argsJson = generatedArgsJson;
 
@@ -295,7 +298,7 @@ public class AgentServiceImpl implements AgentService {
         String historyText = (history == null || history.isEmpty()) ? "(empty)" : String.join("\n", history);
         if (ResourceType.WORKFLOW.equals(resource.getType())) {
             return String.format(
-                    WORKFLOW_ARGS_PROMPT_TEMPLATE,
+                    resolveToolDecisionPrompt(command, "agent.workflow_args", "workflow.args.default_v1", PromptTemplates.SKILL_ARGS_PROMPT),
                     input,
                     historyText,
                     resource.getName(),

@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.context.model.SummaryResult;
 import org.yilena.luna.context.model.InputReconstructionResult;
@@ -27,6 +28,7 @@ import org.yilena.luna.mapper.PlanInstanceMapper;
 import org.yilena.luna.mapper.PlanNodeMapper;
 import org.yilena.luna.mapper.PlanPhaseMapper;
 import org.yilena.luna.prompt.PromptTemplates;
+import org.yilena.luna.prompt.governance.PromptRegistryService;
 import org.yilena.luna.memory.model.OrchestrationDecision;
 import org.yilena.luna.memory.model.StructuredContextPackage;
 import org.yilena.luna.service.BlueprintValidationService;
@@ -89,6 +91,8 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
     private final MasterPlanningService masterPlanningService;
     private final BlueprintValidationService blueprintValidationService;
     private final PhaseExecutionService phaseExecutionService;
+    @Autowired(required = false)
+    private PromptRegistryService promptRegistryService;
 
     @Override
     public String createAndRunPlan(String sessionId, String userGoal) {
@@ -545,7 +549,8 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             AuthContextHolder.setSessionId(sessionId);
 
             ChatRequest req = new ChatRequest();
-            String prompt = PromptTemplates.PLAN_FINAL_RESULT_TO_LUNA_PROMPT.formatted(finalResultJson);
+            String prompt = resolvePromptValue("task.plan.final_result_to_luna_v1", PromptTemplates.PLAN_FINAL_RESULT_TO_LUNA_PROMPT)
+                    .formatted(finalResultJson);
 
             // 兼容 ChatRequest 可能不存在 setMessage 字段的情况
             // 优先尝试 setMessage，其次 fallback 到 setContent / setPrompt
@@ -573,6 +578,13 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         } catch (Exception ignore) {
             return false;
         }
+    }
+
+    private String resolvePromptValue(String key, String fallback) {
+        if (promptRegistryService == null) {
+            return fallback;
+        }
+        return promptRegistryService.resolvePromptValue(key, fallback);
     }
 
     private void emitFrontProgress(String planId, String stage, String message,

@@ -237,7 +237,9 @@ public class DefaultContextAssembler implements ContextAssembler {
         Map<String, Object> promptAssemblyMeta = buildPromptAssemblyMeta(
                 promptResolveResult,
                 List.of(systemPromptSelection.ref(), runtimePromptSelection.ref()),
-                resolvePolicyId(contextPackage)
+                resolvePolicyId(contextPackage),
+                pruneResult.getSections(),
+                canonicalSections
         );
         AssembledContext preSnapshotContext = AssembledContext.builder()
                 .prompt(prompt)
@@ -1234,10 +1236,18 @@ public class DefaultContextAssembler implements ContextAssembler {
     private Map<String, Object> buildPromptAssemblyMeta(PromptResolveResult resolveResult,
                                                         List<Map<String, Object>> fallbackRefs,
                                                         String policyId) {
+        return buildPromptAssemblyMeta(resolveResult, fallbackRefs, policyId, Map.of(), Map.of());
+    }
+
+    private Map<String, Object> buildPromptAssemblyMeta(PromptResolveResult resolveResult,
+                                                        List<Map<String, Object>> fallbackRefs,
+                                                        String policyId,
+                                                        Map<String, List<String>> sections,
+                                                        Map<String, List<String>> canonicalSections) {
         if (promptSnapshotBridgeService != null) {
             Map<String, Object> payload = promptSnapshotBridgeService.buildSnapshotPayload(resolveResult, policyId);
             if (fallbackRefs == null || fallbackRefs.isEmpty()) {
-                return payload == null ? Map.of() : payload;
+                return filterPromptAssemblyMetaBySections(payload, sections, canonicalSections);
             }
             Map<String, Object> merged = new LinkedHashMap<>();
             if (payload != null && !payload.isEmpty()) {
@@ -1261,7 +1271,7 @@ public class DefaultContextAssembler implements ContextAssembler {
             if (!refs.isEmpty()) {
                 merged.put("promptRefs", refs);
             }
-            return merged.isEmpty() ? Map.of() : merged;
+            return filterPromptAssemblyMetaBySections(merged, sections, canonicalSections);
         }
 
         List<Map<String, Object>> refs = new ArrayList<>();
@@ -1290,14 +1300,176 @@ public class DefaultContextAssembler implements ContextAssembler {
         if (refs.isEmpty()) {
             return Map.of();
         }
-        return Map.of(
+        return filterPromptAssemblyMetaBySections(Map.of(
                 "policyId", policyId == null || policyId.isBlank()
                         ? (resolveResult == null || resolveResult.getPolicyId() == null ? "" : resolveResult.getPolicyId())
                         : policyId,
                 "assemblerVersion", "assembler.v1",
                 "promptRefs", refs,
                 "slotMapping", slotMapping
-        );
+        ), sections, canonicalSections);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> filterPromptAssemblyMetaBySections(Map<String, Object> meta,
+                                                                   Map<String, List<String>> sections,
+                                                                   Map<String, List<String>> canonicalSections) {
+        if (meta == null || meta.isEmpty()) {
+            return Map.of();
+        }
+        boolean noSectionContext = (sections == null || sections.isEmpty())
+                && (canonicalSections == null || canonicalSections.isEmpty());
+        if (noSectionContext) {
+            return meta;
+        }
+        Object refsRaw = meta.get("promptRefs");
+        if (!(refsRaw instanceof List<?> refs) || refs.isEmpty()) {
+            return meta;
+        }
+        List<Map<String, Object>> refRows = new ArrayList<>();
+        for (Object ref : refs) {
+            if (ref instanceof Map<?, ?> row && !row.isEmpty()) {
+                refRows.add((Map<String, Object>) row);
+            }
+        }
+        if (refRows.isEmpty()) {
+            return meta;
+        }
+        Map<String, List<Map<String, Object>>> slotMapping = new LinkedHashMap<>();
+        Object slotMappingRaw = meta.get("slotMapping");
+        if (slotMappingRaw instanceof Map<?, ?> rawMap) {
+            for (Map.Entry<?, ?> entry : rawMap.entrySet()) {
+                String slot = safe(entry.getKey());
+                if (slot.isBlank() || !(entry.getValue() instanceof List<?> list)) {
+                    continue;
+                }
+                List<Map<String, Object>> rows = new ArrayList<>();
+                for (Object row : list) {
+                    if (row instanceof Map<?, ?> map && !map.isEmpty()) {
+                        rows.add((Map<String, Object>) map);
+                    }
+                }
+                slotMapping.put(slot, rows);
+            }
+        }
+        List<Map<String, Object>> filteredRefs = refRows.stream()
+                .filter(row -> isPromptRefUsedInFinalSections(row, sections, canonicalSections))
+                .toList();
+        if (filteredRefs.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.putAll(meta);
+        out.put("promptRefs", deduplicatePromptRefs(filteredRefs));
+        if (!slotMapping.isEmpty()) {
+            Map<String, List<Map<String, Object>>> filteredSlotMapping = new LinkedHashMap<>();
+            for (Map.Entry<String, List<Map<String, Object>>> entry : slotMapping.entrySet()) {
+                List<Map<String, Object>> filteredItems = entry.getValue().stream()
+                        .filter(row -> isPromptRefUsedInFinalSections(row, sections, canonicalSections))
+                        .toList();
+                if (!filteredItems.isEmpty()) {
+                    filteredSlotMapping.put(entry.getKey(), filteredItems);
+                }
+            }
+            out.put("slotMapping", filteredSlotMapping);
+        }
+        return out;
+    }
+
+    private boolean isPromptRefUsedInFinalSections(Map<String, Object> ref,
+                                                   Map<String, List<String>> sections,
+                                                   Map<String, List<String>> canonicalSections) {
+        if (ref == null || ref.isEmpty()) {
+            return false;
+        }
+        String slot = safe(ref.get("runtimeSlot"));
+        String normalizedSlot = slot.isBlank() ? "runtime.prompt" : slot.trim().toLowerCase();
+        if ("runtime.prompt".equals(normalizedSlot)) {
+            return true;
+        }
+        String targetSection = mapRuntimeSlotToSection(normalizedSlot);
+        if (targetSection == null || targetSection.isBlank()) {
+            return false;
+        }
+        if (!hasSectionContent(targetSection, sections, canonicalSections)) {
+            return false;
+        }
+        String value = safe(ref.get("value"));
+        if (value.isBlank()) {
+            return true;
+        }
+        return sectionContainsPromptValue(targetSection, value, sections, canonicalSections);
+    }
+
+    private boolean sectionContainsPromptValue(String sectionName,
+                                               String promptValue,
+                                               Map<String, List<String>> sections,
+                                               Map<String, List<String>> canonicalSections) {
+        if (promptValue == null || promptValue.isBlank()) {
+            return true;
+        }
+        String normalizedPrompt = promptValue.trim();
+        String sectionText = joinSectionText(sectionName, sections);
+        if (!sectionText.isBlank() && sectionText.contains(normalizedPrompt)) {
+            return true;
+        }
+        String canonicalText = joinSectionText(sectionName, canonicalSections);
+        return !canonicalText.isBlank() && canonicalText.contains(normalizedPrompt);
+    }
+
+    private boolean hasSectionContent(String sectionName,
+                                      Map<String, List<String>> sections,
+                                      Map<String, List<String>> canonicalSections) {
+        return !joinSectionText(sectionName, sections).isBlank()
+                || !joinSectionText(sectionName, canonicalSections).isBlank();
+    }
+
+    private String joinSectionText(String sectionName, Map<String, List<String>> sections) {
+        if (sectionName == null || sectionName.isBlank() || sections == null || sections.isEmpty()) {
+            return "";
+        }
+        List<String> lines = sections.getOrDefault(sectionName, List.of());
+        if (lines == null || lines.isEmpty()) {
+            return "";
+        }
+        return lines.stream()
+                .filter(line -> line != null && !line.isBlank())
+                .reduce("", (left, right) -> left.isBlank() ? right : left + "\n\n" + right);
+    }
+
+    private String mapRuntimeSlotToSection(String runtimeSlot) {
+        String normalized = runtimeSlot == null ? "" : runtimeSlot.trim().toLowerCase();
+        if (normalized.isBlank()) {
+            return null;
+        }
+        if (normalized.startsWith("instructions.")) {
+            return "Instructions";
+        }
+        if ("memory.hints".equals(normalized) || normalized.startsWith("memory.")) {
+            return "Memory Hints";
+        }
+        if ("output.constraints".equals(normalized) || normalized.startsWith("output.")) {
+            return "Output Constraints";
+        }
+        if ("knowledge.evidence".equals(normalized) || normalized.startsWith("knowledge.")) {
+            return "Relevant Knowledge Evidence";
+        }
+        if (normalized.startsWith("task.state")) {
+            return "Current Task State";
+        }
+        if (normalized.startsWith("intent.") || normalized.startsWith("reconstruction.")) {
+            return "Reconstructed User Intent";
+        }
+        if (normalized.startsWith("mcp.resource") || normalized.startsWith("mcp.prompt") || normalized.startsWith("mcp.hint")) {
+            return "MCP Resource / Prompt Hints";
+        }
+        if (normalized.startsWith("tool.evidence") || normalized.startsWith("mcp.tool")) {
+            return "Tool Evidence";
+        }
+        if (normalized.startsWith("recent.interaction") || normalized.startsWith("raw_input.") || "raw_input".equals(normalized)) {
+            return "Recent Interaction Context";
+        }
+        return null;
     }
 
     private List<Map<String, Object>> deduplicatePromptRefs(List<Map<String, Object>> refs) {

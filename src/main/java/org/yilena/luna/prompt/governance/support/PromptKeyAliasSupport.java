@@ -17,7 +17,9 @@ public final class PromptKeyAliasSupport {
             Map.entry("agent.tool_semantic.default_v1", "agent-local.tool-semantic.default_v1"),
             Map.entry("agent.summary.default_v1", "agent-local.summary.default_v1"),
             Map.entry("tool.args_v1", "tool.args.default_v1"),
-            Map.entry("tool.decision_v1", "tool.decision.default_v1")
+            Map.entry("tool.decision_v1", "tool.decision.default_v1"),
+            Map.entry("guardrail.safe_chat_v1", "guardrail.safe.chat_v1"),
+            Map.entry("format.chat_json_v2", "format.chat.json_v2")
     );
 
     private PromptKeyAliasSupport() {
