@@ -36,34 +36,66 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
 
     @Override
     public Optional<PromptItemRecord> getByKey(String key) {
-        if (key == null || key.isBlank()) {
-            return Optional.empty();
-        }
-        try {
-            PromptItemEntity item = promptItemMapper.selectOne(
-                    new LambdaQueryWrapper<PromptItemEntity>()
-                            .eq(PromptItemEntity::getPromptKey, key.trim())
-                            .last("limit 1")
-            );
-            if (item == null) {
-                return builtinFallbackEnabled ? Optional.ofNullable(builtins.get(key)) : Optional.empty();
-            }
-            PromptItemVersionEntity version = loadCurrentVersion(item.getCurrentVersionId());
-            if (!isCurrentVersionActive(version)) {
-                return builtinFallbackEnabled ? Optional.ofNullable(builtins.get(key)) : Optional.empty();
-            }
-            PromptItemRecord merged = merge(item, version);
-            if (merged == null) {
-                return builtinFallbackEnabled ? Optional.ofNullable(builtins.get(key)) : Optional.empty();
-            }
-            return Optional.of(merged);
-        } catch (Exception ignore) {
-            return builtinFallbackEnabled ? Optional.ofNullable(builtins.get(key)) : Optional.empty();
-        }
+        return loadByKey(key, false);
+    }
+
+    @Override
+    public Optional<PromptItemRecord> getByKeyIncludingDisabled(String key) {
+        return loadByKey(key, true);
     }
 
     @Override
     public Optional<PromptItemRecord> getById(Long id) {
+        return loadById(id, false);
+    }
+
+    @Override
+    public Optional<PromptItemRecord> getByIdIncludingDisabled(Long id) {
+        return loadById(id, true);
+    }
+
+    private Optional<PromptItemRecord> loadByKey(String key, boolean includeDisabled) {
+        if (key == null || key.isBlank()) {
+            return Optional.empty();
+        }
+        String normalized = key.trim();
+        try {
+            PromptItemEntity item = promptItemMapper.selectOne(
+                    new LambdaQueryWrapper<PromptItemEntity>()
+                            .eq(PromptItemEntity::getPromptKey, normalized)
+                            .last("limit 1")
+            );
+            PromptItemRecord exact = toRecordIfVisible(item, includeDisabled);
+            if (exact != null) {
+                return Optional.of(exact);
+            }
+            boolean existsButInactive = item != null && !includeDisabled;
+            if (existsButInactive) {
+                return Optional.empty();
+            }
+            for (PromptItemRecord candidate : listAll(includeDisabled)) {
+                if (isKeyAliasMatch(normalized, candidate.getKey())) {
+                    return Optional.of(candidate);
+                }
+            }
+            if (builtinFallbackEnabled) {
+                PromptItemRecord directBuiltin = builtins.get(normalized);
+                if (directBuiltin != null) {
+                    return Optional.of(directBuiltin);
+                }
+                for (PromptItemRecord builtin : builtins.values()) {
+                    if (isKeyAliasMatch(normalized, builtin.getKey())) {
+                        return Optional.of(builtin);
+                    }
+                }
+            }
+            return Optional.empty();
+        } catch (Exception ignore) {
+            return builtinFallbackEnabled ? Optional.ofNullable(builtins.get(normalized)) : Optional.empty();
+        }
+    }
+
+    private Optional<PromptItemRecord> loadById(Long id, boolean includeDisabled) {
         if (id == null || id <= 0) {
             return Optional.empty();
         }
@@ -72,11 +104,11 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
             if (item == null) {
                 return Optional.empty();
             }
-            PromptItemVersionEntity version = loadCurrentVersion(item.getCurrentVersionId());
-            if (!isCurrentVersionActive(version)) {
+            PromptItemRecord record = toRecordIfVisible(item, includeDisabled);
+            if (record == null) {
                 return Optional.empty();
             }
-            return Optional.ofNullable(merge(item, version));
+            return Optional.of(record);
         } catch (Exception ignore) {
             return Optional.empty();
         }
@@ -87,32 +119,36 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
         if (key == null || key.isBlank()) {
             return false;
         }
-        try {
-            Long count = promptItemMapper.selectCount(
-                    new LambdaQueryWrapper<PromptItemEntity>()
-                            .eq(PromptItemEntity::getPromptKey, key.trim())
-            );
-            return count != null && count > 0;
-        } catch (Exception ignore) {
-            return builtinFallbackEnabled && builtins.containsKey(key.trim());
+        String normalized = key.trim();
+        if (getByKeyIncludingDisabled(normalized).isPresent()) {
+            return true;
         }
+        return builtinFallbackEnabled && builtins.containsKey(normalized);
     }
 
     @Override
     public List<PromptItemRecord> listAllActive() {
+        return listAll(false);
+    }
+
+    private List<PromptItemRecord> listAll(boolean includeDisabled) {
         Map<String, PromptItemRecord> merged = new LinkedHashMap<>();
         if (builtinFallbackEnabled) {
             merged.putAll(builtins);
         }
         try {
-            List<PromptItemEntity> items = promptItemMapper.selectList(
-                    new LambdaQueryWrapper<PromptItemEntity>()
-                            .eq(PromptItemEntity::getEnabled, true)
-            );
+            List<PromptItemEntity> items = promptItemMapper.selectList(new LambdaQueryWrapper<>());
             Map<Long, PromptItemVersionEntity> versionById = loadVersionMap(items);
             for (PromptItemEntity item : items) {
+                if (!includeDisabled && !isItemActive(item)) {
+                    merged.remove(item.getPromptKey());
+                    continue;
+                }
                 PromptItemVersionEntity version = versionById.get(item.getCurrentVersionId());
                 if (!isCurrentVersionActive(version)) {
+                    if (!includeDisabled) {
+                        merged.remove(item.getPromptKey());
+                    }
                     continue;
                 }
                 PromptItemRecord record = merge(item, version);
@@ -124,7 +160,7 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
             // ignore and return current merged view
         }
         return merged.values().stream()
-                .filter(PromptItemRecord::isEnabled)
+                .filter(item -> includeDisabled || item.isEnabled())
                 .sorted(Comparator.comparingInt((PromptItemRecord item) -> item.getPriority() == null ? 0 : item.getPriority()).reversed())
                 .toList();
     }
@@ -240,6 +276,65 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
                 .versionLabel(version == null ? (fallback == null ? "" : fallback.getVersionLabel()) : safe(version.getVersionLabel()))
                 .changeNote(version == null ? (fallback == null ? "" : fallback.getChangeNote()) : safe(version.getChangeNote()))
                 .build();
+    }
+
+    private PromptItemRecord toRecordIfVisible(PromptItemEntity item, boolean includeDisabled) {
+        if (item == null) {
+            return null;
+        }
+        if (!includeDisabled && !isItemActive(item)) {
+            return null;
+        }
+        PromptItemVersionEntity version = loadCurrentVersion(item.getCurrentVersionId());
+        if (!isCurrentVersionActive(version)) {
+            return null;
+        }
+        return merge(item, version);
+    }
+
+    private boolean isItemActive(PromptItemEntity item) {
+        if (item == null) {
+            return false;
+        }
+        if (!bool(item.getEnabled(), false)) {
+            return false;
+        }
+        String status = safe(item.getStatus()).trim().toLowerCase();
+        return status.isBlank()
+                || "enabled".equals(status)
+                || "active".equals(status)
+                || "true".equals(status);
+    }
+
+    private boolean isKeyAliasMatch(String requested, String stored) {
+        if (requested == null || requested.isBlank() || stored == null || stored.isBlank()) {
+            return false;
+        }
+        if (stored.equalsIgnoreCase(requested)) {
+            return true;
+        }
+        String requestedFull = normalizeKey(requested, false);
+        String requestedSlim = normalizeKey(requested, true);
+        String storedFull = normalizeKey(stored, false);
+        String storedSlim = normalizeKey(stored, true);
+        return (!requestedFull.isBlank() && requestedFull.equals(storedFull))
+                || (!requestedSlim.isBlank() && requestedSlim.equals(storedFull))
+                || (!storedSlim.isBlank() && storedSlim.equals(requestedFull))
+                || (!requestedSlim.isBlank() && requestedSlim.equals(storedSlim));
+    }
+
+    private String normalizeKey(String key, boolean removeCategoryPrefix) {
+        if (key == null || key.isBlank()) {
+            return "";
+        }
+        String normalized = key.trim().toLowerCase();
+        if (removeCategoryPrefix && normalized.contains(".")) {
+            String[] parts = normalized.split("\\.");
+            if (parts.length > 1) {
+                normalized = String.join("", java.util.Arrays.copyOfRange(parts, 1, parts.length));
+            }
+        }
+        return normalized.replaceAll("[^a-z0-9]", "");
     }
 
     private boolean isCurrentVersionActive(PromptItemVersionEntity version) {

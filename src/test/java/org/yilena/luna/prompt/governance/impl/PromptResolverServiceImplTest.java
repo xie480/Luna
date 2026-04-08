@@ -30,7 +30,7 @@ class PromptResolverServiceImplTest {
                 .hasTemplateVariables(false)
                 .templateVariables(List.of())
                 .keywordMatchEnabled(true)
-                .matchKeywords(List.of("温柔"))
+                .matchKeywords(List.of("gentle"))
                 .assemblyMode("KEYWORD_ONLY")
                 .matchScope(Map.of())
                 .editPolicy(Map.of())
@@ -50,7 +50,7 @@ class PromptResolverServiceImplTest {
                 .hasTemplateVariables(true)
                 .templateVariables(List.of("invalidJson"))
                 .keywordMatchEnabled(true)
-                .matchKeywords(List.of("温柔"))
+                .matchKeywords(List.of("gentle"))
                 .assemblyMode("KEYWORD_ONLY")
                 .matchScope(Map.of())
                 .editPolicy(Map.of())
@@ -64,7 +64,7 @@ class PromptResolverServiceImplTest {
         PromptCategoryService categoryService = new StubCategoryService();
         PromptResolverServiceImpl resolver = new PromptResolverServiceImpl(registry, policy, categoryService);
         PromptResolveResult result = resolver.resolve(PromptResolveContext.builder()
-                .userInput("我想和温柔女仆聊天")
+                .userInput("input for gentle keyword match")
                 .agent("MAIN_CHAT_AGENT")
                 .nodeKind("CHAT_TURN")
                 .taskState("EXECUTING")
@@ -73,10 +73,66 @@ class PromptResolverServiceImplTest {
         Assertions.assertTrue(result.getMatchedItems().stream().noneMatch(item -> "repair.main_json_v1".equals(item.getKey())));
     }
 
+    @Test
+    void alwaysModeShouldNotRequireScopeEvenForExecutionCategory() {
+        PromptItemRecord executionAlways = PromptItemRecord.builder()
+                .itemId(3L)
+                .versionId(33L)
+                .key("system.guardrail_v1")
+                .value("guard")
+                .category("system")
+                .subCategory("guardrail")
+                .runtimeSlot("instructions.system")
+                .hasTemplateVariables(true)
+                .templateVariables(List.of("runtimePromptInput"))
+                .keywordMatchEnabled(false)
+                .matchKeywords(List.of())
+                .assemblyMode("ALWAYS")
+                .matchScope(Map.of())
+                .editPolicy(Map.of())
+                .enabled(true)
+                .priority(120)
+                .status("active")
+                .version("1.0.0")
+                .build();
+        PromptResolverServiceImpl resolver = new PromptResolverServiceImpl(
+                new StubRegistry(List.of(executionAlways)),
+                new StubPolicy(),
+                new StubCategoryService()
+        );
+        PromptResolveResult result = resolver.resolve(PromptResolveContext.builder()
+                .userInput("hello")
+                .agent("MAIN_CHAT_AGENT")
+                .nodeKind("CHAT_TURN")
+                .taskState("EXECUTING")
+                .build());
+        Assertions.assertTrue(result.getMatchedItems().stream().anyMatch(item -> "system.guardrail_v1".equals(item.getKey())));
+    }
+
     private record StubRegistry(List<PromptItemRecord> rows) implements PromptRegistryService {
         @Override
         public Optional<PromptItemRecord> getByKey(String key) {
             return rows.stream().filter(row -> row.getKey().equalsIgnoreCase(key)).findFirst();
+        }
+
+        @Override
+        public Optional<PromptItemRecord> getByKeyIncludingDisabled(String key) {
+            return getByKey(key);
+        }
+
+        @Override
+        public Optional<PromptItemRecord> getById(Long id) {
+            return rows.stream().filter(row -> row.getItemId() != null && row.getItemId().equals(id)).findFirst();
+        }
+
+        @Override
+        public Optional<PromptItemRecord> getByIdIncludingDisabled(Long id) {
+            return getById(id);
+        }
+
+        @Override
+        public boolean existsByKey(String key) {
+            return getByKey(key).isPresent();
         }
 
         @Override
@@ -87,6 +143,11 @@ class PromptResolverServiceImplTest {
         @Override
         public List<PromptItemRecord> listByCategory(String category, String subCategory) {
             return rows;
+        }
+
+        @Override
+        public Map<String, String> listKeyValueByCategory(String category) {
+            return Map.of();
         }
 
         @Override
@@ -101,6 +162,11 @@ class PromptResolverServiceImplTest {
     }
 
     private static class StubPolicy implements PromptPolicyService {
+        @Override
+        public org.yilena.luna.prompt.governance.entity.PromptPolicyEntity getByPolicyId(String policyId) {
+            return null;
+        }
+
         @Override
         public Set<String> resolveIncludedPromptKeys(String policyId) {
             return Set.of();

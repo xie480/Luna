@@ -24,6 +24,7 @@ import org.yilena.luna.prompt.governance.PromptResolverService;
 import org.yilena.luna.prompt.governance.model.PromptResolveContext;
 import org.yilena.luna.prompt.governance.model.PromptResolveResult;
 import org.yilena.luna.prompt.governance.model.ResolvedPromptItem;
+import org.yilena.luna.prompt.governance.support.PromptSectionAssemblerSupport;
 import org.yilena.luna.state.model.TaskState;
 
 import java.util.ArrayList;
@@ -129,7 +130,9 @@ public class DefaultContextAssembler implements ContextAssembler {
                 policy
         );
         PromptResolveResult promptResolveResult = resolvePromptAssembly(userInput, contextPackage, policy);
-        String systemPrompt = resolveSystemPrompt(promptResolveResult);
+        PromptValueSelection systemPromptSelection = resolveSystemPromptSelection(promptResolveResult);
+        PromptValueSelection runtimePromptSelection = resolveRuntimePromptTemplateSelection(promptResolveResult);
+        String systemPrompt = systemPromptSelection.value();
         Map<String, List<String>> sections = new LinkedHashMap<>();
         sections.put("Instructions", lines(systemPrompt));
         sections.put("Current Task State", lines(buildCurrentTaskState(contextPackage, policy)));
@@ -155,7 +158,10 @@ public class DefaultContextAssembler implements ContextAssembler {
                 candidatePool.getOrDefault("summary", List.of())
         ));
         sections.put("Output Constraints", buildOutputConstraints(policy, contextPackage, reconstructionResult, effectiveToolSemanticResult, effectiveRoundSummaryInput));
-        applyResolvedPromptSlots(sections, promptResolveResult);
+        PromptSectionAssemblerSupport.applyResolvedPromptSlots(
+                sections,
+                promptResolveResult == null ? Map.of() : promptResolveResult.getSlotMapping()
+        );
 
         SemanticPreservingPruner.PruneResult pruneResult = semanticPreservingPruner.prune(
                 sections,
@@ -174,10 +180,13 @@ public class DefaultContextAssembler implements ContextAssembler {
         String prompt = toPrompt(
                 pruneResult.getSections(),
                 buildRuntimePromptInput(userInput, reconstructionResult),
-                resolveRuntimePromptTemplate(promptResolveResult)
+                runtimePromptSelection.value()
         );
         Map<String, List<String>> canonicalSections = toCanonicalSections(pruneResult.getSections());
-        Map<String, Object> promptAssemblyMeta = buildPromptAssemblyMeta(promptResolveResult);
+        Map<String, Object> promptAssemblyMeta = buildPromptAssemblyMeta(
+                promptResolveResult,
+                List.of(systemPromptSelection.ref(), runtimePromptSelection.ref())
+        );
         AssembledContext preSnapshotContext = AssembledContext.builder()
                 .prompt(prompt)
                 .sections(pruneResult.getSections())
@@ -937,92 +946,106 @@ public class DefaultContextAssembler implements ContextAssembler {
         return model == null ? "" : String.valueOf(model);
     }
 
-    private String resolveSystemPrompt(PromptResolveResult resolveResult) {
+    private PromptValueSelection resolveSystemPromptSelection(PromptResolveResult resolveResult) {
         String fallback = promptRegistryService == null
                 ? PromptTemplates.SYSTEM_PROMPT
                 : promptRegistryService.resolvePromptValue("system.base_v1", PromptTemplates.SYSTEM_PROMPT);
         if (resolveResult == null || resolveResult.getSlotMapping() == null) {
-            return fallback;
+            return PromptValueSelection.of(fallback, buildFallbackRef("system.base_v1", "instructions.system"));
         }
         List<ResolvedPromptItem> items = resolveResult.getSlotMapping().getOrDefault("instructions.system", List.of());
         if (items.isEmpty()) {
-            return fallback;
+            return PromptValueSelection.of(fallback, buildFallbackRef("system.base_v1", "instructions.system"));
         }
         String resolved = items.stream()
                 .map(ResolvedPromptItem::getValue)
                 .filter(value -> value != null && !value.isBlank())
                 .reduce("", (a, b) -> a.isBlank() ? b : a + "\n\n" + b);
-        return resolved.isBlank() ? fallback : resolved;
+        if (resolved.isBlank()) {
+            return PromptValueSelection.of(fallback, buildFallbackRef("system.base_v1", "instructions.system"));
+        }
+        return PromptValueSelection.of(resolved, Map.of());
     }
 
-    private String resolveRuntimePromptTemplate(PromptResolveResult resolveResult) {
+    private PromptValueSelection resolveRuntimePromptTemplateSelection(PromptResolveResult resolveResult) {
         String fallback = promptRegistryService == null
                 ? PromptTemplates.RUNTIME_PROMPT
                 : promptRegistryService.resolvePromptValue("runtime.main_v1", PromptTemplates.RUNTIME_PROMPT);
         if (resolveResult == null || resolveResult.getSlotMapping() == null) {
-            return fallback;
+            return PromptValueSelection.of(fallback, buildFallbackRef("runtime.main_v1", "runtime.prompt"));
         }
         List<ResolvedPromptItem> items = resolveResult.getSlotMapping().getOrDefault("runtime.prompt", List.of());
         if (items.isEmpty()) {
-            return fallback;
+            return PromptValueSelection.of(fallback, buildFallbackRef("runtime.main_v1", "runtime.prompt"));
         }
         String resolved = items.stream()
                 .map(ResolvedPromptItem::getValue)
                 .filter(value -> value != null && !value.isBlank())
                 .findFirst()
                 .orElse("");
-        return resolved.isBlank() ? fallback : resolved;
+        if (resolved.isBlank()) {
+            return PromptValueSelection.of(fallback, buildFallbackRef("runtime.main_v1", "runtime.prompt"));
+        }
+        return PromptValueSelection.of(resolved, Map.of());
     }
 
-    private void applyResolvedPromptSlots(Map<String, List<String>> sections, PromptResolveResult resolveResult) {
-        if (sections == null || sections.isEmpty() || resolveResult == null || resolveResult.getSlotMapping() == null) {
-            return;
+    private Map<String, Object> buildPromptAssemblyMeta(PromptResolveResult resolveResult, List<Map<String, Object>> fallbackRefs) {
+        List<Map<String, Object>> refs = new ArrayList<>();
+        if (resolveResult != null && resolveResult.getMatchedItems() != null) {
+            refs.addAll(resolveResult.getMatchedItems().stream().map(item -> {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("itemId", item.getItemId());
+                row.put("versionId", item.getVersionId());
+                row.put("key", item.getKey());
+                row.put("version", item.getVersion());
+                row.put("runtimeSlot", item.getRuntimeSlot());
+                row.put("matchReason", item.getMatchReason());
+                row.put("category", item.getCategory());
+                row.put("value", item.getValue());
+                return row;
+            }).toList());
         }
-        for (Map.Entry<String, List<ResolvedPromptItem>> entry : resolveResult.getSlotMapping().entrySet()) {
-            String slot = entry.getKey();
-            if (slot == null || slot.isBlank() || "instructions.system".equalsIgnoreCase(slot) || "runtime.prompt".equalsIgnoreCase(slot)) {
-                continue;
-            }
-            List<String> values = entry.getValue().stream()
-                    .map(ResolvedPromptItem::getValue)
-                    .filter(value -> value != null && !value.isBlank())
-                    .toList();
-            if (values.isEmpty()) {
-                continue;
-            }
-            if (slot.startsWith("instructions.")) {
-                sections.put("Instructions", mergeDistinct(sections.getOrDefault("Instructions", List.of()), values));
-            } else if ("memory.hints".equalsIgnoreCase(slot)) {
-                sections.put("Memory Hints", mergeDistinct(sections.getOrDefault("Memory Hints", List.of()), values));
-            } else if ("output.constraints".equalsIgnoreCase(slot)) {
-                sections.put("Output Constraints", mergeDistinct(sections.getOrDefault("Output Constraints", List.of()), values));
-            } else if ("knowledge.evidence".equalsIgnoreCase(slot)) {
-                sections.put("Relevant Knowledge Evidence", mergeDistinct(sections.getOrDefault("Relevant Knowledge Evidence", List.of()), values));
-            }
+        if (fallbackRefs != null) {
+            refs.addAll(fallbackRefs.stream()
+                    .filter(item -> item != null && !item.isEmpty())
+                    .toList());
         }
-    }
-
-    private Map<String, Object> buildPromptAssemblyMeta(PromptResolveResult resolveResult) {
-        if (resolveResult == null || resolveResult.getMatchedItems() == null) {
+        if (refs.isEmpty()) {
             return Map.of();
         }
-        List<Map<String, Object>> refs = resolveResult.getMatchedItems().stream().map(item -> {
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("itemId", item.getItemId());
-            row.put("versionId", item.getVersionId());
-            row.put("key", item.getKey());
-            row.put("version", item.getVersion());
-            row.put("runtimeSlot", item.getRuntimeSlot());
-            row.put("matchReason", item.getMatchReason());
-            row.put("category", item.getCategory());
-            row.put("value", item.getValue());
-            return row;
-        }).toList();
         return Map.of(
-                "policyId", resolveResult.getPolicyId() == null ? "" : resolveResult.getPolicyId(),
+                "policyId", resolveResult == null || resolveResult.getPolicyId() == null ? "" : resolveResult.getPolicyId(),
                 "assemblerVersion", "assembler.v1",
                 "promptRefs", refs
         );
+    }
+
+    private Map<String, Object> buildFallbackRef(String key, String runtimeSlot) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("key", key);
+        row.put("runtimeSlot", runtimeSlot);
+        row.put("matchReason", "FALLBACK");
+        if (promptRegistryService != null) {
+            promptRegistryService.getByKey(key).ifPresent(record -> {
+                row.put("itemId", record.getItemId());
+                row.put("versionId", record.getVersionId());
+                row.put("version", record.getVersion());
+                row.put("category", record.getCategory());
+                row.put("value", record.getValue());
+            });
+        }
+        row.putIfAbsent("itemId", null);
+        row.putIfAbsent("versionId", null);
+        row.putIfAbsent("version", "");
+        row.putIfAbsent("category", "");
+        row.putIfAbsent("value", "");
+        return row;
+    }
+
+    private record PromptValueSelection(String value, Map<String, Object> ref) {
+        private static PromptValueSelection of(String value, Map<String, Object> ref) {
+            return new PromptValueSelection(value == null ? "" : value, ref == null ? Map.of() : ref);
+        }
     }
 
     private String resolveContextBinding(StructuredContextPackage contextPackage, String camelKey, String snakeKey) {

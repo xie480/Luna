@@ -7,6 +7,7 @@ import org.yilena.luna.prompt.governance.PromptResolverService;
 import org.yilena.luna.prompt.governance.model.PromptResolveContext;
 import org.yilena.luna.prompt.governance.model.PromptResolveResult;
 import org.yilena.luna.prompt.governance.model.ResolvedPromptItem;
+import org.yilena.luna.prompt.governance.support.PromptSectionAssemblerSupport;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -33,18 +34,19 @@ public class PromptPreviewServiceImpl implements PromptPreviewService {
         PromptResolveResult result = promptResolverService.resolve(context);
         Map<String, String> assembled = new LinkedHashMap<>();
         for (Map.Entry<String, List<ResolvedPromptItem>> entry : result.getSlotMapping().entrySet()) {
-            String text = entry.getValue().stream()
-                    .map(ResolvedPromptItem::getValue)
-                    .filter(item -> item != null && !item.isBlank())
-                    .reduce("", (a, b) -> a.isBlank() ? b : a + "\n\n" + b);
+            String text = PromptSectionAssemblerSupport.joinSlotValues(entry.getValue());
             assembled.put(entry.getKey(), text);
         }
+        Map<String, List<String>> sectionMapping = PromptSectionAssemblerSupport.buildSectionPreview(result.getSlotMapping());
+        Map<String, String> sectionAssembled = PromptSectionAssemblerSupport.toAssembledText(sectionMapping);
         return Map.of(
                 "policyId", result.getPolicyId() == null ? "" : result.getPolicyId(),
                 "matchedItems", result.getMatchedItems(),
                 "rejectedItems", result.getRejectedItems() == null ? List.of() : result.getRejectedItems(),
                 "slotMapping", result.getSlotMapping(),
-                "assembled", assembled
+                "assembled", assembled,
+                "sectionMapping", sectionMapping,
+                "sectionAssembled", sectionAssembled
         );
     }
 }

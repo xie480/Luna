@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.yilena.luna.prompt.governance.PromptCategoryService;
 import org.yilena.luna.prompt.governance.PromptFrontendAdapter;
 import org.yilena.luna.prompt.governance.PromptMutationService;
 import org.yilena.luna.prompt.governance.PromptPolicyService;
@@ -18,8 +19,10 @@ import org.yilena.luna.prompt.governance.dto.PromptSearchRequest;
 import org.yilena.luna.prompt.governance.dto.PromptUpsertRequest;
 import org.yilena.luna.prompt.governance.dto.PromptVersionDiffRequest;
 import org.yilena.luna.prompt.governance.dto.PromptVersionSwitchRequest;
+import org.yilena.luna.prompt.governance.entity.PromptCategoryEntity;
 import org.yilena.luna.prompt.governance.model.PromptResolveContext;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -35,11 +38,21 @@ public class PromptAdminController {
     private final PromptFrontendAdapter promptFrontendAdapter;
     private final PromptPolicyService promptPolicyService;
     private final PromptRegistryService promptRegistryService;
+    private final PromptCategoryService promptCategoryService;
 
     @GetMapping("/categories")
     @Operation(summary = "List prompt categories")
     public ResponseEntity<?> categories() {
         return ResponseEntity.ok(promptQueryService.listCategories());
+    }
+
+    @GetMapping("/categories/detail")
+    @Operation(summary = "List prompt category details")
+    public ResponseEntity<?> categoryDetails() {
+        List<Map<String, Object>> payload = promptCategoryService.listEnabledOrdered().stream()
+                .map(this::toCategoryDetail)
+                .toList();
+        return ResponseEntity.ok(payload);
     }
 
     @GetMapping("/items")
@@ -56,14 +69,14 @@ public class PromptAdminController {
     @GetMapping("/item/detail")
     @Operation(summary = "Get prompt detail by key")
     public ResponseEntity<?> detail(@RequestParam String key) {
-        Object payload = promptQueryService.detailByKey(key).<Object>map(item -> item).orElse(Map.of());
+        Object payload = promptRegistryService.getByKeyIncludingDisabled(key).<Object>map(item -> item).orElse(Map.of());
         return ResponseEntity.ok(payload);
     }
 
     @GetMapping("/item/detail-by-id")
     @Operation(summary = "Get prompt detail by id")
     public ResponseEntity<?> detailById(@RequestParam Long id) {
-        Object payload = promptRegistryService.getById(id).<Object>map(item -> item).orElse(Map.of());
+        Object payload = promptRegistryService.getByIdIncludingDisabled(id).<Object>map(item -> item).orElse(Map.of());
         return ResponseEntity.ok(payload);
     }
 
@@ -187,7 +200,7 @@ public class PromptAdminController {
     @GetMapping("/policy/detail")
     @Operation(summary = "Get policy package by policyId")
     public ResponseEntity<?> policyDetail(@RequestParam String policyId) {
-        Object payload = promptPolicyService.getByPolicyId(policyId);
+        Object payload = promptPolicyService.getPolicyDetail(policyId);
         return ResponseEntity.ok(payload == null ? Map.of() : payload);
     }
 
@@ -228,5 +241,19 @@ public class PromptAdminController {
         request.setPageNo(1L);
         request.setPageSize(500L);
         return request;
+    }
+
+    private Map<String, Object> toCategoryDetail(PromptCategoryEntity category) {
+        if (category == null) {
+            return Map.of();
+        }
+        return Map.of(
+                "categoryKey", category.getCategoryKey() == null ? "" : category.getCategoryKey(),
+                "categoryName", category.getCategoryName() == null ? "" : category.getCategoryName(),
+                "sortOrder", category.getSortOrder() == null ? 0 : category.getSortOrder(),
+                "keywordMatchAllowed", !Boolean.FALSE.equals(category.getKeywordMatchAllowed()),
+                "executionCategory", Boolean.TRUE.equals(category.getIsExecutionCategory()),
+                "enabled", !Boolean.FALSE.equals(category.getEnabled())
+        );
     }
 }

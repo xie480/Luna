@@ -11,6 +11,7 @@ import org.yilena.luna.prompt.governance.entity.PromptPolicyEntity;
 import org.yilena.luna.prompt.governance.entity.PromptPolicyVersionEntity;
 import org.yilena.luna.prompt.governance.mapper.PromptPolicyMapper;
 import org.yilena.luna.prompt.governance.mapper.PromptPolicyVersionMapper;
+import org.yilena.luna.prompt.governance.model.PromptPolicyDetailView;
 
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -37,6 +38,28 @@ public class PromptPolicyServiceImpl implements PromptPolicyService {
         } catch (Exception ignore) {
             return null;
         }
+    }
+
+    @Override
+    public PromptPolicyDetailView getPolicyDetail(String policyId) {
+        PromptPolicyEntity policy = getByPolicyId(policyId);
+        if (policy == null) {
+            return null;
+        }
+        PromptPolicyVersionEntity current = policy.getCurrentVersionId() == null
+                ? null
+                : promptPolicyVersionMapper.selectById(policy.getCurrentVersionId());
+        return PromptPolicyDetailView.builder()
+                .id(policy.getId())
+                .policyId(policy.getPolicyKey())
+                .policyName(policy.getPolicyName())
+                .description(policy.getDescription())
+                .enabled(Boolean.TRUE.equals(policy.getEnabled()))
+                .currentVersionId(policy.getCurrentVersionId())
+                .currentVersionNo(current == null ? "" : blankToDefault(current.getVersionNo(), ""))
+                .includePromptKeys(current == null || current.getIncludePromptKeys() == null ? List.of() : current.getIncludePromptKeys())
+                .excludePromptKeys(current == null || current.getExcludePromptKeys() == null ? List.of() : current.getExcludePromptKeys())
+                .build();
     }
 
     @Override

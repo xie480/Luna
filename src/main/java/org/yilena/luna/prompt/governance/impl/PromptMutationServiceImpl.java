@@ -31,12 +31,13 @@ public class PromptMutationServiceImpl implements PromptMutationService {
     private final PromptRegistryService promptRegistryService;
     private final PromptCategoryService promptCategoryService;
     private static final Set<String> EXECUTION_ALLOWED_MODES = Set.of("ALWAYS", "AGENT_ONLY", "POLICY_ONLY", "MANUAL_ONLY", "DISABLED");
+    private static final Set<String> CONTENT_ALLOWED_MODES = Set.of("ALWAYS", "KEYWORD_ONLY", "KEYWORD_AND_AGENT", "KEYWORD_OR_AGENT", "DISABLED");
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PromptItemRecord create(PromptUpsertRequest request) {
         validateCreateRequest(request);
-        if (promptRegistryService.getByKey(request.getKey()).isPresent()) {
+        if (promptRegistryService.existsByKey(request.getKey())) {
             throw new IllegalArgumentException("prompt key already exists");
         }
         String targetCategory = resolveRequestCategory(request);
@@ -58,7 +59,7 @@ public class PromptMutationServiceImpl implements PromptMutationService {
                 .description(safe(request.getDescription()))
                 .build();
         promptItemMapper.insert(item);
-        PromptItemVersionEntity version = buildVersion(item.getId(), request);
+        PromptItemVersionEntity version = buildVersion(item.getId(), request, item, null);
         version.setIsActive(true);
         version.setStatus(normalizeVersionStatus(version.getStatus(), "active"));
         promptItemVersionMapper.insert(version);
@@ -117,7 +118,7 @@ public class PromptMutationServiceImpl implements PromptMutationService {
                         .set(request.getStatus() != null || requestedEnabled != null,
                                 PromptItemEntity::getStatus, normalizeItemStatus(request.getStatus(), finalEnabled)));
 
-        PromptItemVersionEntity version = buildVersion(item.getId(), request);
+        PromptItemVersionEntity version = buildVersion(item.getId(), request, item, current);
         version.setStatus(normalizeVersionStatus(request.getStatus(), "active"));
         version.setIsActive(true);
         promptItemVersionMapper.insert(version);
@@ -156,7 +157,12 @@ public class PromptMutationServiceImpl implements PromptMutationService {
                         .set(PromptItemEntity::getStatus, "disabled"));
     }
 
-    private PromptItemVersionEntity buildVersion(Long itemId, PromptUpsertRequest request) {
+    private PromptItemVersionEntity buildVersion(Long itemId,
+                                                 PromptUpsertRequest request,
+                                                 PromptItemEntity item,
+                                                 PromptItemVersionEntity currentVersion) {
+        boolean executionCategory = isExecutionCategory(resolveItemCategory(item));
+        boolean hasTemplateVariables = bool(item == null ? null : item.getHasTemplateVariables(), false);
         return PromptItemVersionEntity.builder()
                 .promptItemId(itemId)
                 .versionNo(safe(request.getVersion(), nextVersion(itemId)))
@@ -165,14 +171,27 @@ public class PromptMutationServiceImpl implements PromptMutationService {
                 .templateVariables(request.getTemplateVariables() == null ? List.of() : request.getTemplateVariables())
                 .matchKeywords(request.getMatchKeywords() == null ? List.of() : request.getMatchKeywords())
                 .matchScope(request.getMatchScope() == null ? Map.of() : request.getMatchScope())
-                .editPolicy(request.getEditPolicy() == null ? defaultEditPolicy(request) : request.getEditPolicy())
+                .editPolicy(resolveEditPolicy(request, currentVersion, hasTemplateVariables, executionCategory))
                 .changeNote(safe(request.getChangeNote()))
                 .status(normalizeVersionStatus(request == null ? null : request.getStatus(), "active"))
                 .build();
     }
 
-    private Map<String, Object> defaultEditPolicy(PromptUpsertRequest request) {
-        boolean contentPrompt = request == null || !bool(request.getHasTemplateVariables(), false);
+    private Map<String, Object> resolveEditPolicy(PromptUpsertRequest request,
+                                                  PromptItemVersionEntity currentVersion,
+                                                  boolean hasTemplateVariables,
+                                                  boolean executionCategory) {
+        if (request != null && request.getEditPolicy() != null) {
+            return request.getEditPolicy();
+        }
+        if (currentVersion != null && currentVersion.getEditPolicy() != null && !currentVersion.getEditPolicy().isEmpty()) {
+            return currentVersion.getEditPolicy();
+        }
+        return defaultEditPolicy(hasTemplateVariables, executionCategory);
+    }
+
+    private Map<String, Object> defaultEditPolicy(boolean hasTemplateVariables, boolean executionCategory) {
+        boolean contentPrompt = !hasTemplateVariables && !executionCategory;
         return Map.of(
                 "create", contentPrompt,
                 "update", true,
@@ -197,6 +216,13 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         }
         if (bool(request.getHasTemplateVariables(), false)) {
             throw new IllegalArgumentException("create only supports content prompt");
+        }
+        String mode = request.getAssemblyMode();
+        if (mode != null && !mode.isBlank()) {
+            String normalizedMode = mode.trim().toUpperCase();
+            if (!CONTENT_ALLOWED_MODES.contains(normalizedMode)) {
+                throw new IllegalArgumentException("content prompt assembly_mode is not allowed");
+            }
         }
         if (request.getKeywordMatchEnabled() != null && !request.getKeywordMatchEnabled()) {
             // allowed

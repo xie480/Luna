@@ -9,7 +9,15 @@ import java.util.Optional;
 public interface PromptRegistryService {
     Optional<PromptItemRecord> getByKey(String key);
 
+    default Optional<PromptItemRecord> getByKeyIncludingDisabled(String key) {
+        return getByKey(key);
+    }
+
     Optional<PromptItemRecord> getById(Long id);
+
+    default Optional<PromptItemRecord> getByIdIncludingDisabled(Long id) {
+        return getById(id);
+    }
 
     boolean existsByKey(String key);
 

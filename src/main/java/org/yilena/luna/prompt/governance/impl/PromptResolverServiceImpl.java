@@ -123,7 +123,7 @@ public class PromptResolverServiceImpl implements PromptResolverService {
                 && context.getManualPromptKeys() != null
                 && context.getManualPromptKeys().stream().anyMatch(key -> key != null && key.equalsIgnoreCase(item.getKey()));
 
-        if ((mode == PromptAssemblyMode.AGENT_ONLY || promptCategoryService.isExecutionCategory(item.getCategory())) && !hasScope) {
+        if (requiresScope(mode) && !hasScope) {
             return MatchDecision.rejected("MISSING_MATCH_SCOPE");
         }
 
@@ -149,6 +149,12 @@ public class PromptResolverServiceImpl implements PromptResolverService {
                     : MatchDecision.rejected("MANUAL_NOT_INCLUDED");
             case DISABLED -> MatchDecision.rejected("ASSEMBLY_DISABLED");
         };
+    }
+
+    private boolean requiresScope(PromptAssemblyMode mode) {
+        return mode == PromptAssemblyMode.AGENT_ONLY
+                || mode == PromptAssemblyMode.KEYWORD_AND_AGENT
+                || mode == PromptAssemblyMode.KEYWORD_OR_AGENT;
     }
 
     private boolean keywordMatched(PromptItemRecord item, String userInput) {
