@@ -17,6 +17,7 @@ import org.yilena.luna.prompt.governance.support.PromptKeyAliasSupport;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -120,9 +121,7 @@ public class PromptResolverServiceImpl implements PromptResolverService {
         boolean agent = agentMatched(item, context);
         boolean policy = setContainsAlias(policyIncludes, item.getKey());
         boolean hasScope = hasScopeConstraint(item);
-        boolean manual = context != null
-                && context.getManualPromptKeys() != null
-                && context.getManualPromptKeys().stream().anyMatch(key -> key != null && PromptKeyAliasSupport.matches(key, item.getKey()));
+        boolean manual = setContainsAlias(toKeySet(context == null ? null : context.getManualPromptKeys()), item.getKey());
 
         if (policy && mode != PromptAssemblyMode.POLICY_ONLY && mode != PromptAssemblyMode.DISABLED) {
             return MatchDecision.matched("POLICY_INCLUDED");
@@ -276,6 +275,19 @@ public class PromptResolverServiceImpl implements PromptResolverService {
             }
         }
         return false;
+    }
+
+    private Set<String> toKeySet(List<String> keys) {
+        if (keys == null || keys.isEmpty()) {
+            return Set.of();
+        }
+        Set<String> out = new LinkedHashSet<>();
+        for (String key : keys) {
+            if (key != null && !key.isBlank()) {
+                out.add(key.trim());
+            }
+        }
+        return out;
     }
 
     private record MatchDecision(boolean matched, String matchReason, String rejectedReason) {

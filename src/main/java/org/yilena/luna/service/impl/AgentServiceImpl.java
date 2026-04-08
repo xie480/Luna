@@ -283,7 +283,7 @@ public class AgentServiceImpl implements AgentService {
     }
 
     private String buildDecisionPrompt(ToolDecisionCommand command, String assembledDecisionContext) {
-        String template = resolveToolDecisionPrompt(command, "agent.tool_decision", "tool.decision_v1", TOOL_DECISION_PROMPT_FALLBACK);
+        String template = resolveToolDecisionPrompt(command, "agent.tool_decision", "tool.decision.default_v1", TOOL_DECISION_PROMPT_FALLBACK);
         String workset = assembledDecisionContext == null ? "" : assembledDecisionContext;
         if (template.contains("%s")) {
             return template.replace("%s", workset);
@@ -305,7 +305,7 @@ public class AgentServiceImpl implements AgentService {
             );
         }
         return String.format(
-                resolveToolDecisionPrompt(command, "agent.tool_args", "tool.args_v1", PromptTemplates.TOOL_ARGS_PROMPT),
+                resolveToolDecisionPrompt(command, "agent.tool_args", "tool.args.default_v1", PromptTemplates.TOOL_ARGS_PROMPT),
                 input,
                 historyText,
                 resource.getName(),

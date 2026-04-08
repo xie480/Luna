@@ -94,8 +94,7 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
                 return Optional.empty();
             }
             for (PromptItemRecord candidate : listAll(includeDisabled)) {
-                if (isKeyAliasMatch(normalized, candidate.getKey())
-                        || PromptKeyAliasSupport.matches(normalized, candidate.getKey())) {
+                if (PromptKeyAliasSupport.matches(normalized, candidate.getKey())) {
                     return Optional.of(candidate);
                 }
             }
@@ -111,8 +110,7 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
                     }
                 }
                 for (PromptItemRecord builtin : builtins.values()) {
-                    if (isKeyAliasMatch(normalized, builtin.getKey())
-                            || PromptKeyAliasSupport.matches(normalized, builtin.getKey())) {
+                    if (PromptKeyAliasSupport.matches(normalized, builtin.getKey())) {
                         return Optional.of(builtin);
                     }
                 }
@@ -399,37 +397,6 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
         String status = safe(item.getStatus()).trim().toLowerCase();
         return status.isBlank()
                 || "enabled".equals(status);
-    }
-
-    private boolean isKeyAliasMatch(String requested, String stored) {
-        if (requested == null || requested.isBlank() || stored == null || stored.isBlank()) {
-            return false;
-        }
-        if (stored.equalsIgnoreCase(requested)) {
-            return true;
-        }
-        String requestedFull = normalizeKey(requested, false);
-        String requestedSlim = normalizeKey(requested, true);
-        String storedFull = normalizeKey(stored, false);
-        String storedSlim = normalizeKey(stored, true);
-        return (!requestedFull.isBlank() && requestedFull.equals(storedFull))
-                || (!requestedSlim.isBlank() && requestedSlim.equals(storedFull))
-                || (!storedSlim.isBlank() && storedSlim.equals(requestedFull))
-                || (!requestedSlim.isBlank() && requestedSlim.equals(storedSlim));
-    }
-
-    private String normalizeKey(String key, boolean removeCategoryPrefix) {
-        if (key == null || key.isBlank()) {
-            return "";
-        }
-        String normalized = key.trim().toLowerCase();
-        if (removeCategoryPrefix && normalized.contains(".")) {
-            String[] parts = normalized.split("\\.");
-            if (parts.length > 1) {
-                normalized = String.join("", java.util.Arrays.copyOfRange(parts, 1, parts.length));
-            }
-        }
-        return normalized.replaceAll("[^a-z0-9]", "");
     }
 
     private boolean isCurrentVersionActive(PromptItemVersionEntity version) {

@@ -139,7 +139,7 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
         try {
             String promptTemplate = promptRegistryService == null
                     ? RECOVERY_DECISION_PROMPT
-                    : promptRegistryService.resolvePromptValue("agent.recovery.default_v1", RECOVERY_DECISION_PROMPT);
+                    : promptRegistryService.resolvePromptValue("agent-local.recovery.default_v1", RECOVERY_DECISION_PROMPT);
             String prompt = promptTemplate.formatted(
                     recoveryEvent == null ? "" : recoveryEvent,
                     interruptReason == null ? "" : interruptReason,

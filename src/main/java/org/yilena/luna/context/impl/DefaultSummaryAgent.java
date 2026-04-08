@@ -112,7 +112,7 @@ public class DefaultSummaryAgent implements SummaryAgent {
         try {
             String promptTemplate = promptRegistryService == null
                     ? SUMMARY_PROMPT
-                    : promptRegistryService.resolvePromptValue("agent.summary.default_v1", SUMMARY_PROMPT);
+                    : promptRegistryService.resolvePromptValue("agent-local.summary.default_v1", SUMMARY_PROMPT);
             String prompt = promptTemplate.formatted(
                     safe(userInput),
                     safe(assistantReply),

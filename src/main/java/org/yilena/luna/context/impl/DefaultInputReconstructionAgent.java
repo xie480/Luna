@@ -115,7 +115,7 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
         try {
             String promptTemplate = promptRegistryService == null
                     ? RECONSTRUCTION_PROMPT
-                    : promptRegistryService.resolvePromptValue("agent.reconstruction.default_v1", RECONSTRUCTION_PROMPT);
+                    : promptRegistryService.resolvePromptValue("agent-local.reconstruction.default_v1", RECONSTRUCTION_PROMPT);
             String prompt = promptTemplate.formatted(
                     normalize(sessionId),
                     safeName(taskState),

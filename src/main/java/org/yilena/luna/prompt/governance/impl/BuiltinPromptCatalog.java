@@ -44,8 +44,8 @@ final class BuiltinPromptCatalog {
                 "1.0.0",
                 "Runtime prompt fallback"
         ));
-        out.put("repair.main_json_v1", item(
-                "repair.main_json_v1",
+        out.put("repair.main.json_v1", item(
+                "repair.main.json_v1",
                 "Repair Main Json",
                 PromptTemplates.REPAIR_PROMPT,
                 "repair",
@@ -58,8 +58,8 @@ final class BuiltinPromptCatalog {
                 "1.0.0",
                 "Repair prompt fallback"
         ));
-        out.put("agent.reconstruction.default_v1", item(
-                "agent.reconstruction.default_v1",
+        out.put("agent-local.reconstruction.default_v1", item(
+                "agent-local.reconstruction.default_v1",
                 "Agent Reconstruction",
                 "",
                 "agent-local",
@@ -72,8 +72,8 @@ final class BuiltinPromptCatalog {
                 "1.0.0",
                 "Agent reconstruction fallback"
         ));
-        out.put("agent.rerank.default_v1", item(
-                "agent.rerank.default_v1",
+        out.put("agent-local.rerank.default_v1", item(
+                "agent-local.rerank.default_v1",
                 "Agent Rerank",
                 "",
                 "agent-local",
@@ -86,8 +86,8 @@ final class BuiltinPromptCatalog {
                 "1.0.0",
                 "Agent rerank fallback"
         ));
-        out.put("agent.recovery.default_v1", item(
-                "agent.recovery.default_v1",
+        out.put("agent-local.recovery.default_v1", item(
+                "agent-local.recovery.default_v1",
                 "Agent Recovery",
                 "",
                 "agent-local",
@@ -100,8 +100,8 @@ final class BuiltinPromptCatalog {
                 "1.0.0",
                 "Agent recovery fallback"
         ));
-        out.put("agent.tool_semantic.default_v1", item(
-                "agent.tool_semantic.default_v1",
+        out.put("agent-local.tool-semantic.default_v1", item(
+                "agent-local.tool-semantic.default_v1",
                 "Agent Tool Semantic",
                 "",
                 "agent-local",
@@ -114,8 +114,8 @@ final class BuiltinPromptCatalog {
                 "1.0.0",
                 "Tool semantic fallback"
         ));
-        out.put("agent.summary.default_v1", item(
-                "agent.summary.default_v1",
+        out.put("agent-local.summary.default_v1", item(
+                "agent-local.summary.default_v1",
                 "Agent Summary",
                 "",
                 "summary",
@@ -128,8 +128,8 @@ final class BuiltinPromptCatalog {
                 "1.0.0",
                 "Summary fallback"
         ));
-        out.put("tool.args_v1", item(
-                "tool.args_v1",
+        out.put("tool.args.default_v1", item(
+                "tool.args.default_v1",
                 "Tool Args",
                 PromptTemplates.TOOL_ARGS_PROMPT,
                 "tool",
@@ -142,8 +142,8 @@ final class BuiltinPromptCatalog {
                 "1.0.0",
                 "Tool args fallback"
         ));
-        out.put("tool.decision_v1", item(
-                "tool.decision_v1",
+        out.put("tool.decision.default_v1", item(
+                "tool.decision.default_v1",
                 "Tool Decision",
                 """
                         You are a tool decision agent. Decide the next action strictly from the assembled decision workset.

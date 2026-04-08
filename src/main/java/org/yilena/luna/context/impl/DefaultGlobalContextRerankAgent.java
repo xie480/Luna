@@ -505,7 +505,7 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
         try {
             String promptTemplate = promptRegistryService == null
                     ? GLOBAL_RERANK_PROMPT
-                    : promptRegistryService.resolvePromptValue("agent.rerank.default_v1", GLOBAL_RERANK_PROMPT);
+                    : promptRegistryService.resolvePromptValue("agent-local.rerank.default_v1", GLOBAL_RERANK_PROMPT);
             String prompt = promptTemplate.formatted(
                     stage,
                     nodeGoal == null ? "" : nodeGoal,

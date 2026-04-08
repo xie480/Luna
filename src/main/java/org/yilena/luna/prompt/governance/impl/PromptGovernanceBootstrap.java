@@ -176,11 +176,11 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
 
     private Map<String, String> reflectAgentPromptTemplates() {
         Map<String, String> out = new LinkedHashMap<>();
-        putField(out, "agent.reconstruction.default_v1", "org.yilena.luna.context.impl.DefaultInputReconstructionAgent", "RECONSTRUCTION_PROMPT");
-        putField(out, "agent.rerank.default_v1", "org.yilena.luna.context.impl.DefaultGlobalContextRerankAgent", "GLOBAL_RERANK_PROMPT");
-        putField(out, "agent.recovery.default_v1", "org.yilena.luna.context.impl.DefaultRecoveryContextAgent", "RECOVERY_DECISION_PROMPT");
-        putField(out, "agent.tool_semantic.default_v1", "org.yilena.luna.context.impl.DefaultToolSemanticAgent", "TOOL_SEMANTIC_PROMPT");
-        putField(out, "agent.summary.default_v1", "org.yilena.luna.context.impl.DefaultSummaryAgent", "SUMMARY_PROMPT");
+        putField(out, "agent-local.reconstruction.default_v1", "org.yilena.luna.context.impl.DefaultInputReconstructionAgent", "RECONSTRUCTION_PROMPT");
+        putField(out, "agent-local.rerank.default_v1", "org.yilena.luna.context.impl.DefaultGlobalContextRerankAgent", "GLOBAL_RERANK_PROMPT");
+        putField(out, "agent-local.recovery.default_v1", "org.yilena.luna.context.impl.DefaultRecoveryContextAgent", "RECOVERY_DECISION_PROMPT");
+        putField(out, "agent-local.tool-semantic.default_v1", "org.yilena.luna.context.impl.DefaultToolSemanticAgent", "TOOL_SEMANTIC_PROMPT");
+        putField(out, "agent-local.summary.default_v1", "org.yilena.luna.context.impl.DefaultSummaryAgent", "SUMMARY_PROMPT");
         return out;
     }
 
@@ -212,30 +212,30 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
             return MatchScope.empty();
         }
         return switch (key) {
-            case "agent.reconstruction.default_v1", "agent-local.reconstruction.default_v1" -> MatchScope.builder()
+            case "agent-local.reconstruction.default_v1", "agent.reconstruction.default_v1" -> MatchScope.builder()
                     .agents(List.of("INPUT_RECONSTRUCTION_AGENT"))
                     .nodeKinds(List.of("CHAT_PRE_TOOL"))
                     .taskStates(List.of("PLANNING", "EXECUTING"))
                     .build();
-            case "agent.rerank.default_v1", "agent-local.rerank.default_v1" -> MatchScope.builder()
+            case "agent-local.rerank.default_v1", "agent.rerank.default_v1" -> MatchScope.builder()
                     .agents(List.of("GLOBAL_CONTEXT_RERANK_AGENT"))
                     .nodeKinds(List.of("CHAT_PRE_TOOL"))
                     .build();
-            case "agent.recovery.default_v1", "agent-local.recovery.default_v1" -> MatchScope.builder()
+            case "agent-local.recovery.default_v1", "agent.recovery.default_v1" -> MatchScope.builder()
                     .agents(List.of("RECOVERY_CONTEXT_AGENT"))
                     .build();
-            case "agent.tool_semantic.default_v1", "agent-local.tool_semantic.default_v1" -> MatchScope.builder()
+            case "agent-local.tool-semantic.default_v1", "agent.tool_semantic.default_v1", "agent-local.tool_semantic.default_v1" -> MatchScope.builder()
                     .agents(List.of("TOOL_SEMANTIC_AGENT"))
                     .nodeKinds(List.of("TOOL_DECISION", "CHAT_TURN"))
                     .build();
-            case "agent.summary.default_v1", "agent-local.summary.default_v1" -> MatchScope.builder()
+            case "agent-local.summary.default_v1", "agent.summary.default_v1" -> MatchScope.builder()
                     .agents(List.of("SUMMARY_AGENT"))
                     .nodeKinds(List.of("CHAT_TURN"))
                     .build();
-            case "repair.main_json_v1" -> MatchScope.builder()
+            case "repair.main.json_v1", "repair.main_json_v1" -> MatchScope.builder()
                     .agents(List.of("MAIN_MODEL_REPAIR_AGENT"))
                     .build();
-            case "tool.args_v1", "tool.decision_v1" -> MatchScope.builder()
+            case "tool.args.default_v1", "tool.args_v1", "tool.decision.default_v1", "tool.decision_v1" -> MatchScope.builder()
                     .agents(List.of("TOOL_DECISION_AGENT"))
                     .build();
             case "planner.master_v1" -> MatchScope.builder()

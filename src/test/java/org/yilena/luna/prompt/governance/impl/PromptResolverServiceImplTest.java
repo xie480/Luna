@@ -263,6 +263,42 @@ class PromptResolverServiceImplTest {
     }
 
     @Test
+    void policyIncludeShouldMatchLegacyAndShortAliasKey() {
+        PromptItemRecord item = PromptItemRecord.builder()
+                .itemId(9L)
+                .versionId(99L)
+                .key("repair.main.json_v1")
+                .value("repair")
+                .category("repair")
+                .subCategory("json")
+                .runtimeSlot("repair.main")
+                .hasTemplateVariables(true)
+                .templateVariables(List.of("invalidJson"))
+                .keywordMatchEnabled(false)
+                .matchKeywords(List.of())
+                .assemblyMode("KEYWORD_ONLY")
+                .matchScope(MatchScope.empty())
+                .editPolicy(EditPolicy.executionDefault())
+                .enabled(true)
+                .priority(100)
+                .status("enabled")
+                .version("1.0.0")
+                .build();
+        PromptResolverServiceImpl resolver = new PromptResolverServiceImpl(
+                new StubRegistry(List.of(item)),
+                new StubPolicy(Set.of("main_json_v1"), Set.of()),
+                new StubCategoryService()
+        );
+        PromptResolveResult result = resolver.resolve(PromptResolveContext.builder()
+                .userInput("nothing related")
+                .agent("MAIN_MODEL_REPAIR_AGENT")
+                .build());
+        Assertions.assertTrue(result.getMatchedItems().stream()
+                .anyMatch(row -> "repair.main.json_v1".equals(row.getKey())
+                        && "POLICY_INCLUDED".equals(row.getMatchReason())));
+    }
+
+    @Test
     void policyOnlyShouldKeepOriginalReasonWhenIncludedByPolicy() {
         PromptItemRecord item = PromptItemRecord.builder()
                 .itemId(8L)

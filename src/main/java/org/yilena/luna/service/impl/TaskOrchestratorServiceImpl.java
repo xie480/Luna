@@ -53,6 +53,7 @@ import org.yilena.luna.prompt.governance.PromptSnapshotBridgeService;
 import org.yilena.luna.prompt.governance.model.PromptResolveContext;
 import org.yilena.luna.prompt.governance.model.PromptResolveResult;
 import org.yilena.luna.prompt.governance.model.ResolvedPromptItem;
+import org.yilena.luna.prompt.governance.support.PromptKeyAliasSupport;
 import org.yilena.luna.properties.GeminiProperty;
 import org.yilena.luna.rag.api.RetrievalService;
 import org.yilena.luna.rag.models.ConversationMessage;
@@ -1765,7 +1766,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 if (!fromSlot.isBlank()) {
                     return fromSlot;
                 }
-                String fromKey = resolvePromptValueFromKey(resolved, "repair.main_json_v1");
+                String fromKey = resolvePromptValueFromKey(resolved, "repair.main.json_v1");
                 if (!fromKey.isBlank()) {
                     return fromKey;
                 }
@@ -1774,7 +1775,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         }
         return promptRegistryService == null
                 ? PromptTemplates.REPAIR_PROMPT
-                : promptRegistryService.resolvePromptValue("repair.main_json_v1", PromptTemplates.REPAIR_PROMPT);
+                : promptRegistryService.resolvePromptValue("repair.main.json_v1", PromptTemplates.REPAIR_PROMPT);
     }
 
     private String resolvePromptValueFromSlot(PromptResolveResult resolved, String slot) {
@@ -1801,7 +1802,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             if (item == null) {
                 continue;
             }
-            if (key.equalsIgnoreCase(item.getKey()) && item.getValue() != null && !item.getValue().isBlank()) {
+            if (PromptKeyAliasSupport.matches(key, item.getKey()) && item.getValue() != null && !item.getValue().isBlank()) {
                 return item.getValue();
             }
         }

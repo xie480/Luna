@@ -95,7 +95,7 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
         try {
             String promptTemplate = promptRegistryService == null
                     ? TOOL_SEMANTIC_PROMPT
-                    : promptRegistryService.resolvePromptValue("agent.tool_semantic.default_v1", TOOL_SEMANTIC_PROMPT);
+                    : promptRegistryService.resolvePromptValue("agent-local.tool-semantic.default_v1", TOOL_SEMANTIC_PROMPT);
             String prompt = promptTemplate.formatted(
                     TOOL_STATUS_PROMPT_VALUES,
                     safe(toolName),
