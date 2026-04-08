@@ -6,6 +6,7 @@ import org.yilena.luna.prompt.governance.PromptCategoryService;
 import org.yilena.luna.prompt.governance.PromptPolicyService;
 import org.yilena.luna.prompt.governance.PromptRegistryService;
 import org.yilena.luna.prompt.governance.PromptResolverService;
+import org.yilena.luna.prompt.governance.model.MatchScope;
 import org.yilena.luna.prompt.governance.model.PromptAssemblyMode;
 import org.yilena.luna.prompt.governance.model.PromptItemRecord;
 import org.yilena.luna.prompt.governance.model.PromptResolveContext;
@@ -16,7 +17,6 @@ import org.yilena.luna.prompt.governance.model.ResolvedPromptItem;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -188,27 +188,26 @@ public class PromptResolverServiceImpl implements PromptResolverService {
     }
 
     private boolean hasScopeConstraint(PromptItemRecord item) {
-        Map<String, Object> scope = item.getMatchScope() == null ? Map.of() : item.getMatchScope();
-        return !toList(scope.get("agents")).isEmpty()
-                || !toList(scope.get("nodeKinds")).isEmpty()
-                || !toList(scope.get("taskStates")).isEmpty()
-                || !toList(scope.get("modelFamilies")).isEmpty()
-                || !toList(scope.get("personaIds")).isEmpty()
-                || !toList(scope.get("sceneIds")).isEmpty();
+        MatchScope scope = item.getMatchScope() == null ? MatchScope.empty() : item.getMatchScope();
+        return !safe(scope.getAgents()).isEmpty()
+                || !safe(scope.getNodeKinds()).isEmpty()
+                || !safe(scope.getTaskStates()).isEmpty()
+                || !safe(scope.getModelFamilies()).isEmpty()
+                || !safe(scope.getPersonaIds()).isEmpty()
+                || !safe(scope.getSceneIds()).isEmpty();
     }
 
-    @SuppressWarnings("unchecked")
     private boolean agentMatched(PromptItemRecord item, PromptResolveContext context) {
         if (context == null) {
             return false;
         }
-        Map<String, Object> scope = item.getMatchScope() == null ? Map.of() : item.getMatchScope();
-        List<String> agents = toList(scope.get("agents"));
-        List<String> nodeKinds = toList(scope.get("nodeKinds"));
-        List<String> taskStates = toList(scope.get("taskStates"));
-        List<String> modelFamilies = toList(scope.get("modelFamilies"));
-        List<String> personaIds = toList(scope.get("personaIds"));
-        List<String> sceneIds = toList(scope.get("sceneIds"));
+        MatchScope scope = item.getMatchScope() == null ? MatchScope.empty() : item.getMatchScope();
+        List<String> agents = safe(scope.getAgents());
+        List<String> nodeKinds = safe(scope.getNodeKinds());
+        List<String> taskStates = safe(scope.getTaskStates());
+        List<String> modelFamilies = safe(scope.getModelFamilies());
+        List<String> personaIds = safe(scope.getPersonaIds());
+        List<String> sceneIds = safe(scope.getSceneIds());
         if (!agents.isEmpty() && !matchOne(agents, context.getAgent())) {
             return false;
         }
@@ -258,22 +257,8 @@ public class PromptResolverServiceImpl implements PromptResolverService {
         return false;
     }
 
-    @SuppressWarnings("unchecked")
-    private List<String> toList(Object value) {
-        if (!(value instanceof List<?> list) || list.isEmpty()) {
-            return List.of();
-        }
-        Set<String> out = new LinkedHashSet<>();
-        for (Object item : list) {
-            if (item == null) {
-                continue;
-            }
-            String text = String.valueOf(item).trim();
-            if (!text.isBlank()) {
-                out.add(text);
-            }
-        }
-        return out.stream().toList();
+    private List<String> safe(List<String> values) {
+        return values == null ? List.of() : values;
     }
 
     private record MatchDecision(boolean matched, String matchReason, String rejectedReason) {

@@ -11,6 +11,8 @@ import org.yilena.luna.prompt.governance.entity.PromptItemEntity;
 import org.yilena.luna.prompt.governance.entity.PromptItemVersionEntity;
 import org.yilena.luna.prompt.governance.mapper.PromptItemMapper;
 import org.yilena.luna.prompt.governance.mapper.PromptItemVersionMapper;
+import org.yilena.luna.prompt.governance.model.EditPolicy;
+import org.yilena.luna.prompt.governance.model.MatchScope;
 import org.yilena.luna.prompt.governance.model.PromptItemRecord;
 
 import java.util.ArrayList;
@@ -267,8 +269,8 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
                 .keywordMatchEnabled(bool(item.getKeywordMatchEnabled(), fallback != null && fallback.isKeywordMatchEnabled()))
                 .matchKeywords(version == null || version.getMatchKeywords() == null ? List.of() : version.getMatchKeywords())
                 .assemblyMode(safe(item.getAssemblyMode(), fallback == null ? "ALWAYS" : fallback.getAssemblyMode()))
-                .matchScope(version == null || version.getMatchScope() == null ? Map.of() : version.getMatchScope())
-                .editPolicy(version == null || version.getEditPolicy() == null ? Map.of() : version.getEditPolicy())
+                .matchScope(version == null ? MatchScope.empty() : MatchScope.fromMap(version.getMatchScope()))
+                .editPolicy(version == null ? EditPolicy.executionDefault() : EditPolicy.fromMap(version.getEditPolicy()))
                 .enabled(enabled)
                 .priority(item.getPriority() == null ? (fallback == null ? 80 : fallback.getPriority()) : item.getPriority())
                 .status(safe(item.getStatus(), enabled ? "enabled" : "disabled"))

@@ -4,7 +4,6 @@ import lombok.Builder;
 import lombok.Value;
 
 import java.util.List;
-import java.util.Map;
 
 @Value
 @Builder
@@ -23,8 +22,8 @@ public class PromptItemRecord {
     boolean keywordMatchEnabled;
     List<String> matchKeywords;
     String assemblyMode;
-    Map<String, Object> matchScope;
-    Map<String, Object> editPolicy;
+    MatchScope matchScope;
+    EditPolicy editPolicy;
     boolean enabled;
     Integer priority;
     String status;

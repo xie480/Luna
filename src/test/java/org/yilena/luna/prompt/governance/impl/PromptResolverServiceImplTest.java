@@ -6,6 +6,8 @@ import org.yilena.luna.prompt.governance.PromptCategoryService;
 import org.yilena.luna.prompt.governance.PromptPolicyService;
 import org.yilena.luna.prompt.governance.PromptRegistryService;
 import org.yilena.luna.prompt.governance.entity.PromptCategoryEntity;
+import org.yilena.luna.prompt.governance.model.EditPolicy;
+import org.yilena.luna.prompt.governance.model.MatchScope;
 import org.yilena.luna.prompt.governance.model.PromptItemRecord;
 import org.yilena.luna.prompt.governance.model.PromptResolveContext;
 import org.yilena.luna.prompt.governance.model.PromptResolveResult;
@@ -32,8 +34,8 @@ class PromptResolverServiceImplTest {
                 .keywordMatchEnabled(true)
                 .matchKeywords(List.of("gentle"))
                 .assemblyMode("KEYWORD_ONLY")
-                .matchScope(Map.of())
-                .editPolicy(Map.of())
+                .matchScope(MatchScope.empty())
+                .editPolicy(EditPolicy.contentDefault())
                 .enabled(true)
                 .priority(80)
                 .status("active")
@@ -52,8 +54,8 @@ class PromptResolverServiceImplTest {
                 .keywordMatchEnabled(true)
                 .matchKeywords(List.of("gentle"))
                 .assemblyMode("KEYWORD_ONLY")
-                .matchScope(Map.of())
-                .editPolicy(Map.of())
+                .matchScope(MatchScope.empty())
+                .editPolicy(EditPolicy.executionDefault())
                 .enabled(true)
                 .priority(100)
                 .status("active")
@@ -88,8 +90,8 @@ class PromptResolverServiceImplTest {
                 .keywordMatchEnabled(false)
                 .matchKeywords(List.of())
                 .assemblyMode("ALWAYS")
-                .matchScope(Map.of())
-                .editPolicy(Map.of())
+                .matchScope(MatchScope.empty())
+                .editPolicy(EditPolicy.executionDefault())
                 .enabled(true)
                 .priority(120)
                 .status("active")
@@ -124,8 +126,8 @@ class PromptResolverServiceImplTest {
                 .keywordMatchEnabled(true)
                 .matchKeywords(List.of("gentle"))
                 .assemblyMode("KEYWORD_ONLY")
-                .matchScope(Map.of("agents", List.of("OTHER_AGENT")))
-                .editPolicy(Map.of())
+                .matchScope(MatchScope.builder().agents(List.of("OTHER_AGENT")).build())
+                .editPolicy(EditPolicy.contentDefault())
                 .enabled(true)
                 .priority(80)
                 .status("enabled")
@@ -163,8 +165,8 @@ class PromptResolverServiceImplTest {
                 .keywordMatchEnabled(true)
                 .matchKeywords(List.of("gentle"))
                 .assemblyMode("KEYWORD_OR_AGENT")
-                .matchScope(Map.of())
-                .editPolicy(Map.of())
+                .matchScope(MatchScope.empty())
+                .editPolicy(EditPolicy.contentDefault())
                 .enabled(true)
                 .priority(80)
                 .status("enabled")
@@ -199,8 +201,8 @@ class PromptResolverServiceImplTest {
                 .keywordMatchEnabled(true)
                 .matchKeywords(List.of("gentle"))
                 .assemblyMode("KEYWORD_OR_AGENT")
-                .matchScope(Map.of())
-                .editPolicy(Map.of())
+                .matchScope(MatchScope.empty())
+                .editPolicy(EditPolicy.contentDefault())
                 .enabled(true)
                 .priority(80)
                 .status("enabled")

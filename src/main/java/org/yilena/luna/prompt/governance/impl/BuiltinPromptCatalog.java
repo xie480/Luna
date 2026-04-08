@@ -1,6 +1,8 @@
 package org.yilena.luna.prompt.governance.impl;
 
 import org.yilena.luna.prompt.PromptTemplates;
+import org.yilena.luna.prompt.governance.model.EditPolicy;
+import org.yilena.luna.prompt.governance.model.MatchScope;
 import org.yilena.luna.prompt.governance.model.PromptItemRecord;
 
 import java.util.LinkedHashMap;
@@ -268,12 +270,12 @@ final class BuiltinPromptCatalog {
                 .keywordMatchEnabled(keywordMatchEnabled)
                 .matchKeywords(List.of())
                 .assemblyMode(assemblyMode)
-                .matchScope(Map.of())
-                .editPolicy(Map.of(
-                        "create", !hasTemplateVariables,
-                        "update", true,
-                        "delete", !hasTemplateVariables
-                ))
+                .matchScope(MatchScope.empty())
+                .editPolicy(EditPolicy.builder()
+                        .create(!hasTemplateVariables)
+                        .update(true)
+                        .delete(!hasTemplateVariables)
+                        .build())
                 .enabled(true)
                 .priority(hasTemplateVariables ? 100 : 80)
                 .status("enabled")

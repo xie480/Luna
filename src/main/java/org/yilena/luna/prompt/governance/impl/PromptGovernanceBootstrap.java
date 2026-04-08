@@ -13,6 +13,8 @@ import org.yilena.luna.prompt.governance.entity.PromptItemVersionEntity;
 import org.yilena.luna.prompt.governance.mapper.PromptCategoryMapper;
 import org.yilena.luna.prompt.governance.mapper.PromptItemMapper;
 import org.yilena.luna.prompt.governance.mapper.PromptItemVersionMapper;
+import org.yilena.luna.prompt.governance.model.EditPolicy;
+import org.yilena.luna.prompt.governance.model.MatchScope;
 import org.yilena.luna.prompt.governance.model.PromptItemRecord;
 
 import java.lang.reflect.Field;
@@ -141,8 +143,8 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
                     .promptValue(row.getValue() == null ? "" : row.getValue())
                     .templateVariables(row.getTemplateVariables() == null ? List.of() : row.getTemplateVariables())
                     .matchKeywords(row.getMatchKeywords() == null ? List.of() : row.getMatchKeywords())
-                    .matchScope(defaultScope(row.getKey(), row.getMatchScope()))
-                    .editPolicy(row.getEditPolicy() == null ? Map.of("create", true, "update", true, "delete", true) : row.getEditPolicy())
+                    .matchScope(defaultScope(row.getKey(), row.getMatchScope()).toMap())
+                    .editPolicy((row.getEditPolicy() == null ? EditPolicy.contentDefault() : row.getEditPolicy()).toMap())
                     .status("active")
                     .changeNote("bootstrap_seed")
                     .isActive(true)
@@ -202,50 +204,47 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
         }
     }
 
-    private Map<String, Object> defaultScope(String key, Map<String, Object> origin) {
+    private MatchScope defaultScope(String key, MatchScope origin) {
         if (origin != null && !origin.isEmpty()) {
             return origin;
         }
         if (key == null || key.isBlank()) {
-            return Map.of();
+            return MatchScope.empty();
         }
         return switch (key) {
-            case "agent.reconstruction.default_v1" -> Map.of(
-                    "agents", List.of("INPUT_RECONSTRUCTION_AGENT"),
-                    "nodeKinds", List.of("CHAT_PRE_TOOL"),
-                    "taskStates", List.of("PLANNING", "EXECUTING")
-            );
-            case "agent.rerank.default_v1" -> Map.of(
-                    "agents", List.of("GLOBAL_CONTEXT_RERANK_AGENT"),
-                    "nodeKinds", List.of("CHAT_PRE_TOOL")
-            );
-            case "agent.recovery.default_v1" -> Map.of(
-                    "agents", List.of("RECOVERY_CONTEXT_AGENT")
-            );
-            case "agent.tool_semantic.default_v1" -> Map.of(
-                    "agents", List.of("TOOL_SEMANTIC_AGENT"),
-                    "nodeKinds", List.of("TOOL_DECISION", "CHAT_TURN")
-            );
-            case "agent.summary.default_v1" -> Map.of(
-                    "agents", List.of("SUMMARY_AGENT"),
-                    "nodeKinds", List.of("CHAT_TURN")
-            );
-            case "repair.main_json_v1" -> Map.of(
-                    "agents", List.of("MAIN_MODEL_REPAIR_AGENT")
-            );
-            case "tool.args_v1" -> Map.of(
-                    "agents", List.of("TOOL_DECISION_AGENT")
-            );
-            case "tool.decision_v1" -> Map.of(
-                    "agents", List.of("TOOL_DECISION_AGENT")
-            );
-            case "planner.master_v1" -> Map.of(
-                    "agents", List.of("MASTER_PLANNING_AGENT")
-            );
-            case "rag.planner.query_v1", "rag.planner.source_process_v1", "rag.planner.agent_stage_v1", "rag.planner.global_rerank_v1" -> Map.of(
-                    "agents", List.of("RAG_PLANNER_AGENT")
-            );
-            default -> Map.of();
+            case "agent.reconstruction.default_v1" -> MatchScope.builder()
+                    .agents(List.of("INPUT_RECONSTRUCTION_AGENT"))
+                    .nodeKinds(List.of("CHAT_PRE_TOOL"))
+                    .taskStates(List.of("PLANNING", "EXECUTING"))
+                    .build();
+            case "agent.rerank.default_v1" -> MatchScope.builder()
+                    .agents(List.of("GLOBAL_CONTEXT_RERANK_AGENT"))
+                    .nodeKinds(List.of("CHAT_PRE_TOOL"))
+                    .build();
+            case "agent.recovery.default_v1" -> MatchScope.builder()
+                    .agents(List.of("RECOVERY_CONTEXT_AGENT"))
+                    .build();
+            case "agent.tool_semantic.default_v1" -> MatchScope.builder()
+                    .agents(List.of("TOOL_SEMANTIC_AGENT"))
+                    .nodeKinds(List.of("TOOL_DECISION", "CHAT_TURN"))
+                    .build();
+            case "agent.summary.default_v1" -> MatchScope.builder()
+                    .agents(List.of("SUMMARY_AGENT"))
+                    .nodeKinds(List.of("CHAT_TURN"))
+                    .build();
+            case "repair.main_json_v1" -> MatchScope.builder()
+                    .agents(List.of("MAIN_MODEL_REPAIR_AGENT"))
+                    .build();
+            case "tool.args_v1", "tool.decision_v1" -> MatchScope.builder()
+                    .agents(List.of("TOOL_DECISION_AGENT"))
+                    .build();
+            case "planner.master_v1" -> MatchScope.builder()
+                    .agents(List.of("MASTER_PLANNING_AGENT"))
+                    .build();
+            case "rag.planner.query_v1", "rag.planner.source_process_v1", "rag.planner.agent_stage_v1", "rag.planner.global_rerank_v1" -> MatchScope.builder()
+                    .agents(List.of("RAG_PLANNER_AGENT"))
+                    .build();
+            default -> MatchScope.empty();
         };
     }
 
