@@ -21,6 +21,10 @@ import org.yilena.luna.gate.ToolExecutionGateway;
 import org.yilena.luna.memory.RuntimeAuditService;
 import org.yilena.luna.prompt.PromptTemplates;
 import org.yilena.luna.prompt.governance.PromptRegistryService;
+import org.yilena.luna.prompt.governance.PromptResolverService;
+import org.yilena.luna.prompt.governance.model.PromptResolveContext;
+import org.yilena.luna.prompt.governance.model.PromptResolveResult;
+import org.yilena.luna.prompt.governance.model.ResolvedPromptItem;
 import org.yilena.luna.router.CapabilityPolicyRouterService;
 import org.yilena.luna.router.ToolRouter;
 import org.yilena.luna.service.AgentService;
@@ -58,6 +62,8 @@ public class AgentServiceImpl implements AgentService {
     private final RuntimeAuditService runtimeAuditService;
     @Autowired(required = false)
     private PromptRegistryService promptRegistryService;
+    @Autowired(required = false)
+    private PromptResolverService promptResolverService;
     @Value("${luna.governance.strict-tool-decision:true}")
     private boolean strictToolDecision = true;
     private static final String WORKFLOW_ARGS_PROMPT_TEMPLATE = PromptTemplates.SKILL_ARGS_PROMPT;
@@ -107,7 +113,7 @@ public class AgentServiceImpl implements AgentService {
         }
 
         List<String> history = loadRecentHistory(sessionId);
-        String decisionJson = llmAdapter.generate(buildDecisionPrompt(assembledDecisionContext));
+        String decisionJson = llmAdapter.generate(buildDecisionPrompt(command, assembledDecisionContext));
         DecisionAction decision = parseDecisionAction(decisionJson);
         if (decision == null || "none".equalsIgnoreCase(decision.targetName()) || "null".equalsIgnoreCase(decision.targetName())) {
             return null;
@@ -123,7 +129,7 @@ public class AgentServiceImpl implements AgentService {
 
         String generatedArgsJson = decision.argumentsJson();
         if (generatedArgsJson == null || generatedArgsJson.isBlank()) {
-            generatedArgsJson = llmAdapter.generate(buildArgsPrompt(decisionInput, history, target));
+            generatedArgsJson = llmAdapter.generate(buildArgsPrompt(command, decisionInput, history, target));
         }
         if (!JsonSchemaValidator.validate(target.getInputSchema(), generatedArgsJson)) {
             generatedArgsJson = llmAdapter.generate(String.format(PromptTemplates.TOOL_ARGS_REPAIR_PROMPT, target.getInputSchema(), generatedArgsJson));
@@ -275,8 +281,8 @@ public class AgentServiceImpl implements AgentService {
         );
     }
 
-    private String buildDecisionPrompt(String assembledDecisionContext) {
-        String template = resolvePrompt("tool.decision_v1", TOOL_DECISION_PROMPT_FALLBACK);
+    private String buildDecisionPrompt(ToolDecisionCommand command, String assembledDecisionContext) {
+        String template = resolveToolDecisionPrompt(command, "agent.tool_decision", "tool.decision_v1", TOOL_DECISION_PROMPT_FALLBACK);
         String workset = assembledDecisionContext == null ? "" : assembledDecisionContext;
         if (template.contains("%s")) {
             return template.replace("%s", workset);
@@ -284,7 +290,7 @@ public class AgentServiceImpl implements AgentService {
         return template + System.lineSeparator() + workset;
     }
 
-    private String buildArgsPrompt(String input, List<String> history, Resource resource) {
+    private String buildArgsPrompt(ToolDecisionCommand command, String input, List<String> history, Resource resource) {
         String historyText = (history == null || history.isEmpty()) ? "(empty)" : String.join("\n", history);
         if (ResourceType.WORKFLOW.equals(resource.getType())) {
             return String.format(
@@ -298,13 +304,52 @@ public class AgentServiceImpl implements AgentService {
             );
         }
         return String.format(
-                resolvePrompt("tool.args_v1", PromptTemplates.TOOL_ARGS_PROMPT),
+                resolveToolDecisionPrompt(command, "agent.tool_args", "tool.args_v1", PromptTemplates.TOOL_ARGS_PROMPT),
                 input,
                 historyText,
                 resource.getName(),
                 resource.getDescription(),
                 resource.getInputSchema()
         );
+    }
+
+    private String resolveToolDecisionPrompt(ToolDecisionCommand command,
+                                             String runtimeSlot,
+                                             String fallbackKey,
+                                             String fallbackValue) {
+        if (promptResolverService != null) {
+            try {
+                PromptResolveResult resolved = promptResolverService.resolve(PromptResolveContext.builder()
+                        .sessionId(resolveStableSessionId(command == null ? null : command.getSessionId()))
+                        .userInput(command == null ? "" : command.getToolDecisionInput())
+                        .agent("TOOL_DECISION_AGENT")
+                        .nodeKind("TOOL_DECISION")
+                        .taskState(command == null || command.getTaskState() == null ? "" : command.getTaskState().name())
+                        .build());
+                String fromSlot = firstResolvedPromptValue(resolved, runtimeSlot);
+                if (!fromSlot.isBlank()) {
+                    return fromSlot;
+                }
+            } catch (Exception ignore) {
+            }
+        }
+        return resolvePrompt(fallbackKey, fallbackValue);
+    }
+
+    private String firstResolvedPromptValue(PromptResolveResult resolved, String runtimeSlot) {
+        if (resolved == null || resolved.getSlotMapping() == null || runtimeSlot == null || runtimeSlot.isBlank()) {
+            return "";
+        }
+        List<ResolvedPromptItem> items = resolved.getSlotMapping().get(runtimeSlot);
+        if (items == null || items.isEmpty()) {
+            return "";
+        }
+        for (ResolvedPromptItem item : items) {
+            if (item != null && item.getValue() != null && !item.getValue().isBlank()) {
+                return item.getValue();
+            }
+        }
+        return "";
     }
 
     private String resolvePrompt(String key, String fallback) {

@@ -1125,6 +1125,11 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 contextPackage == null || contextPackage.getContextState() == null ? "" : nullSafe(contextPackage.getContextState().getLatestContextSnapshotId()),
                 contextPackage == null || contextPackage.getRecoveryState() == null ? "" : nullSafe(contextPackage.getRecoveryState().getRecoveryEvent())
         );
+        PromptResolveResult mainPromptResolveResult = resolveMainModelPromptAssembly(
+                request.getUserInput(),
+                contextPackage,
+                request.getNodeTemplatePolicy()
+        );
         AssembledContext assembledContext = contextAssembler.assembleAndSnapshot(
                 contextPackage,
                 request.getReconstructionResult(),
@@ -1148,7 +1153,8 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 nodeId,
                 rawToolResultChannel,
                 activeRefs,
-                buildStructuredRecoveryPayload(contextPackage)
+                buildStructuredRecoveryPayload(contextPackage),
+                mainPromptResolveResult
         );
         String finalSnapshotId = assembledContext == null ? "" : nullSafe(assembledContext.getSnapshotId());
         Map<String, Object> contextTraceMeta = buildTraceMeta(
@@ -1678,9 +1684,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         JsonNode node = tryParseJsonNode(valid);
         if (!isValidReplyNode(node)) {
             try {
-                String repairTemplate = promptRegistryService == null
-                        ? PromptTemplates.REPAIR_PROMPT
-                        : promptRegistryService.resolvePromptValue("repair.main_json_v1", PromptTemplates.REPAIR_PROMPT);
+                String repairTemplate = resolveRepairPrompt(repairSeed, contextPackage);
                 String repairPrompt = repairTemplate.formatted(
                         repairSeed == null || repairSeed.isBlank() ? valid : repairSeed
                 );
@@ -1706,6 +1710,146 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         }
         String raw = node.toString();
         return new ModelReply(raw, removeThoughtFromJson(raw), node.get(ModelHintConstant.REPLY).asText());
+    }
+
+    private PromptResolveResult resolveMainModelPromptAssembly(String userInput,
+                                                               StructuredContextPackage contextPackage,
+                                                               ContextNodeTemplatePolicy nodeTemplatePolicy) {
+        if (promptResolverService == null) {
+            return null;
+        }
+        try {
+            PromptResolveContext context = PromptResolveContext.builder()
+                    .sessionId(contextPackage == null ? "" : nullSafe(contextPackage.getSessionId()))
+                    .userInput(userInput)
+                    .policyId(resolvePromptPolicyId(contextPackage))
+                    .personaId(resolvePromptBinding(contextPackage, "personaId", "persona_id"))
+                    .sceneId(resolvePromptBinding(contextPackage, "sceneId", "scene_id"))
+                    .agent(nodeTemplatePolicy == null || nodeTemplatePolicy.getPromptAgent() == null || nodeTemplatePolicy.getPromptAgent().isBlank()
+                            ? "MAIN_CHAT_AGENT"
+                            : nodeTemplatePolicy.getPromptAgent())
+                    .nodeKind(nodeTemplatePolicy == null || nodeTemplatePolicy.getNodeKind() == null || nodeTemplatePolicy.getNodeKind().isBlank()
+                            ? "CHAT_TURN"
+                            : nodeTemplatePolicy.getNodeKind())
+                    .taskState(contextPackage == null || contextPackage.getTaskState() == null ? "" : contextPackage.getTaskState().name())
+                    .modelFamily(resolvePromptModelFamily(contextPackage))
+                    .build();
+            return promptResolverService.resolve(context);
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    private String resolveRepairPrompt(String repairSeed, StructuredContextPackage contextPackage) {
+        if (promptResolverService != null) {
+            try {
+                PromptResolveResult resolved = promptResolverService.resolve(PromptResolveContext.builder()
+                        .sessionId(contextPackage == null ? "" : nullSafe(contextPackage.getSessionId()))
+                        .userInput(repairSeed)
+                        .policyId(resolvePromptPolicyId(contextPackage))
+                        .personaId(resolvePromptBinding(contextPackage, "personaId", "persona_id"))
+                        .sceneId(resolvePromptBinding(contextPackage, "sceneId", "scene_id"))
+                        .agent("MAIN_MODEL_REPAIR_AGENT")
+                        .nodeKind("CHAT_TURN")
+                        .taskState(contextPackage == null || contextPackage.getTaskState() == null ? "" : contextPackage.getTaskState().name())
+                        .modelFamily(resolvePromptModelFamily(contextPackage))
+                        .build());
+                String fromSlot = resolvePromptValueFromSlot(resolved, "repair.main");
+                if (!fromSlot.isBlank()) {
+                    return fromSlot;
+                }
+                String fromKey = resolvePromptValueFromKey(resolved, "repair.main_json_v1");
+                if (!fromKey.isBlank()) {
+                    return fromKey;
+                }
+            } catch (Exception ignore) {
+            }
+        }
+        return promptRegistryService == null
+                ? PromptTemplates.REPAIR_PROMPT
+                : promptRegistryService.resolvePromptValue("repair.main_json_v1", PromptTemplates.REPAIR_PROMPT);
+    }
+
+    private String resolvePromptValueFromSlot(PromptResolveResult resolved, String slot) {
+        if (resolved == null || resolved.getSlotMapping() == null || slot == null || slot.isBlank()) {
+            return "";
+        }
+        List<ResolvedPromptItem> items = resolved.getSlotMapping().get(slot);
+        if (items == null || items.isEmpty()) {
+            return "";
+        }
+        for (ResolvedPromptItem item : items) {
+            if (item != null && item.getValue() != null && !item.getValue().isBlank()) {
+                return item.getValue();
+            }
+        }
+        return "";
+    }
+
+    private String resolvePromptValueFromKey(PromptResolveResult resolved, String key) {
+        if (resolved == null || resolved.getMatchedItems() == null || key == null || key.isBlank()) {
+            return "";
+        }
+        for (ResolvedPromptItem item : resolved.getMatchedItems()) {
+            if (item == null) {
+                continue;
+            }
+            if (key.equalsIgnoreCase(item.getKey()) && item.getValue() != null && !item.getValue().isBlank()) {
+                return item.getValue();
+            }
+        }
+        return "";
+    }
+
+    private String resolvePromptPolicyId(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getPromptPolicy() == null) {
+            return "";
+        }
+        Object byCamel = contextPackage.getPromptPolicy().get("policyId");
+        if (byCamel != null && !String.valueOf(byCamel).isBlank()) {
+            return String.valueOf(byCamel);
+        }
+        Object bySnake = contextPackage.getPromptPolicy().get("policy_id");
+        return bySnake == null ? "" : String.valueOf(bySnake);
+    }
+
+    private String resolvePromptBinding(StructuredContextPackage contextPackage, String camelKey, String snakeKey) {
+        if (contextPackage == null) {
+            return "";
+        }
+        String fromPolicy = readPromptBindingMap(contextPackage.getPromptPolicy(), camelKey, snakeKey);
+        if (!fromPolicy.isBlank()) {
+            return fromPolicy;
+        }
+        String fromTask = readPromptBindingMap(contextPackage.getTaskContext(), camelKey, snakeKey);
+        if (!fromTask.isBlank()) {
+            return fromTask;
+        }
+        return readPromptBindingMap(contextPackage.getRelationalContext(), camelKey, snakeKey);
+    }
+
+    private String readPromptBindingMap(Map<String, Object> source, String camelKey, String snakeKey) {
+        if (source == null || source.isEmpty()) {
+            return "";
+        }
+        Object byCamel = source.get(camelKey);
+        if (byCamel != null && !String.valueOf(byCamel).isBlank()) {
+            return String.valueOf(byCamel);
+        }
+        Object bySnake = source.get(snakeKey);
+        return bySnake == null ? "" : String.valueOf(bySnake);
+    }
+
+    private String resolvePromptModelFamily(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getRuntime() == null) {
+            return "";
+        }
+        Object model = contextPackage.getRuntime().get("modelFamily");
+        if (model != null && !String.valueOf(model).isBlank()) {
+            return String.valueOf(model);
+        }
+        model = contextPackage.getRuntime().get("model_family");
+        return model == null ? "" : String.valueOf(model);
     }
 
     private String resolveExecutionModelName(StructuredContextPackage contextPackage) {

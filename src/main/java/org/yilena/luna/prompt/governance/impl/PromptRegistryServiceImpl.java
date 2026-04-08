@@ -14,6 +14,7 @@ import org.yilena.luna.prompt.governance.mapper.PromptItemVersionMapper;
 import org.yilena.luna.prompt.governance.model.EditPolicy;
 import org.yilena.luna.prompt.governance.model.MatchScope;
 import org.yilena.luna.prompt.governance.model.PromptItemRecord;
+import org.yilena.luna.prompt.governance.support.PromptKeyAliasSupport;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -61,6 +62,7 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
             return Optional.empty();
         }
         String normalized = key.trim();
+        Set<String> aliasCandidates = PromptKeyAliasSupport.aliasesOf(normalized);
         try {
             PromptItemEntity item = promptItemMapper.selectOne(
                     new LambdaQueryWrapper<PromptItemEntity>()
@@ -71,12 +73,29 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
             if (exact != null) {
                 return Optional.of(exact);
             }
+            if (item == null && aliasCandidates.size() > 1) {
+                for (String alias : aliasCandidates) {
+                    if (alias.equalsIgnoreCase(normalized)) {
+                        continue;
+                    }
+                    PromptItemEntity aliasItem = promptItemMapper.selectOne(
+                            new LambdaQueryWrapper<PromptItemEntity>()
+                                    .eq(PromptItemEntity::getPromptKey, alias)
+                                    .last("limit 1")
+                    );
+                    PromptItemRecord aliasRecord = toRecordIfVisible(aliasItem, includeDisabled);
+                    if (aliasRecord != null) {
+                        return Optional.of(aliasRecord);
+                    }
+                }
+            }
             boolean existsButInactive = item != null && !includeDisabled;
             if (existsButInactive) {
                 return Optional.empty();
             }
             for (PromptItemRecord candidate : listAll(includeDisabled)) {
-                if (isKeyAliasMatch(normalized, candidate.getKey())) {
+                if (isKeyAliasMatch(normalized, candidate.getKey())
+                        || PromptKeyAliasSupport.matches(normalized, candidate.getKey())) {
                     return Optional.of(candidate);
                 }
             }
@@ -85,8 +104,15 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
                 if (directBuiltin != null) {
                     return Optional.of(directBuiltin);
                 }
+                for (String alias : aliasCandidates) {
+                    PromptItemRecord aliasBuiltin = builtins.get(alias);
+                    if (aliasBuiltin != null) {
+                        return Optional.of(aliasBuiltin);
+                    }
+                }
                 for (PromptItemRecord builtin : builtins.values()) {
-                    if (isKeyAliasMatch(normalized, builtin.getKey())) {
+                    if (isKeyAliasMatch(normalized, builtin.getKey())
+                            || PromptKeyAliasSupport.matches(normalized, builtin.getKey())) {
                         return Optional.of(builtin);
                     }
                 }
@@ -122,6 +148,7 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
             return false;
         }
         String normalized = key.trim();
+        Set<String> aliasCandidates = PromptKeyAliasSupport.aliasesOf(normalized);
         try {
             PromptItemEntity item = promptItemMapper.selectOne(
                     new LambdaQueryWrapper<PromptItemEntity>()
@@ -131,10 +158,34 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
             if (item != null) {
                 return true;
             }
+            for (String alias : aliasCandidates) {
+                if (alias.equalsIgnoreCase(normalized)) {
+                    continue;
+                }
+                PromptItemEntity aliasItem = promptItemMapper.selectOne(
+                        new LambdaQueryWrapper<PromptItemEntity>()
+                                .eq(PromptItemEntity::getPromptKey, alias)
+                                .last("limit 1")
+                );
+                if (aliasItem != null) {
+                    return true;
+                }
+            }
         } catch (Exception ignore) {
             // fallback below
         }
-        return builtinFallbackEnabled && builtins.containsKey(normalized);
+        if (!builtinFallbackEnabled) {
+            return false;
+        }
+        if (builtins.containsKey(normalized)) {
+            return true;
+        }
+        for (String alias : aliasCandidates) {
+            if (builtins.containsKey(alias)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override

@@ -13,6 +13,7 @@ import org.yilena.luna.prompt.governance.model.PromptResolveContext;
 import org.yilena.luna.prompt.governance.model.PromptResolveResult;
 import org.yilena.luna.prompt.governance.model.RejectedPromptItem;
 import org.yilena.luna.prompt.governance.model.ResolvedPromptItem;
+import org.yilena.luna.prompt.governance.support.PromptKeyAliasSupport;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -111,17 +112,17 @@ public class PromptResolverServiceImpl implements PromptResolverService {
                                         PromptResolveContext context,
                                         Set<String> policyIncludes,
                                         Set<String> policyExcludes) {
-        if (policyExcludes.contains(item.getKey())) {
+        if (setContainsAlias(policyExcludes, item.getKey())) {
             return MatchDecision.rejected("POLICY_EXCLUDED");
         }
         PromptAssemblyMode mode = PromptAssemblyMode.from(item.getAssemblyMode());
         boolean keyword = keywordMatched(item, context == null ? "" : context.getUserInput());
         boolean agent = agentMatched(item, context);
-        boolean policy = policyIncludes.contains(item.getKey());
+        boolean policy = setContainsAlias(policyIncludes, item.getKey());
         boolean hasScope = hasScopeConstraint(item);
         boolean manual = context != null
                 && context.getManualPromptKeys() != null
-                && context.getManualPromptKeys().stream().anyMatch(key -> key != null && key.equalsIgnoreCase(item.getKey()));
+                && context.getManualPromptKeys().stream().anyMatch(key -> key != null && PromptKeyAliasSupport.matches(key, item.getKey()));
 
         if (requiresScope(mode) && !hasScope) {
             return MatchDecision.rejected("MISSING_MATCH_SCOPE");
@@ -259,6 +260,18 @@ public class PromptResolverServiceImpl implements PromptResolverService {
 
     private List<String> safe(List<String> values) {
         return values == null ? List.of() : values;
+    }
+
+    private boolean setContainsAlias(Set<String> keys, String key) {
+        if (keys == null || keys.isEmpty() || key == null || key.isBlank()) {
+            return false;
+        }
+        for (String candidate : keys) {
+            if (PromptKeyAliasSupport.matches(candidate, key)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private record MatchDecision(boolean matched, String matchReason, String rejectedReason) {

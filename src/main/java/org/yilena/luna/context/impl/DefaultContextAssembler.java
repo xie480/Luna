@@ -81,10 +81,56 @@ public class DefaultContextAssembler implements ContextAssembler {
                                      List<String> mcpResourceHints,
                                      String toolContext,
                                      ContextNodeTemplatePolicy nodeTemplatePolicy,
-                                     SummaryResult roundSummaryInput,
-                                      String sessionId,
-                                      Long planId,
-                                      Long nodeId) {
+                                      SummaryResult roundSummaryInput,
+                                       String sessionId,
+                                       Long planId,
+                                       Long nodeId) {
+        return assembleInternal(
+                contextPackage,
+                reconstructionResult,
+                rerankResult,
+                toolSemanticResult,
+                userInput,
+                knowledgeEvidenceBlocks,
+                workingMemorySnippets,
+                runtimeMemorySnippets,
+                retrievedMemorySnippets,
+                knowledgeSnippets,
+                preferenceSnippets,
+                longTermMemorySnippets,
+                executionCandidates,
+                mcpResourceHints,
+                toolContext,
+                nodeTemplatePolicy,
+                roundSummaryInput,
+                sessionId,
+                planId,
+                nodeId,
+                null
+        );
+    }
+
+    private AssembledContext assembleInternal(StructuredContextPackage contextPackage,
+                                              InputReconstructionResult reconstructionResult,
+                                              ContextRerankResult rerankResult,
+                                              ToolSemanticResult toolSemanticResult,
+                                              String userInput,
+                                              List<EvidenceBlock> knowledgeEvidenceBlocks,
+                                              List<String> workingMemorySnippets,
+                                              List<String> runtimeMemorySnippets,
+                                              List<String> retrievedMemorySnippets,
+                                              List<String> knowledgeSnippets,
+                                              List<String> preferenceSnippets,
+                                              List<String> longTermMemorySnippets,
+                                              List<Resource> executionCandidates,
+                                              List<String> mcpResourceHints,
+                                              String toolContext,
+                                              ContextNodeTemplatePolicy nodeTemplatePolicy,
+                                              SummaryResult roundSummaryInput,
+                                              String sessionId,
+                                              Long planId,
+                                              Long nodeId,
+                                              PromptResolveResult preResolvedPromptAssembly) {
         ContextNodeTemplatePolicy policy = nodeTemplatePolicy == null ? ContextNodeTemplatePolicy.defaultPolicy() : nodeTemplatePolicy;
         ToolSemanticResult effectiveToolSemanticResult = toolSemanticResult == null
                 ? resolveOnDemandToolSemantic(executionCandidates, toolContext, contextPackage, reconstructionResult)
@@ -132,7 +178,9 @@ public class DefaultContextAssembler implements ContextAssembler {
                 effectiveRoundSummaryInput,
                 policy
         );
-        PromptResolveResult promptResolveResult = resolvePromptAssembly(userInput, contextPackage, policy);
+        PromptResolveResult promptResolveResult = preResolvedPromptAssembly == null
+                ? resolvePromptAssembly(userInput, contextPackage, policy)
+                : preResolvedPromptAssembly;
         PromptValueSelection systemPromptSelection = resolveSystemPromptSelection(promptResolveResult);
         PromptValueSelection runtimePromptSelection = resolveRuntimePromptTemplateSelection(promptResolveResult);
         String systemPrompt = systemPromptSelection.value();
@@ -237,7 +285,7 @@ public class DefaultContextAssembler implements ContextAssembler {
                                                 Map<String, Object> rawToolResultChannel,
                                                 Map<String, List<String>> activeRefs,
                                                 Map<String, Object> structuredRecoveryPayload) {
-        AssembledContext assembled = assemble(
+        AssembledContext assembled = assembleInternal(
                 contextPackage,
                 reconstructionResult,
                 rerankResult,
@@ -257,8 +305,137 @@ public class DefaultContextAssembler implements ContextAssembler {
                 roundSummaryInput,
                 sessionId,
                 planId,
-                nodeId
+                nodeId,
+                null
         );
+        return snapshotAssembledContext(
+                contextPackage,
+                reconstructionResult,
+                rerankResult,
+                toolSemanticResult,
+                userInput,
+                knowledgeEvidenceBlocks,
+                workingMemorySnippets,
+                runtimeMemorySnippets,
+                retrievedMemorySnippets,
+                knowledgeSnippets,
+                preferenceSnippets,
+                longTermMemorySnippets,
+                executionCandidates,
+                mcpResourceHints,
+                toolContext,
+                nodeTemplatePolicy,
+                roundSummaryInput,
+                sessionId,
+                planId,
+                nodeId,
+                rawToolResultChannel,
+                activeRefs,
+                structuredRecoveryPayload,
+                assembled
+        );
+    }
+
+    @Override
+    public AssembledContext assembleAndSnapshot(StructuredContextPackage contextPackage,
+                                                InputReconstructionResult reconstructionResult,
+                                                ContextRerankResult rerankResult,
+                                                ToolSemanticResult toolSemanticResult,
+                                                String userInput,
+                                                List<EvidenceBlock> knowledgeEvidenceBlocks,
+                                                List<String> workingMemorySnippets,
+                                                List<String> runtimeMemorySnippets,
+                                                List<String> retrievedMemorySnippets,
+                                                List<String> knowledgeSnippets,
+                                                List<String> preferenceSnippets,
+                                                List<String> longTermMemorySnippets,
+                                                List<Resource> executionCandidates,
+                                                List<String> mcpResourceHints,
+                                                String toolContext,
+                                                ContextNodeTemplatePolicy nodeTemplatePolicy,
+                                                SummaryResult roundSummaryInput,
+                                                String sessionId,
+                                                Long planId,
+                                                Long nodeId,
+                                                Map<String, Object> rawToolResultChannel,
+                                                Map<String, List<String>> activeRefs,
+                                                Map<String, Object> structuredRecoveryPayload,
+                                                PromptResolveResult promptResolveResult) {
+        AssembledContext assembled = assembleInternal(
+                contextPackage,
+                reconstructionResult,
+                rerankResult,
+                toolSemanticResult,
+                userInput,
+                knowledgeEvidenceBlocks,
+                workingMemorySnippets,
+                runtimeMemorySnippets,
+                retrievedMemorySnippets,
+                knowledgeSnippets,
+                preferenceSnippets,
+                longTermMemorySnippets,
+                executionCandidates,
+                mcpResourceHints,
+                toolContext,
+                nodeTemplatePolicy,
+                roundSummaryInput,
+                sessionId,
+                planId,
+                nodeId,
+                promptResolveResult
+        );
+        return snapshotAssembledContext(
+                contextPackage,
+                reconstructionResult,
+                rerankResult,
+                toolSemanticResult,
+                userInput,
+                knowledgeEvidenceBlocks,
+                workingMemorySnippets,
+                runtimeMemorySnippets,
+                retrievedMemorySnippets,
+                knowledgeSnippets,
+                preferenceSnippets,
+                longTermMemorySnippets,
+                executionCandidates,
+                mcpResourceHints,
+                toolContext,
+                nodeTemplatePolicy,
+                roundSummaryInput,
+                sessionId,
+                planId,
+                nodeId,
+                rawToolResultChannel,
+                activeRefs,
+                structuredRecoveryPayload,
+                assembled
+        );
+    }
+
+    private AssembledContext snapshotAssembledContext(StructuredContextPackage contextPackage,
+                                                      InputReconstructionResult reconstructionResult,
+                                                      ContextRerankResult rerankResult,
+                                                      ToolSemanticResult toolSemanticResult,
+                                                      String userInput,
+                                                      List<EvidenceBlock> knowledgeEvidenceBlocks,
+                                                      List<String> workingMemorySnippets,
+                                                      List<String> runtimeMemorySnippets,
+                                                      List<String> retrievedMemorySnippets,
+                                                      List<String> knowledgeSnippets,
+                                                      List<String> preferenceSnippets,
+                                                      List<String> longTermMemorySnippets,
+                                                      List<Resource> executionCandidates,
+                                                      List<String> mcpResourceHints,
+                                                      String toolContext,
+                                                      ContextNodeTemplatePolicy nodeTemplatePolicy,
+                                                      SummaryResult roundSummaryInput,
+                                                      String sessionId,
+                                                      Long planId,
+                                                      Long nodeId,
+                                                      Map<String, Object> rawToolResultChannel,
+                                                      Map<String, List<String>> activeRefs,
+                                                      Map<String, Object> structuredRecoveryPayload,
+                                                      AssembledContext assembled) {
         String snapshotId = contextSnapshotWriter.persistFinalSnapshot(
                 sessionId,
                 planId,

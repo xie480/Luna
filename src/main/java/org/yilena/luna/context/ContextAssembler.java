@@ -9,6 +9,7 @@ import org.yilena.luna.context.model.SummaryResult;
 import org.yilena.luna.context.model.ToolSemanticResult;
 import org.yilena.luna.entity.Resource;
 import org.yilena.luna.memory.model.StructuredContextPackage;
+import org.yilena.luna.prompt.governance.model.PromptResolveResult;
 
 import java.util.List;
 import java.util.Map;
@@ -58,4 +59,55 @@ public interface ContextAssembler {
                                          Map<String, Object> rawToolResultChannel,
                                          Map<String, List<String>> activeRefs,
                                          Map<String, Object> structuredRecoveryPayload);
+
+    default AssembledContext assembleAndSnapshot(StructuredContextPackage contextPackage,
+                                                 InputReconstructionResult reconstructionResult,
+                                                 ContextRerankResult rerankResult,
+                                                 ToolSemanticResult toolSemanticResult,
+                                                 String userInput,
+                                                 List<EvidenceBlock> knowledgeEvidenceBlocks,
+                                                 List<String> workingMemorySnippets,
+                                                 List<String> runtimeMemorySnippets,
+                                                 List<String> retrievedMemorySnippets,
+                                                 List<String> knowledgeSnippets,
+                                                 List<String> preferenceSnippets,
+                                                 List<String> longTermMemorySnippets,
+                                                 List<Resource> executionCandidates,
+                                                 List<String> mcpResourceHints,
+                                                 String toolContext,
+                                                 ContextNodeTemplatePolicy nodeTemplatePolicy,
+                                                 SummaryResult roundSummaryInput,
+                                                 String sessionId,
+                                                 Long planId,
+                                                 Long nodeId,
+                                                 Map<String, Object> rawToolResultChannel,
+                                                 Map<String, List<String>> activeRefs,
+                                                 Map<String, Object> structuredRecoveryPayload,
+                                                 PromptResolveResult promptResolveResult) {
+        return assembleAndSnapshot(
+                contextPackage,
+                reconstructionResult,
+                rerankResult,
+                toolSemanticResult,
+                userInput,
+                knowledgeEvidenceBlocks,
+                workingMemorySnippets,
+                runtimeMemorySnippets,
+                retrievedMemorySnippets,
+                knowledgeSnippets,
+                preferenceSnippets,
+                longTermMemorySnippets,
+                executionCandidates,
+                mcpResourceHints,
+                toolContext,
+                nodeTemplatePolicy,
+                roundSummaryInput,
+                sessionId,
+                planId,
+                nodeId,
+                rawToolResultChannel,
+                activeRefs,
+                structuredRecoveryPayload
+        );
+    }
 }
