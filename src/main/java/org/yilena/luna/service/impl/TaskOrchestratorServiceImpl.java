@@ -844,6 +844,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                             .rawUserInput(safeUserInput)
                             .toolDecisionInput(mcpDrivenInput)
                             .policyId(resolvePromptPolicyId(contextPackage))
+                            .manualPromptKeys(resolvePromptManualKeys(contextPackage))
                             .personaId(resolvePromptBinding(contextPackage, "personaId", "persona_id"))
                             .sceneId(resolvePromptBinding(contextPackage, "sceneId", "scene_id"))
                             .taskState(decision == null ? null : decision.getTaskState())
@@ -1727,6 +1728,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     .sessionId(contextPackage == null ? "" : nullSafe(contextPackage.getSessionId()))
                     .userInput(userInput)
                     .policyId(resolvePromptPolicyId(contextPackage))
+                    .manualPromptKeys(resolvePromptManualKeys(contextPackage))
                     .personaId(resolvePromptBinding(contextPackage, "personaId", "persona_id"))
                     .sceneId(resolvePromptBinding(contextPackage, "sceneId", "scene_id"))
                     .agent(nodeTemplatePolicy == null || nodeTemplatePolicy.getPromptAgent() == null || nodeTemplatePolicy.getPromptAgent().isBlank()
@@ -1751,6 +1753,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                         .sessionId(contextPackage == null ? "" : nullSafe(contextPackage.getSessionId()))
                         .userInput(repairSeed)
                         .policyId(resolvePromptPolicyId(contextPackage))
+                        .manualPromptKeys(resolvePromptManualKeys(contextPackage))
                         .personaId(resolvePromptBinding(contextPackage, "personaId", "persona_id"))
                         .sceneId(resolvePromptBinding(contextPackage, "sceneId", "scene_id"))
                         .agent("MAIN_MODEL_REPAIR_AGENT")
@@ -1817,6 +1820,17 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         return bySnake == null ? "" : String.valueOf(bySnake);
     }
 
+    private List<String> resolvePromptManualKeys(StructuredContextPackage contextPackage) {
+        if (contextPackage == null) {
+            return List.of();
+        }
+        List<String> fromPolicy = readPromptKeyList(contextPackage.getPromptPolicy(), "manualPromptKeys", "manual_prompt_keys");
+        if (!fromPolicy.isEmpty()) {
+            return fromPolicy;
+        }
+        return readPromptKeyList(contextPackage.getTaskContext(), "manualPromptKeys", "manual_prompt_keys");
+    }
+
     private String resolvePromptBinding(StructuredContextPackage contextPackage, String camelKey, String snakeKey) {
         if (contextPackage == null) {
             return "";
@@ -1842,6 +1856,48 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         }
         Object bySnake = source.get(snakeKey);
         return bySnake == null ? "" : String.valueOf(bySnake);
+    }
+
+    private List<String> readPromptKeyList(Map<String, Object> source, String camelKey, String snakeKey) {
+        if (source == null || source.isEmpty()) {
+            return List.of();
+        }
+        List<String> byCamel = toPromptKeyList(source.get(camelKey));
+        if (!byCamel.isEmpty()) {
+            return byCamel;
+        }
+        return toPromptKeyList(source.get(snakeKey));
+    }
+
+    private List<String> toPromptKeyList(Object raw) {
+        if (raw == null) {
+            return List.of();
+        }
+        List<String> values = new ArrayList<>();
+        if (raw instanceof List<?> list) {
+            for (Object item : list) {
+                if (item == null) {
+                    continue;
+                }
+                String key = String.valueOf(item).trim();
+                if (!key.isBlank() && !values.contains(key)) {
+                    values.add(key);
+                }
+            }
+            return values;
+        }
+        String text = String.valueOf(raw);
+        if (text.isBlank()) {
+            return List.of();
+        }
+        String normalized = text.replace('\r', '\n');
+        for (String part : normalized.split("[,\\n]")) {
+            String key = part == null ? "" : part.trim();
+            if (!key.isBlank() && !values.contains(key)) {
+                values.add(key);
+            }
+        }
+        return values;
     }
 
     private String resolvePromptModelFamily(StructuredContextPackage contextPackage) {

@@ -20,6 +20,7 @@ public class ToolDecisionCommand {
     TaskRuntimeState taskState;
     RelationalRuntimeState relationalState;
     String modelFamily;
+    List<String> manualPromptKeys;
     List<Resource> executionCandidates;
     String governedInputSignature;
     String assembledDecisionContext;

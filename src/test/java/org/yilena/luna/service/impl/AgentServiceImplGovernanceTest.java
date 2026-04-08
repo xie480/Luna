@@ -178,6 +178,7 @@ class AgentServiceImplGovernanceTest {
                 .rawUserInput("raw_input_should_not_be_used")
                 .toolDecisionInput(decisionInput)
                 .policyId("policy-chat-v1")
+                .manualPromptKeys(List.of("persona.maid.gentle_v1", " persona.maid.gentle_v1 ", " "))
                 .personaId("persona-maid-v1")
                 .sceneId("scene-night-v1")
                 .taskState(null)
@@ -197,6 +198,7 @@ class AgentServiceImplGovernanceTest {
         assertEquals("scene-night-v1", resolveContext.getSceneId());
         assertEquals("qwen", resolveContext.getModelFamily());
         assertEquals("TOOL_DECISION_AGENT", resolveContext.getAgent());
+        assertEquals(List.of("persona.maid.gentle_v1"), resolveContext.getManualPromptKeys());
     }
 
     private void setField(Object target, String name, Object value) throws Exception {

@@ -124,6 +124,10 @@ public class PromptResolverServiceImpl implements PromptResolverService {
                 && context.getManualPromptKeys() != null
                 && context.getManualPromptKeys().stream().anyMatch(key -> key != null && PromptKeyAliasSupport.matches(key, item.getKey()));
 
+        if (policy && mode != PromptAssemblyMode.POLICY_ONLY && mode != PromptAssemblyMode.DISABLED) {
+            return MatchDecision.matched("POLICY_INCLUDED");
+        }
+
         if (requiresScope(mode) && !hasScope) {
             return MatchDecision.rejected("MISSING_MATCH_SCOPE");
         }

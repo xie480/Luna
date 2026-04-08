@@ -1090,6 +1090,7 @@ public class DefaultContextAssembler implements ContextAssembler {
                     .sessionId(contextPackage == null ? "" : safe(contextPackage.getSessionId()))
                     .userInput(userInput)
                     .policyId(resolvePolicyId(contextPackage))
+                    .manualPromptKeys(resolveManualPromptKeys(contextPackage))
                     .personaId(resolveContextBinding(contextPackage, "personaId", "persona_id"))
                     .sceneId(resolveContextBinding(contextPackage, "sceneId", "scene_id"))
                     .agent(resolvePromptAgent(policy))
@@ -1120,6 +1121,59 @@ public class DefaultContextAssembler implements ContextAssembler {
         }
         Object bySnake = contextPackage.getPromptPolicy().get("policy_id");
         return bySnake == null ? "" : String.valueOf(bySnake);
+    }
+
+    private List<String> resolveManualPromptKeys(StructuredContextPackage contextPackage) {
+        if (contextPackage == null) {
+            return List.of();
+        }
+        List<String> fromPolicy = readPromptKeyList(contextPackage.getPromptPolicy(), "manualPromptKeys", "manual_prompt_keys");
+        if (!fromPolicy.isEmpty()) {
+            return fromPolicy;
+        }
+        return readPromptKeyList(contextPackage.getTaskContext(), "manualPromptKeys", "manual_prompt_keys");
+    }
+
+    private List<String> readPromptKeyList(Map<String, Object> source, String camelKey, String snakeKey) {
+        if (source == null || source.isEmpty()) {
+            return List.of();
+        }
+        List<String> byCamel = toPromptKeyList(source.get(camelKey));
+        if (!byCamel.isEmpty()) {
+            return byCamel;
+        }
+        return toPromptKeyList(source.get(snakeKey));
+    }
+
+    private List<String> toPromptKeyList(Object raw) {
+        if (raw == null) {
+            return List.of();
+        }
+        List<String> values = new ArrayList<>();
+        if (raw instanceof List<?> list) {
+            for (Object item : list) {
+                if (item == null) {
+                    continue;
+                }
+                String key = String.valueOf(item).trim();
+                if (!key.isBlank() && !values.contains(key)) {
+                    values.add(key);
+                }
+            }
+            return values;
+        }
+        String text = String.valueOf(raw);
+        if (text.isBlank()) {
+            return List.of();
+        }
+        String normalized = text.replace('\r', '\n');
+        for (String part : normalized.split("[,\\n]")) {
+            String key = part == null ? "" : part.trim();
+            if (!key.isBlank() && !values.contains(key)) {
+                values.add(key);
+            }
+        }
+        return values;
     }
 
     private String resolveModelFamily(StructuredContextPackage contextPackage) {

@@ -37,6 +37,7 @@ import org.yilena.luna.utils.ToolDecisionInputSignatureUtil;
 import org.yilena.luna.utils.ToolCallingContextHolder;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -323,6 +324,7 @@ public class AgentServiceImpl implements AgentService {
                         .sessionId(resolveStableSessionId(command == null ? null : command.getSessionId()))
                         .userInput(command == null ? "" : command.getToolDecisionInput())
                         .policyId(command == null ? "" : command.getPolicyId())
+                        .manualPromptKeys(normalizePromptKeys(command == null ? null : command.getManualPromptKeys()))
                         .personaId(command == null ? "" : command.getPersonaId())
                         .sceneId(command == null ? "" : command.getSceneId())
                         .agent("TOOL_DECISION_AGENT")
@@ -354,6 +356,23 @@ public class AgentServiceImpl implements AgentService {
             }
         }
         return "";
+    }
+
+    private List<String> normalizePromptKeys(List<String> rawKeys) {
+        if (rawKeys == null || rawKeys.isEmpty()) {
+            return List.of();
+        }
+        List<String> keys = new ArrayList<>();
+        for (String rawKey : rawKeys) {
+            if (rawKey == null) {
+                continue;
+            }
+            String key = rawKey.trim();
+            if (!key.isBlank() && !keys.contains(key)) {
+                keys.add(key);
+            }
+        }
+        return keys;
     }
 
     private String resolvePrompt(String key, String fallback) {

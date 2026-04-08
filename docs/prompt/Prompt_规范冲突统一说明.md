@@ -22,3 +22,7 @@
   - `executionCategory`
   - `enabled`
 
+## 4. 执行型 Prompt 装配口径（对应问题4）
+- 统一口径：执行型分类允许 `ALWAYS`，但仅限稳定基线类条目（`system` / `guardrail` / `format`）。
+- 显式匹配约束：执行型中具备动作或阶段语义的条目（如 `tool` / `repair` / `summary` / `agent-local` / `task`）必须使用显式匹配模式（`AGENT_ONLY` / `KEYWORD_AND_AGENT` / `KEYWORD_OR_AGENT` / `POLICY_ONLY` / `MANUAL_ONLY`），不建议使用 `ALWAYS`。
+- 验收判定：代码保持现状（允许执行型使用 `ALWAYS`），治理层面按上述分类约束进行审核与配置。

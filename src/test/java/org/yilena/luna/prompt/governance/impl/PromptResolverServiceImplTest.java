@@ -225,6 +225,77 @@ class PromptResolverServiceImplTest {
                         && "KEYWORD_OR_SCOPE_NOT_MATCHED".equals(row.getRejectedReason())));
     }
 
+    @Test
+    void policyIncludeShouldForceMatchForNonPolicyOnlyMode() {
+        PromptItemRecord item = PromptItemRecord.builder()
+                .itemId(7L)
+                .versionId(77L)
+                .key("persona.policy_included_v1")
+                .value("v")
+                .category("persona")
+                .subCategory("maid")
+                .runtimeSlot("instructions.persona")
+                .hasTemplateVariables(false)
+                .templateVariables(List.of())
+                .keywordMatchEnabled(true)
+                .matchKeywords(List.of("gentle"))
+                .assemblyMode("KEYWORD_ONLY")
+                .matchScope(MatchScope.empty())
+                .editPolicy(EditPolicy.contentDefault())
+                .enabled(true)
+                .priority(80)
+                .status("enabled")
+                .version("1.0.0")
+                .build();
+
+        PromptResolverServiceImpl resolver = new PromptResolverServiceImpl(
+                new StubRegistry(List.of(item)),
+                new StubPolicy(Set.of("persona.policy_included_v1"), Set.of()),
+                new StubCategoryService()
+        );
+        PromptResolveResult result = resolver.resolve(PromptResolveContext.builder()
+                .userInput("nothing related")
+                .agent("MAIN_CHAT_AGENT")
+                .build());
+        Assertions.assertTrue(result.getMatchedItems().stream()
+                .anyMatch(row -> "persona.policy_included_v1".equals(row.getKey())
+                        && "POLICY_INCLUDED".equals(row.getMatchReason())));
+    }
+
+    @Test
+    void policyOnlyShouldKeepOriginalReasonWhenIncludedByPolicy() {
+        PromptItemRecord item = PromptItemRecord.builder()
+                .itemId(8L)
+                .versionId(88L)
+                .key("persona.policy_only_v1")
+                .value("v")
+                .category("persona")
+                .subCategory("maid")
+                .runtimeSlot("instructions.persona")
+                .hasTemplateVariables(false)
+                .templateVariables(List.of())
+                .keywordMatchEnabled(false)
+                .matchKeywords(List.of())
+                .assemblyMode("POLICY_ONLY")
+                .matchScope(MatchScope.empty())
+                .editPolicy(EditPolicy.contentDefault())
+                .enabled(true)
+                .priority(80)
+                .status("enabled")
+                .version("1.0.0")
+                .build();
+
+        PromptResolverServiceImpl resolver = new PromptResolverServiceImpl(
+                new StubRegistry(List.of(item)),
+                new StubPolicy(Set.of("persona.policy_only_v1"), Set.of()),
+                new StubCategoryService()
+        );
+        PromptResolveResult result = resolver.resolve(PromptResolveContext.builder().build());
+        Assertions.assertTrue(result.getMatchedItems().stream()
+                .anyMatch(row -> "persona.policy_only_v1".equals(row.getKey())
+                        && "POLICY_ONLY".equals(row.getMatchReason())));
+    }
+
     private record StubRegistry(List<PromptItemRecord> rows) implements PromptRegistryService {
         @Override
         public Optional<PromptItemRecord> getByKey(String key) {
@@ -278,6 +349,18 @@ class PromptResolverServiceImplTest {
     }
 
     private static class StubPolicy implements PromptPolicyService {
+        private final Set<String> includes;
+        private final Set<String> excludes;
+
+        private StubPolicy() {
+            this(Set.of(), Set.of());
+        }
+
+        private StubPolicy(Set<String> includes, Set<String> excludes) {
+            this.includes = includes == null ? Set.of() : includes;
+            this.excludes = excludes == null ? Set.of() : excludes;
+        }
+
         @Override
         public org.yilena.luna.prompt.governance.entity.PromptPolicyEntity getByPolicyId(String policyId) {
             return null;
@@ -285,12 +368,12 @@ class PromptResolverServiceImplTest {
 
         @Override
         public Set<String> resolveIncludedPromptKeys(String policyId) {
-            return Set.of();
+            return includes;
         }
 
         @Override
         public Set<String> resolveExcludedPromptKeys(String policyId) {
-            return Set.of();
+            return excludes;
         }
 
         @Override

@@ -24,7 +24,7 @@ public class PromptPreviewServiceImpl implements PromptPreviewService {
         PromptResolveResult result = promptResolverService.resolve(context);
         return Map.of(
                 "policyId", result.getPolicyId() == null ? "" : result.getPolicyId(),
-                "matchedItems", result.getMatchedItems(),
+                "matchedItems", toPreviewMatchedItems(result.getMatchedItems()),
                 "rejectedItems", result.getRejectedItems() == null ? List.of() : result.getRejectedItems()
         );
     }
@@ -42,12 +42,45 @@ public class PromptPreviewServiceImpl implements PromptPreviewService {
         Map<String, String> sectionAssembled = PromptSectionAssemblerSupport.toAssembledText(sectionMapping);
         return Map.of(
                 "policyId", result.getPolicyId() == null ? "" : result.getPolicyId(),
-                "matchedItems", result.getMatchedItems(),
+                "matchedItems", toPreviewMatchedItems(result.getMatchedItems()),
                 "rejectedItems", result.getRejectedItems() == null ? List.of() : result.getRejectedItems(),
                 "slotMapping", slotMapping,
                 "assembled", assembled,
                 "sectionMapping", sectionMapping,
                 "sectionAssembled", sectionAssembled
         );
+    }
+
+    private List<Map<String, Object>> toPreviewMatchedItems(List<ResolvedPromptItem> matchedItems) {
+        if (matchedItems == null || matchedItems.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> rows = new java.util.ArrayList<>();
+        for (ResolvedPromptItem item : matchedItems) {
+            if (item == null) {
+                continue;
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("itemId", item.getItemId());
+            row.put("versionId", item.getVersionId());
+            row.put("key", item.getKey());
+            row.put("name", item.getName());
+            row.put("value", item.getValue());
+            row.put("category", item.getCategory());
+            row.put("subCategory", item.getSubCategory());
+            row.put("description", item.getDescription());
+            row.put("runtimeSlot", item.getRuntimeSlot());
+            row.put("assemblyMode", item.getAssemblyMode());
+            row.put("matchReason", item.getMatchReason());
+            row.put("reason", item.getMatchReason());
+            row.put("hasTemplateVariables", item.isHasTemplateVariables());
+            row.put("keywordMatchEnabled", item.isKeywordMatchEnabled());
+            row.put("priority", item.getPriority());
+            row.put("version", item.getVersion());
+            row.put("versionLabel", item.getVersionLabel());
+            row.put("assemblerVersion", item.getAssemblerVersion());
+            rows.add(row);
+        }
+        return rows;
     }
 }
