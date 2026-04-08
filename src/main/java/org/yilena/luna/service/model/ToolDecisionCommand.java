@@ -14,8 +14,12 @@ public class ToolDecisionCommand {
     String sessionId;
     String rawUserInput;
     String toolDecisionInput;
+    String policyId;
+    String personaId;
+    String sceneId;
     TaskRuntimeState taskState;
     RelationalRuntimeState relationalState;
+    String modelFamily;
     List<Resource> executionCandidates;
     String governedInputSignature;
     String assembledDecisionContext;

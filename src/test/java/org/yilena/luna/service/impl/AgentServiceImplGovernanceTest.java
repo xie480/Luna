@@ -12,6 +12,9 @@ import org.yilena.luna.gate.ToolExecutionGateway;
 import org.yilena.luna.memory.RuntimeAuditService;
 import org.yilena.luna.router.CapabilityPolicyRouterService;
 import org.yilena.luna.router.ToolRouter;
+import org.yilena.luna.prompt.governance.PromptResolverService;
+import org.yilena.luna.prompt.governance.model.PromptResolveContext;
+import org.yilena.luna.prompt.governance.model.PromptResolveResult;
 import org.yilena.luna.service.McpService;
 import org.yilena.luna.service.PlanOrchestratorService;
 import org.yilena.luna.service.SessionService;
@@ -19,7 +22,9 @@ import org.yilena.luna.service.model.ToolDecisionCommand;
 import org.yilena.luna.executor.WorkflowExecutor;
 import org.yilena.luna.utils.ToolDecisionInputSignatureUtil;
 
+import java.lang.reflect.Field;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -144,6 +149,60 @@ class AgentServiceImplGovernanceTest {
         verify(llmAdapter).generate(promptCaptor.capture());
         assertTrue(promptCaptor.getValue().contains("Assembled Decision Workset"));
         assertTrue(promptCaptor.getValue().contains(assembled));
+    }
+
+    @Test
+    void shouldPassGovernanceContextToToolDecisionResolver() throws Exception {
+        RuntimeAuditService runtimeAuditService = mock(RuntimeAuditService.class);
+        ToolRouter toolRouter = mock(ToolRouter.class);
+        LlmAdapter llmAdapter = mock(LlmAdapter.class);
+        PromptResolverService promptResolverService = mock(PromptResolverService.class);
+        when(llmAdapter.generate(anyString())).thenReturn("{\"action_type\":\"none\",\"target_name\":\"none\"}");
+        when(promptResolverService.resolve(any(PromptResolveContext.class)))
+                .thenReturn(PromptResolveResult.builder().slotMapping(Map.of()).build());
+        AgentServiceImpl service = newService(runtimeAuditService, toolRouter, llmAdapter);
+        setField(service, "promptResolverService", promptResolverService);
+
+        String sessionId = "s-4";
+        String decisionInput = "goal=do_work|task_stage=executing";
+        String assembled = "governed workset";
+        String signature = ToolDecisionInputSignatureUtil.sign(sessionId, decisionInput, assembled);
+        Resource candidate = Resource.builder()
+                .type(ResourceType.TOOL)
+                .name("tool.demo")
+                .description("demo")
+                .inputSchema("{\"type\":\"object\"}")
+                .build();
+        ToolDecisionCommand command = ToolDecisionCommand.builder()
+                .sessionId(sessionId)
+                .rawUserInput("raw_input_should_not_be_used")
+                .toolDecisionInput(decisionInput)
+                .policyId("policy-chat-v1")
+                .personaId("persona-maid-v1")
+                .sceneId("scene-night-v1")
+                .taskState(null)
+                .modelFamily("qwen")
+                .governedInputSignature(signature)
+                .assembledDecisionContext(assembled)
+                .executionCandidates(List.of(candidate))
+                .build();
+
+        service.processToolCallingWithGovernance(command);
+
+        ArgumentCaptor<PromptResolveContext> contextCaptor = ArgumentCaptor.forClass(PromptResolveContext.class);
+        verify(promptResolverService).resolve(contextCaptor.capture());
+        PromptResolveContext resolveContext = contextCaptor.getValue();
+        assertEquals("policy-chat-v1", resolveContext.getPolicyId());
+        assertEquals("persona-maid-v1", resolveContext.getPersonaId());
+        assertEquals("scene-night-v1", resolveContext.getSceneId());
+        assertEquals("qwen", resolveContext.getModelFamily());
+        assertEquals("TOOL_DECISION_AGENT", resolveContext.getAgent());
+    }
+
+    private void setField(Object target, String name, Object value) throws Exception {
+        Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(target, value);
     }
 
     private AgentServiceImpl newService(RuntimeAuditService runtimeAuditService, ToolRouter toolRouter, LlmAdapter llmAdapter) {

@@ -171,7 +171,7 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         if (bool(item.getHasTemplateVariables(), false)) {
             throw new IllegalArgumentException("execution prompt cannot be deleted");
         }
-        if (current != null && current.getEditPolicy() != null && Boolean.FALSE.equals(readPolicy(current.getEditPolicy(), "delete"))) {
+        if (!isDeleteAllowed(current)) {
             throw new IllegalArgumentException("prompt delete policy denied");
         }
         promptItemMapper.update(null,
@@ -188,16 +188,24 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         boolean executionCategory = isExecutionCategory(resolveItemCategory(item));
         boolean hasTemplateVariables = bool(item == null ? null : item.getHasTemplateVariables(), false);
         boolean contentCreate = currentVersion == null && !executionCategory && !hasTemplateVariables;
+        List<String> templateVariables = contentCreate
+                ? List.of()
+                : mergeListField(request == null ? null : request.getTemplateVariables(),
+                currentVersion == null ? null : currentVersion.getTemplateVariables());
+        List<String> matchKeywords = mergeListField(
+                request == null ? null : request.getMatchKeywords(),
+                currentVersion == null ? null : currentVersion.getMatchKeywords());
+        Map<String, Object> matchScope = mergeScopeField(
+                request == null ? null : request.getMatchScope(),
+                currentVersion == null ? null : currentVersion.getMatchScope());
         return PromptItemVersionEntity.builder()
                 .promptItemId(itemId)
                 .versionNo(safe(request.getVersion(), nextVersion(itemId)))
                 .versionLabel(safe(request.getVersionLabel(), safe(request.getVersion())))
                 .promptValue(safe(request.getValue()))
-                .templateVariables(contentCreate ? List.of() : (request.getTemplateVariables() == null ? List.of() : request.getTemplateVariables()))
-                .matchKeywords(request.getMatchKeywords() == null ? List.of() : request.getMatchKeywords())
-                .matchScope(request.getMatchScope() == null
-                        ? MatchScope.empty().toMap()
-                        : MatchScope.fromMap(request.getMatchScope()).toMap())
+                .templateVariables(templateVariables)
+                .matchKeywords(matchKeywords)
+                .matchScope(matchScope)
                 .editPolicy(resolveEditPolicy(request, currentVersion, hasTemplateVariables, executionCategory).toMap())
                 .changeNote(safe(request.getChangeNote()))
                 .status(normalizeVersionStatus(request == null ? null : request.getStatus(), "active"))
@@ -292,6 +300,33 @@ public class PromptMutationServiceImpl implements PromptMutationService {
             return Boolean.TRUE.equals(editPolicy.getDelete());
         }
         return false;
+    }
+
+    private boolean isDeleteAllowed(PromptItemVersionEntity currentVersion) {
+        if (currentVersion == null || currentVersion.getEditPolicy() == null || currentVersion.getEditPolicy().isEmpty()) {
+            return false;
+        }
+        return Boolean.TRUE.equals(EditPolicy.fromMap(currentVersion.getEditPolicy()).getDelete());
+    }
+
+    private List<String> mergeListField(List<String> requestField, List<String> currentField) {
+        if (requestField != null) {
+            return requestField;
+        }
+        if (currentField != null) {
+            return currentField;
+        }
+        return List.of();
+    }
+
+    private Map<String, Object> mergeScopeField(Map<String, Object> requestField, Map<String, Object> currentField) {
+        if (requestField != null) {
+            return MatchScope.fromMap(requestField).toMap();
+        }
+        if (currentField != null && !currentField.isEmpty()) {
+            return MatchScope.fromMap(currentField).toMap();
+        }
+        return MatchScope.empty().toMap();
     }
 
     private String nextVersion(Long itemId) {

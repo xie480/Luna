@@ -476,8 +476,12 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                     sessionId,
                     nodeGoal,
                     governedNodeGoal,
+                    resolvePromptPolicyId(governedContextPackage),
+                    resolvePromptBinding(governedContextPackage, "personaId", "persona_id"),
+                    resolvePromptBinding(governedContextPackage, "sceneId", "scene_id"),
                     governedDecision == null ? null : governedDecision.getTaskState(),
                     governedDecision == null ? null : governedDecision.getRelationalState(),
+                    resolvePromptModelFamily(governedContextPackage),
                     governedExecutionCandidates,
                     governedAssembledDecisionContext
             );
@@ -514,8 +518,12 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                             sessionId,
                             nodeGoal,
                             governedNodeGoal,
+                            resolvePromptPolicyId(governedContextPackage),
+                            resolvePromptBinding(governedContextPackage, "personaId", "persona_id"),
+                            resolvePromptBinding(governedContextPackage, "sceneId", "scene_id"),
                             governedDecision == null ? null : governedDecision.getTaskState(),
                             governedDecision == null ? null : governedDecision.getRelationalState(),
+                            resolvePromptModelFamily(governedContextPackage),
                             governedExecutionCandidates,
                             governedAssembledDecisionContext
                     );
@@ -1150,6 +1158,57 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         return null;
     }
 
+    private String resolvePromptPolicyId(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getPromptPolicy() == null) {
+            return "";
+        }
+        Object byCamel = contextPackage.getPromptPolicy().get("policyId");
+        if (byCamel != null && !String.valueOf(byCamel).isBlank()) {
+            return String.valueOf(byCamel);
+        }
+        Object bySnake = contextPackage.getPromptPolicy().get("policy_id");
+        return bySnake == null ? "" : String.valueOf(bySnake);
+    }
+
+    private String resolvePromptBinding(StructuredContextPackage contextPackage, String camelKey, String snakeKey) {
+        if (contextPackage == null) {
+            return "";
+        }
+        String fromPolicy = readPromptBindingMap(contextPackage.getPromptPolicy(), camelKey, snakeKey);
+        if (!fromPolicy.isBlank()) {
+            return fromPolicy;
+        }
+        String fromTask = readPromptBindingMap(contextPackage.getTaskContext(), camelKey, snakeKey);
+        if (!fromTask.isBlank()) {
+            return fromTask;
+        }
+        return readPromptBindingMap(contextPackage.getRelationalContext(), camelKey, snakeKey);
+    }
+
+    private String readPromptBindingMap(Map<String, Object> source, String camelKey, String snakeKey) {
+        if (source == null || source.isEmpty()) {
+            return "";
+        }
+        Object byCamel = source.get(camelKey);
+        if (byCamel != null && !String.valueOf(byCamel).isBlank()) {
+            return String.valueOf(byCamel);
+        }
+        Object bySnake = source.get(snakeKey);
+        return bySnake == null ? "" : String.valueOf(bySnake);
+    }
+
+    private String resolvePromptModelFamily(StructuredContextPackage contextPackage) {
+        if (contextPackage == null || contextPackage.getRuntime() == null) {
+            return "";
+        }
+        Object byCamel = contextPackage.getRuntime().get("modelFamily");
+        if (byCamel != null && !String.valueOf(byCamel).isBlank()) {
+            return String.valueOf(byCamel);
+        }
+        Object bySnake = contextPackage.getRuntime().get("model_family");
+        return bySnake == null ? "" : String.valueOf(bySnake);
+    }
+
     private Long parseLong(Object value) {
         if (value instanceof Number number) {
             return number.longValue();
@@ -1381,8 +1440,12 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
     private String processToolCallingWithGovernedContext(String sessionId,
                                                          String rawUserInput,
                                                          String governedDecisionInput,
+                                                         String policyId,
+                                                         String personaId,
+                                                         String sceneId,
                                                          org.yilena.luna.enums.TaskRuntimeState taskState,
                                                          org.yilena.luna.enums.RelationalRuntimeState relationalState,
+                                                         String modelFamily,
                                                          List<Resource> executionCandidates,
                                                          String assembledDecisionContext) {
         String stableAssembledDecisionContext = assembledDecisionContext == null ? "" : assembledDecisionContext;
@@ -1406,8 +1469,12 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                             .sessionId(sessionId)
                             .rawUserInput(rawUserInput)
                             .toolDecisionInput(governedDecisionInput)
+                            .policyId(policyId)
+                            .personaId(personaId)
+                            .sceneId(sceneId)
                             .taskState(taskState)
                             .relationalState(relationalState)
+                            .modelFamily(modelFamily)
                             .executionCandidates(executionCandidates == null ? List.of() : executionCandidates)
                             .governedInputSignature(governedInputSignature)
                             .assembledDecisionContext(stableAssembledDecisionContext)

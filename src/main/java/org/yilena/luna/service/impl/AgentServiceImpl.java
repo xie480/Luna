@@ -322,9 +322,13 @@ public class AgentServiceImpl implements AgentService {
                 PromptResolveResult resolved = promptResolverService.resolve(PromptResolveContext.builder()
                         .sessionId(resolveStableSessionId(command == null ? null : command.getSessionId()))
                         .userInput(command == null ? "" : command.getToolDecisionInput())
+                        .policyId(command == null ? "" : command.getPolicyId())
+                        .personaId(command == null ? "" : command.getPersonaId())
+                        .sceneId(command == null ? "" : command.getSceneId())
                         .agent("TOOL_DECISION_AGENT")
                         .nodeKind("TOOL_DECISION")
                         .taskState(command == null || command.getTaskState() == null ? "" : command.getTaskState().name())
+                        .modelFamily(command == null ? "" : command.getModelFamily())
                         .build());
                 String fromSlot = firstResolvedPromptValue(resolved, runtimeSlot);
                 if (!fromSlot.isBlank()) {

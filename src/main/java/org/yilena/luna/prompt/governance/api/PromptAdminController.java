@@ -117,7 +117,7 @@ public class PromptAdminController {
         if (key == null || key.isBlank()) {
             throw new IllegalArgumentException("key is required");
         }
-        boolean exists = promptQueryService.detailByKey(key).isPresent();
+        boolean exists = promptRegistryService.existsByKey(key);
         return ResponseEntity.ok(exists ? promptMutationService.update(request) : promptMutationService.create(request));
     }
 

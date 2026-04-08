@@ -2,6 +2,7 @@ package org.yilena.luna.prompt.governance.impl;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.yilena.luna.prompt.governance.PromptCategoryService;
 import org.yilena.luna.prompt.governance.PromptRegistryService;
@@ -180,6 +181,86 @@ class PromptMutationServiceImplUpdateValidationTest {
 
         IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class, () -> service.update(request));
         Assertions.assertTrue(ex.getMessage().contains("category must exist in prompt_category"));
+    }
+
+    @Test
+    void updateShouldKeepExecutionStructureFieldsWhenRequestFieldsMissing() {
+        PromptItemMapper itemMapper = Mockito.mock(PromptItemMapper.class);
+        PromptItemVersionMapper versionMapper = Mockito.mock(PromptItemVersionMapper.class);
+        PromptCategoryService categoryService = Mockito.mock(PromptCategoryService.class);
+        PromptRegistryService registryService = Mockito.mock(PromptRegistryService.class);
+        PromptVersionService promptVersionService = Mockito.mock(PromptVersionService.class);
+        PromptMutationServiceImpl service = new PromptMutationServiceImpl(
+                itemMapper,
+                versionMapper,
+                promptVersionService,
+                registryService,
+                categoryService
+        );
+
+        Mockito.when(itemMapper.selectOne(Mockito.any()))
+                .thenReturn(PromptItemEntity.builder()
+                        .id(700L)
+                        .promptKey("agent.tool.decision")
+                        .category("tooling")
+                        .hasTemplateVariables(true)
+                        .currentVersionId(701L)
+                        .enabled(true)
+                        .status("enabled")
+                        .build());
+        Mockito.when(versionMapper.selectById(701L))
+                .thenReturn(PromptItemVersionEntity.builder()
+                        .id(701L)
+                        .templateVariables(List.of("runtimePromptInput"))
+                        .matchKeywords(List.of("tool", "decision"))
+                        .matchScope(Map.of("agents", List.of("TOOL_DECISION_AGENT")))
+                        .editPolicy(Map.of("create", false, "update", true, "delete", false))
+                        .build());
+        Mockito.when(categoryService.isExecutionCategory("tooling")).thenReturn(true);
+        Mockito.when(registryService.getByKey("agent.tool.decision")).thenReturn(Optional.of(sampleRecord("agent.tool.decision")));
+
+        PromptUpsertRequest request = new PromptUpsertRequest();
+        request.setKey("agent.tool.decision");
+        request.setValue("new value");
+
+        service.update(request);
+
+        ArgumentCaptor<PromptItemVersionEntity> versionCaptor = ArgumentCaptor.forClass(PromptItemVersionEntity.class);
+        Mockito.verify(versionMapper).insert(versionCaptor.capture());
+        PromptItemVersionEntity saved = versionCaptor.getValue();
+        Assertions.assertEquals(List.of("runtimePromptInput"), saved.getTemplateVariables());
+        Assertions.assertEquals(List.of("tool", "decision"), saved.getMatchKeywords());
+        Assertions.assertEquals(List.of("TOOL_DECISION_AGENT"), saved.getMatchScope().get("agents"));
+    }
+
+    @Test
+    void deleteShouldRejectWhenCurrentVersionMissing() {
+        PromptItemMapper itemMapper = Mockito.mock(PromptItemMapper.class);
+        PromptItemVersionMapper versionMapper = Mockito.mock(PromptItemVersionMapper.class);
+        PromptCategoryService categoryService = Mockito.mock(PromptCategoryService.class);
+        PromptMutationServiceImpl service = new PromptMutationServiceImpl(
+                itemMapper,
+                versionMapper,
+                Mockito.mock(PromptVersionService.class),
+                Mockito.mock(PromptRegistryService.class),
+                categoryService
+        );
+
+        Mockito.when(itemMapper.selectOne(Mockito.any()))
+                .thenReturn(PromptItemEntity.builder()
+                        .id(800L)
+                        .promptKey("persona.test")
+                        .category("persona")
+                        .hasTemplateVariables(false)
+                        .currentVersionId(null)
+                        .enabled(true)
+                        .status("enabled")
+                        .build());
+        Mockito.when(categoryService.isExecutionCategory("persona")).thenReturn(false);
+
+        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class, () -> service.deleteByKey("persona.test"));
+        Assertions.assertTrue(ex.getMessage().contains("prompt delete policy denied"));
+        Mockito.verify(itemMapper, Mockito.never()).update(Mockito.isNull(), Mockito.any());
     }
 
     private PromptItemRecord sampleRecord(String key) {
