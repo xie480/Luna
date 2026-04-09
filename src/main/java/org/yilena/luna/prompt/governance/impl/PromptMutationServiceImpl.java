@@ -540,20 +540,20 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         if (request == null) {
             return "";
         }
-        if (request.getCategory() != null && !request.getCategory().isBlank()) {
-            return request.getCategory();
+        if (request.getCategoryKey() != null && !request.getCategoryKey().isBlank()) {
+            return request.getCategoryKey();
         }
-        return request.getCategoryKey() == null ? "" : request.getCategoryKey();
+        return request.getCategory() == null ? "" : request.getCategory();
     }
 
     private String resolveItemCategory(PromptItemEntity item) {
         if (item == null) {
             return "";
         }
-        if (item.getCategory() != null && !item.getCategory().isBlank()) {
-            return item.getCategory();
+        if (item.getCategoryKey() != null && !item.getCategoryKey().isBlank()) {
+            return item.getCategoryKey();
         }
-        return safe(item.getCategoryKey());
+        return safe(item.getCategory());
     }
 
     private boolean resolveItemEnabled(Boolean enabled, String status, boolean fallback) {

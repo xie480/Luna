@@ -46,6 +46,7 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         try {
             migrateLegacyItemStatus();
+            migrateLegacyCategoryMirror();
             migrateLegacyBuiltinPromptKeys();
             seedCategories();
             seedBuiltinPrompts();
@@ -61,6 +62,21 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
                 .set(PromptItemEntity::getStatus, "enabled"));
         if (updated > 0) {
             log.info("prompt governance migrated legacy prompt_item.status active->enabled, rows={}", updated);
+        }
+    }
+
+    private void migrateLegacyCategoryMirror() {
+        int fillCategoryKey = promptItemMapper.update(null, new LambdaUpdateWrapper<PromptItemEntity>()
+                .apply("(category_key is null or trim(category_key) = '')")
+                .apply("category is not null")
+                .setSql("category_key = category"));
+        int fillCategory = promptItemMapper.update(null, new LambdaUpdateWrapper<PromptItemEntity>()
+                .apply("(category is null or trim(category) = '')")
+                .apply("category_key is not null")
+                .setSql("category = category_key"));
+        if (fillCategoryKey > 0 || fillCategory > 0) {
+            log.info("prompt governance migrated prompt_item category/category_key mirror, fillKeyRows={}, fillCategoryRows={}",
+                    fillCategoryKey, fillCategory);
         }
     }
 
@@ -169,9 +185,7 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
                 continue;
             }
             boolean executionPrompt = Boolean.TRUE.equals(item.getHasTemplateVariables())
-                    || isExecutionCategory(item.getCategoryKey() == null || item.getCategoryKey().isBlank()
-                    ? item.getCategory()
-                    : item.getCategoryKey());
+                    || isExecutionCategory(resolveItemCategory(item));
             if (!executionPrompt) {
                 continue;
             }
@@ -228,7 +242,8 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
         } else if (item.getCategoryKey() == null || item.getCategoryKey().isBlank()) {
             promptItemMapper.update(null, new LambdaUpdateWrapper<PromptItemEntity>()
                     .eq(PromptItemEntity::getId, item.getId())
-                    .set(PromptItemEntity::getCategoryKey, row.getCategory()));
+                    .set(PromptItemEntity::getCategoryKey, row.getCategory())
+                    .set(PromptItemEntity::getCategory, row.getCategory()));
         }
 
         PromptItemVersionEntity activeVersion = findActiveVersion(item.getId());
@@ -250,11 +265,22 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
             promptItemMapper.update(null, new LambdaUpdateWrapper<PromptItemEntity>()
                     .eq(PromptItemEntity::getId, item.getId())
                     .set(PromptItemEntity::getCategoryKey, row.getCategory())
+                    .set(PromptItemEntity::getCategory, row.getCategory())
                     .set(PromptItemEntity::getCurrentVersionId, version.getId())
                     .set(PromptItemEntity::getStatus, "enabled")
                     .set(PromptItemEntity::getEnabled, true)
                     .set(PromptItemEntity::getIsBuiltin, true));
         }
+    }
+
+    private String resolveItemCategory(PromptItemEntity item) {
+        if (item == null) {
+            return "";
+        }
+        if (item.getCategoryKey() != null && !item.getCategoryKey().isBlank()) {
+            return item.getCategoryKey();
+        }
+        return item.getCategory() == null ? "" : item.getCategory();
     }
 
     private PromptItemVersionEntity findActiveVersion(Long itemId) {

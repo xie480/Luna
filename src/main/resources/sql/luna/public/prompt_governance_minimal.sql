@@ -94,6 +94,11 @@ where (category_key is null or category_key = '')
   and category is not null;
 
 update prompt_item
+set category = category_key
+where (category is null or category = '')
+  and category_key is not null;
+
+update prompt_item
 set status = 'enabled'
 where lower(status) = 'active';
 

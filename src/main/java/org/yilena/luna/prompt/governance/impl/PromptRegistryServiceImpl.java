@@ -317,7 +317,7 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
                 .key(item.getPromptKey())
                 .name(safe(item.getPromptName(), fallback == null ? item.getPromptKey() : fallback.getName()))
                 .value(version == null ? (fallback == null ? "" : fallback.getValue()) : safe(version.getPromptValue()))
-                .category(firstNonBlank(item.getCategory(), item.getCategoryKey(), fallback == null ? "" : fallback.getCategory()))
+                .category(firstNonBlank(item.getCategoryKey(), item.getCategory(), fallback == null ? "" : fallback.getCategory()))
                 .subCategory(safe(item.getSubCategory(), fallback == null ? "" : fallback.getSubCategory()))
                 .description(safe(item.getDescription(), fallback == null ? "" : fallback.getDescription()))
                 .runtimeSlot(safe(item.getRuntimeSlot(), fallback == null ? "" : fallback.getRuntimeSlot()))

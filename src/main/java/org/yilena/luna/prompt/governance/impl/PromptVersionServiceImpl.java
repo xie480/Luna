@@ -259,10 +259,10 @@ public class PromptVersionServiceImpl implements PromptVersionService {
         if (item == null) {
             return "";
         }
-        if (item.getCategory() != null && !item.getCategory().isBlank()) {
-            return item.getCategory();
+        if (item.getCategoryKey() != null && !item.getCategoryKey().isBlank()) {
+            return item.getCategoryKey();
         }
-        return item.getCategoryKey() == null ? "" : item.getCategoryKey();
+        return item.getCategory() == null ? "" : item.getCategory();
     }
 
     private String safe(String value) {

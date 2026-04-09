@@ -541,7 +541,7 @@ Agent 局部执行 Prompt
     "delete": true
   },
   "priority": 80,
-  "status": "active",
+  "status": "enabled",
   "version": "1.0.0",
   "changeNote": "新增温柔女仆人设"
 }
@@ -1413,7 +1413,7 @@ POST /api/prompt/item/rollback
     "delete": true
   },
   "priority": 80,
-  "status": "active",
+  "status": "enabled",
   "version": "1.0.0"
 }
 ```

@@ -4396,9 +4396,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             Map<String, Object> meta = assembledContext.getPromptAssemblyMeta();
             String policyId = stringValue(meta.get("policyId"));
             String assemblerVersion = stringValue(meta.get("assemblerVersion"));
-            Object refsRaw = meta.get("allPromptRefs");
-            if (!(refsRaw instanceof List<?>)) {
-                refsRaw = meta.get("promptRefs");
+            Object refsRaw = meta.get("promptRefs");
+            if (!(refsRaw instanceof List<?> refs) || refs.isEmpty()) {
+                refsRaw = meta.get("allPromptRefs");
             }
             if (!(refsRaw instanceof List<?> refs) || refs.isEmpty()) {
                 return;
@@ -4423,8 +4423,12 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             if (items.isEmpty()) {
                 return;
             }
+            Object slotMappingRaw = meta.get("slotMapping");
+            if (!(slotMappingRaw instanceof Map<?, ?> mapping) || mapping.isEmpty()) {
+                slotMappingRaw = meta.get("allSlotMapping");
+            }
             Map<String, List<ResolvedPromptItem>> slotMapping = parseSnapshotSlotMapping(
-                    meta.get("allSlotMapping") != null ? meta.get("allSlotMapping") : meta.get("slotMapping"),
+                    slotMappingRaw,
                     assemblerVersion
             );
             PromptResolveResult resolveResult = PromptResolveResult.builder()
