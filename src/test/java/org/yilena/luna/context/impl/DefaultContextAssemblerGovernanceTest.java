@@ -207,4 +207,54 @@ class DefaultContextAssemblerGovernanceTest {
         assertEquals(1, refs.size());
         assertEquals("RESOLVER_HIT", refs.get(0).get("matchReason"));
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldKeepAllPromptRefsWhenSectionFilterDropsDisplayRefs() throws Exception {
+        DefaultContextAssembler assembler = new DefaultContextAssembler(
+                new SemanticPreservingPruner(),
+                mock(TaskMemoryRetriever.class),
+                mock(RelationalMemoryRetriever.class),
+                mock(org.yilena.luna.context.SummaryAgent.class),
+                mock(org.yilena.luna.context.ToolSemanticAgent.class),
+                mock(org.yilena.luna.context.ContextSnapshotWriter.class)
+        );
+
+        Method method = DefaultContextAssembler.class.getDeclaredMethod(
+                "filterPromptAssemblyMetaBySections",
+                Map.class,
+                Map.class,
+                Map.class
+        );
+        method.setAccessible(true);
+
+        Map<String, Object> meta = (Map<String, Object>) method.invoke(
+                assembler,
+                Map.of(
+                        "policyId", "policy-1",
+                        "assemblerVersion", "assembler.v1",
+                        "promptRefs", List.of(Map.of(
+                                "key", "memory-hint.default_v1",
+                                "runtimeSlot", "knowledge.evidence",
+                                "matchReason", "KEYWORD_ONLY",
+                                "value", "missing-value"
+                        )),
+                        "allPromptRefs", List.of(Map.of(
+                                "key", "memory-hint.default_v1",
+                                "runtimeSlot", "knowledge.evidence",
+                                "matchReason", "KEYWORD_ONLY",
+                                "value", "missing-value"
+                        )),
+                        "slotMapping", Map.of(),
+                        "allSlotMapping", Map.of()
+                ),
+                Map.of("Instructions", List.of("system prompt only")),
+                Map.of("Instructions", List.of("system prompt only"))
+        );
+        List<Map<String, Object>> displayRefs = (List<Map<String, Object>>) meta.get("promptRefs");
+        List<Map<String, Object>> allRefs = (List<Map<String, Object>>) meta.get("allPromptRefs");
+        assertTrue(displayRefs == null || displayRefs.isEmpty());
+        assertEquals(1, allRefs.size());
+        assertEquals("memory-hint.default_v1", allRefs.get(0).get("key"));
+    }
 }

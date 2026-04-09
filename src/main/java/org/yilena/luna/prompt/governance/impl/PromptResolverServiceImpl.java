@@ -1,35 +1,56 @@
 package org.yilena.luna.prompt.governance.impl;
 
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.yilena.luna.prompt.governance.PromptCategoryService;
 import org.yilena.luna.prompt.governance.PromptPolicyService;
 import org.yilena.luna.prompt.governance.PromptRegistryService;
 import org.yilena.luna.prompt.governance.PromptResolverService;
-import org.yilena.luna.prompt.governance.model.MatchScope;
 import org.yilena.luna.prompt.governance.model.PromptAssemblyMode;
 import org.yilena.luna.prompt.governance.model.PromptItemRecord;
 import org.yilena.luna.prompt.governance.model.PromptResolveContext;
 import org.yilena.luna.prompt.governance.model.PromptResolveResult;
 import org.yilena.luna.prompt.governance.model.RejectedPromptItem;
 import org.yilena.luna.prompt.governance.model.ResolvedPromptItem;
-import org.yilena.luna.prompt.governance.support.PromptKeyAliasSupport;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 @Service
-@RequiredArgsConstructor
 public class PromptResolverServiceImpl implements PromptResolverService {
 
     private final PromptRegistryService promptRegistryService;
     private final PromptPolicyService promptPolicyService;
     private final PromptCategoryService promptCategoryService;
+    private final KeywordMatcher keywordMatcher;
+    private final AgentMatcher agentMatcher;
+    private final PolicySelector policySelector;
+
+    @Autowired
+    public PromptResolverServiceImpl(PromptRegistryService promptRegistryService,
+                                     PromptPolicyService promptPolicyService,
+                                     PromptCategoryService promptCategoryService) {
+        this(promptRegistryService, promptPolicyService, promptCategoryService,
+                new KeywordMatcher(), new AgentMatcher(), new PolicySelector());
+    }
+
+    PromptResolverServiceImpl(PromptRegistryService promptRegistryService,
+                              PromptPolicyService promptPolicyService,
+                              PromptCategoryService promptCategoryService,
+                              KeywordMatcher keywordMatcher,
+                              AgentMatcher agentMatcher,
+                              PolicySelector policySelector) {
+        this.promptRegistryService = promptRegistryService;
+        this.promptPolicyService = promptPolicyService;
+        this.promptCategoryService = promptCategoryService;
+        this.keywordMatcher = keywordMatcher;
+        this.agentMatcher = agentMatcher;
+        this.policySelector = policySelector;
+    }
 
     @Override
     public PromptResolveResult resolve(PromptResolveContext context) {
@@ -77,7 +98,7 @@ public class PromptResolverServiceImpl implements PromptResolverService {
         }
         List<ResolvedPromptItem> deduped = dedupe(matched);
         deduped.sort(Comparator
-                .comparingInt((ResolvedPromptItem item) -> assemblyStage(item.getAssemblyMode()))
+                .comparingInt(this::assemblyStage)
                 .thenComparing(Comparator.comparingInt((ResolvedPromptItem item) -> item.getPriority() == null ? 0 : item.getPriority()).reversed())
                 .thenComparing(ResolvedPromptItem::getKey));
         Map<String, List<ResolvedPromptItem>> slotMapping = new LinkedHashMap<>();
@@ -114,15 +135,17 @@ public class PromptResolverServiceImpl implements PromptResolverService {
                                         PromptResolveContext context,
                                         Set<String> policyIncludes,
                                         Set<String> policyExcludes) {
-        if (setContainsAlias(policyExcludes, item.getKey())) {
+        if (policySelector.containsAlias(policyExcludes, item.getKey())) {
             return MatchDecision.rejected("POLICY_EXCLUDED");
         }
         PromptAssemblyMode mode = PromptAssemblyMode.from(item.getAssemblyMode());
-        boolean keyword = keywordMatched(item, context == null ? "" : context.getUserInput());
-        boolean agent = agentMatched(item, context);
-        boolean policy = setContainsAlias(policyIncludes, item.getKey());
-        boolean hasScope = hasScopeConstraint(item);
-        boolean manual = setContainsAlias(toKeySet(context == null ? null : context.getManualPromptKeys()), item.getKey());
+        boolean keyword = keywordMatcher.matches(item, context == null ? "" : context.getUserInput(), promptCategoryService);
+        boolean agent = agentMatcher.matches(item, context);
+        boolean policy = policySelector.containsAlias(policyIncludes, item.getKey());
+        boolean hasScope = agentMatcher.hasScopeConstraint(item);
+        boolean manual = policySelector.containsAlias(
+                policySelector.toKeySet(context == null ? null : context.getManualPromptKeys()),
+                item.getKey());
 
         if (policy && mode != PromptAssemblyMode.POLICY_ONLY && mode != PromptAssemblyMode.DISABLED) {
             return MatchDecision.matched("POLICY_ONLY", true);
@@ -167,74 +190,14 @@ public class PromptResolverServiceImpl implements PromptResolverService {
                 || mode == PromptAssemblyMode.KEYWORD_AND_AGENT;
     }
 
-    private boolean keywordMatched(PromptItemRecord item, String userInput) {
-        if (!promptCategoryService.isKeywordMatchAllowed(item.getCategory())) {
-            return false;
+    private int assemblyStage(ResolvedPromptItem item) {
+        if (item != null && "POLICY_ONLY".equalsIgnoreCase(item.getMatchReason())) {
+            return 4;
         }
-        if (item.isHasTemplateVariables()) {
-            return false;
-        }
-        if (!item.isKeywordMatchEnabled()) {
-            return false;
-        }
-        if (item.getMatchKeywords() == null || item.getMatchKeywords().isEmpty()) {
-            return false;
-        }
-        String input = userInput == null ? "" : userInput.toLowerCase();
-        if (input.isBlank()) {
-            return false;
-        }
-        for (String keyword : item.getMatchKeywords()) {
-            if (keyword != null && !keyword.isBlank() && input.contains(keyword.toLowerCase())) {
-                return true;
-            }
-        }
-        return false;
+        return assemblyStageByAssemblyMode(item == null ? null : item.getAssemblyMode());
     }
 
-    private boolean hasScopeConstraint(PromptItemRecord item) {
-        MatchScope scope = item.getMatchScope() == null ? MatchScope.empty() : item.getMatchScope();
-        return !safe(scope.getAgents()).isEmpty()
-                || !safe(scope.getNodeKinds()).isEmpty()
-                || !safe(scope.getTaskStates()).isEmpty()
-                || !safe(scope.getModelFamilies()).isEmpty()
-                || !safe(scope.getPersonaIds()).isEmpty()
-                || !safe(scope.getSceneIds()).isEmpty();
-    }
-
-    private boolean agentMatched(PromptItemRecord item, PromptResolveContext context) {
-        if (context == null) {
-            return false;
-        }
-        MatchScope scope = item.getMatchScope() == null ? MatchScope.empty() : item.getMatchScope();
-        List<String> agents = safe(scope.getAgents());
-        List<String> nodeKinds = safe(scope.getNodeKinds());
-        List<String> taskStates = safe(scope.getTaskStates());
-        List<String> modelFamilies = safe(scope.getModelFamilies());
-        List<String> personaIds = safe(scope.getPersonaIds());
-        List<String> sceneIds = safe(scope.getSceneIds());
-        if (!agents.isEmpty() && !matchOne(agents, context.getAgent())) {
-            return false;
-        }
-        if (!nodeKinds.isEmpty() && !matchOne(nodeKinds, context.getNodeKind())) {
-            return false;
-        }
-        if (!taskStates.isEmpty() && !matchOne(taskStates, context.getTaskState())) {
-            return false;
-        }
-        if (!modelFamilies.isEmpty() && !matchOne(modelFamilies, context.getModelFamily())) {
-            return false;
-        }
-        if (!personaIds.isEmpty() && !matchOne(personaIds, context.getPersonaId())) {
-            return false;
-        }
-        if (!sceneIds.isEmpty() && !matchOne(sceneIds, context.getSceneId())) {
-            return false;
-        }
-        return true;
-    }
-
-    private int assemblyStage(String assemblyMode) {
+    private int assemblyStageByAssemblyMode(String assemblyMode) {
         PromptAssemblyMode mode = PromptAssemblyMode.from(assemblyMode);
         return switch (mode) {
             case ALWAYS -> 1;
@@ -245,50 +208,6 @@ public class PromptResolverServiceImpl implements PromptResolverService {
             case MANUAL_ONLY -> 6;
             case DISABLED -> 7;
         };
-    }
-
-    private boolean matchOne(List<String> candidates, String value) {
-        if (candidates == null || candidates.isEmpty()) {
-            return true;
-        }
-        if (value == null || value.isBlank()) {
-            return false;
-        }
-        for (String candidate : candidates) {
-            if (candidate != null && candidate.equalsIgnoreCase(value)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private List<String> safe(List<String> values) {
-        return values == null ? List.of() : values;
-    }
-
-    private boolean setContainsAlias(Set<String> keys, String key) {
-        if (keys == null || keys.isEmpty() || key == null || key.isBlank()) {
-            return false;
-        }
-        for (String candidate : keys) {
-            if (PromptKeyAliasSupport.matches(candidate, key)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private Set<String> toKeySet(List<String> keys) {
-        if (keys == null || keys.isEmpty()) {
-            return Set.of();
-        }
-        Set<String> out = new LinkedHashSet<>();
-        for (String key : keys) {
-            if (key != null && !key.isBlank()) {
-                out.add(key.trim());
-            }
-        }
-        return out;
     }
 
     private record MatchDecision(boolean matched, String matchReason, String rejectedReason, boolean policyApplied) {

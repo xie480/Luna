@@ -575,6 +575,75 @@ class PromptMutationServiceImplUpdateValidationTest {
         Mockito.verify(itemMapper, Mockito.never()).update(Mockito.isNull(), Mockito.any());
     }
 
+    @Test
+    void updateShouldAllowLegacyKeyWhenPromptAlreadyExists() {
+        PromptItemMapper itemMapper = Mockito.mock(PromptItemMapper.class);
+        PromptItemVersionMapper versionMapper = Mockito.mock(PromptItemVersionMapper.class);
+        PromptCategoryService categoryService = Mockito.mock(PromptCategoryService.class);
+        PromptRegistryService registryService = Mockito.mock(PromptRegistryService.class);
+        PromptVersionService promptVersionService = Mockito.mock(PromptVersionService.class);
+        PromptMutationServiceImpl service = new PromptMutationServiceImpl(
+                itemMapper,
+                versionMapper,
+                promptVersionService,
+                registryService,
+                categoryService
+        );
+
+        Mockito.when(itemMapper.selectOne(Mockito.any()))
+                .thenReturn(PromptItemEntity.builder()
+                        .id(990L)
+                        .promptKey("memory-hint.default_v1")
+                        .category("memory-hint")
+                        .subCategory("default")
+                        .hasTemplateVariables(false)
+                        .currentVersionId(991L)
+                        .enabled(true)
+                        .status("enabled")
+                        .build());
+        Mockito.when(versionMapper.selectById(991L))
+                .thenReturn(PromptItemVersionEntity.builder()
+                        .id(991L)
+                        .templateVariables(List.of())
+                        .editPolicy(Map.of("create", true, "update", true, "delete", true))
+                        .build());
+        Mockito.when(categoryService.isExecutionCategory("memory-hint")).thenReturn(false);
+        Mockito.when(registryService.getByKey("memory-hint.default_v1"))
+                .thenReturn(Optional.of(PromptItemRecord.builder()
+                        .itemId(990L)
+                        .versionId(992L)
+                        .key("memory-hint.default_v1")
+                        .name("memory-hint.default_v1")
+                        .value("new value")
+                        .category("memory-hint")
+                        .subCategory("default")
+                        .runtimeSlot("memory.hints")
+                        .hasTemplateVariables(false)
+                        .templateVariables(List.of())
+                        .keywordMatchEnabled(false)
+                        .matchKeywords(List.of())
+                        .assemblyMode("KEYWORD_ONLY")
+                        .matchScope(MatchScope.empty())
+                        .editPolicy(EditPolicy.contentDefault())
+                        .enabled(true)
+                        .priority(80)
+                        .status("enabled")
+                        .version("1.0.1")
+                        .versionLabel("1.0.1")
+                        .changeNote("")
+                        .build()));
+
+        PromptUpsertRequest request = new PromptUpsertRequest();
+        request.setKey("memory-hint.default_v1");
+        request.setValue("new value");
+
+        service.update(request);
+
+        Mockito.verify(itemMapper).update(Mockito.isNull(), Mockito.any());
+        Mockito.verify(versionMapper).insert(Mockito.any(PromptItemVersionEntity.class));
+        Mockito.verify(promptVersionService).activateVersion(Mockito.anyLong());
+    }
+
     private PromptItemRecord sampleRecord(String key) {
         return PromptItemRecord.builder()
                 .itemId(1L)

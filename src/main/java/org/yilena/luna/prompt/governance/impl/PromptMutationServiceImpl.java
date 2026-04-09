@@ -85,12 +85,13 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         if (request == null || request.getKey() == null || request.getKey().isBlank()) {
             throw new IllegalArgumentException("key is required");
         }
-        validatePromptKeyForWrite(request.getKey());
+        String requestedKey = safe(request.getKey()).trim();
         PromptItemEntity item = promptItemMapper.selectOne(
                 new LambdaQueryWrapper<PromptItemEntity>()
-                        .eq(PromptItemEntity::getPromptKey, request.getKey())
+                        .eq(PromptItemEntity::getPromptKey, requestedKey)
                         .last("limit 1")
         );
+        validatePromptKeyForWrite(requestedKey, item != null && sameKey(item.getPromptKey(), requestedKey));
         if (item == null) {
             throw new IllegalArgumentException("prompt not found");
         }
@@ -105,7 +106,9 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         }
         String targetCategory = resolveTargetCategory(item, request);
         String targetSubCategory = resolveTargetSubCategory(item, request);
-        validateKeyCategoryConsistency(request.getKey(), targetCategory, targetSubCategory);
+        if (isMainPromptKey(requestedKey)) {
+            validateKeyCategoryConsistency(requestedKey, targetCategory, targetSubCategory);
+        }
         if (!isExecutionCategory(currentCategory) && isExecutionCategory(targetCategory)) {
             throw new IllegalArgumentException("content prompt cannot be migrated to execution category");
         }
@@ -161,7 +164,7 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         if (!previewOnly) {
             promptVersionService.activateVersion(version.getId());
         }
-        return promptRegistryService.getByKey(request.getKey()).orElseThrow();
+        return promptRegistryService.getByKey(requestedKey).orElseThrow();
     }
 
     @Override
@@ -445,14 +448,32 @@ public class PromptMutationServiceImpl implements PromptMutationService {
     }
 
     private void validatePromptKeyForWrite(String key) {
+        validatePromptKeyForWrite(key, false);
+    }
+
+    private void validatePromptKeyForWrite(String key, boolean allowExistingLegacyKey) {
         String normalized = safe(key).trim();
         if (!PROMPT_KEY_MAIN_PATTERN.matcher(normalized).matches()) {
+            if (allowExistingLegacyKey) {
+                return;
+            }
             throw new IllegalArgumentException("prompt key must match {category}.{subCategory}.{name}_{versionTag}");
         }
         String canonical = PromptKeyAliasSupport.canonicalKeyOf(normalized);
         if (!canonical.equalsIgnoreCase(normalized)) {
             throw new IllegalArgumentException("prompt key alias is not allowed for write, use canonical key");
         }
+    }
+
+    private boolean isMainPromptKey(String key) {
+        return PROMPT_KEY_MAIN_PATTERN.matcher(safe(key).trim()).matches();
+    }
+
+    private boolean sameKey(String left, String right) {
+        if (left == null || right == null) {
+            return false;
+        }
+        return left.trim().equalsIgnoreCase(right.trim());
     }
 
     private void validateKeyCategoryConsistency(String key, String category, String subCategory) {

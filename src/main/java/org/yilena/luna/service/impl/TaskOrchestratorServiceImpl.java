@@ -4396,7 +4396,10 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             Map<String, Object> meta = assembledContext.getPromptAssemblyMeta();
             String policyId = stringValue(meta.get("policyId"));
             String assemblerVersion = stringValue(meta.get("assemblerVersion"));
-            Object refsRaw = meta.get("promptRefs");
+            Object refsRaw = meta.get("allPromptRefs");
+            if (!(refsRaw instanceof List<?>)) {
+                refsRaw = meta.get("promptRefs");
+            }
             if (!(refsRaw instanceof List<?> refs) || refs.isEmpty()) {
                 return;
             }
@@ -4421,7 +4424,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 return;
             }
             Map<String, List<ResolvedPromptItem>> slotMapping = parseSnapshotSlotMapping(
-                    meta.get("slotMapping"),
+                    meta.get("allSlotMapping") != null ? meta.get("allSlotMapping") : meta.get("slotMapping"),
                     assemblerVersion
             );
             PromptResolveResult resolveResult = PromptResolveResult.builder()

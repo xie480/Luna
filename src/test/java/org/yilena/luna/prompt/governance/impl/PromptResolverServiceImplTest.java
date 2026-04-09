@@ -336,6 +336,64 @@ class PromptResolverServiceImplTest {
                         && row.isPolicyApplied()));
     }
 
+    @Test
+    void policyOnlyReasonShouldSortBeforeKeywordOrAgentStage() {
+        PromptItemRecord policyForced = PromptItemRecord.builder()
+                .itemId(10L)
+                .versionId(101L)
+                .key("persona.policy_sort_first_v1")
+                .value("v1")
+                .category("persona")
+                .subCategory("maid")
+                .runtimeSlot("instructions.persona")
+                .hasTemplateVariables(false)
+                .templateVariables(List.of())
+                .keywordMatchEnabled(true)
+                .matchKeywords(List.of("missing"))
+                .assemblyMode("KEYWORD_OR_AGENT")
+                .matchScope(MatchScope.empty())
+                .editPolicy(EditPolicy.contentDefault())
+                .enabled(true)
+                .priority(10)
+                .status("enabled")
+                .version("1.0.0")
+                .build();
+        PromptItemRecord keywordOrAgent = PromptItemRecord.builder()
+                .itemId(11L)
+                .versionId(111L)
+                .key("persona.keyword_or_agent_sorted_later_v1")
+                .value("v2")
+                .category("persona")
+                .subCategory("maid")
+                .runtimeSlot("instructions.persona")
+                .hasTemplateVariables(false)
+                .templateVariables(List.of())
+                .keywordMatchEnabled(true)
+                .matchKeywords(List.of("gentle"))
+                .assemblyMode("KEYWORD_OR_AGENT")
+                .matchScope(MatchScope.empty())
+                .editPolicy(EditPolicy.contentDefault())
+                .enabled(true)
+                .priority(999)
+                .status("enabled")
+                .version("1.0.0")
+                .build();
+
+        PromptResolverServiceImpl resolver = new PromptResolverServiceImpl(
+                new StubRegistry(List.of(policyForced, keywordOrAgent)),
+                new StubPolicy(Set.of("persona.policy_sort_first_v1"), Set.of()),
+                new StubCategoryService()
+        );
+
+        PromptResolveResult result = resolver.resolve(PromptResolveContext.builder()
+                .userInput("gentle input")
+                .agent("MAIN_CHAT_AGENT")
+                .build());
+        Assertions.assertEquals(2, result.getMatchedItems().size());
+        Assertions.assertEquals("persona.policy_sort_first_v1", result.getMatchedItems().get(0).getKey());
+        Assertions.assertEquals("POLICY_ONLY", result.getMatchedItems().get(0).getMatchReason());
+    }
+
     private record StubRegistry(List<PromptItemRecord> rows) implements PromptRegistryService {
         @Override
         public Optional<PromptItemRecord> getByKey(String key) {

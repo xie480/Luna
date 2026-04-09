@@ -1247,7 +1247,9 @@ public class DefaultContextAssembler implements ContextAssembler {
         if (promptSnapshotBridgeService != null) {
             Map<String, Object> payload = promptSnapshotBridgeService.buildSnapshotPayload(resolveResult, policyId);
             if (fallbackRefs == null || fallbackRefs.isEmpty()) {
-                return filterPromptAssemblyMetaBySections(payload, sections, canonicalSections);
+                Map<String, Object> mergedPayload = payload == null ? new LinkedHashMap<>() : new LinkedHashMap<>(payload);
+                attachUnfilteredPromptRefs(mergedPayload);
+                return filterPromptAssemblyMetaBySections(mergedPayload, sections, canonicalSections);
             }
             Map<String, Object> merged = new LinkedHashMap<>();
             if (payload != null && !payload.isEmpty()) {
@@ -1271,6 +1273,7 @@ public class DefaultContextAssembler implements ContextAssembler {
             if (!refs.isEmpty()) {
                 merged.put("promptRefs", refs);
             }
+            attachUnfilteredPromptRefs(merged);
             return filterPromptAssemblyMetaBySections(merged, sections, canonicalSections);
         }
 
@@ -1300,14 +1303,15 @@ public class DefaultContextAssembler implements ContextAssembler {
         if (refs.isEmpty()) {
             return Map.of();
         }
-        return filterPromptAssemblyMetaBySections(Map.of(
-                "policyId", policyId == null || policyId.isBlank()
-                        ? (resolveResult == null || resolveResult.getPolicyId() == null ? "" : resolveResult.getPolicyId())
-                        : policyId,
-                "assemblerVersion", "assembler.v1",
-                "promptRefs", refs,
-                "slotMapping", slotMapping
-        ), sections, canonicalSections);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("policyId", policyId == null || policyId.isBlank()
+                ? (resolveResult == null || resolveResult.getPolicyId() == null ? "" : resolveResult.getPolicyId())
+                : policyId);
+        payload.put("assemblerVersion", "assembler.v1");
+        payload.put("promptRefs", refs);
+        payload.put("slotMapping", slotMapping);
+        attachUnfilteredPromptRefs(payload);
+        return filterPromptAssemblyMetaBySections(payload, sections, canonicalSections);
     }
 
     @SuppressWarnings("unchecked")
@@ -1355,9 +1359,6 @@ public class DefaultContextAssembler implements ContextAssembler {
         List<Map<String, Object>> filteredRefs = refRows.stream()
                 .filter(row -> isPromptRefUsedInFinalSections(row, sections, canonicalSections))
                 .toList();
-        if (filteredRefs.isEmpty()) {
-            return Map.of();
-        }
         Map<String, Object> out = new LinkedHashMap<>();
         out.putAll(meta);
         out.put("promptRefs", deduplicatePromptRefs(filteredRefs));
@@ -1373,7 +1374,35 @@ public class DefaultContextAssembler implements ContextAssembler {
             }
             out.put("slotMapping", filteredSlotMapping);
         }
+        if (filteredRefs.isEmpty()) {
+            out.put("promptRefs", List.of());
+            out.put("slotMapping", Map.of());
+        }
         return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void attachUnfilteredPromptRefs(Map<String, Object> meta) {
+        if (meta == null || meta.isEmpty()) {
+            return;
+        }
+        List<Map<String, Object>> refs = new ArrayList<>();
+        Object refsRaw = meta.get("promptRefs");
+        if (refsRaw instanceof List<?> list) {
+            for (Object row : list) {
+                if (row instanceof Map<?, ?> map && !map.isEmpty()) {
+                    refs.add((Map<String, Object>) map);
+                }
+            }
+        }
+        refs = deduplicatePromptRefs(refs);
+        meta.put("allPromptRefs", refs);
+        Object slotMappingRaw = meta.get("slotMapping");
+        if (slotMappingRaw instanceof Map<?, ?> raw) {
+            meta.put("allSlotMapping", raw);
+        } else {
+            meta.put("allSlotMapping", Map.of());
+        }
     }
 
     private boolean isPromptRefUsedInFinalSections(Map<String, Object> ref,
