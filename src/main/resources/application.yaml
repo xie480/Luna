@@ -143,7 +143,7 @@ memory:
 
 prompt:
   governance:
-    policy-force-include-non-policy-mode: false
+    policy-force-include-non-policy-mode: true
     assembler-version: assembler.v1
 
 audit:
