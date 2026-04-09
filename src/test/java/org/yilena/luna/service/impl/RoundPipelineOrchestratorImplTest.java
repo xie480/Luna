@@ -2,6 +2,7 @@ package org.yilena.luna.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import org.yilena.luna.context.StateTransitionTraceLogger;
 import org.yilena.luna.context.ToolSemanticAgent;
 import org.yilena.luna.context.ToolSemanticResultValidator;
@@ -24,12 +25,15 @@ class RoundPipelineOrchestratorImplTest {
     @Test
     void shouldKeepRawChannelOnlyWhenSmallAgentTranslationFails() {
         TaskOrchestratorService taskOrchestratorService = mock(TaskOrchestratorService.class);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<TaskOrchestratorService> taskOrchestratorServiceProvider = mock(ObjectProvider.class);
         ToolSemanticAgent toolSemanticAgent = mock(ToolSemanticAgent.class);
         ToolSemanticResultValidator validator = mock(ToolSemanticResultValidator.class);
         ToolSemanticTraceLogger traceLogger = mock(ToolSemanticTraceLogger.class);
         RuntimeAuditService runtimeAuditService = mock(RuntimeAuditService.class);
         StateTransitionTraceLogger stateTransitionTraceLogger = mock(StateTransitionTraceLogger.class);
 
+        when(taskOrchestratorServiceProvider.getObject()).thenReturn(taskOrchestratorService);
         when(toolSemanticAgent.translate(any(), any(), any(), any(), any())).thenThrow(new RuntimeException("agent timeout"));
         when(validator.validate(any(), any())).thenAnswer(invocation -> {
             ToolSemanticResult result = invocation.getArgument(0);
@@ -37,7 +41,7 @@ class RoundPipelineOrchestratorImplTest {
         });
 
         RoundPipelineOrchestratorImpl orchestrator = new RoundPipelineOrchestratorImpl(
-                taskOrchestratorService,
+                taskOrchestratorServiceProvider,
                 toolSemanticAgent,
                 validator,
                 traceLogger,
@@ -63,4 +67,3 @@ class RoundPipelineOrchestratorImplTest {
         assertTrue(Boolean.TRUE.equals(result.getSemanticPayload().get("semantic_translation_failed")));
     }
 }
-

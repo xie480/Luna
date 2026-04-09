@@ -2,6 +2,7 @@ package org.yilena.luna.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import org.yilena.luna.context.StateTransitionTraceLogger;
 import org.yilena.luna.memory.RuntimeAuditService;
 import org.yilena.luna.service.RoundPipelineOrchestrator;
@@ -28,16 +29,19 @@ class StateDrivenContextPipelineImplTest {
         RoundPipelineOrchestrator roundPipelineOrchestrator = mock(RoundPipelineOrchestrator.class);
         RuntimeAuditService runtimeAuditService = mock(RuntimeAuditService.class);
         TaskOrchestratorService taskOrchestratorService = mock(TaskOrchestratorService.class);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<TaskOrchestratorService> taskOrchestratorServiceProvider = mock(ObjectProvider.class);
         SessionRuntimeMapper sessionRuntimeMapper = mock(SessionRuntimeMapper.class);
         StateTransitionTraceLogger stateTransitionTraceLogger = mock(StateTransitionTraceLogger.class);
 
+        when(taskOrchestratorServiceProvider.getObject()).thenReturn(taskOrchestratorService);
         when(taskOrchestratorService.orchestrateUserInput(anyString(), anyString()))
                 .thenReturn(TaskOrchestrationResult.builder().build());
 
         StateDrivenContextPipelineImpl pipeline = new StateDrivenContextPipelineImpl(
                 roundPipelineOrchestrator,
                 runtimeAuditService,
-                taskOrchestratorService,
+                taskOrchestratorServiceProvider,
                 sessionRuntimeMapper,
                 new ObjectMapper(),
                 stateTransitionTraceLogger
@@ -59,4 +63,3 @@ class StateDrivenContextPipelineImplTest {
         verify(roundPipelineOrchestrator, never()).executeRound(any());
     }
 }
-
