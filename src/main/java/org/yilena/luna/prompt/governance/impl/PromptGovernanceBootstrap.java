@@ -22,6 +22,7 @@ import java.lang.reflect.Modifier;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Slf4j
 @Component
@@ -31,6 +32,10 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
     private final PromptCategoryMapper promptCategoryMapper;
     private final PromptItemMapper promptItemMapper;
     private final PromptItemVersionMapper promptItemVersionMapper;
+    private static final Set<String> EXECUTION_CATEGORY_FALLBACK = Set.of(
+            "tool", "repair", "summary", "guardrail", "agent-local", "task", "system",
+            "memory-hint", "rag-hint", "format"
+    );
     private static final Map<String, String> LEGACY_BUILTIN_KEY_MAPPING = Map.of(
             "system.base_v1", "system.base.default_v1",
             "runtime.main_v1", "task.runtime.main_v1",
@@ -44,6 +49,7 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
             migrateLegacyBuiltinPromptKeys();
             seedCategories();
             seedBuiltinPrompts();
+            migrateBuiltinExecutionEditPolicy();
         } catch (Exception ex) {
             log.debug("prompt governance bootstrap skipped: {}", ex.getMessage());
         }
@@ -146,6 +152,52 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
 
         for (PromptItemRecord row : builtins.values()) {
             upsertPrompt(row);
+        }
+    }
+
+    private void migrateBuiltinExecutionEditPolicy() {
+        List<PromptItemEntity> builtinItems = promptItemMapper.selectList(
+                new LambdaQueryWrapper<PromptItemEntity>()
+                        .eq(PromptItemEntity::getIsBuiltin, true)
+        );
+        if (builtinItems == null || builtinItems.isEmpty()) {
+            return;
+        }
+        int updated = 0;
+        for (PromptItemEntity item : builtinItems) {
+            if (item == null || item.getId() == null) {
+                continue;
+            }
+            boolean executionPrompt = Boolean.TRUE.equals(item.getHasTemplateVariables())
+                    || isExecutionCategory(item.getCategoryKey() == null || item.getCategoryKey().isBlank()
+                    ? item.getCategory()
+                    : item.getCategoryKey());
+            if (!executionPrompt) {
+                continue;
+            }
+            List<PromptItemVersionEntity> versions = promptItemVersionMapper.selectList(
+                    new LambdaQueryWrapper<PromptItemVersionEntity>()
+                            .eq(PromptItemVersionEntity::getPromptItemId, item.getId())
+            );
+            if (versions == null || versions.isEmpty()) {
+                continue;
+            }
+            for (PromptItemVersionEntity version : versions) {
+                if (version == null || version.getId() == null) {
+                    continue;
+                }
+                EditPolicy policy = EditPolicy.fromMap(version.getEditPolicy());
+                if (!Boolean.TRUE.equals(policy.getCreate()) && !Boolean.TRUE.equals(policy.getDelete())) {
+                    continue;
+                }
+                promptItemVersionMapper.update(null, new LambdaUpdateWrapper<PromptItemVersionEntity>()
+                        .eq(PromptItemVersionEntity::getId, version.getId())
+                        .set(PromptItemVersionEntity::getEditPolicy, EditPolicy.executionDefault().toMap()));
+                updated++;
+            }
+        }
+        if (updated > 0) {
+            log.info("prompt governance migrated builtin execution edit_policy rows={}", updated);
         }
     }
 
@@ -291,6 +343,21 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
                     .build();
             default -> MatchScope.empty();
         };
+    }
+
+    private boolean isExecutionCategory(String categoryKey) {
+        if (categoryKey == null || categoryKey.isBlank()) {
+            return false;
+        }
+        PromptCategoryEntity category = promptCategoryMapper.selectOne(
+                new LambdaQueryWrapper<PromptCategoryEntity>()
+                        .eq(PromptCategoryEntity::getCategoryKey, categoryKey.trim())
+                        .last("limit 1")
+        );
+        if (category != null) {
+            return Boolean.TRUE.equals(category.getIsExecutionCategory());
+        }
+        return EXECUTION_CATEGORY_FALLBACK.contains(categoryKey.trim().toLowerCase());
     }
 
     private List<CategorySeed> categorySeeds() {

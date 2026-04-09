@@ -6,7 +6,10 @@ import org.springframework.stereotype.Service;
 import org.yilena.luna.prompt.governance.PromptCategoryService;
 import org.yilena.luna.prompt.governance.entity.PromptCategoryEntity;
 import org.yilena.luna.prompt.governance.mapper.PromptCategoryMapper;
+import org.yilena.luna.prompt.governance.model.PromptCategoryTreeNode;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -34,6 +37,44 @@ public class PromptCategoryServiceImpl implements PromptCategoryService {
         } catch (Exception ignore) {
             return List.of();
         }
+    }
+
+    @Override
+    public List<PromptCategoryTreeNode> listEnabledTree() {
+        List<PromptCategoryEntity> categories = listEnabledOrdered();
+        if (categories.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashMap<String, PromptCategoryTreeNode> nodes = new LinkedHashMap<>();
+        for (PromptCategoryEntity category : categories) {
+            if (category == null || category.getCategoryKey() == null || category.getCategoryKey().isBlank()) {
+                continue;
+            }
+            String categoryKey = category.getCategoryKey().trim();
+            nodes.put(categoryKey, PromptCategoryTreeNode.builder()
+                    .categoryKey(categoryKey)
+                    .categoryName(safe(category.getCategoryName()))
+                    .parentCategoryKey(safe(category.getParentCategoryKey()))
+                    .sortOrder(category.getSortOrder() == null ? 0 : category.getSortOrder())
+                    .keywordMatchAllowed(!Boolean.FALSE.equals(category.getKeywordMatchAllowed()))
+                    .executionCategory(Boolean.TRUE.equals(category.getIsExecutionCategory()))
+                    .enabled(!Boolean.FALSE.equals(category.getEnabled()))
+                    .children(new ArrayList<>())
+                    .build());
+        }
+        List<PromptCategoryTreeNode> roots = new ArrayList<>();
+        for (PromptCategoryTreeNode node : nodes.values()) {
+            if (node == null) {
+                continue;
+            }
+            String parent = node.getParentCategoryKey() == null ? "" : node.getParentCategoryKey().trim();
+            if (parent.isBlank() || !nodes.containsKey(parent)) {
+                roots.add(node);
+                continue;
+            }
+            nodes.get(parent).getChildren().add(node);
+        }
+        return roots;
     }
 
     @Override
@@ -69,5 +110,9 @@ public class PromptCategoryServiceImpl implements PromptCategoryService {
             return !Boolean.FALSE.equals(category.get().getKeywordMatchAllowed());
         }
         return !isExecutionCategory(categoryKey);
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : value;
     }
 }

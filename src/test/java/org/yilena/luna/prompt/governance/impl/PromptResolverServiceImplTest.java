@@ -9,6 +9,7 @@ import org.yilena.luna.prompt.governance.entity.PromptCategoryEntity;
 import org.yilena.luna.prompt.governance.model.EditPolicy;
 import org.yilena.luna.prompt.governance.model.MatchScope;
 import org.yilena.luna.prompt.governance.model.PromptItemRecord;
+import org.yilena.luna.prompt.governance.model.PromptCategoryTreeNode;
 import org.yilena.luna.prompt.governance.model.PromptResolveContext;
 import org.yilena.luna.prompt.governance.model.PromptResolveResult;
 
@@ -424,6 +425,11 @@ class PromptResolverServiceImplTest {
     private static class StubCategoryService implements PromptCategoryService {
         @Override
         public List<PromptCategoryEntity> listEnabledOrdered() {
+            return List.of();
+        }
+
+        @Override
+        public List<PromptCategoryTreeNode> listEnabledTree() {
             return List.of();
         }
 

@@ -22,7 +22,6 @@ import org.yilena.luna.prompt.governance.support.PromptKeyAliasSupport;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -39,6 +38,7 @@ public class PromptMutationServiceImpl implements PromptMutationService {
     private static final Set<String> EXECUTION_ALLOWED_MODES = Set.of("ALWAYS", "AGENT_ONLY", "POLICY_ONLY", "MANUAL_ONLY", "DISABLED");
     private static final Set<String> CONTENT_ALLOWED_MODES = Set.of("ALWAYS", "KEYWORD_ONLY", "KEYWORD_AND_AGENT", "KEYWORD_OR_AGENT", "DISABLED");
     private static final Pattern TEMPLATE_PLACEHOLDER_PATTERN = Pattern.compile("\\$\\{[^}]+}");
+    private static final Pattern TEMPLATE_VARIABLE_NAME_PATTERN = Pattern.compile("^[a-zA-Z_][a-zA-Z0-9_]*$");
     private static final Pattern PROMPT_KEY_MAIN_PATTERN =
             Pattern.compile("^[a-z0-9][a-z0-9-]*\\.[a-z0-9][a-z0-9_-]*\\.[a-z0-9][a-z0-9_-]*_[a-z0-9][a-z0-9._-]*$");
 
@@ -116,7 +116,7 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         boolean executionCategory = isExecutionCategory(targetCategory);
         boolean executionPrompt = hasTemplateVariables || executionCategory;
         if (hasTemplateVariables || executionCategory) {
-            validateExecutionPromptUpdate(current, request);
+            validateExecutionPromptUpdate(request);
         } else {
             validateContentPromptUpdate(request);
         }
@@ -204,8 +204,9 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         boolean contentCreate = currentVersion == null && !executionCategory && !hasTemplateVariables;
         List<String> templateVariables = contentCreate
                 ? List.of()
-                : mergeListField(request == null ? null : request.getTemplateVariables(),
-                currentVersion == null ? null : currentVersion.getTemplateVariables());
+                : normalizeTemplateVariables(mergeListField(
+                        request == null ? null : request.getTemplateVariables(),
+                        currentVersion == null ? null : currentVersion.getTemplateVariables()));
         List<String> matchKeywords = mergeListField(
                 request == null ? null : request.getMatchKeywords(),
                 currentVersion == null ? null : currentVersion.getMatchKeywords());
@@ -287,11 +288,9 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         }
     }
 
-    private void validateExecutionPromptUpdate(PromptItemVersionEntity current, PromptUpsertRequest request) {
-        List<String> oldVars = current == null || current.getTemplateVariables() == null ? List.of() : current.getTemplateVariables();
-        List<String> newVars = request.getTemplateVariables() == null ? oldVars : request.getTemplateVariables();
-        if (!Objects.equals(oldVars, newVars)) {
-            throw new IllegalArgumentException("execution prompt templateVariables cannot add/delete");
+    private void validateExecutionPromptUpdate(PromptUpsertRequest request) {
+        if (request != null && request.getTemplateVariables() != null) {
+            normalizeTemplateVariables(request.getTemplateVariables());
         }
         if (request.getKeywordMatchEnabled() != null && request.getKeywordMatchEnabled()) {
             throw new IllegalArgumentException("execution prompt cannot enable keyword matching");
@@ -406,6 +405,22 @@ public class PromptMutationServiceImpl implements PromptMutationService {
 
     private boolean hasTemplateVariablesInRequest(List<String> templateVariables) {
         return templateVariables != null && !templateVariables.isEmpty();
+    }
+
+    private List<String> normalizeTemplateVariables(List<String> templateVariables) {
+        if (templateVariables == null || templateVariables.isEmpty()) {
+            return List.of();
+        }
+        return templateVariables.stream()
+                .map(variable -> variable == null ? "" : variable.trim())
+                .filter(variable -> !variable.isBlank())
+                .peek(variable -> {
+                    if (!TEMPLATE_VARIABLE_NAME_PATTERN.matcher(variable).matches()) {
+                        throw new IllegalArgumentException("templateVariables contains invalid variable name");
+                    }
+                })
+                .distinct()
+                .toList();
     }
 
     private boolean containsTemplatePlaceholder(String value) {

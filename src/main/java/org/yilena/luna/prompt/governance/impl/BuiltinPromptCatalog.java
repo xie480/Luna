@@ -8,8 +8,14 @@ import org.yilena.luna.prompt.governance.model.PromptItemRecord;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 final class BuiltinPromptCatalog {
+
+    private static final Set<String> EXECUTION_CATEGORIES = Set.of(
+            "tool", "repair", "summary", "guardrail", "agent-local", "task", "system",
+            "memory-hint", "rag-hint", "format"
+    );
 
     private BuiltinPromptCatalog() {
     }
@@ -389,6 +395,7 @@ final class BuiltinPromptCatalog {
                                          String assemblyMode,
                                          String version,
                                          String description) {
+        boolean executionPrompt = hasTemplateVariables || isExecutionCategory(category);
         return PromptItemRecord.builder()
                 .itemId(-1L)
                 .versionId(-1L)
@@ -405,11 +412,7 @@ final class BuiltinPromptCatalog {
                 .matchKeywords(List.of())
                 .assemblyMode(assemblyMode)
                 .matchScope(MatchScope.empty())
-                .editPolicy(EditPolicy.builder()
-                        .create(!hasTemplateVariables)
-                        .update(true)
-                        .delete(!hasTemplateVariables)
-                        .build())
+                .editPolicy(executionPrompt ? EditPolicy.executionDefault() : EditPolicy.contentDefault())
                 .enabled(true)
                 .priority(hasTemplateVariables ? 100 : 80)
                 .status("enabled")
@@ -417,5 +420,12 @@ final class BuiltinPromptCatalog {
                 .versionLabel(version)
                 .changeNote("builtin_fallback")
                 .build();
+    }
+
+    private static boolean isExecutionCategory(String category) {
+        if (category == null || category.isBlank()) {
+            return false;
+        }
+        return EXECUTION_CATEGORIES.contains(category.trim().toLowerCase());
     }
 }

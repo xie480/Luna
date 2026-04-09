@@ -21,6 +21,7 @@ import org.yilena.luna.prompt.governance.dto.PromptUpsertRequest;
 import org.yilena.luna.prompt.governance.dto.PromptVersionDiffRequest;
 import org.yilena.luna.prompt.governance.dto.PromptVersionSwitchRequest;
 import org.yilena.luna.prompt.governance.entity.PromptCategoryEntity;
+import org.yilena.luna.prompt.governance.model.PromptCategoryTreeNode;
 import org.yilena.luna.prompt.governance.model.PromptResolveContext;
 
 import java.util.List;
@@ -52,6 +53,15 @@ public class PromptAdminController {
     public ResponseEntity<?> categoryDetails() {
         List<Map<String, Object>> payload = promptCategoryService.listEnabledOrdered().stream()
                 .map(this::toCategoryDetail)
+                .toList();
+        return ResponseEntity.ok(payload);
+    }
+
+    @GetMapping("/categories/tree")
+    @Operation(summary = "List prompt category tree")
+    public ResponseEntity<?> categoryTree() {
+        List<Map<String, Object>> payload = promptCategoryService.listEnabledTree().stream()
+                .map(this::toCategoryTreeNode)
                 .toList();
         return ResponseEntity.ok(payload);
     }
@@ -269,6 +279,25 @@ public class PromptAdminController {
                 "keywordMatchAllowed", !Boolean.FALSE.equals(category.getKeywordMatchAllowed()),
                 "executionCategory", Boolean.TRUE.equals(category.getIsExecutionCategory()),
                 "enabled", !Boolean.FALSE.equals(category.getEnabled())
+        );
+    }
+
+    private Map<String, Object> toCategoryTreeNode(PromptCategoryTreeNode node) {
+        if (node == null) {
+            return Map.of();
+        }
+        List<Map<String, Object>> children = node.getChildren() == null
+                ? List.of()
+                : node.getChildren().stream().map(this::toCategoryTreeNode).toList();
+        return Map.of(
+                "categoryKey", node.getCategoryKey() == null ? "" : node.getCategoryKey(),
+                "categoryName", node.getCategoryName() == null ? "" : node.getCategoryName(),
+                "parentCategoryKey", node.getParentCategoryKey() == null ? "" : node.getParentCategoryKey(),
+                "sortOrder", node.getSortOrder() == null ? 0 : node.getSortOrder(),
+                "keywordMatchAllowed", !Boolean.FALSE.equals(node.getKeywordMatchAllowed()),
+                "executionCategory", Boolean.TRUE.equals(node.getExecutionCategory()),
+                "enabled", !Boolean.FALSE.equals(node.getEnabled()),
+                "children", children
         );
     }
 }

@@ -1222,10 +1222,15 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     .build();
         }
 
+        Long roundId = resolveRoundId(contextPackage);
         ModelReply modelReply = invokeMainModel(
                 finalPrompt,
                 request.getRepairSeed() == null ? request.getUserInput() : request.getRepairSeed(),
-                contextPackage
+                contextPackage,
+                sessionId,
+                roundId,
+                nodeId,
+                finalSnapshotId
         );
         stateTransitionTraceLogger.log(
                 transitionTraceId,
@@ -1240,7 +1245,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 contextPackage == null || contextPackage.getRecoveryState() == null ? "" : nullSafe(contextPackage.getRecoveryState().getRecoveryEvent())
         );
         if (!sessionId.isBlank()) {
-            persistPromptSnapshotRefs(sessionId, resolveRoundId(contextPackage), nodeId, finalSnapshotId, assembledContext);
+            persistPromptSnapshotRefs(sessionId, roundId, nodeId, finalSnapshotId, assembledContext);
         }
         return MainModelOrchestrationResult.builder()
                 .blocked(false)
@@ -1673,7 +1678,13 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         );
     }
 
-    private ModelReply invokeMainModel(String prompt, String repairSeed, StructuredContextPackage contextPackage) {
+    private ModelReply invokeMainModel(String prompt,
+                                       String repairSeed,
+                                       StructuredContextPackage contextPackage,
+                                       String sessionId,
+                                       Long roundId,
+                                       Long nodeId,
+                                       String snapshotId) {
         String executionModelName = resolveExecutionModelName(contextPackage);
         LlmRequest request = LlmRequest.builder()
                 .modelType(org.yilena.luna.enums.ModelType.OPENAI_COMPATIBLE)
@@ -1690,7 +1701,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         JsonNode node = tryParseJsonNode(valid);
         if (!isValidReplyNode(node)) {
             try {
-                String repairTemplate = resolveRepairPrompt(repairSeed, contextPackage);
+                PromptResolveResult repairResolved = resolveRepairPromptResult(repairSeed, contextPackage);
+                persistRepairSnapshotRefs(sessionId, roundId, nodeId, snapshotId, repairResolved);
+                String repairTemplate = resolveRepairPromptTemplate(repairResolved, contextPackage);
                 String repairPrompt = repairTemplate.formatted(
                         repairSeed == null || repairSeed.isBlank() ? valid : repairSeed
                 );
@@ -1747,10 +1760,10 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         }
     }
 
-    private String resolveRepairPrompt(String repairSeed, StructuredContextPackage contextPackage) {
+    private PromptResolveResult resolveRepairPromptResult(String repairSeed, StructuredContextPackage contextPackage) {
         if (promptResolverService != null) {
             try {
-                PromptResolveResult resolved = promptResolverService.resolve(PromptResolveContext.builder()
+                return promptResolverService.resolve(PromptResolveContext.builder()
                         .sessionId(contextPackage == null ? "" : nullSafe(contextPackage.getSessionId()))
                         .userInput(repairSeed)
                         .policyId(resolvePromptPolicyId(contextPackage))
@@ -1762,6 +1775,16 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                         .taskState(contextPackage == null || contextPackage.getTaskState() == null ? "" : contextPackage.getTaskState().name())
                         .modelFamily(resolvePromptModelFamily(contextPackage))
                         .build());
+            } catch (Exception ignore) {
+            }
+        }
+        return null;
+    }
+
+    private String resolveRepairPromptTemplate(PromptResolveResult resolved,
+                                               StructuredContextPackage contextPackage) {
+        if (resolved != null) {
+            try {
                 String fromSlot = resolvePromptValueFromSlot(resolved, "repair.main");
                 if (!fromSlot.isBlank()) {
                     return fromSlot;
@@ -1776,6 +1799,60 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         return promptRegistryService == null
                 ? PromptTemplates.REPAIR_PROMPT
                 : promptRegistryService.resolvePromptValue("repair.main.json_v1", PromptTemplates.REPAIR_PROMPT);
+    }
+
+    private void persistRepairSnapshotRefs(String sessionId,
+                                           Long roundId,
+                                           Long nodeId,
+                                           String snapshotId,
+                                           PromptResolveResult resolved) {
+        if (promptSnapshotBridgeService == null
+                || resolved == null
+                || sessionId == null
+                || sessionId.isBlank()
+                || snapshotId == null
+                || snapshotId.isBlank()) {
+            return;
+        }
+        List<ResolvedPromptItem> slotItems = resolved.getSlotMapping() == null
+                ? List.of()
+                : resolved.getSlotMapping().getOrDefault("repair.main", List.of());
+        List<ResolvedPromptItem> repairItems = new ArrayList<>();
+        if (slotItems != null && !slotItems.isEmpty()) {
+            repairItems.addAll(slotItems);
+        } else if (resolved.getMatchedItems() != null) {
+            for (ResolvedPromptItem item : resolved.getMatchedItems()) {
+                if (isRepairMainPromptItem(item)) {
+                    repairItems.add(item);
+                }
+            }
+        }
+        if (repairItems.isEmpty()) {
+            return;
+        }
+        PromptResolveResult repairOnly = PromptResolveResult.builder()
+                .policyId(resolved.getPolicyId())
+                .matchedItems(repairItems)
+                .slotMapping(Map.of("repair.main", repairItems))
+                .build();
+        Map<String, Object> payload = promptSnapshotBridgeService.buildSnapshotPayload(repairOnly, resolved.getPolicyId());
+        promptSnapshotBridgeService.persistSnapshotRefs(sessionId, roundId, nodeId, snapshotId, payload);
+    }
+
+    private boolean isRepairMainPromptItem(ResolvedPromptItem item) {
+        if (item == null) {
+            return false;
+        }
+        String runtimeSlot = item.getRuntimeSlot();
+        if (runtimeSlot != null && runtimeSlot.equalsIgnoreCase("repair.main")) {
+            return true;
+        }
+        String key = item.getKey();
+        if (key == null || key.isBlank()) {
+            return false;
+        }
+        String normalized = key.trim().toLowerCase(Locale.ROOT);
+        return normalized.startsWith("repair.main.") || normalized.startsWith("repair.main_");
     }
 
     private String resolvePromptValueFromSlot(PromptResolveResult resolved, String slot) {

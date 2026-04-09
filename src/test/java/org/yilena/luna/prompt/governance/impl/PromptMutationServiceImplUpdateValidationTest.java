@@ -455,6 +455,96 @@ class PromptMutationServiceImplUpdateValidationTest {
     }
 
     @Test
+    void updateShouldAllowExecutionTemplateVariablesEvolution() {
+        PromptItemMapper itemMapper = Mockito.mock(PromptItemMapper.class);
+        PromptItemVersionMapper versionMapper = Mockito.mock(PromptItemVersionMapper.class);
+        PromptCategoryService categoryService = Mockito.mock(PromptCategoryService.class);
+        PromptRegistryService registryService = Mockito.mock(PromptRegistryService.class);
+        PromptVersionService promptVersionService = Mockito.mock(PromptVersionService.class);
+        PromptMutationServiceImpl service = new PromptMutationServiceImpl(
+                itemMapper,
+                versionMapper,
+                promptVersionService,
+                registryService,
+                categoryService
+        );
+
+        Mockito.when(itemMapper.selectOne(Mockito.any()))
+                .thenReturn(PromptItemEntity.builder()
+                        .id(880L)
+                        .promptKey("repair.main.exec_v1")
+                        .category("repair")
+                        .subCategory("main")
+                        .hasTemplateVariables(true)
+                        .currentVersionId(881L)
+                        .enabled(true)
+                        .status("enabled")
+                        .build());
+        Mockito.when(versionMapper.selectById(881L))
+                .thenReturn(PromptItemVersionEntity.builder()
+                        .id(881L)
+                        .versionNo("1.0.0")
+                        .templateVariables(List.of("invalidJson"))
+                        .editPolicy(Map.of("create", false, "update", true, "delete", false))
+                        .build());
+        Mockito.when(categoryService.isExecutionCategory("repair")).thenReturn(true);
+        Mockito.when(registryService.getByKey("repair.main.exec_v1")).thenReturn(Optional.of(sampleRecord("repair.main.exec_v1")));
+
+        PromptUpsertRequest request = new PromptUpsertRequest();
+        request.setKey("repair.main.exec_v1");
+        request.setValue("new value");
+        request.setTemplateVariables(List.of("invalidJsonV2", "invalidJsonV2", "repairSeed"));
+
+        service.update(request);
+
+        ArgumentCaptor<PromptItemVersionEntity> versionCaptor = ArgumentCaptor.forClass(PromptItemVersionEntity.class);
+        Mockito.verify(versionMapper).insert(versionCaptor.capture());
+        Assertions.assertEquals(List.of("invalidJsonV2", "repairSeed"), versionCaptor.getValue().getTemplateVariables());
+    }
+
+    @Test
+    void updateShouldRejectExecutionTemplateVariableWithInvalidName() {
+        PromptItemMapper itemMapper = Mockito.mock(PromptItemMapper.class);
+        PromptItemVersionMapper versionMapper = Mockito.mock(PromptItemVersionMapper.class);
+        PromptCategoryService categoryService = Mockito.mock(PromptCategoryService.class);
+        PromptRegistryService registryService = Mockito.mock(PromptRegistryService.class);
+        PromptMutationServiceImpl service = new PromptMutationServiceImpl(
+                itemMapper,
+                versionMapper,
+                Mockito.mock(PromptVersionService.class),
+                registryService,
+                categoryService
+        );
+
+        Mockito.when(itemMapper.selectOne(Mockito.any()))
+                .thenReturn(PromptItemEntity.builder()
+                        .id(882L)
+                        .promptKey("repair.main.exec_v1")
+                        .category("repair")
+                        .subCategory("main")
+                        .hasTemplateVariables(true)
+                        .currentVersionId(883L)
+                        .enabled(true)
+                        .status("enabled")
+                        .build());
+        Mockito.when(versionMapper.selectById(883L))
+                .thenReturn(PromptItemVersionEntity.builder()
+                        .id(883L)
+                        .templateVariables(List.of("invalidJson"))
+                        .editPolicy(Map.of("create", false, "update", true, "delete", false))
+                        .build());
+        Mockito.when(categoryService.isExecutionCategory("repair")).thenReturn(true);
+        Mockito.when(registryService.getByKey("repair.main.exec_v1")).thenReturn(Optional.of(sampleRecord("repair.main.exec_v1")));
+
+        PromptUpsertRequest request = new PromptUpsertRequest();
+        request.setKey("repair.main.exec_v1");
+        request.setTemplateVariables(List.of("bad-name"));
+
+        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class, () -> service.update(request));
+        Assertions.assertTrue(ex.getMessage().contains("invalid variable name"));
+    }
+
+    @Test
     void deleteShouldRejectWhenCurrentVersionMissing() {
         PromptItemMapper itemMapper = Mockito.mock(PromptItemMapper.class);
         PromptItemVersionMapper versionMapper = Mockito.mock(PromptItemVersionMapper.class);
