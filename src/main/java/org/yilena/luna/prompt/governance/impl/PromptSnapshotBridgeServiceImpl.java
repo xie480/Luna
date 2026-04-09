@@ -1,6 +1,7 @@
 package org.yilena.luna.prompt.governance.impl;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.prompt.governance.PromptPolicyService;
 import org.yilena.luna.prompt.governance.PromptSnapshotBridgeService;
@@ -20,6 +21,8 @@ public class PromptSnapshotBridgeServiceImpl implements PromptSnapshotBridgeServ
 
     private final PromptRuntimeSnapshotRefMapper promptRuntimeSnapshotRefMapper;
     private final PromptPolicyService promptPolicyService;
+    @Value("${prompt.governance.assembler-version:assembler.v1}")
+    private String assemblerVersion = "assembler.v1";
 
     @Override
     public Map<String, Object> buildSnapshotPayload(PromptResolveResult resolveResult, String policyId) {
@@ -46,7 +49,7 @@ public class PromptSnapshotBridgeServiceImpl implements PromptSnapshotBridgeServ
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("policyId", safe(effectivePolicyId));
         payload.put("policyKey", safe(effectivePolicyId));
-        payload.put("assemblerVersion", "assembler.v1");
+        payload.put("assemblerVersion", resolveAssemblerVersion());
         payload.put("promptRefs", refs);
         payload.put("slotMapping", slotMapping);
         return payload;
@@ -112,7 +115,7 @@ public class PromptSnapshotBridgeServiceImpl implements PromptSnapshotBridgeServ
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("policyId", safe(policyId));
         payload.put("policyKey", safe(policyId));
-        payload.put("assemblerVersion", "assembler.v1");
+        payload.put("assemblerVersion", resolveAssemblerVersion());
         payload.put("promptRefs", List.of());
         payload.put("slotMapping", Map.of());
         return payload;
@@ -183,5 +186,12 @@ public class PromptSnapshotBridgeServiceImpl implements PromptSnapshotBridgeServ
         }
         String text = String.valueOf(value).trim();
         return "true".equalsIgnoreCase(text) || "1".equals(text) || "yes".equalsIgnoreCase(text);
+    }
+
+    private String resolveAssemblerVersion() {
+        if (assemblerVersion == null || assemblerVersion.isBlank()) {
+            return "assembler.v1";
+        }
+        return assemblerVersion;
     }
 }

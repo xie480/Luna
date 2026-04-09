@@ -19,6 +19,7 @@ import org.yilena.luna.prompt.governance.model.EditPolicy;
 import org.yilena.luna.prompt.governance.model.MatchScope;
 import org.yilena.luna.prompt.governance.model.PromptItemRecord;
 import org.yilena.luna.prompt.governance.support.PromptKeyAliasSupport;
+import org.yilena.luna.prompt.governance.support.RuntimeSlotVocabulary;
 
 import java.util.List;
 import java.util.Map;
@@ -95,6 +96,7 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         if (item == null) {
             throw new IllegalArgumentException("prompt not found");
         }
+        validateRuntimeSlotForUpdate(item.getRuntimeSlot(), request.getRuntimeSlot());
         PromptItemVersionEntity current = item.getCurrentVersionId() == null ? null : promptItemVersionMapper.selectById(item.getCurrentVersionId());
         if (current != null && current.getEditPolicy() != null && !readPolicy(current.getEditPolicy(), "update")) {
             throw new IllegalArgumentException("prompt update policy denied");
@@ -289,6 +291,7 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         if (request.getKeywordMatchEnabled() != null && !request.getKeywordMatchEnabled()) {
             // allowed
         }
+        validateRuntimeSlotForCreate(request.getRuntimeSlot());
     }
 
     private void validateExecutionPromptUpdate(PromptUpsertRequest request) {
@@ -621,6 +624,31 @@ public class PromptMutationServiceImpl implements PromptMutationService {
             throw new IllegalArgumentException("execution prompt assembly_mode is not allowed");
         }
         return target;
+    }
+
+    private void validateRuntimeSlotForCreate(String runtimeSlot) {
+        if (runtimeSlot == null || runtimeSlot.isBlank()) {
+            return;
+        }
+        validateRuntimeSlotValue(runtimeSlot);
+    }
+
+    private void validateRuntimeSlotForUpdate(String currentRuntimeSlot, String requestedRuntimeSlot) {
+        if (requestedRuntimeSlot == null) {
+            return;
+        }
+        String requested = RuntimeSlotVocabulary.normalize(requestedRuntimeSlot);
+        String current = RuntimeSlotVocabulary.normalize(currentRuntimeSlot);
+        if (requested.equals(current)) {
+            return;
+        }
+        validateRuntimeSlotValue(requestedRuntimeSlot);
+    }
+
+    private void validateRuntimeSlotValue(String runtimeSlot) {
+        if (!RuntimeSlotVocabulary.isAllowed(runtimeSlot)) {
+            throw new IllegalArgumentException("runtime_slot is not allowed");
+        }
     }
 
     private PromptKeyPrefix parsePromptKeyPrefix(String key) {

@@ -1,6 +1,7 @@
 package org.yilena.luna.context.impl;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.context.ContextAssembler;
 import org.yilena.luna.context.ContextSnapshotWriter;
@@ -49,6 +50,8 @@ public class DefaultContextAssembler implements ContextAssembler {
     private PromptRegistryService promptRegistryService;
     @Autowired(required = false)
     private PromptSnapshotBridgeService promptSnapshotBridgeService;
+    @Value("${prompt.governance.assembler-version:assembler.v1}")
+    private String assemblerVersion = "assembler.v1";
 
     public DefaultContextAssembler(SemanticPreservingPruner semanticPreservingPruner,
                                    TaskMemoryRetriever taskMemoryRetriever,
@@ -1307,11 +1310,18 @@ public class DefaultContextAssembler implements ContextAssembler {
         payload.put("policyId", policyId == null || policyId.isBlank()
                 ? (resolveResult == null || resolveResult.getPolicyId() == null ? "" : resolveResult.getPolicyId())
                 : policyId);
-        payload.put("assemblerVersion", "assembler.v1");
+        payload.put("assemblerVersion", resolveAssemblerVersion());
         payload.put("promptRefs", refs);
         payload.put("slotMapping", slotMapping);
         attachUnfilteredPromptRefs(payload);
         return filterPromptAssemblyMetaBySections(payload, sections, canonicalSections);
+    }
+
+    private String resolveAssemblerVersion() {
+        if (assemblerVersion == null || assemblerVersion.isBlank()) {
+            return "assembler.v1";
+        }
+        return assemblerVersion;
     }
 
     @SuppressWarnings("unchecked")

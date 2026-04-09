@@ -1,7 +1,8 @@
 package org.yilena.luna.prompt.governance.impl;
 
-import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
 import org.yilena.luna.prompt.governance.PromptCategoryService;
 import org.yilena.luna.prompt.governance.PromptMatcher;
 import org.yilena.luna.prompt.governance.PromptPolicyService;
@@ -27,13 +28,27 @@ public class PromptResolverServiceImpl implements PromptResolverService {
     private final PromptDeduplicator promptDeduplicator;
     private final PromptPrioritySorter promptPrioritySorter;
     private final RuntimeSlotMapper runtimeSlotMapper;
+    @Value("${prompt.governance.assembler-version:assembler.v1}")
+    private String assemblerVersion = "assembler.v1";
 
     @Autowired
     public PromptResolverServiceImpl(PromptRegistryService promptRegistryService,
                                      PromptPolicyService promptPolicyService,
+                                     PromptCategoryService promptCategoryService,
+                                     @Value("${prompt.governance.policy-force-include-non-policy-mode:true}")
+                                     boolean policyForceIncludeNonPolicyMode) {
+        this(promptRegistryService, promptPolicyService, promptCategoryService,
+                defaultPromptMatcher(promptCategoryService, policyForceIncludeNonPolicyMode),
+                new PromptDeduplicator(),
+                new PromptPrioritySorter(),
+                new RuntimeSlotMapper());
+    }
+
+    public PromptResolverServiceImpl(PromptRegistryService promptRegistryService,
+                                     PromptPolicyService promptPolicyService,
                                      PromptCategoryService promptCategoryService) {
         this(promptRegistryService, promptPolicyService, promptCategoryService,
-                defaultPromptMatcher(promptCategoryService),
+                defaultPromptMatcher(promptCategoryService, true),
                 new PromptDeduplicator(),
                 new PromptPrioritySorter(),
                 new RuntimeSlotMapper());
@@ -95,7 +110,7 @@ public class PromptResolverServiceImpl implements PromptResolverService {
                     .priority(item.getPriority())
                     .version(item.getVersion())
                     .versionLabel(item.getVersionLabel())
-                    .assemblerVersion("assembler.v1")
+                    .assemblerVersion(resolveAssemblerVersion())
                     .build());
         }
         List<ResolvedPromptItem> deduped = promptDeduplicator.deduplicate(matched);
@@ -108,12 +123,21 @@ public class PromptResolverServiceImpl implements PromptResolverService {
                 .build();
     }
 
-    private static PromptMatcher defaultPromptMatcher(PromptCategoryService promptCategoryService) {
+    private String resolveAssemblerVersion() {
+        if (assemblerVersion == null || assemblerVersion.isBlank()) {
+            return "assembler.v1";
+        }
+        return assemblerVersion;
+    }
+
+    private static PromptMatcher defaultPromptMatcher(PromptCategoryService promptCategoryService,
+                                                      boolean policyForceIncludeNonPolicyMode) {
         return new DefaultPromptMatcher(
                 new AlwaysPromptSelector(),
                 new KeywordPromptMatcher(new KeywordMatcher(), promptCategoryService),
                 new AgentPromptMatcher(new AgentMatcher()),
-                new PolicyPromptSelector(new PolicySelector())
+                new PolicyPromptSelector(new PolicySelector()),
+                policyForceIncludeNonPolicyMode
         );
     }
 }

@@ -13,15 +13,25 @@ final class DefaultPromptMatcher implements PromptMatcher {
     private final KeywordPromptMatcher keywordPromptMatcher;
     private final AgentPromptMatcher agentPromptMatcher;
     private final PolicyPromptSelector policyPromptSelector;
+    private final boolean policyForceIncludeNonPolicyMode;
 
     DefaultPromptMatcher(AlwaysPromptSelector alwaysPromptSelector,
                          KeywordPromptMatcher keywordPromptMatcher,
                          AgentPromptMatcher agentPromptMatcher,
                          PolicyPromptSelector policyPromptSelector) {
+        this(alwaysPromptSelector, keywordPromptMatcher, agentPromptMatcher, policyPromptSelector, true);
+    }
+
+    DefaultPromptMatcher(AlwaysPromptSelector alwaysPromptSelector,
+                         KeywordPromptMatcher keywordPromptMatcher,
+                         AgentPromptMatcher agentPromptMatcher,
+                         PolicyPromptSelector policyPromptSelector,
+                         boolean policyForceIncludeNonPolicyMode) {
         this.alwaysPromptSelector = alwaysPromptSelector;
         this.keywordPromptMatcher = keywordPromptMatcher;
         this.agentPromptMatcher = agentPromptMatcher;
         this.policyPromptSelector = policyPromptSelector;
+        this.policyForceIncludeNonPolicyMode = policyForceIncludeNonPolicyMode;
     }
 
     @Override
@@ -43,7 +53,10 @@ final class DefaultPromptMatcher implements PromptMatcher {
                 item.getKey()
         );
 
-        if (policy && mode != PromptAssemblyMode.POLICY_ONLY && mode != PromptAssemblyMode.DISABLED) {
+        if (policyForceIncludeNonPolicyMode
+                && policy
+                && mode != PromptAssemblyMode.POLICY_ONLY
+                && mode != PromptAssemblyMode.DISABLED) {
             return PromptMatchOutcome.matched("POLICY_ONLY", true);
         }
 

@@ -141,6 +141,11 @@ memory:
   legacy-readonly:
     enabled: true
 
+prompt:
+  governance:
+    policy-force-include-non-policy-mode: false
+    assembler-version: assembler.v1
+
 audit:
   replay-mode: full
   tool-results-window-limit: 8
