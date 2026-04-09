@@ -260,7 +260,7 @@ class PromptResolverServiceImplTest {
                 .build());
         Assertions.assertTrue(result.getMatchedItems().stream()
                 .anyMatch(row -> "persona.policy_included_v1".equals(row.getKey())
-                        && "KEYWORD_ONLY".equals(row.getMatchReason())
+                        && "POLICY_ONLY".equals(row.getMatchReason())
                         && row.isPolicyApplied()));
     }
 
@@ -297,7 +297,7 @@ class PromptResolverServiceImplTest {
                 .build());
         Assertions.assertTrue(result.getMatchedItems().stream()
                 .anyMatch(row -> "repair.main.json_v1".equals(row.getKey())
-                        && "KEYWORD_ONLY".equals(row.getMatchReason())
+                        && "POLICY_ONLY".equals(row.getMatchReason())
                         && row.isPolicyApplied()));
     }
 

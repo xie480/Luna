@@ -125,7 +125,7 @@ public class PromptResolverServiceImpl implements PromptResolverService {
         boolean manual = setContainsAlias(toKeySet(context == null ? null : context.getManualPromptKeys()), item.getKey());
 
         if (policy && mode != PromptAssemblyMode.POLICY_ONLY && mode != PromptAssemblyMode.DISABLED) {
-            return MatchDecision.matched(mode.name(), true);
+            return MatchDecision.matched("POLICY_ONLY", true);
         }
 
         if (requiresScope(mode) && !hasScope) {
