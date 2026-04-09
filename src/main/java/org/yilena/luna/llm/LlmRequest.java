@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.yilena.luna.constants.LlmConstant;
 import org.yilena.luna.enums.ModelType;
 
 import java.util.List;
@@ -36,7 +37,7 @@ public class LlmRequest {
      * 创造力/温度值
      */
     @Builder.Default
-    private Double temperature = 0.7;
+    private Double temperature = LlmConstant.DEFAULT_TEMPERATURE;
 
     /**
      * 是否启用 Prompt Injection 检测

@@ -1,6 +1,7 @@
 package org.yilena.luna.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -34,4 +35,10 @@ public interface ScheduleTaskMapper extends BaseMapper<ScheduleTask> {
             limit 1
             """)
     List<Map<String, Object>> selectResourceScheduleById(@Param("taskId") Long taskId);
+
+    @Delete("""
+            delete from schedule_task
+            where id = #{taskId}
+            """)
+    int hardDeleteById(@Param("taskId") Long taskId);
 }

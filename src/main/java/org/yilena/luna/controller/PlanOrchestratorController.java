@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.yilena.luna.constants.JsonFieldConstants;
 import org.yilena.luna.constants.ResultStatusConstants;
+import org.yilena.luna.constants.SessionConstant;
 import org.yilena.luna.entity.query.PlanFinalizeRequest;
 import org.yilena.luna.entity.query.PlanPhaseRunRequest;
 import org.yilena.luna.entity.query.PlanRunRequest;
@@ -34,7 +35,6 @@ import java.util.Map;
 public class PlanOrchestratorController {
 
     private static final String KEY_ERROR_CODE = "errorCode";
-    private static final String PLAN_DEFAULT_SESSION_ID = "plan-default-session";
 
     private static final String ERROR_INVALID_REQUEST = "INVALID_REQUEST";
     private static final String ERROR_PLAN_RUN_FAILED = "PLAN_RUN_FAILED";
@@ -56,7 +56,7 @@ public class PlanOrchestratorController {
             String jwtJti = AuthContextHolder.getSessionId();
             String sessionId = (jwtJti != null && !jwtJti.isBlank())
                     ? jwtJti
-                    : ((req.getSessionId() == null || req.getSessionId().isBlank()) ? PLAN_DEFAULT_SESSION_ID : req.getSessionId().trim());
+                    : ((req.getSessionId() == null || req.getSessionId().isBlank()) ? SessionConstant.PLAN_DEFAULT_SESSION_ID : req.getSessionId().trim());
 
             log.info("plan run request, sessionId={}, userGoal={}", sessionId, req.getUserGoal());
             String result = planOrchestratorService.createAndRunPlan(sessionId, req.getUserGoal().trim());

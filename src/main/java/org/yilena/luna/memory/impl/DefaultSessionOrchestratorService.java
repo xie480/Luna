@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.constants.SessionConstant;
 import org.yilena.luna.enums.RelationalRuntimeState;
 import org.yilena.luna.enums.SessionType;
 import org.yilena.luna.enums.TaskRuntimeState;
@@ -45,7 +46,7 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
 
     @Override
     public OrchestrationDecision onUserInput(String sessionId, String userInput) {
-        String normalizedSessionId = sessionId == null || sessionId.isBlank() ? "default-session" : sessionId;
+        String normalizedSessionId = sessionId == null || sessionId.isBlank() ? SessionConstant.DEFAULT_SESSION_ID : sessionId;
         GovernedSignal governedSignal = GovernedSignal.fromRawInput(userInput);
         String signal = toSignalPayload(governedSignal);
         return orchestrate(normalizedSessionId, "USER_INPUT", signal, buildUserInputPayload(userInput, governedSignal));
@@ -53,7 +54,7 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
 
     @Override
     public OrchestrationDecision onUserInput(String sessionId, String userInput, String orchestrationSignal) {
-        String normalizedSessionId = sessionId == null || sessionId.isBlank() ? "default-session" : sessionId;
+        String normalizedSessionId = sessionId == null || sessionId.isBlank() ? SessionConstant.DEFAULT_SESSION_ID : sessionId;
         GovernedSignal governedSignal = parseGovernedSignal(orchestrationSignal, userInput);
         String signal = toSignalPayload(governedSignal);
         return orchestrate(normalizedSessionId, "USER_INPUT", signal, buildUserInputPayload(userInput, governedSignal));
@@ -76,7 +77,7 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
     }
 
     private OrchestrationDecision orchestrate(String sessionId, String eventType, String signal, String payloadJson) {
-        String normalizedSessionId = sessionId == null || sessionId.isBlank() ? "default-session" : sessionId;
+        String normalizedSessionId = sessionId == null || sessionId.isBlank() ? SessionConstant.DEFAULT_SESSION_ID : sessionId;
         if (!strictGovernedSignalMode) {
             log.error("strict governed signal mode disabled, orchestration rejected. sessionId={}, eventType={}", normalizedSessionId, eventType);
             throw new IllegalStateException("strict_governed_signal_mode_must_be_enabled");

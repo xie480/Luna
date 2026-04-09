@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.constants.SessionConstant;
 import org.yilena.luna.context.model.SummaryResult;
 import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.entity.ChatRequest;
@@ -836,7 +837,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
     private String resolveSessionId(String planId) {
         PlanInstance p = planInstanceMapper.selectById(planId);
-        if (p == null || p.getSessionId() == null || p.getSessionId().isBlank()) return "plan-default-session";
+        if (p == null || p.getSessionId() == null || p.getSessionId().isBlank()) return SessionConstant.PLAN_DEFAULT_SESSION_ID;
         return p.getSessionId();
     }
 

@@ -14,6 +14,8 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.yilena.luna.constants.HttpConstants;
+import org.yilena.luna.constants.LlmConstant;
 import org.yilena.luna.enums.ModelType;
 import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
@@ -67,11 +69,12 @@ public class LlmClientUtil {
 
     private static final Map<String, String> scriptPathCache = new ConcurrentHashMap<>();
     private static final Map<String, String> embeddingCache = new ConcurrentHashMap<>();
+    private static final MediaType MEDIA_TYPE_JSON = MediaType.parse(HttpConstants.CONTENT_TYPE_JSON);
 
     private final OkHttpClient httpClient = new OkHttpClient.Builder()
-            .connectTimeout(Duration.ofMillis(1500))
-            .readTimeout(Duration.ofMillis(1500))
-            .writeTimeout(Duration.ofMillis(1500))
+            .connectTimeout(Duration.ofMillis(LlmConstant.INFERENCE_HTTP_TIMEOUT_MS))
+            .readTimeout(Duration.ofMillis(LlmConstant.INFERENCE_HTTP_TIMEOUT_MS))
+            .writeTimeout(Duration.ofMillis(LlmConstant.INFERENCE_HTTP_TIMEOUT_MS))
             .build();
 
     public LlmResponse generate(LlmRequest request) {
@@ -172,7 +175,7 @@ public class LlmClientUtil {
 
             String detectionPrompt = String.format(PromptTemplates.PROMPT_INJECTION_DETECTION, userInput);
             List<ChatMessage> safetyMessages = List.of(UserMessage.from(detectionPrompt));
-            String result = executeChatCall(safetyMessages, smallConfig, 0.0);
+            String result = executeChatCall(safetyMessages, smallConfig, LlmConstant.ZERO_TEMPERATURE);
 
             boolean safe = result == null || !result.trim().toUpperCase().contains("UNSAFE");
             log.debug("Prompt Injection 检测完成，safe={}, result={}", safe, result);
@@ -195,9 +198,9 @@ public class LlmClientUtil {
                 .baseUrl(baseUrl)
                 .apiKey(config.getApiKey())
                 .modelName(config.getModelName())
-                .temperature(temperature != null ? temperature : 0.7)
-                .timeout(Duration.ofSeconds(120))
-                .maxRetries(3)
+                .temperature(temperature != null ? temperature : LlmConstant.DEFAULT_TEMPERATURE)
+                .timeout(Duration.ofSeconds(LlmConstant.CHAT_TIMEOUT_SECONDS))
+                .maxRetries(LlmConstant.CHAT_MAX_RETRIES)
                 .logRequests(true)
                 .logResponses(true)
                 .build();
@@ -326,7 +329,7 @@ public class LlmClientUtil {
 
         Request request = new Request.Builder()
                 .url(embeddingServiceUrl)
-                .post(RequestBody.create(json, MediaType.parse("application/json")))
+                .post(RequestBody.create(json, MEDIA_TYPE_JSON))
                 .build();
 
         try (okhttp3.Response response = httpClient.newBuilder()
@@ -354,7 +357,7 @@ public class LlmClientUtil {
 
         Request request = new Request.Builder()
                 .url(rerankServiceUrl)
-                .post(RequestBody.create(json, MediaType.parse("application/json")))
+                .post(RequestBody.create(json, MEDIA_TYPE_JSON))
                 .build();
 
         try (okhttp3.Response response = httpClient.newBuilder()

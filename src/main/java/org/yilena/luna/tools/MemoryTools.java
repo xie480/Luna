@@ -8,7 +8,11 @@ import org.yilena.luna.annotation.LunaState;
 import org.yilena.luna.constants.LogActionConstant;
 import org.yilena.luna.constants.LogModuleConstant;
 import org.yilena.luna.constants.LunaStateConstant;
+import org.yilena.luna.constants.SessionConstant;
 import org.yilena.luna.enums.LogType;
+import org.yilena.luna.enums.MemoryDomainEnum;
+import org.yilena.luna.enums.MemoryLayerEnum;
+import org.yilena.luna.enums.ToolActionEnum;
 import org.yilena.luna.mapper.ToolMemoryMapper;
 import org.yilena.luna.utils.LlmClientUtil;
 
@@ -19,6 +23,19 @@ import java.util.Map;
 
 @Component
 public class MemoryTools extends BaseTool {
+
+    private static final String ERROR_UNSUPPORTED_DOMAIN_LAYER = "unsupported domain/layer";
+    private static final String ERROR_UNSUPPORTED_TABLE = "unsupported table";
+    private static final String ERROR_UNKNOWN_ACTION = "unknown action: ";
+    private static final String DELETE_MODE_HARD = "hard";
+    private static final String DELETE_MODE_SOFT = "soft";
+
+    private static final String TABLE_TASK_WORKING_MEMORY = "task_working_memory";
+    private static final String TABLE_RELATIONAL_WORKING_MEMORY = "relational_working_memory";
+    private static final String TABLE_TASK_SEMANTIC_FACT = "task_semantic_fact";
+    private static final String TABLE_RELATIONAL_SEMANTIC_FACT = "relational_semantic_fact";
+    private static final String TABLE_TASK_EPISODE = "task_episode";
+    private static final String TABLE_RELATIONAL_EPISODE = "relational_episode";
 
     private final ToolMemoryMapper toolMemoryMapper;
     private final LlmClientUtil llmClientUtil;
@@ -42,39 +59,40 @@ public class MemoryTools extends BaseTool {
             @RequestParam(value = "content", required = false) String content,
             @RequestParam(value = "hardDelete", required = false) Boolean hardDelete) {
         try {
-            String domain = normalize(memoryDomain, "TASK");
-            String layer = normalize(memoryLayer, "SEMANTIC");
+            MemoryDomainEnum domain = normalizeDomain(memoryDomain);
+            MemoryLayerEnum layer = normalizeLayer(memoryLayer);
+            ToolActionEnum actionEnum = ToolActionEnum.getByCode(action).orElse(null);
 
-            if ("INSERT".equalsIgnoreCase(action)) {
+            if (actionEnum == ToolActionEnum.INSERT) {
                 if (content == null || content.isBlank()) {
                     return error("INSERT requires content");
                 }
-                if ("TASK".equals(domain) && "WORKING".equals(layer)) {
+                if (domain == MemoryDomainEnum.TASK && layer == MemoryLayerEnum.WORKING) {
                     return success(insertTaskWorkingMemory(sessionId, content));
                 }
-                if ("RELATION".equals(domain) && "WORKING".equals(layer)) {
+                if (domain == MemoryDomainEnum.RELATION && layer == MemoryLayerEnum.WORKING) {
                     return success(insertRelationalWorkingMemory(sessionId, content));
                 }
-                if ("TASK".equals(domain) && "SEMANTIC".equals(layer)) {
+                if (domain == MemoryDomainEnum.TASK && layer == MemoryLayerEnum.SEMANTIC) {
                     return success(insertTaskSemanticFact(sessionId, normalize(factType, "DOMAIN_FACT"), normalize(factKey, "manual_fact"), content));
                 }
-                if ("RELATION".equals(domain) && "SEMANTIC".equals(layer)) {
+                if (domain == MemoryDomainEnum.RELATION && layer == MemoryLayerEnum.SEMANTIC) {
                     return success(insertRelationalSemanticFact(sessionId, normalize(factType, "INTERACTION_STYLE"), normalize(factKey, "manual_relation_fact"), content));
                 }
-                if ("TASK".equals(domain) && "EPISODIC".equals(layer)) {
+                if (domain == MemoryDomainEnum.TASK && layer == MemoryLayerEnum.EPISODIC) {
                     return success(insertTaskEpisode(sessionId, content));
                 }
-                if ("RELATION".equals(domain) && "EPISODIC".equals(layer)) {
+                if (domain == MemoryDomainEnum.RELATION && layer == MemoryLayerEnum.EPISODIC) {
                     return success(insertRelationalEpisode(sessionId, content));
                 }
-                return error("unsupported domain/layer");
+                return error(ERROR_UNSUPPORTED_DOMAIN_LAYER);
             }
 
-            if ("QUERY".equalsIgnoreCase(action)) {
+            if (actionEnum == ToolActionEnum.QUERY) {
                 return success(queryMemory(domain, layer, sessionId));
             }
 
-            if ("DELETE".equalsIgnoreCase(action)) {
+            if (actionEnum == ToolActionEnum.DELETE) {
                 if (id == null) {
                     return error("DELETE requires id");
                 }
@@ -84,7 +102,7 @@ public class MemoryTools extends BaseTool {
                 return success(deleteSoft(domain, layer, id));
             }
 
-            return error("unknown action: " + action);
+            return error(ERROR_UNKNOWN_ACTION + action);
         } catch (Exception e) {
             return error("operation failed: " + e.getMessage());
         }
@@ -92,96 +110,104 @@ public class MemoryTools extends BaseTool {
 
     private Map<String, Object> insertTaskWorkingMemory(String sessionId, String content) {
         toolMemoryMapper.upsertTaskWorkingMemory(normalizeSessionId(sessionId), content);
-        return Map.of("table", "task_working_memory", "session_id", normalizeSessionId(sessionId));
+        return Map.of("table", TABLE_TASK_WORKING_MEMORY, "session_id", normalizeSessionId(sessionId));
     }
 
     private Map<String, Object> insertRelationalWorkingMemory(String sessionId, String content) {
         toolMemoryMapper.upsertRelationalWorkingMemory(normalizeSessionId(sessionId), content);
-        return Map.of("table", "relational_working_memory", "session_id", normalizeSessionId(sessionId));
+        return Map.of("table", TABLE_RELATIONAL_WORKING_MEMORY, "session_id", normalizeSessionId(sessionId));
     }
 
     private Map<String, Object> insertTaskSemanticFact(String sessionId, String factType, String factKey, String content) {
         String embedding = safeEmbedding(content);
         toolMemoryMapper.insertTaskSemanticFact(normalizeSessionId(sessionId), factType, factKey, content, normalizeEmbedding(embedding));
-        return Map.of("table", "task_semantic_fact", "fact_type", factType, "fact_key", factKey);
+        return Map.of("table", TABLE_TASK_SEMANTIC_FACT, "fact_type", factType, "fact_key", factKey);
     }
 
     private Map<String, Object> insertRelationalSemanticFact(String sessionId, String factType, String factKey, String content) {
         String embedding = safeEmbedding(content);
         toolMemoryMapper.insertRelationalSemanticFact(normalizeSessionId(sessionId), factType, factKey, content, normalizeEmbedding(embedding));
-        return Map.of("table", "relational_semantic_fact", "fact_type", factType, "fact_key", factKey);
+        return Map.of("table", TABLE_RELATIONAL_SEMANTIC_FACT, "fact_type", factType, "fact_key", factKey);
     }
 
     private Map<String, Object> insertTaskEpisode(String sessionId, String content) {
         String embedding = safeEmbedding(content);
         toolMemoryMapper.insertTaskEpisode(normalizeSessionId(sessionId), content, normalizeEmbedding(embedding));
-        return Map.of("table", "task_episode", "session_id", normalizeSessionId(sessionId));
+        return Map.of("table", TABLE_TASK_EPISODE, "session_id", normalizeSessionId(sessionId));
     }
 
     private Map<String, Object> insertRelationalEpisode(String sessionId, String content) {
         String embedding = safeEmbedding(content);
         toolMemoryMapper.insertRelationalEpisode(normalizeSessionId(sessionId), content, normalizeEmbedding(embedding));
-        return Map.of("table", "relational_episode", "session_id", normalizeSessionId(sessionId));
+        return Map.of("table", TABLE_RELATIONAL_EPISODE, "session_id", normalizeSessionId(sessionId));
     }
 
-    private List<Map<String, Object>> queryMemory(String domain, String layer, String sessionId) {
+    private List<Map<String, Object>> queryMemory(MemoryDomainEnum domain, MemoryLayerEnum layer, String sessionId) {
         String sid = normalizeSessionId(sessionId);
-        if ("TASK".equals(domain) && "WORKING".equals(layer)) {
+        if (domain == MemoryDomainEnum.TASK && layer == MemoryLayerEnum.WORKING) {
             return toolMemoryMapper.queryTaskWorkingMemory(sid);
         }
-        if ("RELATION".equals(domain) && "WORKING".equals(layer)) {
+        if (domain == MemoryDomainEnum.RELATION && layer == MemoryLayerEnum.WORKING) {
             return toolMemoryMapper.queryRelationalWorkingMemory(sid);
         }
-        if ("TASK".equals(domain) && "SEMANTIC".equals(layer)) {
+        if (domain == MemoryDomainEnum.TASK && layer == MemoryLayerEnum.SEMANTIC) {
             return toolMemoryMapper.queryTaskSemanticFacts(sid);
         }
-        if ("RELATION".equals(domain) && "SEMANTIC".equals(layer)) {
+        if (domain == MemoryDomainEnum.RELATION && layer == MemoryLayerEnum.SEMANTIC) {
             return toolMemoryMapper.queryRelationalSemanticFacts(sid);
         }
-        if ("TASK".equals(domain) && "EPISODIC".equals(layer)) {
+        if (domain == MemoryDomainEnum.TASK && layer == MemoryLayerEnum.EPISODIC) {
             return toolMemoryMapper.queryTaskEpisodes(sid);
         }
-        if ("RELATION".equals(domain) && "EPISODIC".equals(layer)) {
+        if (domain == MemoryDomainEnum.RELATION && layer == MemoryLayerEnum.EPISODIC) {
             return toolMemoryMapper.queryRelationalEpisodes(sid);
         }
         return Collections.emptyList();
     }
 
-    private Map<String, Object> deleteHard(String domain, String layer, Long id) {
+    private Map<String, Object> deleteHard(MemoryDomainEnum domain, MemoryLayerEnum layer, Long id) {
         String table = resolveTable(domain, layer);
         switch (table) {
-            case "task_working_memory" -> toolMemoryMapper.deleteTaskWorkingMemory(id);
-            case "relational_working_memory" -> toolMemoryMapper.deleteRelationalWorkingMemory(id);
-            case "task_semantic_fact" -> toolMemoryMapper.deleteTaskSemanticFact(id);
-            case "relational_semantic_fact" -> toolMemoryMapper.deleteRelationalSemanticFact(id);
-            case "task_episode" -> toolMemoryMapper.deleteTaskEpisode(id);
-            case "relational_episode" -> toolMemoryMapper.deleteRelationalEpisode(id);
-            default -> throw new IllegalArgumentException("unsupported table");
+            case TABLE_TASK_WORKING_MEMORY -> toolMemoryMapper.deleteTaskWorkingMemory(id);
+            case TABLE_RELATIONAL_WORKING_MEMORY -> toolMemoryMapper.deleteRelationalWorkingMemory(id);
+            case TABLE_TASK_SEMANTIC_FACT -> toolMemoryMapper.deleteTaskSemanticFact(id);
+            case TABLE_RELATIONAL_SEMANTIC_FACT -> toolMemoryMapper.deleteRelationalSemanticFact(id);
+            case TABLE_TASK_EPISODE -> toolMemoryMapper.deleteTaskEpisode(id);
+            case TABLE_RELATIONAL_EPISODE -> toolMemoryMapper.deleteRelationalEpisode(id);
+            default -> throw new IllegalArgumentException(ERROR_UNSUPPORTED_TABLE);
         }
-        return Map.of("table", table, "id", id, "deleted", "hard");
+        return Map.of("table", table, "id", id, "deleted", DELETE_MODE_HARD);
     }
 
-    private Map<String, Object> deleteSoft(String domain, String layer, Long id) {
+    private Map<String, Object> deleteSoft(MemoryDomainEnum domain, MemoryLayerEnum layer, Long id) {
         String table = resolveTable(domain, layer);
-        if ("task_semantic_fact".equals(table) || "relational_semantic_fact".equals(table)) {
-            if ("task_semantic_fact".equals(table)) {
+        if (TABLE_TASK_SEMANTIC_FACT.equals(table) || TABLE_RELATIONAL_SEMANTIC_FACT.equals(table)) {
+            if (TABLE_TASK_SEMANTIC_FACT.equals(table)) {
                 toolMemoryMapper.softDeleteTaskSemanticFact(id);
             } else {
                 toolMemoryMapper.softDeleteRelationalSemanticFact(id);
             }
-            return Map.of("table", table, "id", id, "deleted", "soft");
+            return Map.of("table", table, "id", id, "deleted", DELETE_MODE_SOFT);
         }
         return deleteHard(domain, layer, id);
     }
 
-    private String resolveTable(String domain, String layer) {
-        if ("TASK".equals(domain) && "WORKING".equals(layer)) return "task_working_memory";
-        if ("RELATION".equals(domain) && "WORKING".equals(layer)) return "relational_working_memory";
-        if ("TASK".equals(domain) && "SEMANTIC".equals(layer)) return "task_semantic_fact";
-        if ("RELATION".equals(domain) && "SEMANTIC".equals(layer)) return "relational_semantic_fact";
-        if ("TASK".equals(domain) && "EPISODIC".equals(layer)) return "task_episode";
-        if ("RELATION".equals(domain) && "EPISODIC".equals(layer)) return "relational_episode";
-        throw new IllegalArgumentException("unsupported domain/layer");
+    private String resolveTable(MemoryDomainEnum domain, MemoryLayerEnum layer) {
+        if (domain == MemoryDomainEnum.TASK && layer == MemoryLayerEnum.WORKING) return TABLE_TASK_WORKING_MEMORY;
+        if (domain == MemoryDomainEnum.RELATION && layer == MemoryLayerEnum.WORKING) return TABLE_RELATIONAL_WORKING_MEMORY;
+        if (domain == MemoryDomainEnum.TASK && layer == MemoryLayerEnum.SEMANTIC) return TABLE_TASK_SEMANTIC_FACT;
+        if (domain == MemoryDomainEnum.RELATION && layer == MemoryLayerEnum.SEMANTIC) return TABLE_RELATIONAL_SEMANTIC_FACT;
+        if (domain == MemoryDomainEnum.TASK && layer == MemoryLayerEnum.EPISODIC) return TABLE_TASK_EPISODE;
+        if (domain == MemoryDomainEnum.RELATION && layer == MemoryLayerEnum.EPISODIC) return TABLE_RELATIONAL_EPISODE;
+        throw new IllegalArgumentException(ERROR_UNSUPPORTED_DOMAIN_LAYER);
+    }
+
+    private MemoryDomainEnum normalizeDomain(String value) {
+        return MemoryDomainEnum.getByCode(value).orElse(MemoryDomainEnum.TASK);
+    }
+
+    private MemoryLayerEnum normalizeLayer(String value) {
+        return MemoryLayerEnum.getByCode(value).orElse(MemoryLayerEnum.SEMANTIC);
     }
 
     private String normalize(String value, String fallback) {
@@ -189,7 +215,7 @@ public class MemoryTools extends BaseTool {
     }
 
     private String normalizeSessionId(String sessionId) {
-        return (sessionId == null || sessionId.isBlank()) ? "default-session" : sessionId;
+        return (sessionId == null || sessionId.isBlank()) ? SessionConstant.DEFAULT_SESSION_ID : sessionId;
     }
 
     private String normalizeEmbedding(String embedding) {

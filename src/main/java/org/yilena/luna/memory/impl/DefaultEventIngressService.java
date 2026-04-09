@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.constants.SessionConstant;
 import org.yilena.luna.mapper.EventInboxMapper;
 import org.yilena.luna.mapper.PerceptualBufferMapper;
 import org.yilena.luna.memory.EventIngressService;
@@ -45,7 +46,7 @@ public class DefaultEventIngressService implements EventIngressService {
 
     @Override
     public OrchestrationDecision ingestUserInput(String sessionId, String userInput, String orchestrationSignal) {
-        String normalizedSessionId = sessionId == null || sessionId.isBlank() ? "default-session" : sessionId;
+        String normalizedSessionId = sessionId == null || sessionId.isBlank() ? SessionConstant.DEFAULT_SESSION_ID : sessionId;
         String signal = orchestrationSignal == null ? "" : orchestrationSignal.trim();
         if (signal.isBlank() || !isParseableGovernedSignal(signal)) {
             Map<String, Object> payload = new LinkedHashMap<>();
@@ -101,7 +102,7 @@ public class DefaultEventIngressService implements EventIngressService {
                                                      String eventType,
                                                      String payloadJson,
                                                      String traceId) {
-        String normalizedSessionId = sessionId == null || sessionId.isBlank() ? "default-session" : sessionId;
+        String normalizedSessionId = sessionId == null || sessionId.isBlank() ? SessionConstant.DEFAULT_SESSION_ID : sessionId;
         String normalizedEventType = normalizeEventType(eventType);
         try {
             JsonNode payload = parsePayload(payloadJson);
@@ -188,7 +189,7 @@ public class DefaultEventIngressService implements EventIngressService {
     }
 
     private OrchestrationDecision ingestEvent(String sessionId, String eventType, Map<String, Object> payload) {
-        String normalizedSessionId = sessionId == null || sessionId.isBlank() ? "default-session" : sessionId;
+        String normalizedSessionId = sessionId == null || sessionId.isBlank() ? SessionConstant.DEFAULT_SESSION_ID : sessionId;
         String normalizedEventType = normalizeEventType(eventType);
         String traceId = UUID.randomUUID().toString();
         String payloadJson = toJsonSafe(payload);

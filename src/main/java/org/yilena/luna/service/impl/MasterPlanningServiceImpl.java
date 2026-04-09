@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.yilena.luna.constants.LlmConstant;
 import org.yilena.luna.context.model.InputReconstructionResult;
 import org.yilena.luna.enums.ModelType;
 import org.yilena.luna.llm.LlmMessage;
@@ -61,7 +62,7 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
                     .modelType(ModelType.OPENAI_COMPATIBLE)
                     .modelName(resolvePlanningModelName())
                     .messages(List.of(LlmMessage.user(prompt)))
-                    .temperature(0.2)
+                    .temperature(LlmConstant.TASK_TEMPERATURE)
                     .enablePromptInjectionCheck(false)
                     .build();
 

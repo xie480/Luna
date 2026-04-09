@@ -11,19 +11,19 @@ import org.yilena.luna.constants.LogModuleConstant;
 import org.yilena.luna.constants.LunaStateConstant;
 import org.yilena.luna.entity.LunaLog;
 import org.yilena.luna.enums.LogType;
+import org.yilena.luna.enums.ToolActionEnum;
 import org.yilena.luna.service.LunaLogService;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
 @Component
-/**
- * LogTools ??
- */
 public class LogTools extends BaseTool {
 
-    private final LunaLogService lunaLogService;
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final int DEFAULT_QUERY_LIMIT = 50;
+
+    private final LunaLogService lunaLogService;
 
     public LogTools(ObjectMapper objectMapper, LunaLogService lunaLogService) {
         super(objectMapper);
@@ -43,8 +43,8 @@ public class LogTools extends BaseTool {
             @RequestParam(value = "id", required = false) Long id,
             @RequestParam(value = "beforeTime", required = false) String beforeTime) {
         try {
-            // INSERT 分支：创建日志实体并落库。
-            if ("INSERT".equalsIgnoreCase(action)) {
+            ToolActionEnum actionEnum = ToolActionEnum.getByCode(action).orElse(null);
+            if (actionEnum == ToolActionEnum.INSERT) {
                 LunaLog log = LunaLog.builder()
                         .logType(logType != null ? LogType.valueOf(logType.toUpperCase()) : LogType.SYSTEM_EVENT)
                         .module(module)
@@ -53,8 +53,8 @@ public class LogTools extends BaseTool {
                         .build();
                 lunaLogService.save(log);
                 return success("日志插入成功，ID: " + log.getId());
-            } else if ("QUERY".equalsIgnoreCase(action)) {
-                // QUERY 分支：按可选条件动态拼接查询。
+            }
+            if (actionEnum == ToolActionEnum.QUERY) {
                 LambdaQueryWrapper<LunaLog> wrapper = new LambdaQueryWrapper<>();
                 if (id != null) wrapper.eq(LunaLog::getId, id);
                 if (logType != null) wrapper.eq(LunaLog::getLogType, LogType.valueOf(logType.toUpperCase()));
@@ -64,20 +64,21 @@ public class LogTools extends BaseTool {
                 if (endTime != null) wrapper.le(LunaLog::getCreateAt, LocalDateTime.parse(endTime, DATE_TIME_FORMATTER));
                 if (beforeTime != null) wrapper.le(LunaLog::getCreateAt, LocalDateTime.parse(beforeTime, DATE_TIME_FORMATTER));
                 wrapper.orderByDesc(LunaLog::getCreateAt);
-                wrapper.last("LIMIT " + (limit != null ? limit : 50));
+                wrapper.last("LIMIT " + (limit != null ? limit : DEFAULT_QUERY_LIMIT));
                 return success(lunaLogService.list(wrapper));
-            } else if ("DELETE".equalsIgnoreCase(action)) {
-                // DELETE 分支：支持按 ID 删除或按时间批量清理。
+            }
+            if (actionEnum == ToolActionEnum.DELETE) {
                 if (id != null) {
                     lunaLogService.removeById(id);
                     return success("已删除日志 ID: " + id);
-                } else if (beforeTime != null) {
+                }
+                if (beforeTime != null) {
                     LambdaQueryWrapper<LunaLog> wrapper = new LambdaQueryWrapper<>();
                     wrapper.le(LunaLog::getCreateAt, LocalDateTime.parse(beforeTime, DATE_TIME_FORMATTER));
                     lunaLogService.remove(wrapper);
                     return success("已清理 " + beforeTime + " 之前的日志");
                 }
-                return error("DELETE 操作必须提供 id 或 beforeTime");
+                return error("DELETE requires id or beforeTime");
             }
             return error("未知的 action: " + action);
         } catch (Exception e) {

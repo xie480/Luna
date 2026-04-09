@@ -1,7 +1,6 @@
 package org.yilena.luna.tools;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.extension.toolkit.SqlRunner;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -138,7 +137,7 @@ public class ScheduleTools extends BaseTool {
             return error("DELETE 必须提供 id");
         }
         if (Boolean.TRUE.equals(hardDelete)) {
-            SqlRunner.db().delete("DELETE FROM schedule_task WHERE id = {0}", id);
+            scheduleTaskMapper.hardDeleteById(id);
             return success("已执行物理删除 id=" + id);
         }
         scheduleTaskMapper.deleteById(id);

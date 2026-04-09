@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 import org.yilena.luna.adapter.LlmAdapter;
+import org.yilena.luna.constants.LlmConstant;
 import org.yilena.luna.enums.ModelType;
 import org.yilena.luna.llm.LlmMessage;
 import org.yilena.luna.llm.LlmRequest;
@@ -13,10 +14,6 @@ import org.yilena.luna.utils.LlmClientUtil;
 
 import java.util.List;
 
-/**
- * 真實模型適配器
- * 封裝 LlmClientUtil
- */
 @Primary
 @Service("realLlmAdapter")
 @RequiredArgsConstructor
@@ -31,8 +28,8 @@ public class RealLlmAdapter implements LlmAdapter {
                 .modelType(ModelType.OPENAI_COMPATIBLE)
                 .modelName(geminiProperty.getMid().getModelName())
                 .messages(List.of(LlmMessage.user(prompt)))
-                .temperature(0.2) // 任務型調用溫度低一點
-                .enablePromptInjectionCheck(false) // 内部 Agent/任务调用，不做用户注入检测
+                .temperature(LlmConstant.TASK_TEMPERATURE)
+                .enablePromptInjectionCheck(false)
                 .build();
 
         LlmResponse response = llmClientUtil.generate(request);
