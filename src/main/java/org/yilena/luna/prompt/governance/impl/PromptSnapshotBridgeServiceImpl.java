@@ -10,6 +10,7 @@ import org.yilena.luna.prompt.governance.entity.PromptRuntimeSnapshotRefEntity;
 import org.yilena.luna.prompt.governance.mapper.PromptRuntimeSnapshotRefMapper;
 import org.yilena.luna.prompt.governance.model.PromptResolveResult;
 import org.yilena.luna.prompt.governance.model.ResolvedPromptItem;
+import org.yilena.luna.prompt.governance.support.PromptSectionAssemblerSupport;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -81,10 +82,10 @@ public class PromptSnapshotBridgeServiceImpl implements PromptSnapshotBridgeServ
                         .roundId(roundId)
                         .nodeId(nodeId)
                         .snapshotId(snapshotId)
-                        .promptItemId(toLong(row.get("itemId")))
-                        .promptItemVersionId(toLong(row.get("versionId")))
-                        .promptKey(safe(row.get("key")))
-                        .promptVersionNo(safe(row.get("version")))
+                        .promptItemId(firstNonNullLong(toLong(row.get("promptItemId")), toLong(row.get("itemId"))))
+                        .promptItemVersionId(firstNonNullLong(toLong(row.get("promptItemVersionId")), toLong(row.get("versionId"))))
+                        .promptKey(firstNonBlank(safe(row.get("promptKey")), safe(row.get("key"))))
+                        .promptVersionNo(firstNonBlank(safe(row.get("promptVersion")), safe(row.get("version"))))
                         .policyKey(policyKey)
                         .policyId(policyId)
                         .assemblerVersion(firstNonBlank(safe(row.get("assemblerVersion")), assemblerVersion))
@@ -137,7 +138,7 @@ public class PromptSnapshotBridgeServiceImpl implements PromptSnapshotBridgeServ
         row.put("policyApplied", item.isPolicyApplied());
         row.put("category", safe(item.getCategory()));
         row.put("value", safe(item.getValue()));
-        return row;
+        return PromptSectionAssemblerSupport.withPromptRefAliases(row);
     }
 
     private String safe(Object value) {
@@ -163,6 +164,10 @@ public class PromptSnapshotBridgeServiceImpl implements PromptSnapshotBridgeServ
         } catch (Exception ignore) {
             return null;
         }
+    }
+
+    private Long firstNonNullLong(Long first, Long fallback) {
+        return first != null ? first : fallback;
     }
 
     private Long resolvePolicyDbId(String policyKey) {

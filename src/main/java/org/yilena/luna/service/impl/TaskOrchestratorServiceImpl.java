@@ -4409,11 +4409,11 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     continue;
                 }
                 items.add(ResolvedPromptItem.builder()
-                        .itemId(toLong(row.get("itemId")))
-                        .versionId(toLong(row.get("versionId")))
-                        .key(stringValue(row.get("key")))
+                        .itemId(readPromptRefLong(row, "promptItemId", "itemId"))
+                        .versionId(readPromptRefLong(row, "promptItemVersionId", "versionId"))
+                        .key(readPromptRefString(row, "promptKey", "key"))
                         .value(stringValue(row.get("value")))
-                        .version(stringValue(row.get("version")))
+                        .version(readPromptRefString(row, "promptVersion", "version"))
                         .runtimeSlot(stringValue(row.get("runtimeSlot")))
                         .matchReason(stringValue(row.get("matchReason")))
                         .category(stringValue(row.get("category")))
@@ -4464,11 +4464,11 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     continue;
                 }
                 items.add(ResolvedPromptItem.builder()
-                        .itemId(toLong(row.get("itemId")))
-                        .versionId(toLong(row.get("versionId")))
-                        .key(stringValue(row.get("key")))
+                        .itemId(readPromptRefLong(row, "promptItemId", "itemId"))
+                        .versionId(readPromptRefLong(row, "promptItemVersionId", "versionId"))
+                        .key(readPromptRefString(row, "promptKey", "key"))
                         .value(stringValue(row.get("value")))
-                        .version(stringValue(row.get("version")))
+                        .version(readPromptRefString(row, "promptVersion", "version"))
                         .runtimeSlot(stringValue(row.get("runtimeSlot")))
                         .matchReason(stringValue(row.get("matchReason")))
                         .category(stringValue(row.get("category")))
@@ -4478,6 +4478,21 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             slotMapping.put(slot, items);
         }
         return slotMapping;
+    }
+
+    private Long readPromptRefLong(Map<?, ?> row, String primaryKey, String fallbackKey) {
+        if (row == null || row.isEmpty()) {
+            return null;
+        }
+        Long primary = toLong(row.get(primaryKey));
+        return primary != null ? primary : toLong(row.get(fallbackKey));
+    }
+
+    private String readPromptRefString(Map<?, ?> row, String primaryKey, String fallbackKey) {
+        if (row == null || row.isEmpty()) {
+            return "";
+        }
+        return firstNonBlank(stringValue(row.get(primaryKey)), stringValue(row.get(fallbackKey)));
     }
 
     @SuppressWarnings("unchecked")

@@ -40,6 +40,12 @@ public class PromptPreviewServiceImpl implements PromptPreviewService {
         }
         Map<String, List<String>> sectionMapping = PromptSectionAssemblerSupport.buildSectionPreview(slotMapping);
         Map<String, String> sectionAssembled = PromptSectionAssemblerSupport.toAssembledText(sectionMapping);
+        PromptSectionAssemblerSupport.PromptRefFilterResult finalFilter = PromptSectionAssemblerSupport.filterPromptRefsByFinalSections(
+                toPromptRefRows(result.getMatchedItems()),
+                toPromptRefSlotMapping(slotMapping),
+                sectionMapping,
+                sectionMapping
+        );
         return Map.of(
                 "policyId", result.getPolicyId() == null ? "" : result.getPolicyId(),
                 "matchedItems", toPreviewMatchedItems(result.getMatchedItems()),
@@ -47,7 +53,8 @@ public class PromptPreviewServiceImpl implements PromptPreviewService {
                 "slotMapping", slotMapping,
                 "assembled", assembled,
                 "sectionMapping", sectionMapping,
-                "sectionAssembled", sectionAssembled
+                "sectionAssembled", sectionAssembled,
+                "filteredOutItems", finalFilter.filteredOutItems()
         );
     }
 
@@ -83,5 +90,60 @@ public class PromptPreviewServiceImpl implements PromptPreviewService {
             rows.add(row);
         }
         return rows;
+    }
+
+    private List<Map<String, Object>> toPromptRefRows(List<ResolvedPromptItem> matchedItems) {
+        if (matchedItems == null || matchedItems.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> rows = new java.util.ArrayList<>();
+        for (ResolvedPromptItem item : matchedItems) {
+            if (item == null) {
+                continue;
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("itemId", item.getItemId());
+            row.put("versionId", item.getVersionId());
+            row.put("key", item.getKey());
+            row.put("version", item.getVersion());
+            row.put("runtimeSlot", item.getRuntimeSlot());
+            row.put("matchReason", item.getMatchReason());
+            row.put("category", item.getCategory());
+            row.put("value", item.getValue());
+            rows.add(PromptSectionAssemblerSupport.withPromptRefAliases(row));
+        }
+        return rows;
+    }
+
+    private Map<String, List<Map<String, Object>>> toPromptRefSlotMapping(Map<String, List<ResolvedPromptItem>> slotMapping) {
+        if (slotMapping == null || slotMapping.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, List<Map<String, Object>>> rowsBySlot = new LinkedHashMap<>();
+        for (Map.Entry<String, List<ResolvedPromptItem>> entry : slotMapping.entrySet()) {
+            String slot = entry.getKey() == null ? "" : entry.getKey();
+            if (slot.isBlank()) {
+                continue;
+            }
+            List<Map<String, Object>> rows = new java.util.ArrayList<>();
+            List<ResolvedPromptItem> items = entry.getValue() == null ? List.of() : entry.getValue();
+            for (ResolvedPromptItem item : items) {
+                if (item == null) {
+                    continue;
+                }
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("itemId", item.getItemId());
+                row.put("versionId", item.getVersionId());
+                row.put("key", item.getKey());
+                row.put("version", item.getVersion());
+                row.put("runtimeSlot", item.getRuntimeSlot());
+                row.put("matchReason", item.getMatchReason());
+                row.put("category", item.getCategory());
+                row.put("value", item.getValue());
+                rows.add(PromptSectionAssemblerSupport.withPromptRefAliases(row));
+            }
+            rowsBySlot.put(slot, rows);
+        }
+        return rowsBySlot;
     }
 }

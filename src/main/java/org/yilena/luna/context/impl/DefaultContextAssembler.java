@@ -1366,23 +1366,18 @@ public class DefaultContextAssembler implements ContextAssembler {
                 slotMapping.put(slot, rows);
             }
         }
-        List<Map<String, Object>> filteredRefs = refRows.stream()
-                .filter(row -> isPromptRefUsedInFinalSections(row, sections, canonicalSections))
-                .toList();
+        PromptSectionAssemblerSupport.PromptRefFilterResult filtered = PromptSectionAssemblerSupport.filterPromptRefsByFinalSections(
+                refRows,
+                slotMapping,
+                sections,
+                canonicalSections
+        );
+        List<Map<String, Object>> filteredRefs = filtered.promptRefs();
         Map<String, Object> out = new LinkedHashMap<>();
         out.putAll(meta);
-        out.put("promptRefs", deduplicatePromptRefs(filteredRefs));
+        out.put("promptRefs", PromptSectionAssemblerSupport.deduplicatePromptRefs(filteredRefs));
         if (!slotMapping.isEmpty()) {
-            Map<String, List<Map<String, Object>>> filteredSlotMapping = new LinkedHashMap<>();
-            for (Map.Entry<String, List<Map<String, Object>>> entry : slotMapping.entrySet()) {
-                List<Map<String, Object>> filteredItems = entry.getValue().stream()
-                        .filter(row -> isPromptRefUsedInFinalSections(row, sections, canonicalSections))
-                        .toList();
-                if (!filteredItems.isEmpty()) {
-                    filteredSlotMapping.put(entry.getKey(), filteredItems);
-                }
-            }
-            out.put("slotMapping", filteredSlotMapping);
+            out.put("slotMapping", filtered.slotMapping());
         }
         if (filteredRefs.isEmpty()) {
             out.put("promptRefs", List.of());
@@ -1405,7 +1400,7 @@ public class DefaultContextAssembler implements ContextAssembler {
                 }
             }
         }
-        refs = deduplicatePromptRefs(refs);
+        refs = PromptSectionAssemblerSupport.deduplicatePromptRefs(refs);
         meta.put("allPromptRefs", refs);
         Object slotMappingRaw = meta.get("slotMapping");
         if (slotMappingRaw instanceof Map<?, ?> raw) {
@@ -1512,21 +1507,7 @@ public class DefaultContextAssembler implements ContextAssembler {
     }
 
     private List<Map<String, Object>> deduplicatePromptRefs(List<Map<String, Object>> refs) {
-        if (refs == null || refs.isEmpty()) {
-            return List.of();
-        }
-        Map<String, Map<String, Object>> deduped = new LinkedHashMap<>();
-        for (Map<String, Object> ref : refs) {
-            if (ref == null || ref.isEmpty()) {
-                continue;
-            }
-            String key = safe(ref.get("key"));
-            String runtimeSlot = safe(ref.get("runtimeSlot"));
-            Long versionId = toLong(ref.get("versionId"));
-            String dedupeKey = key + "|" + (versionId == null ? "" : versionId) + "|" + runtimeSlot;
-            deduped.putIfAbsent(dedupeKey, ref);
-        }
-        return new ArrayList<>(deduped.values());
+        return PromptSectionAssemblerSupport.deduplicatePromptRefs(refs);
     }
 
     private Map<String, Object> toPromptRefRow(ResolvedPromptItem item) {
@@ -1542,7 +1523,7 @@ public class DefaultContextAssembler implements ContextAssembler {
         row.put("matchReason", item.getMatchReason());
         row.put("category", item.getCategory());
         row.put("value", item.getValue());
-        return row;
+        return PromptSectionAssemblerSupport.withPromptRefAliases(row);
     }
 
     private Map<String, Object> buildFallbackRef(String key, String runtimeSlot) {
@@ -1564,7 +1545,7 @@ public class DefaultContextAssembler implements ContextAssembler {
         row.putIfAbsent("version", "");
         row.putIfAbsent("category", "");
         row.putIfAbsent("value", "");
-        return row;
+        return PromptSectionAssemblerSupport.withPromptRefAliases(row);
     }
 
     private record PromptValueSelection(String value, Map<String, Object> ref) {

@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public final class PromptSectionAssemblerSupport {
     private static final String SECTION_INSTRUCTIONS = "Instructions";
@@ -18,6 +19,18 @@ public final class PromptSectionAssemblerSupport {
     private static final String SECTION_RECENT_INTERACTION = "Recent Interaction Context";
     private static final String SECTION_MEMORY_HINTS = "Memory Hints";
     private static final String SECTION_OUTPUT_CONSTRAINTS = "Output Constraints";
+    private static final String SLOT_RUNTIME_PROMPT = "runtime.prompt";
+    private static final String FIELD_ITEM_ID = "itemId";
+    private static final String FIELD_VERSION_ID = "versionId";
+    private static final String FIELD_KEY = "key";
+    private static final String FIELD_VERSION = "version";
+    private static final String FIELD_PROMPT_ITEM_ID = "promptItemId";
+    private static final String FIELD_PROMPT_ITEM_VERSION_ID = "promptItemVersionId";
+    private static final String FIELD_PROMPT_KEY = "promptKey";
+    private static final String FIELD_PROMPT_VERSION = "promptVersion";
+    private static final String FILTER_REASON_UNKNOWN_SLOT = "UNKNOWN_RUNTIME_SLOT";
+    private static final String FILTER_REASON_SECTION_EMPTY = "SECTION_EMPTY";
+    private static final String FILTER_REASON_VALUE_NOT_RENDERED = "VALUE_NOT_RENDERED";
 
     private PromptSectionAssemblerSupport() {
     }
@@ -77,46 +90,85 @@ public final class PromptSectionAssemblerSupport {
         return out;
     }
 
-    private static List<String> slotValues(Map<String, List<ResolvedPromptItem>> slotMapping, String slot) {
-        if (slotMapping == null || slotMapping.isEmpty()) {
+    public static Map<String, Object> withPromptRefAliases(Map<String, Object> row) {
+        if (row == null || row.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> out = new LinkedHashMap<>(row);
+        putIfMissing(out, FIELD_PROMPT_ITEM_ID, out.get(FIELD_ITEM_ID));
+        putIfMissing(out, FIELD_PROMPT_ITEM_VERSION_ID, out.get(FIELD_VERSION_ID));
+        putIfMissing(out, FIELD_PROMPT_KEY, safe(out.get(FIELD_KEY)));
+        putIfMissing(out, FIELD_PROMPT_VERSION, safe(out.get(FIELD_VERSION)));
+        return out;
+    }
+
+    public static List<Map<String, Object>> deduplicatePromptRefs(List<Map<String, Object>> refs) {
+        if (refs == null || refs.isEmpty()) {
             return List.of();
         }
-        List<ResolvedPromptItem> items = slotMapping.getOrDefault(slot, List.of());
-        if (items.isEmpty()) {
-            return List.of();
+        Map<String, Map<String, Object>> deduped = new LinkedHashMap<>();
+        for (Map<String, Object> ref : refs) {
+            if (ref == null || ref.isEmpty()) {
+                continue;
+            }
+            Map<String, Object> normalized = withPromptRefAliases(ref);
+            String key = firstNonBlank(safe(normalized.get(FIELD_PROMPT_KEY)), safe(normalized.get(FIELD_KEY)));
+            String runtimeSlot = safe(normalized.get("runtimeSlot"));
+            Long versionId = firstNonNullLong(
+                    toLong(normalized.get(FIELD_PROMPT_ITEM_VERSION_ID)),
+                    toLong(normalized.get(FIELD_VERSION_ID))
+            );
+            String dedupeKey = key + "|" + (versionId == null ? "" : versionId) + "|" + runtimeSlot;
+            deduped.putIfAbsent(dedupeKey, normalized);
         }
-        return items.stream()
-                .map(ResolvedPromptItem::getValue)
-                .filter(value -> value != null && !value.isBlank())
-                .toList();
+        return new ArrayList<>(deduped.values());
     }
 
-    private static List<String> mergeDistinct(List<String> left, List<String> right) {
-        LinkedHashSet<String> merged = new LinkedHashSet<>();
-        if (left != null) {
-            merged.addAll(left);
+    public static PromptRefFilterResult filterPromptRefsByFinalSections(List<Map<String, Object>> refs,
+                                                                        Map<String, List<Map<String, Object>>> slotMapping,
+                                                                        Map<String, List<String>> sections,
+                                                                        Map<String, List<String>> canonicalSections) {
+        List<Map<String, Object>> normalizedRefs = deduplicatePromptRefs(refs);
+        if (normalizedRefs.isEmpty()) {
+            return PromptRefFilterResult.empty();
         }
-        if (right != null) {
-            merged.addAll(right);
+        boolean noSectionContext = (sections == null || sections.isEmpty())
+                && (canonicalSections == null || canonicalSections.isEmpty());
+        if (noSectionContext) {
+            return new PromptRefFilterResult(normalizedRefs, normalizeSlotMapping(slotMapping), List.of());
         }
-        return new ArrayList<>(merged);
+        List<Map<String, Object>> filtered = new ArrayList<>();
+        List<Map<String, Object>> filteredOutItems = new ArrayList<>();
+        for (Map<String, Object> ref : normalizedRefs) {
+            PromptRefFilterDecision decision = evaluatePromptRefUsage(ref, sections, canonicalSections);
+            if (decision.used()) {
+                filtered.add(ref);
+                continue;
+            }
+            Map<String, Object> filteredOut = new LinkedHashMap<>(ref);
+            filteredOut.put("filteredReason", decision.reason());
+            filteredOut.put("reason", decision.reason());
+            filteredOut.put("targetSection", decision.targetSection());
+            filteredOutItems.add(filteredOut);
+        }
+        Map<String, List<Map<String, Object>>> normalizedSlotMapping = normalizeSlotMapping(slotMapping);
+        if (normalizedSlotMapping.isEmpty()) {
+            return new PromptRefFilterResult(filtered, Map.of(), filteredOutItems);
+        }
+        Map<String, List<Map<String, Object>>> filteredSlotMapping = new LinkedHashMap<>();
+        for (Map.Entry<String, List<Map<String, Object>>> entry : normalizedSlotMapping.entrySet()) {
+            List<Map<String, Object>> filteredItems = entry.getValue().stream()
+                    .map(PromptSectionAssemblerSupport::withPromptRefAliases)
+                    .filter(row -> evaluatePromptRefUsage(row, sections, canonicalSections).used())
+                    .toList();
+            if (!filteredItems.isEmpty()) {
+                filteredSlotMapping.put(entry.getKey(), filteredItems);
+            }
+        }
+        return new PromptRefFilterResult(filtered, filteredSlotMapping, filteredOutItems);
     }
 
-    private static Map<String, List<String>> initRuntimeSections() {
-        Map<String, List<String>> sections = new LinkedHashMap<>();
-        sections.put(SECTION_INSTRUCTIONS, List.of());
-        sections.put(SECTION_CURRENT_TASK_STATE, List.of());
-        sections.put(SECTION_RECONSTRUCTED_USER_INTENT, List.of());
-        sections.put(SECTION_RELEVANT_KNOWLEDGE_EVIDENCE, List.of());
-        sections.put(SECTION_MCP_HINTS, List.of());
-        sections.put(SECTION_TOOL_EVIDENCE, List.of());
-        sections.put(SECTION_RECENT_INTERACTION, List.of());
-        sections.put(SECTION_MEMORY_HINTS, List.of());
-        sections.put(SECTION_OUTPUT_CONSTRAINTS, List.of());
-        return sections;
-    }
-
-    private static String mapRuntimeSlotToSection(String slot) {
+    public static String mapRuntimeSlotToSection(String slot) {
         String normalized = slot == null ? "" : slot.trim().toLowerCase();
         if (normalized.isBlank()) {
             return null;
@@ -149,5 +201,186 @@ public final class PromptSectionAssemblerSupport {
             return SECTION_RECENT_INTERACTION;
         }
         return null;
+    }
+
+    private static List<String> slotValues(Map<String, List<ResolvedPromptItem>> slotMapping, String slot) {
+        if (slotMapping == null || slotMapping.isEmpty()) {
+            return List.of();
+        }
+        List<ResolvedPromptItem> items = slotMapping.getOrDefault(slot, List.of());
+        if (items.isEmpty()) {
+            return List.of();
+        }
+        return items.stream()
+                .map(ResolvedPromptItem::getValue)
+                .filter(value -> value != null && !value.isBlank())
+                .toList();
+    }
+
+    private static List<String> mergeDistinct(List<String> left, List<String> right) {
+        LinkedHashSet<String> merged = new LinkedHashSet<>();
+        if (left != null) {
+            merged.addAll(left);
+        }
+        if (right != null) {
+            merged.addAll(right);
+        }
+        return new ArrayList<>(merged);
+    }
+
+    private static PromptRefFilterDecision evaluatePromptRefUsage(Map<String, Object> ref,
+                                                                  Map<String, List<String>> sections,
+                                                                  Map<String, List<String>> canonicalSections) {
+        if (ref == null || ref.isEmpty()) {
+            return PromptRefFilterDecision.filtered(FILTER_REASON_UNKNOWN_SLOT, "");
+        }
+        String slot = safe(ref.get("runtimeSlot"));
+        String normalizedSlot = slot.isBlank() ? SLOT_RUNTIME_PROMPT : slot.trim().toLowerCase();
+        if (SLOT_RUNTIME_PROMPT.equals(normalizedSlot)) {
+            return PromptRefFilterDecision.used("");
+        }
+        String targetSection = mapRuntimeSlotToSection(normalizedSlot);
+        if (targetSection == null || targetSection.isBlank()) {
+            return PromptRefFilterDecision.filtered(FILTER_REASON_UNKNOWN_SLOT, "");
+        }
+        if (!hasSectionContent(targetSection, sections, canonicalSections)) {
+            return PromptRefFilterDecision.filtered(FILTER_REASON_SECTION_EMPTY, targetSection);
+        }
+        String value = safe(ref.get("value"));
+        if (value.isBlank()) {
+            return PromptRefFilterDecision.used(targetSection);
+        }
+        if (sectionContainsPromptValue(targetSection, value, sections, canonicalSections)) {
+            return PromptRefFilterDecision.used(targetSection);
+        }
+        return PromptRefFilterDecision.filtered(FILTER_REASON_VALUE_NOT_RENDERED, targetSection);
+    }
+
+    private static Map<String, List<Map<String, Object>>> normalizeSlotMapping(Map<String, List<Map<String, Object>>> slotMapping) {
+        if (slotMapping == null || slotMapping.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, List<Map<String, Object>>> normalized = new LinkedHashMap<>();
+        for (Map.Entry<String, List<Map<String, Object>>> entry : slotMapping.entrySet()) {
+            String slot = safe(entry.getKey());
+            if (slot.isBlank()) {
+                continue;
+            }
+            List<Map<String, Object>> rows = entry.getValue() == null
+                    ? List.of()
+                    : entry.getValue().stream()
+                    .filter(Objects::nonNull)
+                    .map(PromptSectionAssemblerSupport::withPromptRefAliases)
+                    .filter(row -> !row.isEmpty())
+                    .toList();
+            if (!rows.isEmpty()) {
+                normalized.put(slot, rows);
+            }
+        }
+        return normalized;
+    }
+
+    private static Map<String, List<String>> initRuntimeSections() {
+        Map<String, List<String>> sections = new LinkedHashMap<>();
+        sections.put(SECTION_INSTRUCTIONS, List.of());
+        sections.put(SECTION_CURRENT_TASK_STATE, List.of());
+        sections.put(SECTION_RECONSTRUCTED_USER_INTENT, List.of());
+        sections.put(SECTION_RELEVANT_KNOWLEDGE_EVIDENCE, List.of());
+        sections.put(SECTION_MCP_HINTS, List.of());
+        sections.put(SECTION_TOOL_EVIDENCE, List.of());
+        sections.put(SECTION_RECENT_INTERACTION, List.of());
+        sections.put(SECTION_MEMORY_HINTS, List.of());
+        sections.put(SECTION_OUTPUT_CONSTRAINTS, List.of());
+        return sections;
+    }
+
+    private static boolean sectionContainsPromptValue(String sectionName,
+                                                      String promptValue,
+                                                      Map<String, List<String>> sections,
+                                                      Map<String, List<String>> canonicalSections) {
+        if (promptValue == null || promptValue.isBlank()) {
+            return true;
+        }
+        String normalizedPrompt = promptValue.trim();
+        String sectionText = joinSectionText(sectionName, sections);
+        if (!sectionText.isBlank() && sectionText.contains(normalizedPrompt)) {
+            return true;
+        }
+        String canonicalText = joinSectionText(sectionName, canonicalSections);
+        return !canonicalText.isBlank() && canonicalText.contains(normalizedPrompt);
+    }
+
+    private static boolean hasSectionContent(String sectionName,
+                                             Map<String, List<String>> sections,
+                                             Map<String, List<String>> canonicalSections) {
+        return !joinSectionText(sectionName, sections).isBlank()
+                || !joinSectionText(sectionName, canonicalSections).isBlank();
+    }
+
+    private static String joinSectionText(String sectionName, Map<String, List<String>> sections) {
+        if (sectionName == null || sectionName.isBlank() || sections == null || sections.isEmpty()) {
+            return "";
+        }
+        List<String> lines = sections.getOrDefault(sectionName, List.of());
+        if (lines == null || lines.isEmpty()) {
+            return "";
+        }
+        return lines.stream()
+                .filter(line -> line != null && !line.isBlank())
+                .reduce("", (left, right) -> left.isBlank() ? right : left + "\n\n" + right);
+    }
+
+    private static void putIfMissing(Map<String, Object> row, String field, Object value) {
+        if (row.containsKey(field)) {
+            return;
+        }
+        row.put(field, value);
+    }
+
+    private static String safe(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
+    private static String firstNonBlank(String first, String fallback) {
+        if (first != null && !first.isBlank()) {
+            return first;
+        }
+        return fallback == null ? "" : fallback;
+    }
+
+    private static Long firstNonNullLong(Long first, Long fallback) {
+        return first != null ? first : fallback;
+    }
+
+    private static Long toLong(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    public record PromptRefFilterResult(List<Map<String, Object>> promptRefs,
+                                        Map<String, List<Map<String, Object>>> slotMapping,
+                                        List<Map<String, Object>> filteredOutItems) {
+        public static PromptRefFilterResult empty() {
+            return new PromptRefFilterResult(List.of(), Map.of(), List.of());
+        }
+    }
+
+    private record PromptRefFilterDecision(boolean used, String reason, String targetSection) {
+        private static PromptRefFilterDecision used(String targetSection) {
+            return new PromptRefFilterDecision(true, "", targetSection == null ? "" : targetSection);
+        }
+
+        private static PromptRefFilterDecision filtered(String reason, String targetSection) {
+            return new PromptRefFilterDecision(false, reason, targetSection == null ? "" : targetSection);
+        }
     }
 }
