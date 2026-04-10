@@ -14,21 +14,28 @@ import org.yilena.luna.sse.LunaStatusPublisher;
 @RestController
 @RequestMapping("/api/luna/status")
 @RequiredArgsConstructor
-@Tag(name = "Luna 狀態推送接口", description = "用於前端實時獲取 Luna 的內部運行狀態")
+@Tag(name = "Luna 状态推送接口", description = "用于前端通过 SSE 实时订阅 Luna 的运行状态")
 /**
- * LunaStatusController ??
+ * Luna 状态控制器，负责维护前端与服务端之间的 SSE 状态订阅通道。
  */
 public class LunaStatusController {
 
+    /**
+     * 状态发布器，负责创建和维护 SSE 订阅。
+     */
     private final LunaStatusPublisher statusPublisher;
 
     @GetMapping(value = "/stream", produces = MediaType.ALL_VALUE)
-    @Operation(summary = "訂閱 Luna 狀態流 (SSE)", description = "建立 SSE 連接，如果已存在連接會自動重連")
+    /**
+     * 建立 SSE 长连接并订阅 Luna 运行状态。
+     *
+     * 该接口会主动设置响应头，确保浏览器或前端在不同 Accept 头场景下都能正确建立事件流连接。
+     */
+    @Operation(summary = "订阅运行状态流", description = "建立 SSE 连接并持续接收 Luna 的运行状态推送")
     public SseEmitter stream(HttpServletResponse response) {
-        // 【核心修復】
-        // 1. 使用 produces = MediaType.ALL_VALUE ("*/*") 強制 Spring MVC 匹配此方法，
-        //    無論前端發送什麼 Accept 頭 (如 text/html)，解決 406 No acceptable representation 錯誤。
-        // 2. 手動設置 Content-Type 為 text/event-stream，確保瀏覽器正確識別 SSE 流。
+        /**
+         * 手动设置 SSE 所需响应头，避免因为内容协商或代理缓存导致连接无法正常建立。
+         */
         response.setContentType("text/event-stream");
         response.setCharacterEncoding("UTF-8");
         response.setHeader("Cache-Control", "no-cache");
@@ -38,9 +45,12 @@ public class LunaStatusController {
     }
 
     @GetMapping(value = "/disconnect")
-    @Operation(summary = "斷開 Luna 狀態流", description = "主動斷開當前的 SSE 連接")
+    /**
+     * 主动断开当前默认客户端的 SSE 订阅连接。
+     */
+    @Operation(summary = "断开状态流", description = "主动关闭当前客户端的 SSE 状态订阅连接")
     public String disconnect() {
         statusPublisher.unsubscribe();
-        return "已斷開連接";
+        return "已断开连接";
     }
 }

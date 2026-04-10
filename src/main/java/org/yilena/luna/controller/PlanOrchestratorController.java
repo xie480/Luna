@@ -25,28 +25,57 @@ import org.yilena.luna.utils.AuthContextHolder;
 import java.util.Map;
 
 /**
- * OpenClaw plan orchestration controller.
+ * 计划编排控制器，负责创建计划、执行阶段、生成报告以及查询计划图。
  */
 @Slf4j
 @RestController
 @RequestMapping("/luna/api/plan")
 @RequiredArgsConstructor
-@Tag(name = "OpenClaw计划编排接口")
+@Tag(name = "计划编排接口", description = "提供计划创建、阶段执行、收尾报告和图谱查询能力")
 public class PlanOrchestratorController {
 
+    /**
+     * 错误码字段名，用于统一错误响应结构。
+     */
     private static final String KEY_ERROR_CODE = "errorCode";
 
+    /**
+     * 请求参数不合法时使用的统一错误码。
+     */
     private static final String ERROR_INVALID_REQUEST = "INVALID_REQUEST";
+    /**
+     * 创建并执行计划失败时使用的错误码。
+     */
     private static final String ERROR_PLAN_RUN_FAILED = "PLAN_RUN_FAILED";
+    /**
+     * 执行单个计划阶段失败时使用的错误码。
+     */
     private static final String ERROR_PLAN_PHASE_RUN_FAILED = "PLAN_PHASE_RUN_FAILED";
+    /**
+     * 生成最终报告失败时使用的错误码。
+     */
     private static final String ERROR_PLAN_FINALIZE_FAILED = "PLAN_FINALIZE_FAILED";
+    /**
+     * 获取计划图谱失败时使用的错误码。
+     */
     private static final String ERROR_PLAN_GRAPH_FAILED = "PLAN_GRAPH_FAILED";
 
+    /**
+     * 计划编排服务，负责执行计划主流程。
+     */
     private final PlanOrchestratorService planOrchestratorService;
+    /**
+     * JSON 处理器，用于将字符串结果转为结构化响应。
+     */
     private final ObjectMapper objectMapper;
 
     @PostMapping("/run")
-    @Operation(summary = "创建并执行计划（MVP）")
+    /**
+     * 创建并执行一条新的计划。
+     *
+     * 该接口会校验用户目标、优先从登录上下文解析会话标识，并将编排结果统一包装后返回。
+     */
+    @Operation(summary = "创建并执行计划", description = "根据用户目标创建计划，并立即触发计划编排执行")
     public ResponseEntity<Object> run(@RequestBody PlanRunRequest req) {
         try {
             if (req == null || req.getUserGoal() == null || req.getUserGoal().isBlank()) {
@@ -68,7 +97,12 @@ public class PlanOrchestratorController {
     }
 
     @PostMapping("/phase/run")
-    @Operation(summary = "执行单阶段")
+    /**
+     * 执行指定计划中的单个阶段。
+     *
+     * 该接口要求明确传入计划标识和阶段标识，适用于分阶段推进计划时的手动触发场景。
+     */
+    @Operation(summary = "执行计划阶段", description = "根据计划 ID 和阶段 ID 执行指定的单个阶段")
     public ResponseEntity<Object> runPhase(@RequestBody PlanPhaseRunRequest req) {
         try {
             if (req == null || isBlank(req.getPlanId()) || isBlank(req.getPhaseId())) {
@@ -85,7 +119,10 @@ public class PlanOrchestratorController {
     }
 
     @PostMapping("/report/finalize")
-    @Operation(summary = "收尾并生成报告")
+    /**
+     * 对已执行的计划做收尾处理并生成最终报告。
+     */
+    @Operation(summary = "生成计划报告", description = "对指定计划执行收尾逻辑并产出最终报告")
     public ResponseEntity<Object> finalizeReport(@RequestBody PlanFinalizeRequest req) {
         try {
             if (req == null || isBlank(req.getPlanId())) {
@@ -102,7 +139,10 @@ public class PlanOrchestratorController {
     }
 
     @GetMapping("/graph/{planId}")
-    @Operation(summary = "获取计划图快照")
+    /**
+     * 查询指定计划的图结构快照，便于前端展示执行图谱。
+     */
+    @Operation(summary = "查询计划图谱", description = "根据计划 ID 获取当前计划的图结构快照")
     public ResponseEntity<Object> getPlanGraph(@PathVariable("planId") String planId) {
         try {
             if (isBlank(planId)) {
@@ -113,10 +153,13 @@ public class PlanOrchestratorController {
             return ResponseEntity.ok(parseOrRaw(result));
         } catch (Exception e) {
             log.error("getPlanGraph failed", e);
-            return serverError(ERROR_PLAN_GRAPH_FAILED, e.getMessage(), "获取计划图失败");
+            return serverError(ERROR_PLAN_GRAPH_FAILED, e.getMessage(), "获取计划图谱失败");
         }
     }
 
+    /**
+     * 统一构造参数校验失败响应，保持控制层错误结构一致。
+     */
     private ResponseEntity<Object> badRequest(String message) {
         return ResponseEntity.badRequest().body(Map.of(
                 JsonFieldConstants.STATUS, ResultStatusConstants.ERROR,
@@ -125,6 +168,9 @@ public class PlanOrchestratorController {
         ));
     }
 
+    /**
+     * 统一构造服务端异常响应，便于前端按错误码区分处理。
+     */
     private ResponseEntity<Object> serverError(String errorCode, String message, String defaultMessage) {
         return ResponseEntity.internalServerError().body(Map.of(
                 JsonFieldConstants.STATUS, ResultStatusConstants.ERROR,
@@ -133,6 +179,9 @@ public class PlanOrchestratorController {
         ));
     }
 
+    /**
+     * 优先将服务层返回值解析为 JSON；无法解析时退化为原始文本包装。
+     */
     private Object parseOrRaw(String text) {
         try {
             JsonNode node = objectMapper.readTree(text);
@@ -145,6 +194,9 @@ public class PlanOrchestratorController {
         }
     }
 
+    /**
+     * 判断字符串是否为空白，减少重复判空逻辑。
+     */
     private boolean isBlank(String s) {
         return s == null || s.isBlank();
     }

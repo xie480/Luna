@@ -19,21 +19,33 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/auth")
-@Tag(name = "认证模块")
+@Tag(name = "认证接口", description = "提供登录和退出登录能力")
+/**
+ * 认证控制器，负责暴露登录和退出登录接口。
+ */
 public class AuthController {
 
     @Autowired
+    /**
+     * 认证服务，负责账号校验和令牌管理。
+     */
     private AuthService authService;
 
     @PostMapping("/login")
-    @Operation(summary = "登录接口，返回 Token（服务重启后失效）")
+    /**
+     * 校验用户名和密码并签发新的认证令牌。
+     */
+    @Operation(summary = "用户登录", description = "校验登录凭证并返回当前服务实例生成的认证令牌")
     public ResponseEntity<Map<String, String>> login(@RequestBody LoginRequest request) {
         String token = authService.login(request.getUsername(), request.getPassword());
         return ResponseEntity.ok(Map.of(JsonFieldConstants.TOKEN, token));
     }
 
     @PostMapping("/logout")
-    @Operation(summary = "登出接口，清除 Token")
+    /**
+     * 根据请求头中的令牌执行退出登录，失效当前会话凭证。
+     */
+    @Operation(summary = "用户退出登录", description = "根据请求头中的认证令牌执行登出并清理服务端登录状态")
     public ResponseEntity<Map<String, String>> logout(
             @RequestHeader(value = HttpConstants.HEADER_AUTHORIZATION, required = false) String token) {
         authService.logout(token);

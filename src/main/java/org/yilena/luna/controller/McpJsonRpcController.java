@@ -1,5 +1,7 @@
 package org.yilena.luna.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -16,11 +18,24 @@ import java.util.Map;
 @RestController
 @RequestMapping("/mcp")
 @RequiredArgsConstructor
+@Tag(name = "MCP JSON-RPC 接口", description = "接收标准 JSON-RPC 请求并分发到对应的 MCP 能力")
+/**
+ * MCP JSON-RPC 控制器，负责将标准 JSON-RPC 请求分发到对应的 MCP 服务能力。
+ */
 public class McpJsonRpcController {
 
+    /**
+     * MCP 服务，负责执行协议方法对应的业务逻辑。
+     */
     private final McpService mcpService;
 
     @PostMapping("/rpc")
+    /**
+     * 接收 JSON-RPC 请求并根据方法名路由到对应的 MCP 能力。
+     *
+     * 该接口会统一处理请求参数提取、协议错误包装和异常兜底，保证前端始终拿到标准 JSON-RPC 响应结构。
+     */
+    @Operation(summary = "发起 JSON-RPC 调用", description = "接收标准 JSON-RPC 请求，并根据 method 分发到对应的 MCP 服务能力")
     public Map<String, Object> invoke(@RequestBody Map<String, Object> body) {
         Object id = body == null ? null : body.get(JsonFieldConstants.ID);
         String method = text(body == null ? null : body.get(JsonFieldConstants.METHOD));
@@ -65,6 +80,9 @@ public class McpJsonRpcController {
         }
     }
 
+    /**
+     * 构造 JSON-RPC 协议规定的错误响应体。
+     */
     private Map<String, Object> error(Object id, JsonRpcErrorCodeEnum errorCode, String message) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put(JsonFieldConstants.JSON_RPC, McpProtocolConstants.JSON_RPC_VERSION);
@@ -76,6 +94,9 @@ public class McpJsonRpcController {
         return out;
     }
 
+    /**
+     * 将原始参数对象安全转换为字符串键的 Map，便于后续统一取值。
+     */
     private Map<String, Object> params(Object raw) {
         if (raw instanceof Map<?, ?> map) {
             Map<String, Object> out = new LinkedHashMap<>();
@@ -85,10 +106,16 @@ public class McpJsonRpcController {
         return Map.of();
     }
 
+    /**
+     * 将任意参数转换为去除首尾空白的字符串。
+     */
     private String text(Object raw) {
         return raw == null ? "" : String.valueOf(raw).trim();
     }
 
+    /**
+     * 当参数为空时返回默认值，避免协议字段缺失导致下游处理失败。
+     */
     private String textOrDefault(Object raw, String defaultValue) {
         String value = text(raw);
         return value.isBlank() ? defaultValue : value;

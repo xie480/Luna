@@ -64,6 +64,9 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+/**
+ * 审批服务实现类，负责创建审批任务、处理审批结果并在审批后恢复原对话链路。
+ */
 public class ApprovalServiceImpl implements ApprovalService {
 
     private final RedisTemplate<String, Object> redisTemplate;
@@ -84,7 +87,15 @@ public class ApprovalServiceImpl implements ApprovalService {
     private final SessionRuntimeMapper sessionRuntimeMapper;
 
     @Override
+    /**
+     * 创建审批任务并中断当前流程。
+     *
+     * 该方法会保存审批任务、记录恢复状态、推送前端审批事件，并通过异常打断当前工具执行流程。
+     */
     public void createTaskAndInterrupt(String sessionId, Resource resource, String argsJson) {
+        /**
+         * 先生成审批任务主键和时间戳，并从线程上下文中提取续聊所需的上下文快照。
+         */
         String taskId = SnowflakeIdUtil.nextIdStr();
         long now = System.currentTimeMillis();
 
@@ -108,6 +119,9 @@ public class ApprovalServiceImpl implements ApprovalService {
                 .longTermMemorySnippets(callingContext != null ? callingContext.getLongTermMemorySnippets() : null)
                 .build();
 
+        /**
+         * 将审批任务同时写入持久层和缓存，再推送 SSE 审批事件，确保前端和恢复流程都能及时感知。
+         */
         persistPendingApprovalTask(task);
         writeRecoveryStateOnInterrupt(sessionId, taskId, resource);
         redisTemplate.opsForValue().set(ApprovalConstants.REDIS_PREFIX + taskId, task, ApprovalConstants.EXPIRE_MINUTES, TimeUnit.MINUTES);
@@ -121,7 +135,15 @@ public class ApprovalServiceImpl implements ApprovalService {
     }
 
     @Override
+    /**
+     * 处理用户提交的审批结果。
+     *
+     * 该方法会校验审批任务、记录审批事件，并根据同意或拒绝分支执行工具或继续续聊，最后统一更新审批状态。
+     */
     public String processApproval(String taskId, boolean approved) {
+        /**
+         * 先加载审批任务；如果任务不存在，则直接返回错误结果并恢复前端空闲状态。
+         */
         ApprovalTask task = loadApprovalTask(taskId);
         if (task == null) {
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "IDLE", "");
@@ -136,6 +158,9 @@ public class ApprovalServiceImpl implements ApprovalService {
 
         String resultJson;
         if (approved) {
+            /**
+             * 审批通过时先更新任务状态，再执行工具并继续恢复原对话，让审批结果真正落入业务链路。
+             */
             updateTaskStatus(taskId, ApprovalTaskStatusEnum.RUNNING.getCode(), null, null);
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "THINKING", ApprovalConstants.MESSAGE_RUNNING_APPROVED_TOOL);
             String toolResult = executeApprovedTool(task);
@@ -148,11 +173,17 @@ public class ApprovalServiceImpl implements ApprovalService {
                     toolFailed ? ApprovalConstants.ERROR_TOOL_EXECUTION_FAILED : null
             );
         } else {
+            /**
+             * 审批拒绝时跳过工具执行，直接使用拒绝结果继续续聊，让用户获得明确反馈。
+             */
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "THINKING", ApprovalConstants.MESSAGE_REJECTED_CONTINUE);
             resultJson = continueChatAfterToolDecision(task, null, false);
             updateTaskStatus(taskId, ApprovalTaskStatusEnum.REJECTED.getCode(), resultJson, ApprovalConstants.ERROR_USER_REJECTED);
         }
 
+        /**
+         * 无论审批结果如何，都清理缓存任务、推送审批结果事件，并把前端状态恢复为空闲。
+         */
         redisTemplate.delete(ApprovalConstants.REDIS_PREFIX + taskId);
         sseSessionManager.send(LunaStatusPublisher.DEFAULT_CLIENT_ID, ApprovalConstants.EVENT_APPROVAL_RESULT, Map.of(
                 JsonFieldConstants.TASK_ID, taskId,
@@ -163,7 +194,13 @@ public class ApprovalServiceImpl implements ApprovalService {
         return resultJson;
     }
 
+    /**
+     * 在审批通过后真正执行目标工具，并把执行结果统一转换为可续聊的输出内容。
+     */
     private String executeApprovedTool(ApprovalTask task) {
+        /**
+         * 先解析工具名称并做兜底校验，避免审批任务缺少关键信息导致误调用。
+         */
         String toolName = task.getToolName();
         if (toolName == null || toolName.isBlank()) {
             toolName = task.getSkillName();
@@ -173,6 +210,9 @@ public class ApprovalServiceImpl implements ApprovalService {
             return errorJson(ApprovalConstants.MESSAGE_MISSING_TOOL_NAME);
         }
         try {
+            /**
+             * 获取 MCP 服务并执行目标工具；如果服务不可用或结果为空，则立即标记审批任务失败。
+             */
             McpService mcpService = mcpServiceProvider.getIfAvailable();
             if (mcpService == null) {
                 updateTaskStatus(task.getTaskId(), ApprovalTaskStatusEnum.FAILED.getCode(), null, ApprovalConstants.ERROR_TOOL_EXECUTION_FAILED);
@@ -332,6 +372,9 @@ public class ApprovalServiceImpl implements ApprovalService {
                 || ApprovalTaskStatusEnum.FAILED.getCode().equalsIgnoreCase(status);
     }
 
+    /**
+     * 在审批结束后恢复对话链路，让工具结果或拒绝结论能自然进入后续回复。
+     */
     private String continueChatAfterToolDecision(ApprovalTask task, String toolContext, boolean approved) {
         if (!canContinueChat(task)) {
             if (!approved) {
@@ -340,6 +383,9 @@ public class ApprovalServiceImpl implements ApprovalService {
             return wrapToolResultAsReply(toolContext);
         }
         try {
+            /**
+             * 先构造恢复编排上下文并重新选择节点工作集，使续聊回复能够感知审批结果和最新工具输出。
+             */
             TaskOrchestrationResult orchestrationResult = taskOrchestratorService.orchestrateSystemRecovery(
                     task.getSessionId(),
                     task.getUserInput(),
@@ -381,6 +427,10 @@ public class ApprovalServiceImpl implements ApprovalService {
             List<String> runtimeMemorySnippets = extractRuntimeMessageSnippets(contextPackage);
             List<String> retrievedMemorySnippets = selectedMemorySnippets;
             ContextNodeTemplatePolicy nodeTemplatePolicy = resolveNodeTemplatePolicy(recoveryDecision, contextPackage);
+
+            /**
+             * 将审批结果、工具输出和恢复态上下文交给状态驱动流水线，生成最终续聊回复并视情况写入记忆。
+             */
             RoundPipelineRequest roundPipelineRequest = RoundPipelineRequest.builder()
                             .sessionId(task.getSessionId())
                             .userInput(task.getUserInput())

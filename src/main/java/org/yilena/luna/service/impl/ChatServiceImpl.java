@@ -65,6 +65,9 @@ import java.util.Optional;
 
 @Slf4j
 @Service
+/**
+ * 对话服务实现类，负责组织聊天主链路、启动收尾流程以及历史会话查询。
+ */
 public class ChatServiceImpl implements ChatService {
 
     private static final DateTimeFormatter SESSION_KEY_FORMATTER = DateTimeFormatter.ofPattern("yyyy:MM:dd");
@@ -101,7 +104,15 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     @LunaLogRecord(module = LogModuleConstant.CHAT, action = LogActionConstant.CHAT, type = LogType.LUNA_OUTPUT, content = "chat")
+    /**
+     * 执行一轮完整对话。
+     *
+     * 该方法会完成输入校验、上下文治理、工具决策、回复生成、记忆写入和轮次状态落库，是聊天主流程的核心入口。
+     */
     public ResponseEntity<Object> chat(ChatRequest chatRequest) {
+        /**
+         * 先提取并校验用户输入，空输入直接拒绝，避免后续治理链路消耗无效资源。
+         */
         String input = Optional.ofNullable(chatRequest)
                 .map(ChatRequest::getUserInput)
                 .map(String::trim)
@@ -115,6 +126,9 @@ public class ChatServiceImpl implements ChatService {
                 .filter(s -> !s.isBlank())
                 .orElse(SESSION_KEY_FORMATTER.format(LocalDateTime.now()));
 
+        /**
+         * 先运行工具前的上下文治理流水线，产出本轮决策、重构输入和节点工作集，为后续工具判断打基础。
+         */
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_RETRIEVING, LunaStateConstant.VALUE_RETRIEVING);
         RoundPipelineResult preToolPipelineResult = stateDrivenContextPipeline.run(
                 StateDrivenContextPipelineRequest.builder()
@@ -175,6 +189,9 @@ public class ChatServiceImpl implements ChatService {
                         : nodeWorkset.getSelectedPreferenceSnippets()
         );
 
+        /**
+         * 基于治理后的上下文执行工具决策节点，拿到工具语义、原始执行轨迹和工具上下文，决定本轮是否需要走工具链路。
+         */
         ToolDecisionNodeResult toolDecisionNodeResult = taskOrchestratorService.orchestrateToolDecisionNode(
                 runtimeSessionId,
                 input,
@@ -199,6 +216,9 @@ public class ChatServiceImpl implements ChatService {
                 ? ((List<Object>) traces).stream().filter(Map.class::isInstance).map(item -> (Map<String, Object>) item).toList()
                 : List.of();
 
+        /**
+         * 将工具结果和综合摘要合并为统一的工具上下文，便于后续回复生成与审计记录复用同一份事实来源。
+         */
         String synthesisBrief = threeStageResponseService.generateSynthesisBrief(input, toolContext, contextPackage);
         String semanticToolContext = mergeToolContextWithSemantic(toolContext, toolSemanticResult);
         String mergedToolContext = mergeToolContextWithSynthesis(semanticToolContext, synthesisBrief);
@@ -211,6 +231,9 @@ public class ChatServiceImpl implements ChatService {
                 toJsonSafe(Map.of("synthesisBrief", synthesisBrief == null ? "" : synthesisBrief))
         );
 
+        /**
+         * 如果工具仍处于异步挂起状态，则先返回挂起回复并按条件写入记忆，保证用户能及时看到当前执行状态。
+         */
         if (isAsyncPending(mergedToolContext)) {
             String pendingReply = buildPendingReply(mergedToolContext);
             cachePendingToolCall(runtimeSessionId, mergedToolContext);
@@ -282,6 +305,9 @@ public class ChatServiceImpl implements ChatService {
             return ResponseEntity.ok(tryParseJsonNode(pendingReply));
         }
 
+        /**
+         * 工具链路结束后进入主模型回复阶段，使用治理结果、检索片段和工具上下文生成最终回复。
+         */
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_THINKING, LunaStateConstant.VALUE_THINKING_ORGANIZE);
         ContextState previousContextState = contextPackage == null ? null : contextPackage.getContextState();
         RoundPipelineRequest roundPipelineRequest = RoundPipelineRequest.builder()
@@ -335,6 +361,10 @@ public class ChatServiceImpl implements ChatService {
             return ResponseEntity.status(503).body(contextGovernanceBlockedPayload("chat turn aborted because final governed workset is empty"));
         }
         LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(modelResult.getRawResponse());
+
+        /**
+         * 按记忆写入闸门结果决定是否沉淀本轮对话，再补写回放与治理痕迹，确保后续轮次可追溯。
+         */
         MemoryWriteGateDecision writeGate = evaluateMemoryWriteGate(input, modelResult.getReplyText(), reconstruction, toolSemanticResult, false);
         runtimeAuditService.persistDecisionRecord(
                 runtimeSessionId,
@@ -368,7 +398,13 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     @LunaLogRecord(module = LogModuleConstant.SYSTEM, action = LogActionConstant.STARTUP, type = LogType.SYSTEM_EVENT, content = "startup")
+    /**
+     * 执行启动欢迎流程，并通过状态治理流水线生成启动阶段回复。
+     */
     public ResponseEntity<Object> startup() {
+        /**
+         * 先写入启动消息和状态事件，确保会话历史与前端状态能感知到系统进入启动阶段。
+         */
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_STARTING, LunaStateConstant.VALUE_STARTING);
         LocalDateTime today = LocalDateTime.now();
         String keyPrefix = SESSION_KEY_FORMATTER.format(today);
@@ -400,6 +436,9 @@ public class ChatServiceImpl implements ChatService {
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
             return ResponseEntity.status(503).body(contextGovernanceBlockedPayload("startup aborted because final governed workset is empty"));
         }
+        /**
+         * 复用常规轮次流水线处理启动消息，保证启动回复与普通对话共享一致的上下文治理机制。
+         */
         LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(startupResult.getRawResponse());
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.LUNA, startupResult.getReplyText(), LocalTime.now()));
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
@@ -408,12 +447,18 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     @LunaLogRecord(module = LogModuleConstant.SYSTEM, action = LogActionConstant.SHUTDOWN, type = LogType.SYSTEM_EVENT, content = "shutdown")
+    /**
+     * 记录关闭事件，确保会话历史中保留系统收尾痕迹。
+     */
     public void shutdown() {
         String keyPrefix = SESSION_KEY_FORMATTER.format(LocalDateTime.now());
         sessionService.appendMessage(keyPrefix, new ChatMessage(ChatMessage.Role.SHUTDOWN, "shutdown", LocalTime.now()));
     }
 
     @Override
+    /**
+     * 根据年月查询存在历史记录的日期列表，供前端按日展示历史入口。
+     */
     public List<String> getHistoryDate(String yearMonth) {
         List<String> result = new ArrayList<>();
         String prefix = (yearMonth == null ? "" : yearMonth.trim()) + ":";
@@ -431,6 +476,9 @@ public class ChatServiceImpl implements ChatService {
     }
 
     @Override
+    /**
+     * 查询指定日期的对话历史，并转换为简单的字符串视图返回给控制层。
+     */
     public List<String> getHistory(String yearMonthDay) {
         List<ChatMessage> chats = sessionService.getRecentMessages(yearMonthDay, true);
         if (chats == null) {

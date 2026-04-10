@@ -27,13 +27,27 @@ import java.util.Map;
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/luna/api/rag")
-@Tag(name = "RAG 检索接口")
+@Tag(name = "RAG 检索接口", description = "提供受治理的检索增强查询能力")
+/**
+ * RAG 控制器，负责在检索前执行输入治理，再调用检索服务返回证据结果。
+ */
 public class RagController {
 
+    /**
+     * 检索服务，负责执行真正的 RAG 检索流程。
+     */
     private final RetrievalService retrievalService;
+    /**
+     * 任务编排服务，负责在检索前进行输入治理和工作集选择。
+     */
     private final TaskOrchestratorService taskOrchestratorService;
 
-    @Operation(description = "执行一次受治理的 RAG 检索流程")
+    /**
+     * 执行一次受治理的 RAG 检索流程。
+     *
+     * 该接口会先对原始查询做任务编排和查询治理，只有得到可执行的受控查询后才会进入检索阶段。
+     */
+    @Operation(summary = "执行 RAG 检索", description = "对用户查询进行治理后执行检索增强流程，并返回检索证据与元信息")
     @PostMapping("/retrieve")
     public ResponseEntity<RetrievalResponse> retrieve(@RequestBody RetrievalRequest request) {
         if (request == null || request.getQuery() == null || request.getQuery().isBlank()) {
@@ -42,6 +56,9 @@ public class RagController {
         String sessionId = normalizeSessionId(request.getSessionId());
         String rawQuery = request.getQuery().trim();
 
+        /**
+         * 先执行任务编排和节点工作集选择，生成更安全、更适合检索的治理查询。
+         */
         TaskOrchestrationResult orchestrationResult = taskOrchestratorService.orchestrateUserInput(sessionId, rawQuery);
         OrchestrationDecision decision = orchestrationResult == null ? null : orchestrationResult.getDecision();
         StructuredContextPackage contextPackage = orchestrationResult == null ? null : orchestrationResult.getContextPackage();
@@ -59,6 +76,9 @@ public class RagController {
                 ? nodeWorksetResult.getRagQuery()
                 : "";
         if (governedQuery.isBlank()) {
+            /**
+             * 当治理后查询为空时直接返回 422，明确告知前端本次检索被治理策略拒绝。
+             */
             Map<String, Object> rejectedMeta = new LinkedHashMap<>();
             rejectedMeta.put("governed", true);
             rejectedMeta.put("status", "rejected");
@@ -83,6 +103,9 @@ public class RagController {
                 .options(request.getOptions())
                 .build();
 
+        /**
+         * 使用治理后的请求执行检索，并把治理元信息补回响应，方便前端排查命中过程。
+         */
         RetrievalResponse response = retrievalService.retrieve(governedRequest);
         Map<String, Object> governedMeta = new LinkedHashMap<>();
         if (response != null && response.getMeta() != null) {
@@ -105,6 +128,9 @@ public class RagController {
         return ResponseEntity.ok(governedResponse);
     }
 
+    /**
+     * 为缺失的会话标识提供默认值，避免治理流程因空 sessionId 中断。
+     */
     private String normalizeSessionId(String sessionId) {
         if (sessionId == null || sessionId.isBlank()) {
             return "rag-governed-session";

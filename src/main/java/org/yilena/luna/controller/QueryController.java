@@ -1,13 +1,7 @@
 package org.yilena.luna.controller;
 
 /**
- * 兼容占位类
- *
- * 原分页查询接口已按领域拆分至：
- * - org.yilena.luna.controller.query.KnowledgeBaseQueryController
- * - org.yilena.luna.controller.query.UserPreferenceQueryController
- * - org.yilena.luna.controller.query.MemoryQueryController
- * - org.yilena.luna.controller.query.LunaLogQueryController
+ * 查询接口占位类，保留旧入口概念以提示分页查询能力已拆分到各领域控制器。
  */
 @Deprecated
 public class QueryController {
