@@ -8,6 +8,9 @@ import org.yilena.luna.prompt.governance.model.PromptResolveContext;
 
 import java.util.Set;
 
+/**
+ * 默认提示词匹配器，负责综合装配模式、关键字、代理作用域和策略白名单判断提示词是否应被装配。
+ */
 final class DefaultPromptMatcher implements PromptMatcher {
     private final AlwaysPromptSelector alwaysPromptSelector;
     private final KeywordPromptMatcher keywordPromptMatcher;
@@ -35,6 +38,9 @@ final class DefaultPromptMatcher implements PromptMatcher {
     }
 
     @Override
+    /**
+     * 计算单条提示词在当前上下文中的匹配结果，并返回命中或拒绝原因。
+     */
     public PromptMatchOutcome match(PromptItemRecord item,
                                     PromptResolveContext context,
                                     Set<String> policyIncludes,
@@ -53,6 +59,10 @@ final class DefaultPromptMatcher implements PromptMatcher {
                 item.getKey()
         );
 
+        /**
+         * 先计算关键字命中、作用域命中、策略命中和手动指定结果，
+         * 再依据装配模式给出最终决策。
+         */
         if (policyForceIncludeNonPolicyMode
                 && policy
                 && mode != PromptAssemblyMode.POLICY_ONLY

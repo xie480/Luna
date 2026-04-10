@@ -27,6 +27,9 @@ import java.util.Set;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+/**
+ * 提示词治理启动引导器，负责在应用启动时完成历史数据迁移、分类初始化和内置提示词种子写入。
+ */
 public class PromptGovernanceBootstrap implements ApplicationRunner {
 
     private final PromptCategoryMapper promptCategoryMapper;
@@ -43,8 +46,15 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
     );
 
     @Override
+    /**
+     * 启动阶段执行提示词治理所需的迁移与初始化任务。
+     */
     public void run(ApplicationArguments args) {
         try {
+            /**
+             * 先清理历史状态和旧键映射，再补齐分类、内置提示词和执行策略，
+             * 确保提示词治理数据在启动后处于可用状态。
+             */
             migrateLegacyItemStatus();
             migrateLegacyCategoryMirror();
             migrateLegacyBuiltinPromptKeys();
@@ -133,6 +143,9 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
         }
     }
 
+    /**
+     * 将内置提示词目录和代理模板同步写入数据库，保证运行时可回落到统一配置中心。
+     */
     private void seedBuiltinPrompts() {
         Map<String, PromptItemRecord> builtins = new LinkedHashMap<>(BuiltinPromptCatalog.all());
         for (Map.Entry<String, String> entry : reflectAgentPromptTemplates().entrySet()) {
@@ -215,6 +228,10 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
         }
     }
 
+    /**
+     * 按提示词键更新或创建对应条目与激活版本，
+     * 保证同一内置提示词只保留一份可用记录。
+     */
     private void upsertPrompt(PromptItemRecord row) {
         PromptItemEntity item = promptItemMapper.selectOne(
                 new LambdaQueryWrapper<PromptItemEntity>()

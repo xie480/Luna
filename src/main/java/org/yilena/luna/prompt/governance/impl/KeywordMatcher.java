@@ -5,8 +5,14 @@ import org.yilena.luna.prompt.governance.model.PromptItemRecord;
 
 import java.util.List;
 
+/**
+ * 关键字匹配器，负责判断提示词是否因用户输入中的关键字而被触发。
+ */
 final class KeywordMatcher {
 
+    /**
+     * 在允许关键字匹配的分类下，判断提示词是否命中当前用户输入。
+     */
     boolean matches(PromptItemRecord item, String userInput, PromptCategoryService promptCategoryService) {
         if (item == null || promptCategoryService == null) {
             return false;

@@ -7,8 +7,14 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
+/**
+ * 提示词优先级排序器，负责按装配阶段、优先级和键名稳定排序解析结果。
+ */
 final class PromptPrioritySorter {
 
+    /**
+     * 对解析后的提示词结果做稳定排序，确定最终装配顺序。
+     */
     List<ResolvedPromptItem> sort(List<ResolvedPromptItem> rows) {
         List<ResolvedPromptItem> sorted = new ArrayList<>(rows);
         sorted.sort(Comparator

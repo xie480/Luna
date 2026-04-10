@@ -6,8 +6,14 @@ import org.yilena.luna.prompt.governance.model.PromptResolveContext;
 
 import java.util.List;
 
+/**
+ * 提示词作用域匹配器，负责根据代理、节点类型、任务状态等运行上下文判断提示词是否生效。
+ */
 final class AgentMatcher {
 
+    /**
+     * 判断当前提示词是否声明了作用域约束。
+     */
     boolean hasScopeConstraint(PromptItemRecord item) {
         MatchScope scope = item == null || item.getMatchScope() == null ? MatchScope.empty() : item.getMatchScope();
         return !safe(scope.getAgents()).isEmpty()
@@ -18,6 +24,9 @@ final class AgentMatcher {
                 || !safe(scope.getSceneIds()).isEmpty();
     }
 
+    /**
+     * 按作用域约束校验提示词是否匹配当前解析上下文。
+     */
     boolean matches(PromptItemRecord item, PromptResolveContext context) {
         if (context == null || item == null) {
             return false;

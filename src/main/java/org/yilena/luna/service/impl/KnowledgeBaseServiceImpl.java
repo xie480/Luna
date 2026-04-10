@@ -43,7 +43,8 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
      */
     public void addKnowledge(String title, String content, SourceType sourceType, String sourcePath) {
         /**
-         * 统一把来源类型转换为对外稳定的 value，避免历史枚举序列化差异影响消费者解析。
+         * 统一把来源类型转换为对外稳定的 value，
+         * 避免历史枚举序列化差异影响消费者解析。
          */
         KnowledgeBaseMessage msg = KnowledgeBaseMessage.builder()
                 .title(title)
@@ -56,7 +57,7 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
          * 入库流程采用异步投递，减少接口写入延迟并把重处理能力交给 MQ 消费链路。
          */
         rocketMQTemplate.convertAndSend(RocketMqConstant.TOPIC_KB_ADD, msg);
-        log.info("已发送知识库导入请求至 MQ, 标题: {}, sourceType={}", title, msg.getSourceType());
+        log.info("宸插彂閫佺煡璇嗗簱瀵煎叆璇锋眰鑷?MQ, 鏍囬: {}, sourceType={}", title, msg.getSourceType());
     }
 
     @Override
@@ -66,23 +67,25 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     public List<KnowledgeChunkRecord> searchKnowledge(String query, int topK) {
         try {
             /**
-             * 检索必须先生成查询向量；若向量为空则直接返回空结果，避免数据库执行无效相似度查询。
+             * 检索前先生成查询向量，若向量为空则直接返回空结果，
+             * 避免数据库执行无效相似度查询。
              */
             String queryVectorStr = llmClientUtil.getEmbedding(query);
 
             if (queryVectorStr == null || queryVectorStr.trim().isEmpty() || queryVectorStr.trim().equals("[]")) {
-                log.warn("查询文本向量化失败，无法进行检索: {}", query);
+                log.warn("鏌ヨ鏂囨湰鍚戦噺鍖栧け璐ワ紝鏃犳硶杩涜妫€绱? {}", query);
                 return Collections.emptyList();
             }
 
             /**
-             * 使用生成好的向量执行 TopK 检索，返回最相关的知识分片。
+             * 使用生成好的向量执行 TopK 检索，
+             * 返回最相关的知识分片。
              */
-            log.debug("开始向量检索，TopK: {}", topK);
+            log.debug("寮€濮嬪悜閲忔绱紝TopK: {}", topK);
             return knowledgeBaseMapper.searchByVector(queryVectorStr, topK);
 
         } catch (Exception e) {
-            log.error("检索知识库异常: {}", e.getMessage(), e);
+            log.error("妫€绱㈢煡璇嗗簱寮傚父: {}", e.getMessage(), e);
             throw new RuntimeException(e);
         }
     }
@@ -119,7 +122,8 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
                                                     long pageSize) {
         try {
             /**
-             * 先规范分页参数并计算偏移量，避免负数页码或页大小影响数据库查询。
+             * 先规范分页参数并计算偏移量，
+             * 避免负数页码或页大小影响数据库查询。
              */
             long safePageNo = Math.max(1L, pageNo);
             long safePageSize = Math.max(1L, pageSize);

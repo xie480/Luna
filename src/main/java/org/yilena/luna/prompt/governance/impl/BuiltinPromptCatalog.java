@@ -10,6 +10,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * 内置提示词目录，负责声明系统默认的提示词条目及其基础元数据，
+ * 作为数据库未配置时的兜底来源。
+ */
 final class BuiltinPromptCatalog {
 
     private static final Set<String> EXECUTION_CATEGORIES = Set.of(
@@ -20,6 +24,9 @@ final class BuiltinPromptCatalog {
     private BuiltinPromptCatalog() {
     }
 
+    /**
+     * 返回全部内置提示词定义，供启动初始化和兜底解析使用。
+     */
     static Map<String, PromptItemRecord> all() {
         Map<String, PromptItemRecord> out = new LinkedHashMap<>();
         out.put("system.base.default_v1", item(
@@ -383,6 +390,9 @@ final class BuiltinPromptCatalog {
         return out;
     }
 
+    /**
+     * 根据输入参数构造一条标准化的内置提示词记录。
+     */
     private static PromptItemRecord item(String key,
                                          String name,
                                          String value,
