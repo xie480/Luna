@@ -10,14 +10,25 @@ import java.util.List;
 import java.util.Map;
 
 @Service
+/**
+ * 响应合成策略服务默认实现，负责根据任务态与关系态选择任务模板、关系模板和混合模板，
+ * 为最终回复生成提供结构化策略配置。
+ */
 public class DefaultResponseSynthesizerService implements ResponseSynthesizerService {
 
     @Override
+    /**
+     * 构建当前轮次的响应合成策略，明确三阶段草稿和最终融合方式。
+     */
     public Map<String, Object> buildSynthesisPolicy(TaskRuntimeState taskState,
                                                     RelationalRuntimeState relationalState,
                                                     Map<String, Object> taskContext,
                                                     Map<String, Object> relationalContext,
                                                     Map<String, Object> socialDraft) {
+        /**
+         * 先分别确定任务侧、关系侧和混合阶段的模板规格，
+         * 再汇总为统一的回复合成策略。
+         */
         TaskRuntimeState safeTaskState = taskState == null ? TaskRuntimeState.UNDERSTANDING : taskState;
         RelationalRuntimeState safeRelationalState = relationalState == null ? RelationalRuntimeState.LIGHT_CHAT : relationalState;
         Map<String, Object> taskTemplateSpec = buildTaskTemplateSpec(safeTaskState, taskContext);
@@ -42,6 +53,10 @@ public class DefaultResponseSynthesizerService implements ResponseSynthesizerSer
     }
 
     private Map<String, Object> buildTaskTemplateSpec(TaskRuntimeState state, Map<String, Object> taskContext) {
+        /**
+         * 根据任务执行阶段选择不同的任务回复模板，
+         * 保证回复内容与当前业务推进目标一致。
+         */
         Map<String, Object> spec = new LinkedHashMap<>();
         spec.put("context_anchor", taskContext == null ? Map.of() : taskContext);
         switch (state) {
@@ -88,6 +103,10 @@ public class DefaultResponseSynthesizerService implements ResponseSynthesizerSer
     private Map<String, Object> buildRelationalTemplateSpec(RelationalRuntimeState state,
                                                             Map<String, Object> relationalContext,
                                                             Map<String, Object> socialDraft) {
+        /**
+         * 根据关系状态选择对应的社交表达模板，
+         * 控制回复的情绪强度、边界感和互动目标。
+         */
         Map<String, Object> spec = new LinkedHashMap<>();
         spec.put("context_anchor", relationalContext == null ? Map.of() : relationalContext);
         spec.put("social_draft", socialDraft == null ? Map.of() : socialDraft);
@@ -127,6 +146,10 @@ public class DefaultResponseSynthesizerService implements ResponseSynthesizerSer
     }
 
     private Map<String, Object> buildHybridTemplateSpec(TaskRuntimeState taskState, RelationalRuntimeState relationalState) {
+        /**
+         * 在任务内容与关系表达之间确定最终融合模板，
+         * 确保任务事实不丢失，同时保留必要的社交调谐。
+         */
         Map<String, Object> spec = new LinkedHashMap<>();
         String template = pickHybridTemplate(taskState, relationalState);
         spec.put("template", template);

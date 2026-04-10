@@ -19,6 +19,9 @@ import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
+/**
+ * 记忆写入流水线默认实现，负责在轮次结束后把消息、工作记忆、语义事实、长期记忆、过程经验和索引注册表写回存储。
+ */
 public class DefaultMemoryWritePipelineService implements MemoryWritePipelineService {
 
     private final MemoryWriteMapper memoryWriteMapper;
@@ -27,19 +30,38 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
     private final RuntimeAuditService runtimeAuditService;
 
     @Override
+    /**
+     * 在单轮对话结束后分阶段落库各类记忆产物，确保工作记忆与长期记忆持续演化。
+     */
     public void writeAfterTurn(String sessionId, String userInput, String assistantReply, StructuredContextPackage contextPackage) {
         if (sessionId == null || sessionId.isBlank()) {
             return;
         }
+        /**
+         * 先持久化本轮用户消息、助手回复以及当前会话状态，
+         * 为后续记忆抽取提供稳定的原始输入和状态基线。
+         */
         insertMessage(sessionId, "USER", userInput);
         insertMessage(sessionId, "ASSISTANT", assistantReply);
         updateSessionState(sessionId, contextPackage);
+        /**
+         * 更新任务工作记忆和关系工作记忆，
+         * 让短期上下文能够立即反映本轮新增的目标、约束和情绪信号。
+         */
         upsertTaskWorkingMemory(sessionId, userInput, assistantReply, contextPackage);
         RelationalWorkingSnapshot relationalSnapshot = resolveRelationalWorkingSnapshot(userInput, contextPackage);
         upsertRelationalWorkingMemory(sessionId, contextPackage, relationalSnapshot);
         MemoryWritePolicyGate.GateContext gateContext = memoryWritePolicyGate.buildContext(sessionId, contextPackage);
+        /**
+         * 基于写入门控策略抽取并写入语义事实与长期关系记忆，
+         * 避免中间态、不稳定信息过早进入长期存储。
+         */
         extractAndPersistSemanticFacts(sessionId, userInput, assistantReply, contextPackage, relationalSnapshot, gateContext);
         upsertRelationalLongTermMemory(sessionId, userInput, contextPackage, relationalSnapshot, gateContext);
+        /**
+         * 最后沉淀轮次经验、过程反思和工作记忆注册表，
+         * 让后续检索和经验复用链路能够感知最新学习结果。
+         */
         buildEpisodes(sessionId, userInput, assistantReply, contextPackage, gateContext);
         reflectAndMineProcedures(sessionId, userInput, assistantReply, contextPackage, gateContext);
         updateProcedureStatistics(userInput, contextPackage);
@@ -70,6 +92,10 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
     }
 
     private void upsertTaskWorkingMemory(String sessionId, String userInput, String assistantReply, StructuredContextPackage contextPackage) {
+        /**
+         * 从当前输入中抽取约束、成功标准、实体、问题和风险等工作项，
+         * 统一回写到任务工作记忆与槽位表中。
+         */
         String lower = userInput == null ? "" : userInput.toLowerCase(Locale.ROOT);
         List<String> constraints = extractTaskConstraints(lower);
         List<String> successCriteria = extractSuccessCriteria(lower);
@@ -151,6 +177,10 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
     }
 
     private RelationalWorkingSnapshot resolveRelationalWorkingSnapshot(String userInput, StructuredContextPackage contextPackage) {
+        /**
+         * 综合社交草稿、关系工作记忆和当前输入，推断本轮关系侧情绪、语气和互动目标，
+         * 为关系记忆写入与后续回复调性控制提供依据。
+         */
         Map<String, Object> relationalContext = contextPackage == null ? Map.of() : asMap(contextPackage.getRelationalContext());
         Map<String, Object> working = asMap(relationalContext.get("working_memory"));
         Map<String, Object> profile = asMap(relationalContext.get("profile"));
@@ -299,6 +329,10 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
                                                 StructuredContextPackage contextPackage,
                                                 RelationalWorkingSnapshot relationalSnapshot,
                                                 MemoryWritePolicyGate.GateContext gateContext) {
+        /**
+         * 先汇总任务域与关系域候选事实，再结合门控规则筛除不稳定或不应长期保留的信息，
+         * 最终按域分别写入长期语义记忆。
+         */
         List<SemanticFactCandidate> candidates = new ArrayList<>();
         candidates.addAll(extractStructuredTaskSemanticFacts(userInput, assistantReply, contextPackage));
         candidates.addAll(extractStructuredRelationalFacts(userInput, contextPackage, relationalSnapshot));
@@ -883,6 +917,10 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
     private void refreshWorkingMemoryRegistry(String sessionId,
                                               StructuredContextPackage contextPackage,
                                               MemoryWritePolicyGate.GateContext gateContext) {
+        /**
+         * 刷新工作记忆、语义记忆、过程记忆及其派生关系索引，
+         * 保证后续检索阶段能够基于最新写入结果工作。
+         */
         try {
             memoryWriteMapper.refreshTaskWorkingRegistry(sessionId);
             memoryWriteMapper.refreshRelationalWorkingRegistry(sessionId);

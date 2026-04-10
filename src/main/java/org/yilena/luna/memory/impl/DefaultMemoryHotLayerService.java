@@ -23,6 +23,10 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+/**
+ * 记忆热层服务默认实现，负责通过 Redis 缓存会话态、编译上下文、事件去重信息和待处理工具调用，
+ * 为高频访问链路提供低延迟支撑。
+ */
 public class DefaultMemoryHotLayerService implements MemoryHotLayerService {
 
     private static final Duration SESSION_CACHE_TTL = Duration.ofMinutes(10);
@@ -35,6 +39,9 @@ public class DefaultMemoryHotLayerService implements MemoryHotLayerService {
     private final ObjectMapper objectMapper;
 
     @Override
+    /**
+     * 读取会话级热缓存。
+     */
     public Map<String, Object> getSessionCache(String sessionId) {
         return readJsonMap(format(RedisKeyConstant.MEMORY_SESSION_CACHE_KEY, sessionId));
     }
@@ -55,6 +62,9 @@ public class DefaultMemoryHotLayerService implements MemoryHotLayerService {
     }
 
     @Override
+    /**
+     * 读取已编译的上下文缓存，命中后可直接跳过完整上下文编译流程。
+     */
     public StructuredContextPackage getCompiledContextCache(String sessionId,
                                                             String userInput,
                                                             TaskRuntimeState taskState,
@@ -76,6 +86,9 @@ public class DefaultMemoryHotLayerService implements MemoryHotLayerService {
     }
 
     @Override
+    /**
+     * 缓存本次编译后的结构化上下文，供短时间内重复请求复用。
+     */
     public void putCompiledContextCache(String sessionId,
                                         String userInput,
                                         TaskRuntimeState taskState,
@@ -93,6 +106,9 @@ public class DefaultMemoryHotLayerService implements MemoryHotLayerService {
     }
 
     @Override
+    /**
+     * 通过短 TTL 指纹键实现事件去重，避免重复事件多次驱动编排链路。
+     */
     public boolean tryDedupeEvent(String sessionId, String eventType, String payloadJson) {
         String key = format(
                 RedisKeyConstant.MEMORY_EVENT_DEDUPE_KEY,
@@ -109,6 +125,9 @@ public class DefaultMemoryHotLayerService implements MemoryHotLayerService {
     }
 
     @Override
+    /**
+     * 缓存待完成的工具调用及索引，便于工具回调阶段快速定位会话。
+     */
     public void putPendingToolCall(String sessionId, String taskId, Map<String, Object> payload) {
         if (isBlank(sessionId) || isBlank(taskId)) {
             return;
@@ -133,6 +152,10 @@ public class DefaultMemoryHotLayerService implements MemoryHotLayerService {
     }
 
     @Override
+    /**
+     * 按会话和任务号清理待处理工具调用缓存，
+     * 防止已结束的工具状态继续污染后续流程。
+     */
     public void clearPendingToolCall(String sessionId, String taskId) {
         if (isBlank(sessionId)) {
             return;
@@ -167,6 +190,10 @@ public class DefaultMemoryHotLayerService implements MemoryHotLayerService {
     }
 
     private Map<String, Object> readJsonMap(String key) {
+        /**
+         * 统一处理 Redis 中 JSON Map 的读取与反序列化异常，
+         * 失败时返回空对象以保证主流程稳定。
+         */
         if (isBlank(key)) {
             return Collections.emptyMap();
         }
@@ -183,6 +210,10 @@ public class DefaultMemoryHotLayerService implements MemoryHotLayerService {
     }
 
     private void writeJson(String key, Object value, Duration ttl) {
+        /**
+         * 统一处理 Redis JSON 写入与过期时间控制，
+         * 让各类热层缓存保持一致的序列化行为。
+         */
         if (isBlank(key) || value == null) {
             return;
         }

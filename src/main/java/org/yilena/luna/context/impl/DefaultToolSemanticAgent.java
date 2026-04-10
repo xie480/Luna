@@ -26,6 +26,10 @@ import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
+/**
+ * 工具语义翻译代理默认实现，负责把原始工具输出归纳为统一的业务语义结果，
+ * 供摘要、恢复和上下文组装阶段复用。
+ */
 public class DefaultToolSemanticAgent implements ToolSemanticAgent {
 
     private static final String TOOL_STATUS_PROMPT_VALUES = String.join("|", ToolStatusEnum.codes());
@@ -59,12 +63,18 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
     private PromptRegistryService promptRegistryService;
 
     @Override
+    /**
+     * 将工具执行结果翻译为结构化语义对象，并在失败时按有限重试兜底。
+     */
     public ToolSemanticResult translate(String toolName,
                                         String toolDescription,
                                         String rawResult,
                                         TaskRuntimeState taskState,
                                         String currentNodeGoal) {
         List<String> errors = new ArrayList<>();
+        /**
+         * 限次重试模型翻译，尽量规避一次性解析失败对主流程的影响。
+         */
         for (int attempt = 1; attempt <= 3; attempt++) {
             ToolSemanticResult llmResult = tryModelTranslation(
                     toolName,
@@ -93,6 +103,10 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
                                                    int attempt,
                                                    List<String> errors) {
         try {
+            /**
+             * 将工具描述、当前任务阶段和原始输出拼成严格 JSON 提示，
+             * 约束模型只返回可直接落库和追踪的语义结构。
+             */
             String promptTemplate = promptRegistryService == null
                     ? TOOL_SEMANTIC_PROMPT
                     : promptRegistryService.resolvePromptValue("agent-local.tool-semantic.default_v1", TOOL_SEMANTIC_PROMPT);
@@ -124,6 +138,10 @@ public class DefaultToolSemanticAgent implements ToolSemanticAgent {
                 errors.add("attempt_" + attempt + ":invalid_json");
                 return null;
             }
+            /**
+             * 对核心字段做完整性校验，仅在关键事实、业务影响和下一步建议齐全时接受结果，
+             * 避免不完整语义污染后续摘要和恢复判断。
+             */
             String status = normalizeStatus(node.path("toolStatus").asText(node.path(JsonFieldConstants.STATUS).asText(ToolStatusEnum.UNKNOWN.getCode())));
             List<String> keyFacts = readStringArray(node.path("keyFacts"));
             List<String> unresolved = readStringArray(node.path("unresolvedIssues"));

@@ -8,6 +8,10 @@ import org.yilena.luna.enums.TaskRuntimeState;
 import java.util.Locale;
 
 @Component
+/**
+ * 会话类型解析器，负责在任务会话、陪伴会话和混合会话之间做动态判定，
+ * 为提示策略和上下文预算分配提供依据。
+ */
 public class SessionTypeResolver {
 
     public SessionType resolve(String userInput,
@@ -16,6 +20,10 @@ public class SessionTypeResolver {
                                TaskRuntimeState taskState,
                                RelationalRuntimeState relationalState,
                                SessionType previousType) {
+        /**
+         * 先分别计算任务分和陪伴分，再结合迟滞策略输出最终会话类型，
+         * 避免会话类型在边界场景频繁抖动。
+         */
         SessionScore score = score(userInput, eventType, payloadJson, taskState, relationalState);
         SessionType candidate = decide(score.taskScore(), score.companionScore());
         return withHysteresis(candidate, previousType, score.taskScore(), score.companionScore());
@@ -26,6 +34,10 @@ public class SessionTypeResolver {
                                String payloadJson,
                                TaskRuntimeState taskState,
                                RelationalRuntimeState relationalState) {
+        /**
+         * 综合事件类型、任务态、关系态以及输入关键词对任务属性和陪伴属性打分，
+         * 为会话类型判定提供量化依据。
+         */
         String text = lower(userInput);
         String type = eventType == null ? "" : eventType.trim().toUpperCase(Locale.ROOT);
         String payload = lower(payloadJson);

@@ -14,6 +14,10 @@ import java.util.Map;
 
 @Component
 @RequiredArgsConstructor
+/**
+ * 基于 JDBC 的运行态检索器，负责加载会话运行数据、最近消息、工具轨迹和上下文快照，
+ * 为上下文编译提供原始运行时素材。
+ */
 public class JdbcRuntimeRetriever implements RuntimeRetriever {
 
     private final RuntimeReadMapper runtimeReadMapper;
@@ -21,6 +25,9 @@ public class JdbcRuntimeRetriever implements RuntimeRetriever {
     private final RuntimeAuditReplayProperty runtimeAuditReplayProperty;
 
     @Override
+    /**
+     * 优先从热层读取运行态缓存，未命中时再回源数据库组装结果。
+     */
     public Map<String, Object> retrieve(String sessionId) {
         Map<String, Object> cached = memoryHotLayerService.getSessionCache(sessionId);
         if (!cached.isEmpty()) {
@@ -30,6 +37,10 @@ public class JdbcRuntimeRetriever implements RuntimeRetriever {
         }
 
         Map<String, Object> result = new HashMap<>();
+        /**
+         * 回源加载运行会话、最近消息、工具结果和上下文快照，
+         * 并补充当前待处理工具调用信息。
+         */
         result.put("session", queryOne(() -> runtimeReadMapper.selectRuntimeSession(sessionId)));
         result.put("recent_messages", queryList(() -> runtimeReadMapper.selectRuntimeRecentMessages(sessionId)));
         result.put("active_tool_results", queryList(() -> queryToolResults(sessionId)));
@@ -40,6 +51,10 @@ public class JdbcRuntimeRetriever implements RuntimeRetriever {
     }
 
     private List<Map<String, Object>> queryToolResults(String sessionId) {
+        /**
+         * 根据回放配置选择全量轨迹或窗口轨迹，
+         * 兼顾审计完整性与上下文读取成本。
+         */
         if (runtimeAuditReplayProperty.fullReplayMode()) {
             return runtimeReadMapper.selectRuntimeToolResultsFull(sessionId);
         }

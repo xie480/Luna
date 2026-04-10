@@ -32,6 +32,10 @@ import java.util.regex.Pattern;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+/**
+ * 用户输入重构代理默认实现，负责结合任务状态与近期上下文还原用户真实意图，
+ * 为检索、规划和工具选择阶段提供结构化输入语义。
+ */
 public class DefaultInputReconstructionAgent implements InputReconstructionAgent {
 
     private static final Pattern DATE_PATTERN = Pattern.compile("\\b\\d{4}-\\d{2}-\\d{2}\\b");
@@ -72,16 +76,31 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
     private PromptRegistryService promptRegistryService;
 
     @Override
+    /**
+     * 重构当前输入的业务意图，优先走模型推断，失败时退化为启发式解析。
+     */
     public InputReconstructionResult reconstruct(String sessionId,
                                                  String userInput,
                                                  StructuredContextPackage contextPackage,
                                                  TaskRuntimeState taskState,
                                                  RelationalRuntimeState relationalState) {
+        /**
+         * 先从上下文包中提取目标、节点、工具和历史摘要等信号，
+         * 为模型重构与本地兜底逻辑提供统一事实来源。
+         */
         ContextSignals signals = collectSignals(contextPackage);
+        /**
+         * 优先尝试通过小模型返回结构化重构结果，
+         * 以获得更完整的意图归纳和槽位补全能力。
+         */
         InputReconstructionResult modelResult = tryModelReconstruction(sessionId, userInput, taskState, relationalState, signals);
         if (modelResult != null) {
             return modelResult;
         }
+        /**
+         * 模型路径不可用时退化为规则解析，至少补齐实体、目标、约束和缺失槽位，
+         * 保证后续检索与规划链路仍可继续推进。
+         */
         String input = normalize(userInput);
         Map<String, String> entities = extractEntities(input, signals, contextPackage);
         String explicitGoal = resolveExplicitGoal(input, signals, contextPackage);
@@ -113,6 +132,10 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
                                                              RelationalRuntimeState relationalState,
                                                              ContextSignals signals) {
         try {
+            /**
+             * 先拼装带有运行态信号的重构提示词，再请求轻量模型输出标准 JSON，
+             * 以便直接映射为意图重构结果。
+             */
             String promptTemplate = promptRegistryService == null
                     ? RECONSTRUCTION_PROMPT
                     : promptRegistryService.resolvePromptValue("agent-local.reconstruction.default_v1", RECONSTRUCTION_PROMPT);
@@ -146,6 +169,10 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
             if (content.isBlank()) {
                 return null;
             }
+            /**
+             * 对模型返回结果做最小有效性校验，只在核心任务目标存在时才接受，
+             * 避免异常输出污染后续检索和规划语义。
+             */
             JsonNode node = objectMapper.readTree(stripFence(content));
             String explicitTaskGoal = asText(node.path("explicitTaskGoal").asText(""));
             if (explicitTaskGoal.isBlank()) {
@@ -496,6 +523,10 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
         if (contextPackage == null) {
             return new ContextSignals("", "", "", "", "", "", "", "", "", "", "", "");
         }
+        /**
+         * 汇总任务、工具、检索与上下文状态中的关键运行信号，
+         * 让意图重构能够参考当前执行阶段、未完成事项和近期对话轨迹。
+         */
         String goalFromState = contextPackage.getTaskStateEntity() == null ? "" : asText(contextPackage.getTaskStateEntity().getObjective());
         String currentNode = contextPackage.getTaskStateEntity() == null ? "" : asText(contextPackage.getTaskStateEntity().getCurrentNode());
         String pendingQuestions = contextPackage.getTaskStateEntity() == null ? "" : asText(contextPackage.getTaskStateEntity().getPendingQuestions());

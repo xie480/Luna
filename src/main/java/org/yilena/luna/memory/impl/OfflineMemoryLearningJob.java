@@ -9,12 +9,22 @@ import org.yilena.luna.mapper.OfflineLearningMapper;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+/**
+ * 离线记忆学习任务，负责周期性整理低质量记忆、合并重复事实、同步过程统计并挖掘反思经验。
+ */
 public class OfflineMemoryLearningJob {
 
     private final OfflineLearningMapper offlineLearningMapper;
 
     @Scheduled(cron = "${luna.memory.learning.cron:0 20 3 * * *}")
+    /**
+     * 按日执行离线记忆治理与学习任务。
+     */
     public void runDailyLearning() {
+        /**
+         * 依次执行归档、去重、统计同步、排序和关系关联等离线学习步骤，
+         * 持续提升长期记忆质量与可检索性。
+         */
         int archived = archiveLowQualityMemory();
         int mergedTaskFacts = mergeDuplicateTaskFacts();
         int mergedRelationFacts = mergeDuplicateRelationalFacts();

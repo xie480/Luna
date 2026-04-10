@@ -11,13 +11,24 @@ import java.util.Locale;
 import java.util.Map;
 
 @Service
+/**
+ * 社交推理服务默认实现，负责根据关系记忆、边界规则和当前输入推断回复调性与互动策略，
+ * 为关系侧草稿生成提供结构化决策依据。
+ */
 public class DefaultSocialReasonerService implements SocialReasonerService {
 
     @Override
+    /**
+     * 构建当前轮次的关系草稿，输出情绪判断、语气建议和边界提示。
+     */
     public Map<String, Object> buildRelationalDraft(String sessionId,
                                                     String userInput,
                                                     RelationalRuntimeState relationalState,
                                                     Map<String, Object> relationalContext) {
+        /**
+         * 先从关系工作记忆、画像、语义事实和边界规则中提取近端信号，
+         * 为后续关系策略推断提供事实基础。
+         */
         Map<String, Object> working = asMap(relationalContext == null ? null : relationalContext.get("working_memory"));
         Map<String, Object> profile = asMap(relationalContext == null ? null : relationalContext.get("profile"));
         List<Map<String, Object>> semanticFacts = asList(relationalContext == null ? null : relationalContext.get("semantic_facts"));
@@ -33,6 +44,10 @@ public class DefaultSocialReasonerService implements SocialReasonerService {
         boolean highSensitivity = hasSensitiveSignals(boundaryRules, semanticFacts, profile);
         boolean lowEnergy = inferredEmotion.contains("tired") || inferredEmotion.contains("sad") || inferredEmotion.contains("anxious");
 
+        /**
+         * 将情绪、互动目标、语气风格和边界提示统一整理为关系草稿，
+         * 供响应合成阶段直接消费。
+         */
         Map<String, Object> draft = new LinkedHashMap<>();
         draft.put("session_id", sessionId);
         draft.put("relational_state", relationalState.name());

@@ -36,6 +36,10 @@ import java.util.List;
 import java.util.Map;
 
 @Service
+/**
+ * 上下文组装器默认实现，负责汇总任务状态、记忆、知识证据与提示词治理结果，
+ * 生成供模型执行的最终上下文与快照元数据。
+ */
 public class DefaultContextAssembler implements ContextAssembler {
 
     private final SemanticPreservingPruner semanticPreservingPruner;
@@ -68,6 +72,9 @@ public class DefaultContextAssembler implements ContextAssembler {
     }
 
     @Override
+    /**
+     * 组装当前轮次的模型上下文，供执行阶段直接使用。
+     */
     public AssembledContext assemble(StructuredContextPackage contextPackage,
                                      InputReconstructionResult reconstructionResult,
                                      ContextRerankResult rerankResult,
@@ -134,6 +141,10 @@ public class DefaultContextAssembler implements ContextAssembler {
                                               Long planId,
                                               Long nodeId,
                                               PromptResolveResult preResolvedPromptAssembly) {
+        /**
+         * 先统一节点模板策略，并按需补齐工具语义、轮次摘要和动态记忆，
+         * 避免调用方未提前准备完整上下文时出现组装缺口。
+         */
         ContextNodeTemplatePolicy policy = nodeTemplatePolicy == null ? ContextNodeTemplatePolicy.defaultPolicy() : nodeTemplatePolicy;
         ToolSemanticResult effectiveToolSemanticResult = toolSemanticResult == null
                 ? resolveOnDemandToolSemantic(executionCandidates, toolContext, contextPackage, reconstructionResult)
@@ -164,6 +175,10 @@ public class DefaultContextAssembler implements ContextAssembler {
         List<String> effectiveKnowledgeSnippets = mergeDistinct(knowledgeSnippets, onDemandMemory.knowledgeSnippets());
         List<String> effectivePreferenceSnippets = mergeDistinct(preferenceSnippets, onDemandMemory.preferenceSnippets());
         List<String> effectiveLongTermMemorySnippets = mergeDistinct(longTermMemorySnippets, onDemandMemory.longTermMemorySnippets());
+        /**
+         * 构建各类候选片段池，并解析系统提示词与运行时提示词，
+         * 为后续分区装配和裁剪提供统一输入。
+         */
         Map<String, List<String>> candidatePool = buildCandidatePool(
                 userInput,
                 rerankResult,
@@ -188,6 +203,10 @@ public class DefaultContextAssembler implements ContextAssembler {
         PromptValueSelection runtimePromptSelection = resolveRuntimePromptTemplateSelection(promptResolveResult);
         String systemPrompt = systemPromptSelection.value();
         Map<String, List<String>> sections = new LinkedHashMap<>();
+        /**
+         * 按固定语义分区装配上下文，确保模型能够分别读取任务状态、知识证据、
+         * 工具线索、记忆提示和输出约束。
+         */
         sections.put("Instructions", lines(systemPrompt));
         sections.put("Current Task State", lines(buildCurrentTaskState(contextPackage, policy)));
         sections.put("Reconstructed User Intent", lines(buildReconstructedIntent(userInput, reconstructionResult)));
@@ -217,6 +236,10 @@ public class DefaultContextAssembler implements ContextAssembler {
                 promptResolveResult == null ? Map.of() : promptResolveResult.getSlotMapping()
         );
 
+        /**
+         * 按预算裁剪分区内容，并在发现语义一致性问题时回填保护约束，
+         * 降低上下文压缩后出现事实冲突或指令丢失的风险。
+         */
         SemanticPreservingPruner.PruneResult pruneResult = semanticPreservingPruner.prune(
                 sections,
                 sectionBudget(contextPackage == null ? Map.of() : contextPackage.getTokenBudgetPlan(), policy)
@@ -236,6 +259,10 @@ public class DefaultContextAssembler implements ContextAssembler {
                 buildRuntimePromptInput(userInput, reconstructionResult),
                 runtimePromptSelection.value()
         );
+        /**
+         * 将裁剪后的分区转换为最终提示词，并补充提示词引用、策略版本和规范化分区元数据，
+         * 便于后续审计、回放和问题定位。
+         */
         Map<String, List<String>> canonicalSections = toCanonicalSections(pruneResult.getSections());
         Map<String, Object> promptAssemblyMeta = buildPromptAssemblyMeta(
                 promptResolveResult,
@@ -267,6 +294,9 @@ public class DefaultContextAssembler implements ContextAssembler {
     }
 
     @Override
+    /**
+     * 在组装上下文后写入快照，供运行时审计与问题回溯使用。
+     */
     public AssembledContext assembleAndSnapshot(StructuredContextPackage contextPackage,
                                                 InputReconstructionResult reconstructionResult,
                                                 ContextRerankResult rerankResult,

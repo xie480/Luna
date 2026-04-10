@@ -36,6 +36,10 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+/**
+ * 全局上下文重排代理默认实现，负责在知识、记忆和 MCP 能力候选中做统一排序与预算裁剪，
+ * 为最终上下文组装保留最有价值的候选项。
+ */
 public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent {
 
     private static final String GLOBAL_RERANK_PROMPT = """
@@ -70,11 +74,18 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
     private PromptRegistryService promptRegistryService;
 
     @Override
+    /**
+     * 按任务阶段和节点目标重排全量上下文候选，输出可直接进入组装阶段的精选结果。
+     */
     public ContextRerankResult rerank(InputReconstructionResult reconstructionResult,
                                       StructuredContextPackage contextPackage,
                                       RetrievalResponse retrievalResponse,
                                       List<Map<String, Object>> capabilityCandidates,
                                       TaskRuntimeState taskState) {
+        /**
+         * 先按全局预算拆分知识、记忆和 MCP 各通道容量，
+         * 让不同任务阶段能够优先保留更关键的上下文类型。
+         */
         int totalBudget = resolveGlobalBudget(contextPackage);
         int knowledgeBudget = Math.max(320, (int) (totalBudget * 0.40));
         int memoryBudget = Math.max(220, (int) (totalBudget * 0.20));
@@ -94,6 +105,10 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
         String nodeGoal = resolveNodeGoal(reconstructionResult, contextPackage);
         String stage = taskState == null ? "UNKNOWN" : taskState.name();
 
+        /**
+         * 先基于启发式规则筛出各来源候选，再尝试借助模型输出更细粒度的排序顺序，
+         * 兼顾稳定性和语义匹配效果。
+         */
         List<Evidence> knowledge = selectEvidence(retrievalResponse, RetrievalSource.KNOWLEDGE, reconstructionResult, nodeGoal, taskState, 16);
         List<Evidence> memory = selectEvidence(retrievalResponse, RetrievalSource.MEMORY, reconstructionResult, nodeGoal, taskState, 12);
         List<Evidence> preference = selectEvidence(retrievalResponse, RetrievalSource.PREFERENCE, reconstructionResult, nodeGoal, taskState, 8);
@@ -103,6 +118,10 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
         preference = reorderByEvidenceIds(preference, modelRerank.preferenceRankIds());
         List<List<String>> duplicateClusters = detectDuplicates(knowledge, memory, preference);
 
+        /**
+         * 将排序后的候选按预算转换为知识块、记忆提示和能力列表，
+         * 同时保留淘汰项和排序理由，方便后续审计与问题定位。
+         */
         List<EvidenceBlock> selectedKnowledgeEvidenceBlocks = toKnowledgeEvidenceBlocks(knowledge, knowledgeBudget);
         List<String> selectedKnowledge = toKnowledgeSnippets(selectedKnowledgeEvidenceBlocks);
         List<String> selectedMemoryHints = toMemoryHints(memory, preference, memoryBudget);
@@ -503,6 +522,10 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
                                              List<Evidence> memory,
                                              List<Evidence> preference) {
         try {
+            /**
+             * 将多来源候选压缩为模型可消费的摘要输入，
+             * 让模型输出跨通道的统一排序建议和解释原因。
+             */
             String promptTemplate = promptRegistryService == null
                     ? GLOBAL_RERANK_PROMPT
                     : promptRegistryService.resolvePromptValue("agent-local.rerank.default_v1", GLOBAL_RERANK_PROMPT);
@@ -544,6 +567,10 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
     }
 
     private List<Evidence> reorderByEvidenceIds(List<Evidence> items, List<String> modelOrder) {
+        /**
+         * 按模型返回的证据顺序重新排列候选，
+         * 未命中的项保持在尾部，避免丢失启发式筛选结果。
+         */
         if (items == null || items.isEmpty() || modelOrder == null || modelOrder.isEmpty()) {
             return items == null ? List.of() : items;
         }
@@ -557,6 +584,10 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
     }
 
     private List<Map<String, Object>> reorderByCapabilityName(List<Map<String, Object>> items, List<String> modelOrder) {
+        /**
+         * 按模型给出的能力名称顺序重排候选列表，
+         * 让提示、资源、工具和工作流候选共享统一优先级判断。
+         */
         if (items == null || items.isEmpty() || modelOrder == null || modelOrder.isEmpty()) {
             return items == null ? List.of() : items;
         }

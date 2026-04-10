@@ -14,14 +14,25 @@ import java.util.Map;
 
 @Component
 @RequiredArgsConstructor
+/**
+ * 基于 JDBC 的关系记忆检索器，负责读取关系工作记忆、画像、边界规则及其语义记忆，
+ * 为关系推理和回复调性控制提供数据输入。
+ */
 public class JdbcRelationalMemoryRetriever implements RelationalMemoryRetriever {
 
     private final RuntimeReadMapper runtimeReadMapper;
     private final LlmClientUtil llmClientUtil;
 
     @Override
+    /**
+     * 检索当前会话的关系侧上下文，必要时再补充语义检索结果。
+     */
     public Map<String, Object> retrieve(String sessionId, String semanticQuery, RelationalRuntimeState relationalState) {
         Map<String, Object> result = new HashMap<>();
+        /**
+         * 先加载近端关系上下文，包括工作记忆、画像、情绪基线、边界规则和感知缓冲，
+         * 优先满足大部分关系推理场景。
+         */
         Map<String, Object> workingMemory = queryOne(() -> runtimeReadMapper.selectRelationalWorkingMemory(sessionId));
         Map<String, Object> profile = queryOne(() -> runtimeReadMapper.selectRelationalProfile(sessionId));
         Map<String, Object> emotionalBaseline = queryOne(() -> runtimeReadMapper.selectEmotionalBaseline(sessionId));
@@ -46,6 +57,10 @@ public class JdbcRelationalMemoryRetriever implements RelationalMemoryRetriever 
         String queryVector = semanticRetrievalEnabled ? queryVector(semanticQuery) : null;
         result.put("semantic_retrieval_enabled", semanticRetrievalEnabled);
 
+        /**
+         * 只有在关系态敏感或近端上下文不足时才启用向量语义检索，
+         * 控制检索成本并避免无意义扩展上下文。
+         */
         if (semanticRetrievalEnabled) {
             result.put("semantic_facts", queryList(() -> runtimeReadMapper.selectRelationalSemanticFacts(sessionId, queryVector)));
             result.put("episodes", queryList(() -> runtimeReadMapper.selectRelationalEpisodes(sessionId, queryVector)));

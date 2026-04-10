@@ -29,6 +29,10 @@ import java.util.regex.Pattern;
 @Service
 @Slf4j
 @RequiredArgsConstructor
+/**
+ * 会话编排服务默认实现，负责根据输入事件、治理信号和执行快照推进任务态、关系态与会话类型，
+ * 并触发上下文编译。
+ */
 public class DefaultSessionOrchestratorService implements SessionOrchestratorService {
 
     private static final Pattern PLAN_ID_PATTERN = Pattern.compile("\"(?:plan_id|planId|current_plan_id|currentPlanId)\"\\s*:\\s*(\\d+)");
@@ -45,6 +49,9 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
     private boolean strictGovernedSignalMode = true;
 
     @Override
+    /**
+     * 将普通用户输入转为治理信号后进入统一编排流程。
+     */
     public OrchestrationDecision onUserInput(String sessionId, String userInput) {
         String normalizedSessionId = sessionId == null || sessionId.isBlank() ? SessionConstant.DEFAULT_SESSION_ID : sessionId;
         GovernedSignal governedSignal = GovernedSignal.fromRawInput(userInput);
@@ -53,6 +60,9 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
     }
 
     @Override
+    /**
+     * 使用外部提供的治理信号参与会话编排。
+     */
     public OrchestrationDecision onUserInput(String sessionId, String userInput, String orchestrationSignal) {
         String normalizedSessionId = sessionId == null || sessionId.isBlank() ? SessionConstant.DEFAULT_SESSION_ID : sessionId;
         GovernedSignal governedSignal = parseGovernedSignal(orchestrationSignal, userInput);
@@ -78,6 +88,10 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
 
     private OrchestrationDecision orchestrate(String sessionId, String eventType, String signal, String payloadJson) {
         String normalizedSessionId = sessionId == null || sessionId.isBlank() ? SessionConstant.DEFAULT_SESSION_ID : sessionId;
+        /**
+         * 先校验严格治理模式并补齐主体身份，
+         * 确保编排链路只在可审计前提下推进。
+         */
         if (!strictGovernedSignalMode) {
             log.error("strict governed signal mode disabled, orchestration rejected. sessionId={}, eventType={}", normalizedSessionId, eventType);
             throw new IllegalStateException("strict_governed_signal_mode_must_be_enabled");
@@ -91,6 +105,10 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
         SessionType previousSessionType = getCurrentSessionType(normalizedSessionId);
         ExecutionSnapshot executionSnapshot = resolveExecutionSnapshot(normalizedSessionId);
 
+        /**
+         * 根据当前事件、治理信号和执行快照推断下一步任务态、关系态和会话类型，
+         * 让编排状态始终与真实运行进度保持一致。
+         */
         TaskRuntimeState nextTaskState = inferTaskState(previousTaskState, eventType, signal, payloadJson, executionSnapshot);
         RelationalRuntimeState nextRelationalState = inferRelationalState(previousRelationalState, eventType, signal, payloadJson);
         SessionType nextSessionType = resolveSessionType(
@@ -107,6 +125,10 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
             updateCurrentPlanId(normalizedSessionId, inferredPlanId);
         }
 
+        /**
+         * 将最新会话状态写回运行时表，并为状态变化记录迁移轨迹，
+         * 便于后续审计与恢复。
+         */
         upsertPrincipal(principalId, normalizedSessionId);
         upsertSession(normalizedSessionId, principalId, agentId, nextSessionType, nextTaskState, nextRelationalState, signal);
 
@@ -122,6 +144,10 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
             insertTransition(normalizedSessionId, "SESSION_TYPE", previousSessionType.name(), nextSessionType.name(), triggerType, normalizedSessionId, safePayloadJson);
         }
 
+        /**
+         * 在状态推进完成后重新编译结构化上下文，
+         * 让后续链路拿到与当前状态一致的上下文包。
+         */
         StructuredContextPackage contextPackage = contextCompilerService.compile(
                 normalizedSessionId,
                 signal,
@@ -181,6 +207,10 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
                                             String signal,
                                             String payloadJson,
                                             ExecutionSnapshot executionSnapshot) {
+        /**
+         * 优先依据执行快照和结构化治理信号推断任务态，
+         * 只有在结构化信息不足时才回退到关键字规则。
+         */
         String type = safeUpper(eventType);
         String payload = safeLower(payloadJson);
         StructuredSignal structuredSignal = parseStructuredSignal(signal);
@@ -354,6 +384,10 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
     }
 
     private RelationalRuntimeState inferRelationalState(RelationalRuntimeState previous, String eventType, String signal, String payloadJson) {
+        /**
+         * 根据审批反馈、工具失败和情绪/边界信号推断关系态，
+         * 让回复风格能够及时响应用户体验变化。
+         */
         String type = safeUpper(eventType);
         String payload = safeLower(payloadJson);
         StructuredSignal structuredSignal = parseStructuredSignal(signal);
@@ -742,6 +776,10 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
     }
 
     private GovernedSignal parseGovernedSignal(String signalPayload, String rawInput) {
+        /**
+         * 先尝试解析结构化治理信号，再兼容旧版键值格式，
+         * 所有解析失败场景统一降级为无效治理信号占位。
+         */
         if (signalPayload != null && !signalPayload.isBlank()) {
             GovernedSignal fromJson = tryParseSignalJson(signalPayload);
             if (fromJson != null) {

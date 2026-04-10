@@ -9,12 +9,19 @@ import java.util.Locale;
 import java.util.Map;
 
 @Component
+/**
+ * 记忆写入门控策略组件，负责判断当前信息是否允许写入长期记忆，
+ * 以防中间态、待确认结果或低置信信息污染长期存储。
+ */
 public class MemoryWritePolicyGate {
 
     @Value("${memory.write-policy.long-term-min-confidence:0.68}")
     private double longTermMinConfidence;
 
     public GateContext buildContext(String sessionId, StructuredContextPackage contextPackage) {
+        /**
+         * 汇总任务态和摘要/工具置信度，构建长期写入决策所需上下文。
+         */
         TaskRuntimeState taskState = contextPackage == null ? null : contextPackage.getTaskState();
         Map<String, Object> stateSnapshot = contextPackage == null || contextPackage.getContextState() == null
                 ? Map.of()
@@ -41,6 +48,10 @@ public class MemoryWritePolicyGate {
                                               String sourceType,
                                               double confidenceHint,
                                               String contentHint) {
+        /**
+         * 按来源类型、任务状态和置信度门槛综合判断是否允许长期写入，
+         * 保守阻断不稳定信息进入长期记忆。
+         */
         if (context == null) {
             return GateDecision.reject("GATE_CONTEXT_MISSING", 0.0);
         }
@@ -62,6 +73,10 @@ public class MemoryWritePolicyGate {
     }
 
     public boolean shouldWriteOnlyShortTerm(TaskRuntimeState state) {
+        /**
+         * 等待态和反思态仅允许写入短期记忆，
+         * 避免未定结论过早沉淀。
+         */
         return isWaitingOrRetryState(state == null ? TaskRuntimeState.UNDERSTANDING : state);
     }
 

@@ -12,14 +12,25 @@ import java.util.Map;
 import java.util.Objects;
 
 @Service
+/**
+ * 知识证据块构建器默认实现，负责将检索证据转换为统一的上下文证据块，
+ * 便于后续重排、裁剪和提示词组装阶段直接消费。
+ */
 public class DefaultEvidenceBlockBuilder implements EvidenceBlockBuilder {
     @Override
+    /**
+     * 将原始知识检索结果整理为带稳定标识的证据块集合。
+     */
     public List<EvidenceBlock> buildKnowledgeBlocks(List<Evidence> evidences) {
         if (evidences == null || evidences.isEmpty()) {
             return List.of();
         }
         List<EvidenceBlock> out = new ArrayList<>();
         Map<String, Integer> blockIdCounter = new LinkedHashMap<>();
+        /**
+         * 逐条过滤空证据、补齐元数据并生成稳定块编号，
+         * 确保后续链路能够可靠引用和追踪同一份知识片段。
+         */
         for (Evidence evidence : evidences) {
             if (evidence == null) {
                 continue;
@@ -53,6 +64,10 @@ public class DefaultEvidenceBlockBuilder implements EvidenceBlockBuilder {
     }
 
     private String resolveStableBlockId(Evidence evidence, String title, String content) {
+        /**
+         * 优先复用检索系统给出的证据主键，
+         * 若缺失则根据来源和内容生成可重复计算的回退编号。
+         */
         if (evidence != null && evidence.getId() != null && !evidence.getId().isBlank()) {
             return evidence.getId().trim();
         }

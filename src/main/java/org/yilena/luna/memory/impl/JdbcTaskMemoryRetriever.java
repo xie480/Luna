@@ -15,6 +15,10 @@ import java.util.Map;
 
 @Component
 @RequiredArgsConstructor
+/**
+ * 基于 JDBC 的任务记忆检索器，负责加载任务工作记忆、计划上下文、感知缓冲和语义记忆，
+ * 为任务规划与执行阶段提供上下文支持。
+ */
 public class JdbcTaskMemoryRetriever implements TaskMemoryRetriever {
 
     private final RuntimeReadMapper runtimeReadMapper;
@@ -22,8 +26,14 @@ public class JdbcTaskMemoryRetriever implements TaskMemoryRetriever {
     private final MemoryHotLayerService memoryHotLayerService;
 
     @Override
+    /**
+     * 检索当前会话的任务侧上下文，并按需补充语义检索结果。
+     */
     public Map<String, Object> retrieve(String sessionId, String semanticQuery, TaskRuntimeState taskState) {
         Map<String, Object> result = new HashMap<>();
+        /**
+         * 先优先命中任务工作记忆热缓存，避免频繁读取工作记忆与计划上下文。
+         */
         Map<String, Object> workingCached = memoryHotLayerService.getWorkingMemoryCache(sessionId);
         Map<String, Object> workingMemory;
         List<Map<String, Object>> workingSlots;
@@ -54,6 +64,10 @@ public class JdbcTaskMemoryRetriever implements TaskMemoryRetriever {
         String queryVector = semanticRetrievalEnabled ? queryVector(semanticQuery) : null;
         result.put("semantic_retrieval_enabled", semanticRetrievalEnabled);
 
+        /**
+         * 只有在任务阶段复杂或近端工作记忆不足时才触发语义检索，
+         * 降低向量检索成本并聚焦真正需要的补充记忆。
+         */
         if (semanticRetrievalEnabled) {
             result.put("task_facts", queryList(() -> runtimeReadMapper.selectTaskSemanticFacts(sessionId, queryVector)));
             result.put("task_episodes", queryList(() -> runtimeReadMapper.selectTaskEpisodes(sessionId, queryVector)));

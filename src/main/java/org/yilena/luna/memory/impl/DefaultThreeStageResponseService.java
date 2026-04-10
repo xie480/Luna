@@ -20,6 +20,10 @@ import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
+/**
+ * 三阶段响应生成服务默认实现，负责分别生成任务草稿、关系草稿和融合结果，
+ * 最终产出面向用户的回复。
+ */
 public class DefaultThreeStageResponseService implements ThreeStageResponseService {
 
     private final LlmClientUtil llmClientUtil;
@@ -27,11 +31,18 @@ public class DefaultThreeStageResponseService implements ThreeStageResponseServi
     private final ObjectMapper objectMapper;
 
     @Override
+    /**
+     * 生成融合简报，用于在正式回复前提供简化版合成结果。
+     */
     public String generateSynthesisBrief(String userInput, String toolContext, StructuredContextPackage contextPackage) {
         if (contextPackage == null) {
             return "";
         }
         try {
+            /**
+             * 依次生成任务草稿、关系草稿和融合草稿，
+             * 让任务信息与社交表达在最终简报前先完成汇合。
+             */
             TemplateBundle templates = resolveTemplateBundle(contextPackage);
             String taskDraft = callModel(
                     buildTaskDraftPrompt(userInput, toolContext, contextPackage, templates.taskTemplate(), templates.taskSpec()),
@@ -52,11 +63,18 @@ public class DefaultThreeStageResponseService implements ThreeStageResponseServi
     }
 
     @Override
+    /**
+     * 生成最终用户回复，先做三阶段合成，再输出最终 JSON 结构。
+     */
     public String generateFinalResponse(String userInput, String toolContext, StructuredContextPackage contextPackage) {
         if (contextPackage == null) {
             return "";
         }
         try {
+            /**
+             * 先完成任务草稿、关系草稿和融合稿，再用最终格式化提示词约束输出结构，
+             * 确保回复同时满足内容完整性和前端消费格式。
+             */
             TemplateBundle templates = resolveTemplateBundle(contextPackage);
             String taskDraft = callModel(
                     buildTaskDraftPrompt(userInput, toolContext, contextPackage, templates.taskTemplate(), templates.taskSpec()),
@@ -80,6 +98,10 @@ public class DefaultThreeStageResponseService implements ThreeStageResponseServi
     }
 
     private TemplateBundle resolveTemplateBundle(StructuredContextPackage contextPackage) {
+        /**
+         * 从响应合成策略中解析三阶段模板及各自规格，
+         * 为后续分阶段模型调用提供统一配置。
+         */
         Map<String, Object> synthesisPolicy = resolveSynthesisPolicy(contextPackage);
         String taskTemplate = getString(synthesisPolicy.get("task_template"), "execution_prompt");
         String relationalTemplate = getString(synthesisPolicy.get("relational_template"), "companion_prompt");
@@ -102,6 +124,10 @@ public class DefaultThreeStageResponseService implements ThreeStageResponseServi
                                         StructuredContextPackage contextPackage,
                                         String template,
                                         Map<String, Object> templateSpec) throws Exception {
+        /**
+         * 按任务模板类型构造对应的任务脑提示词，
+         * 让不同任务阶段输出匹配当前目标的任务草稿。
+         */
         String runtimeJson = objectMapper.writeValueAsString(contextPackage.getRuntime());
         String taskJson = objectMapper.writeValueAsString(contextPackage.getTaskContext());
         String specJson = objectMapper.writeValueAsString(templateSpec);
@@ -119,6 +145,10 @@ public class DefaultThreeStageResponseService implements ThreeStageResponseServi
                                               StructuredContextPackage contextPackage,
                                               String template,
                                               Map<String, Object> templateSpec) throws Exception {
+        /**
+         * 按关系模板类型构造关系脑提示词，
+         * 让社交表达能够结合关系上下文和社交草稿独立生成。
+         */
         String relationJson = objectMapper.writeValueAsString(contextPackage.getRelationalContext());
         String socialDraftJson = objectMapper.writeValueAsString(
                 contextPackage.getPromptPolicy() == null ? Map.of() : contextPackage.getPromptPolicy().getOrDefault("social_draft", Map.of())
@@ -138,6 +168,10 @@ public class DefaultThreeStageResponseService implements ThreeStageResponseServi
                                               String relationalDraft,
                                               String template,
                                               Map<String, Object> templateSpec) throws Exception {
+        /**
+         * 按融合模板拼装最终合成提示词，
+         * 控制任务内容与情绪表达的合并顺序和侧重点。
+         */
         String specJson = objectMapper.writeValueAsString(templateSpec);
         return switch (template) {
             case "task_failure_with_support_prompt" -> buildTaskFailureWithSupportSynthesis(taskDraft, relationalDraft, specJson);
@@ -514,6 +548,9 @@ public class DefaultThreeStageResponseService implements ThreeStageResponseServi
     }
 
     private String callModel(String prompt, String modelName) {
+        /**
+         * 统一封装模型调用，避免三阶段生成流程重复处理请求细节。
+         */
         try {
             LlmRequest request = LlmRequest.builder()
                     .modelType(ModelType.OPENAI_COMPATIBLE)

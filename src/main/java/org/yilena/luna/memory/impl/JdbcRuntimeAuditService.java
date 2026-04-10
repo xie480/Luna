@@ -14,6 +14,10 @@ import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
+/**
+ * 基于 JDBC 的运行时审计服务，负责持久化上下文快照、决策记录和工具执行轨迹，
+ * 为回放、恢复和问题排查提供审计基础。
+ */
 public class JdbcRuntimeAuditService implements RuntimeAuditService {
 
     private final RuntimeAuditMapper runtimeAuditMapper;
@@ -22,6 +26,9 @@ public class JdbcRuntimeAuditService implements RuntimeAuditService {
     private final ContextSnapshotStore contextSnapshotStore;
 
     @Override
+    /**
+     * 持久化结构化上下文快照，记录当前上下文包的完整状态。
+     */
     public void persistContextSnapshot(String sessionId, StructuredContextPackage contextPackage) {
         if (contextPackage == null || sessionId == null || sessionId.isBlank()) {
             return;
@@ -36,6 +43,9 @@ public class JdbcRuntimeAuditService implements RuntimeAuditService {
     }
 
     @Override
+    /**
+     * 持久化最终模型上下文快照，供后续恢复和回放使用。
+     */
     public String persistFinalContextSnapshot(String sessionId,
                                               Long planId,
                                               Long nodeId,
@@ -84,6 +94,9 @@ public class JdbcRuntimeAuditService implements RuntimeAuditService {
     }
 
     @Override
+    /**
+     * 持久化决策记录，统一写入编排、恢复、重排等关键链路的审计信息。
+     */
     public void persistDecisionRecord(String sessionId,
                                       Long planId,
                                       Long nodeId,
@@ -131,6 +144,9 @@ public class JdbcRuntimeAuditService implements RuntimeAuditService {
     }
 
     @Override
+    /**
+     * 持久化工具执行轨迹并在支持时返回自增主键，方便后续按轨迹编号关联。
+     */
     public Long persistToolExecutionTraceAndReturnId(String sessionId,
                                                      Long planId,
                                                      Long nodeId,
@@ -244,6 +260,10 @@ public class JdbcRuntimeAuditService implements RuntimeAuditService {
     }
 
     private String normalizePayload(String rawPayload) {
+        /**
+         * 统一保证审计载荷是合法 JSON，
+         * 避免非 JSON 文本导致审计写入失败。
+         */
         if (rawPayload == null || rawPayload.isBlank()) {
             return "{}";
         }

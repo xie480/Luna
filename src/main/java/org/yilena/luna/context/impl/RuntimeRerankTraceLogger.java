@@ -12,19 +12,33 @@ import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
+/**
+ * 全局重排追踪日志实现，负责记录知识、记忆与 MCP 候选的筛选结果，
+ * 便于复盘候选淘汰与排序原因。
+ */
 public class RuntimeRerankTraceLogger implements RerankTraceLogger {
 
     private final RuntimeAuditService runtimeAuditService;
     private final ObjectMapper objectMapper;
 
     @Override
+    /**
+     * 记录默认重排追踪日志。
+     */
     public void log(String sessionId, Long planId, Long nodeId, ContextRerankResult rerankResult) {
         log(sessionId, planId, nodeId, rerankResult, Map.of());
     }
 
     @Override
+    /**
+     * 将重排结果和关联元信息写入运行态审计记录。
+     */
     public void log(String sessionId, Long planId, Long nodeId, ContextRerankResult rerankResult, Map<String, Object> traceMeta) {
         try {
+            /**
+             * 固化本次全局重排选择出的知识块、能力候选和淘汰项，
+             * 为后续分析“为什么选了这些上下文”提供证据。
+             */
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("traceId", traceMeta == null ? "" : String.valueOf(traceMeta.getOrDefault("traceId", "")));
             payload.put("traceLayer", "GLOBAL_RERANK");

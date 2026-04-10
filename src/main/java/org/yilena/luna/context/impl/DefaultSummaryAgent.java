@@ -25,6 +25,10 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+/**
+ * 轮次摘要代理默认实现，负责将当前对话轮次压缩为叙事摘要和状态快照，
+ * 为后续上下文裁剪、恢复和状态延续提供稳定输入。
+ */
 public class DefaultSummaryAgent implements SummaryAgent {
 
     private static final String SUMMARY_PROMPT = """
@@ -71,12 +75,19 @@ public class DefaultSummaryAgent implements SummaryAgent {
     private PromptRegistryService promptRegistryService;
 
     @Override
+    /**
+     * 总结当前轮次的用户输入、助手回复与上下文证据，生成可持久化的摘要结果。
+     */
     public SummaryResult summarize(String userInput,
                                    String assistantReply,
                                    StructuredContextPackage contextPackage,
                                    List<EvidenceBlock> activeEvidenceBlocks,
                                    List<String> activeMcpResourceHints,
                                    ToolSemanticResult latestToolSemanticResult) {
+        /**
+         * 优先使用模型生成结构化摘要，
+         * 以获得更完整的叙事归纳和状态快照表达。
+         */
         SummaryResult llmSummary = tryModelSummary(
                 userInput,
                 assistantReply,
@@ -88,6 +99,10 @@ public class DefaultSummaryAgent implements SummaryAgent {
         if (llmSummary != null) {
             return llmSummary;
         }
+        /**
+         * 模型摘要失败时回退到本地拼接逻辑，
+         * 保证上下文链路始终能拿到可用的叙事摘要和状态快照。
+         */
         String narrative = buildNarrative(
                 userInput,
                 assistantReply,
@@ -110,6 +125,10 @@ public class DefaultSummaryAgent implements SummaryAgent {
                                           List<String> activeMcpResourceHints,
                                           ToolSemanticResult latestToolSemanticResult) {
         try {
+            /**
+             * 将短期记忆、检索结果、证据摘要和工具语义压缩进提示词，
+             * 引导模型输出统一结构的轮次摘要。
+             */
             String promptTemplate = promptRegistryService == null
                     ? SUMMARY_PROMPT
                     : promptRegistryService.resolvePromptValue("agent-local.summary.default_v1", SUMMARY_PROMPT);
@@ -146,6 +165,10 @@ public class DefaultSummaryAgent implements SummaryAgent {
             if (content == null || content.isBlank()) {
                 return null;
             }
+            /**
+             * 对模型快照结果做标准化补齐，
+             * 确保缺失字段能够回落到本地状态推断值。
+             */
             JsonNode node = objectMapper.readTree(stripFence(content));
             String narrative = node.path("narrativeSummary").asText("");
             if (narrative.isBlank()) {
@@ -326,6 +349,10 @@ public class DefaultSummaryAgent implements SummaryAgent {
             snapshot.put("nextStep", "continue");
             return snapshot;
         }
+        /**
+         * 汇总待处理问题、当前约束和最近工具结论，
+         * 生成后续轮次可继续承接的状态快照。
+         */
         List<String> pendingIssues = new java.util.ArrayList<>();
         if (contextPackage.getTaskStateEntity() != null) {
             pendingIssues.addAll(contextPackage.getTaskStateEntity().getPendingQuestions() == null

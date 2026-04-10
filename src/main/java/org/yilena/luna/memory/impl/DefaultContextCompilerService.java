@@ -38,6 +38,10 @@ import java.security.MessageDigest;
 
 @Service
 @RequiredArgsConstructor
+/**
+ * 上下文编译服务默认实现，负责从运行态、状态存储和记忆检索中拼装结构化上下文包，
+ * 为后续意图重构、重排和响应生成提供统一输入。
+ */
 public class DefaultContextCompilerService implements ContextCompilerService {
     private static final String DEFAULT_PROMPT_POLICY_ID = "chat_default_v1";
     private static final String DEFAULT_COMPANION_PROMPT_POLICY_ID = "chat_tavern_default_v1";
@@ -59,11 +63,18 @@ public class DefaultContextCompilerService implements ContextCompilerService {
     private boolean fallbackPreloadEnabled;
 
     @Override
+    /**
+     * 编译当前会话的结构化上下文，必要时复用热层缓存以降低重复构建成本。
+     */
     public StructuredContextPackage compile(String sessionId,
                                             String userInput,
                                             TaskRuntimeState taskState,
                                             RelationalRuntimeState relationalState,
                                             ContextCompileOptions options) {
+        /**
+         * 优先命中已编译上下文缓存，
+         * 避免同一轮请求在短时间内重复加载状态和记忆。
+         */
         if (isCacheEligible(options)) {
             StructuredContextPackage cached = memoryHotLayerService.getCompiledContextCache(sessionId, userInput, taskState, relationalState);
             if (cached != null) {
@@ -71,6 +82,10 @@ public class DefaultContextCompilerService implements ContextCompilerService {
             }
         }
 
+        /**
+         * 从运行态和状态仓储收集任务、检索、工具与上下文状态，
+         * 为后续预加载决策和提示策略构建提供基础事实。
+         */
         Map<String, Object> runtime = runtimeRetriever.retrieve(sessionId);
         TaskState storedTaskState = taskStateStore.load(sessionId);
         RetrievalState storedRetrievalState = retrievalStateStore.load(sessionId);
@@ -87,6 +102,10 @@ public class DefaultContextCompilerService implements ContextCompilerService {
         );
         GovernedSignal governedSignal = extractGovernedSignal(userInput);
         PreloadDecision preloadDecision = resolvePreloadDecision(taskState, options);
+        /**
+         * 按预加载策略分别补齐任务记忆和关系记忆，
+         * 让不同场景在性能与上下文完整度之间取得平衡。
+         */
         Map<String, Object> taskContext = preloadTaskContext(
                 sessionId,
                 governedSignal,
@@ -129,6 +148,10 @@ public class DefaultContextCompilerService implements ContextCompilerService {
         promptPolicy.put("compiler_preload_relational_memory", preloadDecision.preloadRelationalMemory());
         Map<String, Integer> budget = buildTokenBudget(taskState, relationalState, sessionType);
 
+        /**
+         * 汇总各类上下文字段并生成最终结构化上下文包，
+         * 同时回填状态实体，供后续链路直接读取。
+         */
         StructuredContextPackage contextPackage = StructuredContextPackage.builder()
                 .sessionId(sessionId)
                 .taskState(taskState)
@@ -159,6 +182,10 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                                                    RetrievalState storedRetrievalState,
                                                    Map<String, Object> runtime,
                                                    boolean preloadEnabled) {
+        /**
+         * 任务记忆预加载阶段根据治理信号与当前状态生成语义检索词，
+         * 只在允许预加载时提前补齐任务相关上下文。
+         */
         if (isBlank(sessionId)) {
             return Map.of();
         }
@@ -185,6 +212,10 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                                                          ContextState storedContextState,
                                                          Map<String, Object> runtime,
                                                          boolean preloadEnabled) {
+        /**
+         * 关系记忆预加载阶段聚合近期对话和叙事摘要，
+         * 为社交推理和回复风格控制提供关系层事实。
+         */
         if (isBlank(sessionId)) {
             return Map.of();
         }
@@ -247,6 +278,10 @@ public class DefaultContextCompilerService implements ContextCompilerService {
     }
 
     private GovernedSignal extractGovernedSignal(String signalPayload) {
+        /**
+         * 优先按结构化信号解析用户输入，
+         * 解析失败时再退回原始文本治理，保证上下文编译始终可继续。
+         */
         if (isBlank(signalPayload)) {
             return GovernedSignal.fromRawInput("");
         }
@@ -412,6 +447,10 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                                                   SessionType sessionType,
                                                   Map<String, Object> socialDraft,
                                                   Map<String, Object> synthesisPolicy) {
+        /**
+         * 将任务模式、关系模式和响应合成策略汇总为统一提示策略，
+         * 供提示词治理和上下文装配阶段继续消费。
+         */
         Map<String, Object> policy = new LinkedHashMap<>();
         String policyId = resolvePromptPolicyId(sessionType, socialDraft, synthesisPolicy);
         policy.put("task_mode", taskState == null ? "UNKNOWN" : taskState.name());
@@ -599,6 +638,10 @@ public class DefaultContextCompilerService implements ContextCompilerService {
     }
 
     private PreloadDecision resolvePreloadDecision(TaskRuntimeState taskState, ContextCompileOptions options) {
+        /**
+         * 根据显式配置、灰度开关和当前任务阶段决定是否预加载记忆，
+         * 避免在低收益场景无谓放大上下文成本。
+         */
         ContextCompileOptions effective = options == null ? ContextCompileOptions.auto() : options;
         ContextCompileOptions.PreloadMode mode = effective.getPreloadMode() == null
                 ? ContextCompileOptions.PreloadMode.AUTO

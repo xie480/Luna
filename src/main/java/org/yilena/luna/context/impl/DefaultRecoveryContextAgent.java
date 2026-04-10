@@ -31,6 +31,9 @@ import java.util.Locale;
 import java.util.Map;
 
 @Service
+/**
+ * 恢复上下文代理默认实现，负责在中断、审批、工具回调等恢复场景下重建上下文并判断是否需要刷新检索与重组装。
+ */
 public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
 
     private static final String RECOVERY_DECISION_PROMPT = """
@@ -89,6 +92,9 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
     }
 
     @Override
+    /**
+     * 根据恢复事件和上下文快照重建运行时上下文，并补齐恢复状态与刷新标记。
+     */
     public StructuredContextPackage recover(String sessionId,
                                             StructuredContextPackage contextPackage,
                                             String recoveryEvent,
@@ -96,9 +102,17 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
         if (sessionId == null || sessionId.isBlank()) {
             return contextPackage;
         }
+        /**
+         * 先定位恢复快照并基于快照还原结构化上下文，
+         * 尽量让恢复后的链路从最近一次稳定状态继续推进。
+         */
         String requestedSnapshotId = resolveRecoverySnapshotId(contextPackage);
         ContextSnapshot snapshot = loadSnapshot(sessionId, requestedSnapshotId);
         StructuredContextPackage restoredContext = rebuildFromSnapshot(contextPackage, snapshot);
+        /**
+         * 结合中断事件、当前上下文与快照漂移情况判断是否需要刷新 RAG、MCP 或重新组装，
+         * 避免恢复后继续使用过期证据。
+         */
         RecoveryDecision decision = evaluateRecoveryDecision(recoveryEvent, interruptReason, restoredContext, snapshot);
         String resolvedSnapshotId = resolveSnapshotId(snapshot, requestedSnapshotId, sessionId);
         decision = enforceRecoveryConsistency(sessionId, snapshot, restoredContext, decision, resolvedSnapshotId);
@@ -112,6 +126,10 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
         if (restoredContext == null) {
             return null;
         }
+        /**
+         * 将恢复决策回写到提示策略、检索计划和运行时上下文中，
+         * 让后续编排链路感知当前处于恢复模式。
+         */
         restoredContext.setPromptPolicy(mergePromptPolicy(restoredContext.getPromptPolicy(), decision, snapshot, resolvedSnapshotId));
         if (restoredContext.getRetrievalState() != null) {
             restoredContext.setRetrievalState(rebuildRetrievalState(restoredContext.getRetrievalState(), decision));
@@ -125,6 +143,10 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
                                                       String interruptReason,
                                                       StructuredContextPackage contextPackage,
                                                       ContextSnapshot snapshot) {
+        /**
+         * 优先使用模型判断恢复策略，
+         * 若模型不可用则退化为本地规则决策，保证恢复流程不中断。
+         */
         RecoveryDecision llmDecision = tryModelDecision(recoveryEvent, interruptReason, contextPackage, snapshot);
         if (llmDecision != null) {
             return llmDecision;
@@ -137,6 +159,10 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
                                               StructuredContextPackage contextPackage,
                                               ContextSnapshot snapshot) {
         try {
+            /**
+             * 将恢复事件、打断原因和上下文/快照摘要交给模型，
+             * 生成更细粒度的刷新与失效判断结果。
+             */
             String promptTemplate = promptRegistryService == null
                     ? RECOVERY_DECISION_PROMPT
                     : promptRegistryService.resolvePromptValue("agent-local.recovery.default_v1", RECOVERY_DECISION_PROMPT);
@@ -190,6 +216,10 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
                                                String interruptReason,
                                                StructuredContextPackage contextPackage,
                                                ContextSnapshot snapshot) {
+        /**
+         * 当模型决策不可用时，基于超时、失败、数据漂移和等待态等信号做保守判断，
+         * 宁可多一次重组装，也避免恢复到错误上下文。
+         */
         String event = normalize(recoveryEvent);
         String reason = normalize(interruptReason);
         boolean eventDrivenMutation = containsAny(event, "tool_result", "approval", "system", "timer", "callback");
@@ -299,6 +329,10 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
     }
 
     private StructuredContextPackage rebuildFromSnapshot(StructuredContextPackage current, ContextSnapshot snapshot) {
+        /**
+         * 尝试从快照中提取结构化上下文，并与当前运行态做合并，
+         * 兼顾快照稳定性和当前链路中尚未持久化的新状态。
+         */
         StructuredContextPackage snapshotPackage = extractStructuredContextPackage(snapshot);
         if (snapshotPackage == null) {
             return current;
@@ -900,6 +934,10 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
     }
 
     private RetrievalState rebuildRetrievalState(RetrievalState current, RecoveryDecision decision) {
+        /**
+         * 将恢复决策折叠到检索计划中，
+         * 让后续检索阶段明确知道哪些通道需要立即刷新。
+         */
         List<String> activeQueries = new ArrayList<>();
         if (current.getActiveQueries() != null) {
             activeQueries.addAll(current.getActiveQueries());

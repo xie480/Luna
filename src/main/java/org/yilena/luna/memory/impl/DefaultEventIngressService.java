@@ -24,6 +24,10 @@ import java.util.UUID;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+/**
+ * 事件接入服务默认实现，负责统一接收用户输入、工具结果、审批与系统事件，
+ * 并驱动会话编排与感知缓冲写入。
+ */
 public class DefaultEventIngressService implements EventIngressService {
 
     private final EventInboxMapper eventInboxMapper;
@@ -40,11 +44,17 @@ public class DefaultEventIngressService implements EventIngressService {
     private int perceptualBufferTtlMinutes;
 
     @Override
+    /**
+     * 将普通用户输入包装为事件后进入统一事件通道。
+     */
     public OrchestrationDecision ingestUserInput(String sessionId, String userInput) {
         return ingestEvent(sessionId, "USER_INPUT", Map.of("text", userInput == null ? "" : userInput));
     }
 
     @Override
+    /**
+     * 对带治理信号的用户输入做合法性校验，校验通过后再进入事件处理链路。
+     */
     public OrchestrationDecision ingestUserInput(String sessionId, String userInput, String orchestrationSignal) {
         String normalizedSessionId = sessionId == null || sessionId.isBlank() ? SessionConstant.DEFAULT_SESSION_ID : sessionId;
         String signal = orchestrationSignal == null ? "" : orchestrationSignal.trim();
@@ -85,6 +95,9 @@ public class DefaultEventIngressService implements EventIngressService {
     }
 
     @Override
+    /**
+     * 批量拉取并分发待处理事件，供异步场景回补执行。
+     */
     public void dispatchPendingEvents(int limit) {
         List<Map<String, Object>> events = fetchPendingEvents(limit <= 0 ? 50 : limit);
         for (Map<String, Object> event : events) {
@@ -106,6 +119,10 @@ public class DefaultEventIngressService implements EventIngressService {
         String normalizedEventType = normalizeEventType(eventType);
         try {
             JsonNode payload = parsePayload(payloadJson);
+            /**
+             * 按事件类型路由到对应编排入口，并同步写入运行态审计记录，
+             * 让主流程和事件留痕保持一致。
+             */
             OrchestrationDecision decision = switch (normalizedEventType) {
                 case "USER_INPUT" -> {
                     String text = payload.path("text").asText("");
@@ -170,6 +187,10 @@ public class DefaultEventIngressService implements EventIngressService {
                     yield null;
                 }
             };
+            /**
+             * 事件处理完成后补写感知缓冲并更新事件状态，
+             * 便于短期感知链路快速读取最新输入信号。
+             */
             writePerceptualBuffers(normalizedSessionId, normalizedEventType, payload, eventId, traceId);
             markProcessed(eventId);
             return decision;
@@ -193,6 +214,10 @@ public class DefaultEventIngressService implements EventIngressService {
         String normalizedEventType = normalizeEventType(eventType);
         String traceId = UUID.randomUUID().toString();
         String payloadJson = toJsonSafe(payload);
+        /**
+         * 先做短时间窗口内的事件去重，
+         * 避免重复回调或重复提交导致会话被多次编排。
+         */
         boolean shouldProcess = memoryHotLayerService.tryDedupeEvent(normalizedSessionId, normalizedEventType, payloadJson);
         if (!shouldProcess) {
             runtimeAuditService.persistDecisionRecord(
@@ -209,6 +234,10 @@ public class DefaultEventIngressService implements EventIngressService {
         if (eventId == null) {
             throw new IllegalStateException("event_inbox write failed");
         }
+        /**
+         * 事件入箱成功后立即复用同一处理逻辑完成本次消费，
+         * 保持同步和异步两种路径的处理结果一致。
+         */
         return processSingleEvent(eventId, normalizedSessionId, normalizedEventType, payloadJson, traceId);
     }
 
@@ -336,6 +365,10 @@ public class DefaultEventIngressService implements EventIngressService {
                                         JsonNode payload,
                                         Long eventId,
                                         String traceId) {
+        /**
+         * 将用户输入、工具结果及情绪/边界信号写入感知缓冲，
+         * 让短期感知层能快速复用最近的重要事件。
+         */
         if (!perceptualBufferEnabled) {
             return;
         }
