@@ -17,6 +17,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Prompt 版本服务实现，负责管理版本列表、激活、回滚、草稿保存和版本差异比较。
+ */
 @Service
 @RequiredArgsConstructor
 public class PromptVersionServiceImpl implements PromptVersionService {
@@ -27,6 +30,9 @@ public class PromptVersionServiceImpl implements PromptVersionService {
 
     @Override
     public List<PromptItemVersionEntity> listVersions(String key) {
+        /**
+         * 先定位 Prompt 条目，再按创建时间倒序读取其全部版本历史。
+         */
         if (key == null || key.isBlank()) {
             return List.of();
         }
@@ -56,6 +62,9 @@ public class PromptVersionServiceImpl implements PromptVersionService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void activateVersion(Long versionId) {
+        /**
+         * 激活版本时先归档旧活动版本，再切换目标版本和条目主记录状态。
+         */
         if (versionId == null || versionId <= 0) {
             throw new IllegalArgumentException("versionId is required");
         }
@@ -84,6 +93,9 @@ public class PromptVersionServiceImpl implements PromptVersionService {
 
     @Override
     public void rollbackToVersion(String key, Long versionId) {
+        /**
+         * 回滚本质上是一次归属校验后的版本激活，确保目标版本属于当前 Prompt。
+         */
         if (key == null || key.isBlank()) {
             throw new IllegalArgumentException("key is required");
         }
@@ -111,6 +123,9 @@ public class PromptVersionServiceImpl implements PromptVersionService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PromptItemVersionEntity saveDraft(String key, PromptUpsertRequest request) {
+        /**
+         * 草稿保存会继承最新版本的未修改字段，生成一个未激活的草稿版本供后续审核或编辑。
+         */
         if (key == null || key.isBlank()) {
             throw new IllegalArgumentException("key is required");
         }
@@ -145,6 +160,9 @@ public class PromptVersionServiceImpl implements PromptVersionService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void archiveVersion(Long versionId) {
+        /**
+         * 归档版本时需要保护执行类 Prompt 的当前版本，避免运行时关键 Prompt 被直接下线。
+         */
         if (versionId == null || versionId <= 0) {
             throw new IllegalArgumentException("versionId is required");
         }
@@ -176,6 +194,9 @@ public class PromptVersionServiceImpl implements PromptVersionService {
 
     @Override
     public Map<String, Object> diff(Long leftVersionId, Long rightVersionId) {
+        /**
+         * 差异比较按行生成简化 diff，供治理界面快速查看两个版本的文本变更。
+         */
         if (leftVersionId == null || rightVersionId == null) {
             throw new IllegalArgumentException("version ids are required");
         }

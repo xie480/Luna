@@ -17,6 +17,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
+/**
+ * Prompt 策略服务实现，负责管理策略主记录、策略版本以及包含排除 Prompt 集合的切换。
+ */
 @Service
 @RequiredArgsConstructor
 public class PromptPolicyServiceImpl implements PromptPolicyService {
@@ -26,6 +29,9 @@ public class PromptPolicyServiceImpl implements PromptPolicyService {
 
     @Override
     public PromptPolicyEntity getByPolicyId(String policyId) {
+        /**
+         * 按策略键读取策略主记录，作为后续详情、版本和快照桥接的基础入口。
+         */
         if (policyId == null || policyId.isBlank()) {
             return null;
         }
@@ -42,6 +48,9 @@ public class PromptPolicyServiceImpl implements PromptPolicyService {
 
     @Override
     public PromptPolicyDetailView getPolicyDetail(String policyId) {
+        /**
+         * 详情查询会把主记录与当前激活版本合并，输出完整的策略展示视图。
+         */
         PromptPolicyEntity policy = getByPolicyId(policyId);
         if (policy == null) {
             return null;
@@ -64,6 +73,9 @@ public class PromptPolicyServiceImpl implements PromptPolicyService {
 
     @Override
     public Set<String> resolveIncludedPromptKeys(String policyId) {
+        /**
+         * 解析当前策略版本的包含集合，供 Prompt 解析阶段做强制纳入判断。
+         */
         PromptPolicyVersionEntity current = findCurrent(policyId);
         if (current == null || current.getIncludePromptKeys() == null) {
             return Set.of();
@@ -75,6 +87,9 @@ public class PromptPolicyServiceImpl implements PromptPolicyService {
 
     @Override
     public Set<String> resolveExcludedPromptKeys(String policyId) {
+        /**
+         * 解析当前策略版本的排除集合，供 Prompt 解析阶段做过滤判断。
+         */
         PromptPolicyVersionEntity current = findCurrent(policyId);
         if (current == null || current.getExcludePromptKeys() == null) {
             return Set.of();
@@ -113,6 +128,9 @@ public class PromptPolicyServiceImpl implements PromptPolicyService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PromptPolicyEntity savePolicy(PromptPolicySaveRequest request) {
+        /**
+         * 保存策略时先创建或更新主记录，再归档旧激活版本并插入新的活动版本。
+         */
         if (request == null || request.getPolicyId() == null || request.getPolicyId().isBlank()) {
             throw new IllegalArgumentException("policyId is required");
         }
@@ -163,6 +181,9 @@ public class PromptPolicyServiceImpl implements PromptPolicyService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deletePolicy(String policyId) {
+        /**
+         * 删除策略采用软删除方式，只关闭启用状态并补记删除标记，保留历史版本数据。
+         */
         if (policyId == null || policyId.isBlank()) {
             throw new IllegalArgumentException("policyId is required");
         }
@@ -196,6 +217,9 @@ public class PromptPolicyServiceImpl implements PromptPolicyService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void activatePolicyVersion(String policyId, Long versionId) {
+        /**
+         * 激活策略版本前先校验归属，再归档原活动版本并切换主记录指向新的版本。
+         */
         if (policyId == null || policyId.isBlank()) {
             throw new IllegalArgumentException("policyId is required");
         }

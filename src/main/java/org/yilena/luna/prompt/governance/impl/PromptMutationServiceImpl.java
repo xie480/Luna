@@ -27,6 +27,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+/**
+ * Prompt 变更服务实现，负责创建、更新和删除 Prompt 条目，同时校验分类、版本和编辑策略约束。
+ */
 @Service
 @RequiredArgsConstructor
 public class PromptMutationServiceImpl implements PromptMutationService {
@@ -46,6 +49,9 @@ public class PromptMutationServiceImpl implements PromptMutationService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PromptItemRecord create(PromptUpsertRequest request) {
+        /**
+         * 创建流程先校验入参和键唯一性，再落条目主记录与首个激活版本，最后刷新注册视图。
+         */
         validateCreateRequest(request);
         if (promptRegistryService.existsByKey(request.getKey())) {
             throw new IllegalArgumentException("prompt key already exists");
@@ -83,6 +89,9 @@ public class PromptMutationServiceImpl implements PromptMutationService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PromptItemRecord update(PromptUpsertRequest request) {
+        /**
+         * 更新流程会先加载当前条目与版本策略，再校验分类迁移、执行类限制和运行时槽位是否合法。
+         */
         if (request == null || request.getKey() == null || request.getKey().isBlank()) {
             throw new IllegalArgumentException("key is required");
         }
@@ -158,6 +167,9 @@ public class PromptMutationServiceImpl implements PromptMutationService {
                         .set(request.getPriority() != null, PromptItemEntity::getPriority, request.getPriority())
                         .set(updateStatusField, PromptItemEntity::getStatus, effectiveStatus));
 
+        /**
+         * 条目主信息更新后新增一个版本记录，预览模式保留草稿，正式模式直接切换为当前版本。
+         */
         PromptItemVersionEntity version = buildVersion(item.getId(), request, item, current);
         boolean previewOnly = executionPrompt && Boolean.TRUE.equals(request.getPreviewOnly());
         version.setStatus(previewOnly ? "draft" : normalizeVersionStatus(request.getStatus(), "active"));
@@ -172,6 +184,9 @@ public class PromptMutationServiceImpl implements PromptMutationService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteByKey(String key) {
+        /**
+         * 删除并不物理移除数据，而是按策略校验后将条目标记为停用状态，保留历史版本。
+         */
         if (key == null || key.isBlank()) {
             throw new IllegalArgumentException("key is required");
         }
@@ -204,6 +219,9 @@ public class PromptMutationServiceImpl implements PromptMutationService {
                                                  PromptUpsertRequest request,
                                                  PromptItemEntity item,
                                                  PromptItemVersionEntity currentVersion) {
+        /**
+         * 版本构建阶段会合并请求值与当前版本值，确保未显式修改的字段可以平滑继承。
+         */
         boolean executionCategory = isExecutionCategory(resolveItemCategory(item));
         boolean hasTemplateVariables = bool(item == null ? null : item.getHasTemplateVariables(), false);
         boolean contentCreate = currentVersion == null && !executionCategory && !hasTemplateVariables;
@@ -251,6 +269,9 @@ public class PromptMutationServiceImpl implements PromptMutationService {
     }
 
     private void validateCreateRequest(PromptUpsertRequest request) {
+        /**
+         * 创建校验重点约束内容类 Prompt，不允许执行类分类、模板变量或非法键格式混入。
+         */
         if (request == null) {
             throw new IllegalArgumentException("request is required");
         }
@@ -295,6 +316,9 @@ public class PromptMutationServiceImpl implements PromptMutationService {
     }
 
     private void validateExecutionPromptUpdate(PromptUpsertRequest request) {
+        /**
+         * 执行类 Prompt 更新时禁止开启关键词匹配，并限制装配模式只能来自执行类白名单。
+         */
         if (request != null && request.getTemplateVariables() != null) {
             normalizeTemplateVariables(request.getTemplateVariables());
         }
@@ -307,6 +331,9 @@ public class PromptMutationServiceImpl implements PromptMutationService {
     }
 
     private void validateContentPromptUpdate(PromptUpsertRequest request) {
+        /**
+         * 内容类 Prompt 更新时禁止引入模板占位符和执行类字段，保证内容类与执行类边界清晰。
+         */
         if (request == null) {
             return;
         }

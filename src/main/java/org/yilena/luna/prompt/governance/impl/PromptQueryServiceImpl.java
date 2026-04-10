@@ -12,6 +12,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * Prompt 查询服务实现，负责提供分类浏览、键值列表、条件搜索和详情查询能力。
+ */
 @Service
 @RequiredArgsConstructor
 public class PromptQueryServiceImpl implements PromptQueryService {
@@ -20,11 +23,17 @@ public class PromptQueryServiceImpl implements PromptQueryService {
 
     @Override
     public List<String> listCategories() {
+        /**
+         * 直接复用注册中心的分类视图，保证查询端与运行时可见分类保持一致。
+         */
         return promptRegistryService.listCategories();
     }
 
     @Override
     public Map<String, String> listKeyValueByCategory(String category, String subCategory) {
+        /**
+         * 按分类输出键值映射，主要服务于配置面板和简化版选择器场景。
+         */
         Map<String, String> out = new LinkedHashMap<>();
         for (PromptItemRecord item : promptRegistryService.listByCategory(category, subCategory)) {
             out.put(item.getKey(), item.getValue());
@@ -34,6 +43,9 @@ public class PromptQueryServiceImpl implements PromptQueryService {
 
     @Override
     public List<PromptItemRecord> search(PromptSearchRequest request) {
+        /**
+         * 搜索流程先标准化分页与过滤条件，再从注册中心全量视图中过滤出目标数据页。
+         */
         PromptSearchRequest effective = request == null ? new PromptSearchRequest() : request;
         String category = firstNonBlank(effective.getCategory(), effective.getCategoryKey());
         long pageNo = effective.getPageNo() == null || effective.getPageNo() <= 0 ? 1L : effective.getPageNo();
@@ -61,6 +73,9 @@ public class PromptQueryServiceImpl implements PromptQueryService {
 
     @Override
     public Optional<PromptItemRecord> detailByKey(String key) {
+        /**
+         * 按键查询 Prompt 详情，供详情页或编辑页回显使用。
+         */
         return promptRegistryService.getByKey(key);
     }
 

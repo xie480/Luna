@@ -12,6 +12,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 上下文快照存储实现，负责持久化工具决策前后和主模型执行时的上下文快照，支撑回放与恢复。
+ */
 @Service
 @RequiredArgsConstructor
 public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
@@ -48,6 +51,9 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
                                               List<Map<String, Object>> executionCandidates,
                                               Map<String, Object> extra,
                                               Map<String, Object> rawToolResultChannel) {
+        /**
+         * 工具决策前快照会记录用户输入、重构查询、候选能力和原始工具通道，用于回放决策现场。
+         */
         if (sessionId == null || sessionId.isBlank()) {
             return "";
         }
@@ -90,6 +96,9 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
                                                   Map<String, Integer> sectionTokenCounts,
                                                   Map<String, Double> sectionTokenRatios,
                                                   Map<String, Object> extra) {
+        /**
+         * 工具决策上下文快照会保存组装后的决策文本和分段统计，便于后续分析模型如何做出能力选择。
+         */
         if (sessionId == null || sessionId.isBlank()) {
             return "";
         }
@@ -200,6 +209,9 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
                                     Map<String, Object> rawToolResultChannel,
                                     Map<String, List<String>> activeRefs,
                                     Map<String, Object> structuredRecoveryPayload) {
+        /**
+         * 最终快照会沉淀主模型 Prompt、分段上下文、Prompt 引用和活跃证据引用，作为完整执行现场归档。
+         */
         if (sessionId == null || sessionId.isBlank()) {
             return "";
         }
@@ -252,6 +264,9 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
 
     @SuppressWarnings("unchecked")
     private Map<String, Object> normalizePromptAssemblyMeta(Map<String, Object> promptAssemblyMeta) {
+        /**
+         * 对 Prompt 装配元数据做结构归一化，保证快照落库时字段格式稳定可解析。
+         */
         if (promptAssemblyMeta == null || promptAssemblyMeta.isEmpty()) {
             return Map.of(
                     "promptRefs", List.of(),
@@ -298,6 +313,9 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
     }
 
     private Map<String, List<String>> normalizeActiveRefs(Map<String, List<String>> activeRefs) {
+        /**
+         * 活跃引用列表在落库前统一去空、去重，避免快照里写入噪声引用。
+         */
         if (activeRefs == null || activeRefs.isEmpty()) {
             return Map.of();
         }
@@ -320,6 +338,9 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
 
     @Override
     public ContextSnapshot load(String sessionId, String snapshotId) {
+        /**
+         * 按快照 ID 精确读取历史快照，主要服务于恢复、诊断和引用回放场景。
+         */
         if (sessionId == null || sessionId.isBlank()) {
             return null;
         }
@@ -332,6 +353,9 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
 
     @Override
     public ContextSnapshot loadLatest(String sessionId) {
+        /**
+         * 读取会话最新快照，用于快速恢复最近一次上下文现场。
+         */
         if (sessionId == null || sessionId.isBlank()) {
             return null;
         }
@@ -339,6 +363,9 @@ public class ContextSnapshotStoreImpl implements ContextSnapshotStore {
     }
 
     private ContextSnapshot parseSnapshotRow(Map<String, Object> row) {
+        /**
+         * 将数据库行统一转换为领域快照对象，便于上层按统一模型消费。
+         */
         if (row == null || row.isEmpty()) {
             return null;
         }

@@ -19,6 +19,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
+/**
+ * Prompt 解析服务实现，负责按策略、匹配器和优先级从注册中心筛选出最终可装配的 Prompt 集合。
+ */
 @Service
 public class PromptResolverServiceImpl implements PromptResolverService {
 
@@ -71,6 +74,9 @@ public class PromptResolverServiceImpl implements PromptResolverService {
 
     @Override
     public PromptResolveResult resolve(PromptResolveContext context) {
+        /**
+         * 先解析策略包含与排除集合，再逐条对活跃 Prompt 执行匹配，收集命中和拒绝原因。
+         */
         PromptResolveContext ctx = context == null ? PromptResolveContext.builder().build() : context;
         Set<String> policyIncludes = promptPolicyService.resolveIncludedPromptKeys(ctx.getPolicyId());
         Set<String> policyExcludes = promptPolicyService.resolveExcludedPromptKeys(ctx.getPolicyId());
@@ -113,6 +119,9 @@ public class PromptResolverServiceImpl implements PromptResolverService {
                     .assemblerVersion(resolveAssemblerVersion())
                     .build());
         }
+        /**
+         * 匹配完成后依次做去重、优先级排序和运行时槽位映射，形成最终可装配结果。
+         */
         List<ResolvedPromptItem> deduped = promptDeduplicator.deduplicate(matched);
         List<ResolvedPromptItem> sorted = promptPrioritySorter.sort(deduped);
         return PromptResolveResult.builder()
@@ -132,6 +141,9 @@ public class PromptResolverServiceImpl implements PromptResolverService {
 
     private static PromptMatcher defaultPromptMatcher(PromptCategoryService promptCategoryService,
                                                       boolean policyForceIncludeNonPolicyMode) {
+        /**
+         * 默认匹配器链路按永远匹配、关键词匹配、Agent 匹配和策略选择器组合，覆盖主要治理场景。
+         */
         return new DefaultPromptMatcher(
                 new AlwaysPromptSelector(),
                 new KeywordPromptMatcher(new KeywordMatcher(), promptCategoryService),

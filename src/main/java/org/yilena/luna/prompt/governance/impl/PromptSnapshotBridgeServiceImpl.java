@@ -16,6 +16,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Prompt 快照桥接服务实现，负责把 Prompt 解析结果转换成快照引用并持久化到运行时快照关联表。
+ */
 @Service
 @RequiredArgsConstructor
 public class PromptSnapshotBridgeServiceImpl implements PromptSnapshotBridgeService {
@@ -27,6 +30,9 @@ public class PromptSnapshotBridgeServiceImpl implements PromptSnapshotBridgeServ
 
     @Override
     public Map<String, Object> buildSnapshotPayload(PromptResolveResult resolveResult, String policyId) {
+        /**
+         * 先把解析结果转成快照载荷，统一输出策略信息、Prompt 引用列表和槽位映射。
+         */
         String effectivePolicyId = firstNonBlank(policyId, resolveResult == null ? null : resolveResult.getPolicyId());
         if (resolveResult == null) {
             return emptyPayload(effectivePolicyId);
@@ -62,6 +68,9 @@ public class PromptSnapshotBridgeServiceImpl implements PromptSnapshotBridgeServ
                                     Long nodeId,
                                     String snapshotId,
                                     Map<String, Object> snapshotPayload) {
+        /**
+         * 快照持久化阶段会逐条把 Prompt 引用转换成数据库实体，建立快照与 Prompt 版本的追踪关系。
+         */
         if (snapshotPayload == null || snapshotPayload.isEmpty()) {
             return;
         }
@@ -123,6 +132,9 @@ public class PromptSnapshotBridgeServiceImpl implements PromptSnapshotBridgeServ
     }
 
     private Map<String, Object> toPromptRefRow(ResolvedPromptItem item) {
+        /**
+         * 统一把解析后的 Prompt 条目转换为快照引用行，便于后续持久化和快照回放。
+         */
         if (item == null) {
             return Map.of();
         }

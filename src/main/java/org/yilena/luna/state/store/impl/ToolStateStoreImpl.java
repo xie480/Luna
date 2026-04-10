@@ -6,6 +6,9 @@ import org.yilena.luna.mapper.StateStoreMapper;
 import org.yilena.luna.state.model.ToolState;
 import org.yilena.luna.state.store.ToolStateStore;
 
+/**
+ * 工具状态存储实现，负责持久化工具调用链路中的中间状态和最近执行结果。
+ */
 @Service
 public class ToolStateStoreImpl extends AbstractJsonStateStore<ToolState> implements ToolStateStore {
 
@@ -15,11 +18,17 @@ public class ToolStateStoreImpl extends AbstractJsonStateStore<ToolState> implem
 
     @Override
     public ToolState load(String sessionId) {
+        /**
+         * 读取当前会话的工具状态。
+         */
         return loadState(sessionId);
     }
 
     @Override
     public void save(String sessionId, ToolState state) {
+        /**
+         * 保存工具状态，供工具语义解析和恢复流程复用。
+         */
         saveState(sessionId, state);
     }
 
@@ -38,4 +47,3 @@ public class ToolStateStoreImpl extends AbstractJsonStateStore<ToolState> implem
         return ToolState.class;
     }
 }
-

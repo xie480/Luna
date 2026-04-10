@@ -48,6 +48,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+/**
+ * 本地 MCP 客户端适配器，负责在本地服务与远端 MCP 服务之间做统一路由，并屏蔽不同传输协议差异。
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -63,6 +66,9 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
 
     @Override
     public List<McpToolDescriptor> listTools(String serverCode) {
+        /**
+         * 先解析目标服务并判断是本地服务还是远端服务，再选择对应的工具列表获取路径。
+         */
         String targetServer = normalizeServerCode(serverCode);
         McpServerRegistry registry = loadServerRegistry(targetServer);
         if (isLocalServer(registry)) {
@@ -73,6 +79,9 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
 
     @Override
     public McpToolCallResult callTool(String serverCode, String toolName, String argumentsJson) {
+        /**
+         * 工具调用统一先判断服务归属，本地服务直接转交本地实现，远端服务则走协议适配调用。
+         */
         String targetServer = normalizeServerCode(serverCode);
         McpServerRegistry registry = loadServerRegistry(targetServer);
         if (isLocalServer(registry)) {
@@ -83,6 +92,9 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
 
     @Override
     public List<McpPromptDescriptor> listPrompts(String serverCode) {
+        /**
+         * Prompt 列表获取沿用同一套本地优先、远端回退的服务路由策略。
+         */
         String targetServer = normalizeServerCode(serverCode);
         McpServerRegistry registry = loadServerRegistry(targetServer);
         if (isLocalServer(registry)) {
@@ -93,6 +105,9 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
 
     @Override
     public McpPromptResult getPrompt(String serverCode, String promptName, String argumentsJson) {
+        /**
+         * Prompt 获取阶段根据服务类型切换到本地或远端实现，保持调用侧接口一致。
+         */
         String targetServer = normalizeServerCode(serverCode);
         McpServerRegistry registry = loadServerRegistry(targetServer);
         if (isLocalServer(registry)) {
@@ -103,6 +118,9 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
 
     @Override
     public List<McpResourceDescriptor> listResources(String serverCode) {
+        /**
+         * 资源列表同样按服务位置分流，保证调用方无需关心底层资源来自本地还是远端。
+         */
         String targetServer = normalizeServerCode(serverCode);
         McpServerRegistry registry = loadServerRegistry(targetServer);
         if (isLocalServer(registry)) {
@@ -113,6 +131,9 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
 
     @Override
     public McpResourceResult readResource(String serverCode, String resourceUri) {
+        /**
+         * 资源读取入口统一屏蔽底层协议差异，输出标准资源读取结果。
+         */
         String targetServer = normalizeServerCode(serverCode);
         McpServerRegistry registry = loadServerRegistry(targetServer);
         if (isLocalServer(registry)) {
@@ -164,6 +185,9 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
     }
 
     private List<McpToolDescriptor> remoteListTools(McpServerRegistry registry, String serverCode) {
+        /**
+         * 远端工具列表通过 GET 拉取并按标准描述对象反序列化，解析失败时回退为空列表。
+         */
         String body = remoteGet(registry, McpProtocolConstants.PATH_TOOLS_LIST + "?serverCode=" + encode(serverCode), 10000);
         try {
             return objectMapper.readValue(body, new TypeReference<>() {});
@@ -174,6 +198,9 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
     }
 
     private McpToolCallResult remoteCallTool(McpServerRegistry registry, String serverCode, String toolName, String argumentsJson) {
+        /**
+         * 远端工具调用先组装统一请求体，再把响应解析为标准工具调用结果。
+         */
         String payload = toJson(Map.of(
                 "serverCode", serverCode,
                 "toolName", toolName == null ? "" : toolName,
@@ -251,6 +278,9 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
     }
 
     private String remoteGet(McpServerRegistry registry, String path, int timeoutMs) {
+        /**
+         * 读取型请求根据服务传输协议路由到 HTTP、RPC、WebSocket 或 STDIO 适配实现。
+         */
         String transport = normalizeTransport(registry.getTransportType());
         return switch (transport) {
             case "HTTP", "SSE" -> remoteHttpGet(registry, path, timeoutMs);
@@ -262,6 +292,9 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
     }
 
     private String remotePost(McpServerRegistry registry, String path, String payload, int timeoutMs) {
+        /**
+         * 写入型请求同样按传输协议分发，确保不同 MCP 服务的调用方式被统一封装。
+         */
         String transport = normalizeTransport(registry.getTransportType());
         return switch (transport) {
             case "HTTP", "SSE" -> remoteHttpPost(registry, path, payload, timeoutMs);
@@ -273,6 +306,9 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
     }
 
     private String remoteRpcCall(McpServerRegistry registry, String path, String payload, int timeoutMs) {
+        /**
+         * RPC 调用会把路径映射为方法名，再将查询参数和请求体合并成 JSON-RPC 参数结构。
+         */
         try {
             String rpcMethod = mapPathToRpcMethod(path);
             Map<String, Object> params = extractRpcParams(path, payload);
@@ -353,6 +389,9 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
     }
 
     private String remoteHttpGet(McpServerRegistry registry, String path, int timeoutMs) {
+        /**
+         * HTTP GET 适配负责拼接 URL、注入鉴权头并统一处理非 2xx 错误。
+         */
         try {
             HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(joinUrl(registry.getBaseUrl(), path)))
                     .timeout(Duration.ofMillis(timeoutMs))
@@ -370,6 +409,9 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
     }
 
     private String remoteHttpPost(McpServerRegistry registry, String path, String payload, int timeoutMs) {
+        /**
+         * HTTP POST 适配负责发送 JSON 载荷并把远端响应统一收敛成文本结果。
+         */
         try {
             HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(joinUrl(registry.getBaseUrl(), path)))
                     .timeout(Duration.ofMillis(timeoutMs))
@@ -387,6 +429,9 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
     }
 
     private String remoteWsCall(McpServerRegistry registry, String path, String payload, int timeoutMs) {
+        /**
+         * WebSocket 调用通过一次连接完成请求发送和响应收集，适配流式或双工服务端。
+         */
         try {
             URI target = URI.create(joinUrl(toWebSocketBaseUrl(registry.getBaseUrl()), path));
             CompletableFuture<String> responseFuture = new CompletableFuture<>();
@@ -414,6 +459,9 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
     }
 
     private String remoteStdioCall(McpServerRegistry registry, String method, String path, String payload, int timeoutMs) {
+        /**
+         * STDIO 调用通过启动外部进程并读写标准输入输出，实现本地命令式 MCP 服务接入。
+         */
         Map<String, Object> config = registry.getAuthConfig() == null ? Map.of() : registry.getAuthConfig();
         List<String> command = parseStdioCommand(config);
         if (command.isEmpty()) {
@@ -512,6 +560,9 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
     }
 
     private void applyAuth(HttpRequest.Builder builder, McpServerRegistry registry) {
+        /**
+         * 鉴权注入阶段按配置切换 Bearer 或 Basic 认证，保证远端服务调用具备必要身份信息。
+         */
         if (registry == null || registry.getAuthType() == null || registry.getAuthType().isBlank()) {
             return;
         }

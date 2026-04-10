@@ -6,6 +6,9 @@ import org.yilena.luna.mapper.StateStoreMapper;
 import org.yilena.luna.state.model.RetrievalState;
 import org.yilena.luna.state.store.RetrievalStateStore;
 
+/**
+ * 检索状态存储实现，负责持久化当前会话的检索计划与检索结果状态。
+ */
 @Service
 public class RetrievalStateStoreImpl extends AbstractJsonStateStore<RetrievalState> implements RetrievalStateStore {
 
@@ -15,11 +18,17 @@ public class RetrievalStateStoreImpl extends AbstractJsonStateStore<RetrievalSta
 
     @Override
     public RetrievalState load(String sessionId) {
+        /**
+         * 读取会话当前检索状态。
+         */
         return loadState(sessionId);
     }
 
     @Override
     public void save(String sessionId, RetrievalState state) {
+        /**
+         * 保存最新检索状态，供后续召回和恢复分支复用。
+         */
         saveState(sessionId, state);
     }
 
@@ -38,4 +47,3 @@ public class RetrievalStateStoreImpl extends AbstractJsonStateStore<RetrievalSta
         return RetrievalState.class;
     }
 }
-

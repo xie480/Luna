@@ -25,6 +25,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * Prompt 注册中心实现，负责聚合数据库与内置 Prompt，输出统一的可查询、可匹配运行时视图。
+ */
 @Service
 @RequiredArgsConstructor
 public class PromptRegistryServiceImpl implements PromptRegistryService {
@@ -58,6 +61,9 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
     }
 
     private Optional<PromptItemRecord> loadByKey(String key, boolean includeDisabled) {
+        /**
+         * 按键查询时优先查精确键，再尝试别名和内置兜底，兼顾兼容性与运行时一致性。
+         */
         if (key == null || key.isBlank()) {
             return Optional.empty();
         }
@@ -122,6 +128,9 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
     }
 
     private Optional<PromptItemRecord> loadById(Long id, boolean includeDisabled) {
+        /**
+         * 按 ID 查询时先取条目，再根据可见性规则补齐当前展示版本。
+         */
         if (id == null || id <= 0) {
             return Optional.empty();
         }
@@ -142,6 +151,9 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
 
     @Override
     public boolean existsByKey(String key) {
+        /**
+         * 键存在性判断会同时覆盖主键、别名和内置 Prompt，供变更服务做唯一性校验。
+         */
         if (key == null || key.isBlank()) {
             return false;
         }
@@ -193,6 +205,9 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
 
     @Override
     public List<PromptItemRecord> listAll(boolean includeDisabled) {
+        /**
+         * 全量视图先合并内置 Prompt，再叠加数据库记录，并按启用状态和优先级统一排序。
+         */
         Map<String, PromptItemRecord> merged = new LinkedHashMap<>();
         if (builtinFallbackEnabled) {
             merged.putAll(builtins);
@@ -243,6 +258,9 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
 
     @Override
     public List<String> listCategories() {
+        /**
+         * 分类列表优先采用分类服务配置，拿不到时再从注册视图反推，保证降级可用。
+         */
         try {
             List<String> categories = promptCategoryService.listEnabledOrdered().stream()
                     .map(PromptCategoryEntity::getCategoryKey)
@@ -276,6 +294,9 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
 
     @Override
     public String resolvePromptValue(String key, String fallbackValue) {
+        /**
+         * 解析 Prompt 文本时优先返回已注册值，未命中则退回调用方提供的默认模板。
+         */
         Optional<PromptItemRecord> record = getByKey(key);
         if (record.isPresent() && record.get().getValue() != null && !record.get().getValue().isBlank()) {
             return record.get().getValue();
@@ -306,6 +327,9 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
     }
 
     private PromptItemRecord merge(PromptItemEntity item, PromptItemVersionEntity version) {
+        /**
+         * 将条目主信息和版本信息合并成运行时记录，供解析和查询链路统一消费。
+         */
         if (item == null) {
             return null;
         }

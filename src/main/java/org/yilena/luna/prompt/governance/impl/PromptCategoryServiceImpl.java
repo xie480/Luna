@@ -14,6 +14,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
+/**
+ * Prompt 分类服务实现，负责读取分类目录、构建分类树，并判定分类是否属于执行类或允许关键词匹配。
+ */
 @Service
 @RequiredArgsConstructor
 public class PromptCategoryServiceImpl implements PromptCategoryService {
@@ -27,6 +30,9 @@ public class PromptCategoryServiceImpl implements PromptCategoryService {
 
     @Override
     public List<PromptCategoryEntity> listEnabledOrdered() {
+        /**
+         * 优先按启用状态和排序规则读取分类，为后续目录展示和分类匹配提供稳定顺序。
+         */
         try {
             return promptCategoryMapper.selectList(
                     new LambdaQueryWrapper<PromptCategoryEntity>()
@@ -41,6 +47,9 @@ public class PromptCategoryServiceImpl implements PromptCategoryService {
 
     @Override
     public List<PromptCategoryTreeNode> listEnabledTree() {
+        /**
+         * 先把启用分类转换为节点索引，再按父子关系拼装成树形结构供前端展示。
+         */
         List<PromptCategoryEntity> categories = listEnabledOrdered();
         if (categories.isEmpty()) {
             return List.of();
@@ -79,6 +88,9 @@ public class PromptCategoryServiceImpl implements PromptCategoryService {
 
     @Override
     public Optional<PromptCategoryEntity> findByKey(String categoryKey) {
+        /**
+         * 按分类键精确查询分类记录，供写入校验和分类能力判断复用。
+         */
         if (categoryKey == null || categoryKey.isBlank()) {
             return Optional.empty();
         }
@@ -96,6 +108,9 @@ public class PromptCategoryServiceImpl implements PromptCategoryService {
 
     @Override
     public boolean isExecutionCategory(String categoryKey) {
+        /**
+         * 优先使用数据库配置判断执行类分类，缺失时再退回内置兜底集合。
+         */
         Optional<PromptCategoryEntity> category = findByKey(categoryKey);
         if (category.isPresent()) {
             return Boolean.TRUE.equals(category.get().getIsExecutionCategory());
@@ -105,6 +120,9 @@ public class PromptCategoryServiceImpl implements PromptCategoryService {
 
     @Override
     public boolean isKeywordMatchAllowed(String categoryKey) {
+        /**
+         * 关键词匹配能力优先取分类配置，没有配置时按是否执行类分类做默认决策。
+         */
         Optional<PromptCategoryEntity> category = findByKey(categoryKey);
         if (category.isPresent()) {
             return !Boolean.FALSE.equals(category.get().getKeywordMatchAllowed());
