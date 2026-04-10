@@ -31,6 +31,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+/**
+ * MCP 目录迁移任务，负责将旧版 MCP 工具与技能表迁移到新版目录与映射结构，并做一致性校验。
+ */
 public class McpCatalogMigrationJob {
 
     private static final Set<String> CORE_LOCAL_HANDLER_TOOLS = Set.of(
@@ -66,6 +69,9 @@ public class McpCatalogMigrationJob {
 
     @PostConstruct
     public void migrateOnStartup() {
+        /**
+         * 启动阶段只在开关打开时执行迁移，避免默认启动就触发历史数据改写。
+         */
         if (!autoEnabled) {
             return;
         }
@@ -74,6 +80,9 @@ public class McpCatalogMigrationJob {
 
     @Scheduled(cron = "${luna.mcp.migration.validation.cron:0 */30 * * * *}")
     public void validateAndMigrate() {
+        /**
+         * 定时任务主要用于做迁移结果巡检，必要时补打快照日志而不是盲目重复迁移。
+         */
         if (!validationEnabled) {
             return;
         }
@@ -82,22 +91,35 @@ public class McpCatalogMigrationJob {
 
     @Transactional(rollbackFor = Exception.class)
     public void runMigration(String trigger) {
+        /**
+         * 先利用原子锁防止同一时刻重复执行迁移，避免目录和映射被并发覆盖。
+         */
         if (!running.compareAndSet(false, true)) {
             return;
         }
         try {
+            /**
+             * 当关闭旧表读取时，只做遗留数据告警、核心映射兜底和快照校验，不再真正读取历史表。
+             */
             if (!readLegacyEnabled) {
                 reportLegacyPendingRetirement(trigger);
                 ensureCoreLocalHandlerMappings();
                 validateSnapshot(trigger, 0, 0, 0, 0);
                 return;
             }
+
+            /**
+             * 如果旧版表已经不存在，则只保证本地核心映射齐全并输出校验快照。
+             */
             if (!tableExists("mcp_tools") && !tableExists("mcp_skills")) {
                 ensureCoreLocalHandlerMappings();
                 validateSnapshot(trigger, 0, 0, 0, 0);
                 return;
             }
 
+            /**
+             * 先保证本地默认 MCP 服务注册存在，再依次迁移工具、Prompt、组合工具和工作流。
+             */
             ensureLocalServerRegistry();
 
             int migratedTools = migrateLegacyTools();
@@ -111,6 +133,9 @@ public class McpCatalogMigrationJob {
         } catch (Exception e) {
             log.warn("mcp auto migration failed, trigger={}, err={}", trigger, e.getMessage(), e);
         } finally {
+            /**
+             * 迁移结束后必须释放执行锁，否则后续定时校验和手工触发都会被阻塞。
+             */
             running.set(false);
         }
     }
@@ -132,6 +157,9 @@ public class McpCatalogMigrationJob {
         if (!tableExists("mcp_tools")) {
             return 0;
         }
+        /**
+         * 逐条读取旧版工具记录，并同步生成新版目录数据和实现映射关系。
+         */
         List<Map<String, Object>> rows = mcpLegacyMigrationMapper.selectLegacyTools();
         int migrated = 0;
         for (Map<String, Object> row : rows) {
@@ -158,6 +186,9 @@ public class McpCatalogMigrationJob {
                     .build();
             mcpService.upsertToolCatalog(catalog);
 
+            /**
+             * 工具目录落库后继续补齐执行实现映射，决定该工具走本地处理器还是兼容旧模式。
+             */
             McpToolImplMapping mapping = McpToolImplMapping.builder()
                     .serverCode(McpConstant.LOCAL_SERVER_CODE)
                     .toolName(toolName)
@@ -178,6 +209,9 @@ public class McpCatalogMigrationJob {
         if (!tableExists("mcp_skills")) {
             return 0;
         }
+        /**
+         * 对于偏 Prompt 型的历史技能，迁移为 Prompt 目录记录，保留原始入参和元数据。
+         */
         List<Map<String, Object>> rows = mcpLegacyMigrationMapper.selectLegacySkills();
         int migrated = 0;
         for (Map<String, Object> row : rows) {
@@ -211,6 +245,9 @@ public class McpCatalogMigrationJob {
         if (!tableExists("mcp_skills")) {
             return 0;
         }
+        /**
+         * 对于同步型组合技能，迁移为组合工具并绑定本地处理器，以兼容新目录的执行模型。
+         */
         List<Map<String, Object>> rows = mcpLegacyMigrationMapper.selectLegacySkills();
         int migrated = 0;
         for (Map<String, Object> row : rows) {
@@ -240,7 +277,9 @@ public class McpCatalogMigrationJob {
                     .build();
             mcpService.upsertToolCatalog(tool);
 
-            // Composite tool is executed by CompositeWorkflowLocalMcpToolHandler through workflow_template.
+            /**
+             * 组合工具通过本地处理器桥接 workflow_template 执行，因此映射类型固定为 LOCAL_HANDLER。
+             */
             McpToolImplMapping mapping = McpToolImplMapping.builder()
                     .serverCode(McpConstant.LOCAL_SERVER_CODE)
                     .toolName(name)
@@ -259,6 +298,9 @@ public class McpCatalogMigrationJob {
         if (!tableExists("mcp_skills")) {
             return 0;
         }
+        /**
+         * 对于具备异步或编排特征的历史技能，迁移为工作流模板供后续任务编排直接使用。
+         */
         List<Map<String, Object>> rows = mcpLegacyMigrationMapper.selectLegacySkills();
         int migrated = 0;
         for (Map<String, Object> row : rows) {
@@ -292,6 +334,9 @@ public class McpCatalogMigrationJob {
         if (!tableExists("mcp_tool_catalog")) {
             return;
         }
+        /**
+         * 对核心本地工具做一轮映射兜底，避免迁移未读旧表时本地工具无法执行。
+         */
         List<Map<String, Object>> rows = mcpLegacyMigrationMapper.selectCoreLocalHandlerTools();
         for (Map<String, Object> row : rows) {
             String serverCode = defaultValue(text(row.get("server_code")), McpConstant.LOCAL_SERVER_CODE);
@@ -316,6 +361,9 @@ public class McpCatalogMigrationJob {
                                   int migratedPrompts,
                                   int migratedWorkflows,
                                   int migratedCompositeTools) {
+        /**
+         * 对比旧版表数量与新版目录数量，快速判断迁移覆盖率是否存在明显缺口。
+         */
         long legacyTools = readLegacyEnabled ? countIfTableExists("mcp_tools") : 0L;
         long legacySkills = readLegacyEnabled ? countIfTableExists("mcp_skills") : 0L;
         long catalogTools = countIfTableExists("mcp_tool_catalog");
@@ -337,6 +385,9 @@ public class McpCatalogMigrationJob {
     }
 
     private void reportLegacyPendingRetirement(String trigger) {
+        /**
+         * 当系统已关闭旧表读取但旧表仍存在数据时，输出告警或直接失败，推动遗留表下线。
+         */
         long legacyTools = countIfTableExists("mcp_tools");
         long legacySkills = countIfTableExists("mcp_skills");
         if (legacyTools <= 0 && legacySkills <= 0) {

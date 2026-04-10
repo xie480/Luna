@@ -53,6 +53,9 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+/**
+ * 阶段执行服务实现，负责将计划阶段拆成可并发批次执行的节点任务，并处理失败、审批和状态回写。
+ */
 public class PhaseExecutionServiceImpl implements PhaseExecutionService {
 
     private static final int DEFAULT_MAX_RETRY = 1;
@@ -82,6 +85,9 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
 
     @Override
     public String executePhase(String planId, PlanPhase phase, String sessionId) {
+        /**
+         * 阶段执行入口会先加载节点、构造批次，再按批次推进并汇总阶段级结果。
+         */
         String phaseId = phase.getPhaseId();
         int phaseOrder = phase.getPhaseOrder() == null ? 0 : phase.getPhaseOrder();
         long phaseStart = System.currentTimeMillis();
@@ -156,6 +162,9 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
 
     @Override
     public List<List<PlanNode>> resolveExecutionBatches(List<PlanNode> nodes) {
+        /**
+         * 使用拓扑排序把节点拆成可并发的批次，确保依赖满足后再执行后续节点。
+         */
         if (nodes == null || nodes.isEmpty()) {
             return Collections.emptyList();
         }
@@ -242,6 +251,9 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
             String planId, String phaseId, int phaseOrder,
             List<PlanNode> batch, String sessionId,
             int batchIdx, int totalBatches) {
+        /**
+         * 批次执行阶段统一收敛同步执行、并发执行、审批挂起和超时失败等结果。
+         */
 
         if (batch.size() == 1) {
             // 单节点直接同步执行，避免线程开销
@@ -372,6 +384,9 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
     // =========================================================
 
     private NodeResult executeNode(String planId, String phaseId, int phaseOrder, PlanNode node, String sessionId) {
+        /**
+         * 节点执行入口负责统一管理重试次数、事件发布、工具调用、摘要写回和节点状态落库。
+         */
         String nodeId = node.getNodeId();
         String nodeName = node.getName() == null ? "" : node.getName();
         String nodeType = node.getNodeType() == null ? "" : node.getNodeType().getValue();
@@ -1448,6 +1463,9 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                                                          String modelFamily,
                                                          List<Resource> executionCandidates,
                                                          String assembledDecisionContext) {
+        /**
+         * 通过签名后的治理输入构造线程上下文，再统一调用代理服务执行工具决策，保证安全链路闭环。
+         */
         String stableAssembledDecisionContext = assembledDecisionContext == null ? "" : assembledDecisionContext;
         String governedInputSignature = ToolDecisionInputSignatureUtil.sign(
                 sessionId,

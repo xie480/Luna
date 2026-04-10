@@ -72,6 +72,9 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+/**
+ * 计划编排服务实现，负责管理计划从蓝图生成、持久化、阶段执行到结果汇总的完整生命周期。
+ */
 public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
     private static final int DEFAULT_MAX_RETRY = 1;
@@ -102,6 +105,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
     @Override
     public String createAndRunPlan(String sessionId, String userGoal, boolean callbackToChat) {
+        /**
+         * 计划主入口会先补齐规划上下文，再生成蓝图、物化执行图并按阶段推进整个计划。
+         */
         String planId = null;
         try {
             if (sessionId == null || sessionId.isBlank()) {
@@ -322,6 +328,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
     @Override
     public String runPhase(String planId, String phaseId) {
+        /**
+         * 手动执行单阶段时先校验阶段归属，再委托阶段执行器推进该阶段节点。
+         */
         try {
             if (planId == null || planId.isBlank() || phaseId == null || phaseId.isBlank()) {
                 return error("PHASE_INVALID_INPUT", "planId 和 phaseId 不能為空");
@@ -361,6 +370,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
     @Override
     public String finalizeAndReport(String planId) {
+        /**
+         * 计划收尾阶段负责汇总执行结果并生成最终报告，供前端展示和复盘使用。
+         */
         try {
             if (planId == null || planId.isBlank()) {
                 return error("PLAN_INVALID_INPUT", "planId 不能為空");

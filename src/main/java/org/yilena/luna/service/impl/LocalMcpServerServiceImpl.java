@@ -48,6 +48,9 @@ import java.util.Map;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+/**
+ * 本地 MCP 服务实现，负责把本地目录中的工具、Prompt、资源包装成 MCP 语义接口并执行对应实现。
+ */
 public class LocalMcpServerServiceImpl implements LocalMcpServerService {
 
     private final McpToolCatalogMapper toolCatalogMapper;
@@ -75,6 +78,9 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
 
     @Override
     public List<McpToolDescriptor> listTools(String serverCode) {
+        /**
+         * 先按服务编码加载所有启用中的工具目录记录，再转换为 MCP 对外描述对象。
+         */
         String targetServer = normalizeServerCode(serverCode);
         List<McpToolCatalog> rows = toolCatalogMapper.selectList(
                 new LambdaQueryWrapper<McpToolCatalog>()
@@ -86,6 +92,9 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
 
     @Override
     public McpToolCallResult callTool(String serverCode, String toolName, String argumentsJson) {
+        /**
+         * 先根据服务编码和工具名查找执行映射，映射不存在时直接返回标准化错误结果。
+         */
         String targetServer = normalizeServerCode(serverCode);
         McpToolImplMapping mapping = toolImplMappingMapper.findEnabledMapping(targetServer, toolName);
         if (mapping == null) {
@@ -100,6 +109,10 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
 
         String implType = normalizeImplType(mapping.getImplType());
         String executionMode = normalizeExecutionMode(mapping.getExecutionMode());
+
+        /**
+         * 在真正执行前先校验兼容模式开关，避免被禁用的旧执行模式或 Bean 模式误入运行时。
+         */
         if ("LEGACY".equals(executionMode) && !allowLegacyMode) {
             return McpToolCallResult.builder()
                     .status("error")
@@ -120,6 +133,9 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
         }
 
         String args = (argumentsJson == null || argumentsJson.isBlank()) ? "{}" : argumentsJson;
+        /**
+         * 根据实现类型分发到路由调用、本地处理器或兼容 Bean 模式，并统一收敛返回结果结构。
+         */
         String rawResult = switch (implType) {
             case "HTTP", "RPC", "WORKFLOW" -> invokeRoute(mapping, toolName, targetServer, args);
             case "LOCAL_HANDLER" -> invokeLocalHandler(mapping, toolName, args);
@@ -140,6 +156,9 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
 
     @Override
     public List<McpPromptDescriptor> listPrompts(String serverCode) {
+        /**
+         * 读取启用中的 Prompt 目录并转换为 MCP Prompt 描述，供外部发现和调用。
+         */
         String targetServer = normalizeServerCode(serverCode);
         List<McpPromptCatalog> rows = promptCatalogMapper.selectList(
                 new LambdaQueryWrapper<McpPromptCatalog>()
@@ -151,6 +170,9 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
 
     @Override
     public McpPromptResult getPrompt(String serverCode, String promptName, String argumentsJson) {
+        /**
+         * 先查询目标 Prompt 是否存在，缺失时返回明确错误，避免下游拿到空内容误判成功。
+         */
         String targetServer = normalizeServerCode(serverCode);
         McpPromptCatalog prompt = promptCatalogMapper.selectOne(
                 new LambdaQueryWrapper<McpPromptCatalog>()
@@ -168,6 +190,9 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
                     .build();
         }
 
+        /**
+         * 对于目录中存在的 Prompt，直接回传元信息、原始载荷和本次调用参数，交由调用方继续组装。
+         */
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("promptName", prompt.getPromptName());
         result.put("title", prompt.getTitle());
@@ -185,6 +210,9 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
 
     @Override
     public List<McpResourceDescriptor> listResources(String serverCode) {
+        /**
+         * 合并静态目录资源与动态资源模板，既保留数据库配置，也暴露运行时查询入口。
+         */
         String targetServer = normalizeServerCode(serverCode);
         List<McpResourceCatalog> rows = resourceCatalogMapper.selectList(
                 new LambdaQueryWrapper<McpResourceCatalog>()
@@ -202,11 +230,17 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
 
     @Override
     public McpResourceResult readResource(String serverCode, String resourceUri) {
+        /**
+         * 优先尝试读取动态资源模板，命中后可以直接基于 URI 参数生成实时数据。
+         */
         String targetServer = normalizeServerCode(serverCode);
         McpResourceResult dynamic = readDynamicResource(targetServer, resourceUri);
         if (dynamic != null) {
             return dynamic;
         }
+        /**
+         * 动态资源未命中时再回退到静态目录资源，保证两类资源可以共存。
+         */
         McpResourceCatalog row = resourceCatalogMapper.selectOne(
                 new LambdaQueryWrapper<McpResourceCatalog>()
                         .eq(McpResourceCatalog::getServerCode, targetServer)
@@ -232,6 +266,9 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
     }
 
     private String invokeRoute(McpToolImplMapping mapping, String toolName, String serverCode, String args) {
+        /**
+         * 对 HTTP、RPC、工作流路由类实现统一走远端调用，保持 MCP 本地服务只做网关转发。
+         */
         if (mapping.getRouteUri() == null || mapping.getRouteUri().isBlank()) {
             return errorResult("TOOL_ROUTE_URI_REQUIRED", "routeUri is required for HTTP/RPC/WORKFLOW impl");
         }
@@ -258,6 +295,9 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
     }
 
     private String invokeLocalHandler(McpToolImplMapping mapping, String toolName, String args) {
+        /**
+         * 本地处理器模式下先构造调用上下文，再按工具名和 supports 规则定位最合适的处理器。
+         */
         LocalMcpToolHandler.InvocationContext context = new LocalMcpToolHandler.InvocationContext(
                 normalizeServerCode(mapping == null ? null : mapping.getServerCode()),
                 toolName,
@@ -278,6 +318,9 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
     }
 
     private String invokeSpringBeanCompat(McpToolImplMapping mapping, String toolName, String args) {
+        /**
+         * 兼容旧版 Spring Bean 执行模式时，仍复用本地处理器抽象，避免直接反射调用扩散。
+         */
         if (!allowSpringBean) {
             return errorResult(
                     "TOOL_IMPL_DISABLED",
@@ -305,6 +348,9 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
 
     private LocalMcpToolHandler resolveLocalHandler(String toolName,
                                                     LocalMcpToolHandler.InvocationContext context) {
+        /**
+         * 先按工具名索引快速定位处理器，找不到时再遍历 supports 兜底，兼顾性能和灵活匹配。
+         */
         Map<String, LocalMcpToolHandler> index = localToolHandlerIndex();
         String byTool = toolName == null ? "" : toolName.trim().toLowerCase(Locale.ROOT);
         if (!byTool.isBlank() && index.containsKey(byTool)) {
@@ -332,6 +378,9 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
             if (toolHandlerIndex != null) {
                 return toolHandlerIndex;
             }
+            /**
+             * 初始化工具处理器索引时同时登记主名称和别名，降低不同路由名带来的匹配成本。
+             */
             Map<String, LocalMcpToolHandler> out = new HashMap<>();
             List<LocalMcpToolHandler> handlers = localToolHandlers == null ? List.of() : new ArrayList<>(localToolHandlers);
             for (LocalMcpToolHandler handler : handlers) {
@@ -357,6 +406,9 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
     }
 
     private McpResourceResult readDynamicResource(String serverCode, String resourceUri) {
+        /**
+         * 动态资源以 resource:// 协议约定不同业务域，读取时根据 host 路由到具体查询实现。
+         */
         if (resourceUri == null || resourceUri.isBlank() || !resourceUri.startsWith("resource://")) {
             return null;
         }
@@ -393,6 +445,9 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
     }
 
     private List<McpResourceDescriptor> dynamicResourceDescriptors(String serverCode) {
+        /**
+         * 动态资源模板用于声明可发现的运行时资源入口，避免客户端不知道 URI 规范。
+         */
         return List.of(
                 dynamicResourceDescriptor(serverCode, "resource://knowledge/query", "knowledge.query", "Knowledge query resource template"),
                 dynamicResourceDescriptor(serverCode, "resource://user/preferences/current", "user.preferences.current", "User preference resource template"),
@@ -414,6 +469,9 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
     }
 
     private Map<String, Object> readKnowledge(String path, Map<String, String> query) {
+        /**
+         * 知识资源支持按关键词查询和按 ID 读取两种方式，分别服务搜索和精确定位场景。
+         */
         int limit = normalizeLimit(query.get("limit"), 10, 50);
         if ("/query".equalsIgnoreCase(path)) {
             String keyword = query.getOrDefault("q", query.getOrDefault("query", ""));
@@ -431,6 +489,9 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
     }
 
     private Map<String, Object> readUser(String path, Map<String, String> query) {
+        /**
+         * 用户资源主要用于暴露当前偏好画像，可按全部偏好或指定偏好键读取。
+         */
         int limit = normalizeLimit(query.get("limit"), 20, 100);
         if ("/preferences/current".equalsIgnoreCase(path)) {
             List<Map<String, Object>> rows = userPreferenceMapper.selectResourcePreferences(limit);
@@ -445,6 +506,9 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
     }
 
     private Map<String, Object> readMemory(String path, Map<String, String> query) {
+        /**
+         * 记忆资源按会话维度读取，优先使用显式 sessionId，缺失时回退到当前登录会话。
+         */
         int limit = normalizeLimit(query.get("limit"), 20, 100);
         String sessionId = query.getOrDefault("sessionId", "");
         if ("/session/current".equalsIgnoreCase(path)) {
@@ -466,6 +530,9 @@ public class LocalMcpServerServiceImpl implements LocalMcpServerService {
     }
 
     private Map<String, Object> readSchedule(String path, Map<String, String> query) {
+        /**
+         * 日程资源同时支持当天任务概览和按任务 ID 精确查询，方便前端做看板和详情展示。
+         */
         int limit = normalizeLimit(query.get("limit"), 20, 100);
         if ("/today".equalsIgnoreCase(path)) {
             LocalDate today = LocalDate.now();

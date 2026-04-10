@@ -29,6 +29,9 @@ import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
+/**
+ * 状态驱动上下文流水线实现，负责在任务状态基础上补齐轮次请求并驱动完整的上下文执行链路。
+ */
 public class StateDrivenContextPipelineImpl implements StateDrivenContextPipeline {
 
     private final RoundPipelineOrchestrator roundPipelineOrchestrator;
@@ -40,14 +43,24 @@ public class StateDrivenContextPipelineImpl implements StateDrivenContextPipelin
 
     @Override
     public RoundPipelineResult run(StateDrivenContextPipelineRequest request) {
+        /**
+         * 先校验状态驱动请求是否完整，缺少轮次请求时直接返回阻断结果。
+         */
         if (request == null || request.getRoundPipelineRequest() == null) {
             return blocked("state_driven_context_pipeline_request_missing");
         }
+
+        /**
+         * 对轮次请求做水化，补齐缺失的决策、上下文、重构结果和工作集，形成真正可执行输入。
+         */
         RoundPipelineRequest hydratedRoundRequest = hydrateRoundRequest(request);
         if (hydratedRoundRequest == null) {
             return blocked("state_driven_context_pipeline_hydration_failed");
         }
 
+        /**
+         * 在执行前按重构、召回、重排、组装四个阶段输出审计钩子，保留状态驱动链路轨迹。
+         */
         String sessionId = firstNonBlank(request.getSessionId(), hydratedRoundRequest.getSessionId());
         String triggerSource = firstNonBlank(request.getTriggerSource(), "STATE_DRIVEN_CONTEXT_PIPELINE");
         Long planId = contextPlanId(hydratedRoundRequest);
@@ -72,6 +85,9 @@ public class StateDrivenContextPipelineImpl implements StateDrivenContextPipelin
                 "writeRoundState", hydratedRoundRequest.isWriteRoundState()
         ));
 
+        /**
+         * 调用轮次流水线执行真正的主流程，并在执行后补记 execute 与 writeback 阶段审计。
+         */
         RoundPipelineResult result = roundPipelineOrchestrator.executeRound(hydratedRoundRequest);
         auditHook(traceId, sessionId, planId, nodeId, "execute", triggerSource, hydratedRoundRequest, Map.of(
                 "blocked", result != null && result.isBlocked(),
@@ -84,6 +100,10 @@ public class StateDrivenContextPipelineImpl implements StateDrivenContextPipelin
         if (result == null) {
             return blocked("round_result_missing");
         }
+
+        /**
+         * 结果返回前统一做字段兜底，优先复用轮次执行结果，缺失时回退到水化请求里的上下文。
+         */
         return RoundPipelineResult.builder()
                 .blocked(result.isBlocked())
                 .blockedReason(result.getBlockedReason())
@@ -120,6 +140,10 @@ public class StateDrivenContextPipelineImpl implements StateDrivenContextPipelin
         if (input == null) {
             return null;
         }
+
+        /**
+         * 先整合请求中的会话和用户输入，再读取已有的决策、上下文和重构结果。
+         */
         String sessionId = firstNonBlank(request.getSessionId(), input.getSessionId());
         String userInput = safe(input.getUserInput());
 
@@ -128,6 +152,9 @@ public class StateDrivenContextPipelineImpl implements StateDrivenContextPipelin
         InputReconstructionResult reconstructionResult = input.getReconstructionResult();
 
         if ((decision == null || contextPackage == null || reconstructionResult == null) && !userInput.isBlank()) {
+            /**
+             * 如果核心上下文缺失，则回退到任务编排服务重新执行一次用户输入编排，补齐基础运行态。
+             */
             TaskOrchestrationResult orchestration = taskOrchestratorService().orchestrateUserInput(sessionId, userInput);
             if (decision == null) {
                 decision = orchestration == null ? null : orchestration.getDecision();
@@ -140,6 +167,9 @@ public class StateDrivenContextPipelineImpl implements StateDrivenContextPipelin
             }
         }
         if (!isReconstructionReady(reconstructionResult)) {
+            /**
+             * 缺少明确任务目标时阻断轮次执行，因为后续节点工作集和主模型都依赖该目标。
+             */
             runtimeAuditService.persistDecisionRecord(
                     sessionId,
                     contextPlanId(contextPackage),
@@ -163,6 +193,9 @@ public class StateDrivenContextPipelineImpl implements StateDrivenContextPipelin
                 && decision != null
                 && contextPackage != null
                 && reconstructionResult != null) {
+            /**
+             * 当节点工作集尚未生成时，基于当前决策和上下文补做节点级检索与候选能力编排。
+             */
             nodeWorksetResult = taskOrchestratorService().orchestrateNodeWorkset(
                     sessionId,
                     userInput,
@@ -212,6 +245,9 @@ public class StateDrivenContextPipelineImpl implements StateDrivenContextPipelin
                 ? resolveNodeTemplatePolicy(decision, contextPackage)
                 : input.getNodeTemplatePolicy();
 
+        /**
+         * 最后将所有补齐后的上下文字段重新组装成标准 RoundPipelineRequest，交给轮次流水线执行。
+         */
         return RoundPipelineRequest.builder()
                 .sessionId(sessionId)
                 .userInput(userInput)
@@ -254,6 +290,9 @@ public class StateDrivenContextPipelineImpl implements StateDrivenContextPipelin
                            String triggerSource,
                            RoundPipelineRequest request,
                            Map<String, Object> payload) {
+        /**
+         * 每个状态驱动钩子都同时写审计记录和状态迁移日志，便于从两个维度回放流程。
+         */
         runtimeAuditService.persistDecisionRecord(
                 sessionId,
                 planId,

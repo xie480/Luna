@@ -105,6 +105,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 @Service
 @RequiredArgsConstructor
+/**
+ * 任务编排服务实现，负责串联输入重构、召回重排、摘要生成、主模型执行与状态写回等核心上下文链路。
+ */
 public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
 
     private static final int ACTIVE_REF_MAX_PER_CHANNEL = 24;
@@ -172,6 +175,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
 
     @Override
     public TaskOrchestrationResult orchestrateUserInput(String sessionId, String userInput) {
+        /**
+         * 先编译当前会话上下文并重构用户输入，得到更适合任务状态机和召回链路使用的治理信号。
+         */
         String transitionTraceId = buildTraceId("TASK_ORCHESTRATOR", sessionId, null, null);
         StructuredContextPackage preContextPackage = contextCompilerService.compile(sessionId, userInput, null, null);
         InputReconstructionResult reconstructionResult = inputReconstructionAgent.reconstruct(
@@ -194,6 +200,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 preContextPackage == null || preContextPackage.getRecoveryState() == null ? "" : nullSafe(preContextPackage.getRecoveryState().getRecoveryEvent())
         );
         GovernedSignal governedSignal = buildGovernedSignal(userInput, reconstructionResult);
+        /**
+         * 将治理信号送入事件入口，驱动任务状态机产出当前轮的编排决策和结构化上下文包。
+         */
         OrchestrationDecision decision = eventIngressService.ingestUserInput(
                 sessionId,
                 userInput,
@@ -202,6 +211,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         StructuredContextPackage contextPackage = decision == null ? preContextPackage : decision.getContextPackage();
         RecoveryTrigger recoveryTrigger = resolveRecoveryTrigger(userInput, decision, contextPackage);
         if (recoveryTrigger.shouldRecover) {
+            /**
+             * 命中恢复分支时先执行恢复代理，必要时立即刷新召回和重排结果，避免继续使用失效上下文。
+             */
             stateTransitionTraceLogger.log(
                     transitionTraceId,
                     sessionId,
@@ -259,6 +271,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 recoveryStateStore.clear(sessionId);
             }
         } else {
+            /**
+             * 未命中恢复分支时清理旧恢复状态，表明本轮是正常对话推进。
+             */
             recoveryStateStore.clear(sessionId);
             runtimeAuditService.persistDecisionRecord(
                     sessionId,
@@ -269,6 +284,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                     toJsonSafe(Map.of("input", userInput == null ? "" : userInput))
             );
         }
+        /**
+         * 最后持久化上下文快照、决策结果和输入重构审计，为后续轮次和回放分析提供基线。
+         */
         stateTransitionTraceLogger.log(
                 transitionTraceId,
                 sessionId,
@@ -315,6 +333,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                                                              Map<String, Object> eventPayload,
                                                              String recoveryEvent,
                                                              String interruptReason) {
+        /**
+         * 系统恢复分支从系统事件切入，先驱动状态机再执行恢复代理，用于承接非用户输入触发的修复流程。
+         */
         OrchestrationDecision decision = eventIngressService.ingestSystemEvent(
                 sessionId,
                 eventType == null || eventType.isBlank() ? "SYSTEM" : eventType,
@@ -385,6 +406,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                                                     OrchestrationDecision decision,
                                                     StructuredContextPackage contextPackage,
                                                     InputReconstructionResult reconstructionResult) {
+        /**
+         * 先检查输入重构是否达到召回门槛，目标不明确时直接阻断，避免无效召回污染上下文。
+         */
         ReconstructionRecallGate recallGate = evaluateReconstructionRecallGate(
                 reconstructionResult,
                 decision == null ? null : decision.getTaskState()
@@ -414,6 +438,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         }
         String worksetTraceId = buildTraceId("NODE_WORKSET", sessionId, contextPlanId(contextPackage), contextNodeId(contextPackage));
         Map<String, Object> traceMeta = buildTraceMeta(contextPackage, contextNodeId(contextPackage), worksetTraceId, "NODE_WORKSET");
+        /**
+         * 先构造 MCP 查询并做能力预路由、预排序，形成候选能力池供后续全局重排使用。
+         */
         stateTransitionTraceLogger.log(
                 worksetTraceId,
                 sessionId,
@@ -503,6 +530,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 reconstructionResult,
                 decision == null ? null : decision.getTaskState()
         );
+        /**
+         * 再生成知识和记忆检索查询；如果查询构建失败，则当前节点工作集直接阻断。
+         */
         if (!nonBlank(ragQuery) || !nonBlank(memoryQuery)) {
             String blockedReason = !nonBlank(ragQuery) ? "rag_query_not_buildable" : "memory_query_not_buildable";
             persistReconstructionBlockedState(sessionId, decision, contextPackage, reconstructionResult, blockedReason);
@@ -528,6 +558,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         List<String> selectedPreference = List.of();
         ContextRerankResult rerankResult = null;
         try {
+            /**
+             * 分别执行知识、偏好、记忆召回，再通过全局重排代理整合多源证据和 MCP 候选。
+             */
             List<ConversationMessage> conversationContext = buildRetrievalConversationContext(contextPackage);
             List<RetrievalRoute> allowedRoutes = resolveAllowedRoutes(decision);
             if (refreshPlan.refreshRagNow || refreshPlan.reassembleNow) {
@@ -640,6 +673,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             selectedMemory = mergedMemory;
             selectedPreference = toPreferenceSnippets(response);
         } catch (Exception e) {
+            /**
+             * 召回或重排异常时保留空结果并记审计，避免因为单路故障阻断整个节点执行。
+             */
             runtimeAuditService.persistDecisionRecord(
                     sessionId,
                     contextPlanId(contextPackage),
@@ -659,6 +695,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             selectedPreference = List.of();
         }
 
+        /**
+         * 根据重排结果提取真正用于执行的能力候选和资源提示，输出节点级工作集结果。
+         */
         List<Resource> executionCandidates = resolveExecutionCandidates(
                 rerankResult,
                 refreshPlan.reassembleNow ? List.of() : mcpPreRankedCandidates
@@ -919,6 +958,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
 
     @Override
     public BlueprintOrchestrationResult orchestrateBlueprintInput(String sessionId, String userGoal) {
+        /**
+         * 蓝图入口会先复用标准对话编排链路，再补做节点工作集和蓝图草稿，供主规划服务直接消费。
+         */
         TaskOrchestrationResult orchestrationResult = orchestrateUserInput(sessionId, userGoal);
         StructuredContextPackage contextPackage = orchestrationResult == null ? null : orchestrationResult.getContextPackage();
         InputReconstructionResult reconstructionResult = orchestrationResult == null ? null : orchestrationResult.getReconstructionResult();
@@ -937,6 +979,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         }
         if (sessionId != null && !sessionId.isBlank()) {
             try {
+                /**
+                 * 蓝图入口额外写入一份轮次状态，明确当前已进入规划阶段且下一步是生成蓝图。
+                 */
                 SummaryResult blueprintEntrySummary = SummaryResult.builder()
                         .narrativeSummary("blueprint_input_orchestrated")
                         .stateSnapshot(Map.of(
@@ -979,6 +1024,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                                                          ToolSemanticResult latestToolSemanticResult,
                                                          boolean replaceHistory,
                                                          String triggerSource) {
+        /**
+         * 先确保存在有效上下文，然后生成统一摘要结果，供历史压缩、状态写回和后续轮次复用。
+         */
         StructuredContextPackage effectiveContext = contextPackage;
         if (effectiveContext == null && sessionId != null && !sessionId.isBlank()) {
             effectiveContext = contextCompilerService.compile(sessionId, userInput, null, null);
@@ -996,6 +1044,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 effectiveContext,
                 latestToolSemanticResult
         );
+        /**
+         * 对摘要快照做校验和归一化，避免无效状态摘要写回到上下文存储。
+         */
         if (snapshotValidation != null && snapshotValidation.normalized() != null) {
             summaryResult = snapshotValidation.normalized();
         }
@@ -1035,6 +1086,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             );
         }
         ContextState previous = sessionId == null || sessionId.isBlank() ? null : contextStateStore.load(sessionId);
+        /**
+         * 基于摘要结果重建上下文状态，并按统一阈值策略决定是否用摘要替换历史消息。
+         */
         ContextState contextState = buildContextStateFromSummary(
                 previous,
                 summaryResult,
@@ -1102,6 +1156,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
 
     @Override
     public MainModelOrchestrationResult orchestrateMainModel(MainModelExecutionRequest request) {
+        /**
+         * 主模型执行入口先校验请求并整理上下文标识、工具原始通道和活跃引用集合。
+         */
         if (request == null) {
             return MainModelOrchestrationResult.builder()
                     .blocked(true)
@@ -1119,6 +1176,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         String transitionTraceId = buildTraceId("MAIN_MODEL", sessionId, planId, nodeId);
         Map<String, Object> rawToolResultChannel = request.getRawToolResultChannel() == null ? Map.of() : request.getRawToolResultChannel();
         Map<String, List<String>> activeRefs = buildFinalSnapshotActiveRefs(request, contextPackage);
+        /**
+         * 先解析主模型 Prompt 治理结果，再通过上下文组装器构建最终 Prompt 和快照。
+         */
         stateTransitionTraceLogger.log(
                 transitionTraceId,
                 sessionId,
@@ -1261,6 +1321,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
 
     @Override
     public void writeRoundState(RoundStateWriteRequest request) {
+        /**
+         * 统一把轮次决策、摘要、快照、检索查询和工具结果引用写回各类状态存储，维持上下文连续性。
+         */
         if (request == null || request.getSessionId() == null || request.getSessionId().isBlank()) {
             return;
         }
@@ -4265,6 +4328,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
     }
 
     private ToolSemanticResult resolveToolSemanticFromRequest(RoundToolSemanticRequest request) {
+        /**
+         * 从轮次请求中统一提取工具语义输入，并完成语义翻译、校验归一化和审计记录。
+         */
         if (request == null) {
             return fallbackToolSemanticResult("agent_tool_chain", "", "", "round_tool_semantic_request_missing");
         }

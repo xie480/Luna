@@ -27,6 +27,9 @@ import java.util.UUID;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+/**
+ * 主规划服务实现，负责将用户目标、重构意图、知识证据和能力提示整合为可执行的计划蓝图。
+ */
 public class MasterPlanningServiceImpl implements MasterPlanningService {
 
     private final LlmClientUtil llmClientUtil;
@@ -41,13 +44,23 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
                                                  InputReconstructionResult reconstructionResult,
                                                  List<Map<String, Object>> knowledgeEvidence,
                                                  List<Map<String, Object>> workflowHints) {
+        /**
+         * 先对证据和工作流提示做裁剪与标准化，避免超长上下文影响主规划模型输出稳定性。
+         */
         List<Map<String, Object>> normalizedKnowledgeEvidence = normalizeSignalList(knowledgeEvidence, 12);
         List<Map<String, Object>> normalizedWorkflowHints = normalizeSignalList(workflowHints, 16);
         try {
+            /**
+             * 先校验重构后的目标是否可用，这是后续生成蓝图的最小业务前提。
+             */
             String effectiveGoal = reconstructedGoal == null ? "" : reconstructedGoal.trim();
             if (effectiveGoal.isBlank()) {
                 throw new IllegalArgumentException("reconstructed goal is blank");
             }
+
+            /**
+             * 组装主规划 Prompt，并将重构意图、RAG 证据和工作流能力提示注入模型输入。
+             */
             Map<String, Object> reconstructedIntent = toReconstructionPayload(reconstructionResult);
             String prompt = buildPlanningPrompt(
                     planId,
@@ -58,6 +71,9 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
                     normalizedWorkflowHints
             );
 
+            /**
+             * 调用主规划模型生成蓝图草案，模型返回的是整个计划图的 JSON 结构。
+             */
             LlmRequest req = LlmRequest.builder()
                     .modelType(ModelType.OPENAI_COMPATIBLE)
                     .modelName(resolvePlanningModelName())
@@ -73,6 +89,9 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
                 return fallbackBlueprint(planId, sessionId, effectiveGoal, reconstructionResult, normalizedKnowledgeEvidence, normalizedWorkflowHints);
             }
 
+            /**
+             * 清洗模型输出中的 Markdown 包装并反序列化为蓝图结构，同时补齐必要元字段。
+             */
             String cleaned = cleanJsonFence(text);
             Map<String, Object> map = objectMapper.readValue(cleaned, new TypeReference<Map<String, Object>>() {});
             map.putIfAbsent("planId", planId);
@@ -84,6 +103,9 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
             map.putIfAbsent("workflowHints", normalizedWorkflowHints);
             return map;
         } catch (Exception e) {
+            /**
+             * 当模型输出异常或解析失败时，退回固定骨架蓝图，保证规划链路可继续演进。
+             */
             log.error("Master planner blueprint generation failed, use fallback", e);
             return fallbackBlueprint(planId, sessionId, reconstructedGoal, reconstructionResult, normalizedKnowledgeEvidence, normalizedWorkflowHints);
         }
@@ -105,6 +127,9 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
                                        Map<String, Object> planningMeta,
                                        List<Map<String, Object>> knowledgeEvidence,
                                        List<Map<String, Object>> workflowHints) {
+        /**
+         * 以治理中心模板为基础拼接补充上下文，让模型在统一框架下吸收意图、证据和能力线索。
+         */
         String template = promptRegistryService.resolvePromptValue("planner.master_v1", PromptTemplates.MASTER_PLANNING_PROMPT);
         StringBuilder prompt = new StringBuilder(template.formatted(planId, sessionId, effectiveGoal));
         if (planningMeta != null && !planningMeta.isEmpty()) {
@@ -137,6 +162,9 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
                                                   InputReconstructionResult reconstructionResult,
                                                   List<Map<String, Object>> knowledgeEvidence,
                                                   List<Map<String, Object>> workflowHints) {
+        /**
+         * 回退蓝图采用固定三阶段结构，至少保证“检索-总结-写入”主流程能够被执行。
+         */
         String effectiveGoal = reconstructedGoal == null ? "" : reconstructedGoal.trim();
         Map<String, Object> blueprint = new LinkedHashMap<>();
         blueprint.put("planId", planId);
@@ -148,6 +176,9 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
         blueprint.put("createdAt", LocalDateTime.now().toString());
 
         List<Map<String, Object>> phases = new ArrayList<>();
+        /**
+         * 先构造阶段骨架，明确每个阶段的职责和执行顺序。
+         */
         phases.add(new LinkedHashMap<>() {{
             put("phaseId", planId + ":phase-1");
             put("name", "RESEARCH");
@@ -169,6 +200,9 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
         blueprint.put("phases", phases);
 
         List<Map<String, Object>> nodes = new ArrayList<>();
+        /**
+         * 再为每个阶段补一组最低可运行节点，使回退蓝图仍能形成完整执行图。
+         */
         nodes.add(new LinkedHashMap<>() {{
             put("nodeId", "node-" + UUID.randomUUID());
             put("phaseId", planId + ":phase-1");
@@ -200,6 +234,9 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
         String n3 = (String) nodes.get(2).get("nodeId");
 
         List<Map<String, Object>> edges = new ArrayList<>();
+        /**
+         * 最后串联阶段节点连线，确保执行器能按顺序推进整个回退计划。
+         */
         edges.add(new LinkedHashMap<>() {{
             put("fromNodeId", n1);
             put("toNodeId", n2);

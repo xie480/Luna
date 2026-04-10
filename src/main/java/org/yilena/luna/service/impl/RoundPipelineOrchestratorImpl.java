@@ -37,6 +37,9 @@ import java.util.UUID;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+/**
+ * 轮次流水线编排服务实现，负责串联工具语义解析、主模型执行、摘要生成和轮次状态写回。
+ */
 public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator {
 
     private final ObjectProvider<TaskOrchestratorService> taskOrchestratorServiceProvider;
@@ -49,9 +52,15 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
 
     @Override
     public ToolSemanticResult resolveToolSemantic(RoundToolSemanticRequest request) {
+        /**
+         * 先做空请求兜底，避免工具语义链路缺少上下文时直接打断整轮执行。
+         */
         if (request == null) {
             return fallbackToolSemanticResult("agent_tool_chain", "", "", "round_tool_semantic_request_missing");
         }
+        /**
+         * 从请求和上下文包中提取计划、节点、工具描述和任务态，作为语义翻译的最小输入集合。
+         */
         StructuredContextPackage contextPackage = request.getContextPackage();
         Long planId = contextPlanId(contextPackage);
         Long nodeId = contextNodeId(contextPackage);
@@ -64,6 +73,9 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
         String stage = nullSafe(request.getStage());
         ToolSemanticResult translated;
         try {
+            /**
+             * 调用工具语义代理把原始工具结果翻译成结构化业务语义，供主模型和审计链路复用。
+             */
             translated = toolSemanticAgent.translate(
                     toolName,
                     toolDescription,
@@ -88,6 +100,10 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                     translated == null ? "tool_semantic_translation_empty" : (failureReason == null ? "" : String.valueOf(failureReason))
             );
         }
+
+        /**
+         * 对语义结果做校验、归一化和审计记录，确保后续链路读取到的是可用结构。
+         */
         translated = validateAndTraceToolSemantic(
                 nullSafe(request.getSessionId()),
                 planId,
@@ -102,6 +118,9 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
 
     @Override
     public RoundPipelineResult executeRound(RoundPipelineRequest request) {
+        /**
+         * 缺少轮次请求时直接阻断，避免继续执行导致状态写回和审计记录失真。
+         */
         if (request == null) {
             return RoundPipelineResult.builder()
                     .blocked(true)
@@ -117,6 +136,9 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                     .nodeWorksetResult(null)
                     .build();
         }
+        /**
+         * 先整理上下文、候选能力、MCP 提示和知识证据，形成当前轮次执行所需的统一工作集。
+         */
         String sessionId = nullSafe(request.getSessionId());
         StructuredContextPackage contextPackage = request.getContextPackage();
         Long planId = contextPlanId(contextPackage);
@@ -136,6 +158,9 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
 
         ToolSemanticResult effectiveToolSemantic = request.getToolSemanticResult();
         if (effectiveToolSemantic == null) {
+            /**
+             * 如果上游尚未提供工具语义，则在轮次内部补做一次语义解析，避免主模型缺少工具总结。
+             */
             effectiveToolSemantic = resolveToolSemantic(RoundToolSemanticRequest.builder()
                     .sessionId(sessionId)
                     .contextPackage(contextPackage)
@@ -154,6 +179,9 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
         String finalSnapshotId = nullSafe(request.getLatestSnapshotId());
 
         if (request.isRunMainModel()) {
+            /**
+             * 主模型执行前先做一次预摘要，将当前轮次上下文压缩成更利于生成的输入片段。
+             */
             SummaryOrchestrationResult preSummaryResult = taskOrchestratorService().orchestrateSummary(
                     sessionId,
                     nullSafe(request.getUserInput()),
@@ -166,6 +194,10 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                     firstNonBlank(request.getPreAssemblyTriggerSource(), "ROUND_PRE_ASSEMBLY")
             );
             preAssemblySummary = preSummaryResult == null ? null : preSummaryResult.getSummaryResult();
+
+            /**
+             * 基于完整工作集触发主模型编排，生成本轮回复并更新最新快照引用。
+             */
             modelResult = taskOrchestratorService().orchestrateMainModel(
                     MainModelExecutionRequest.builder()
                             .sessionId(sessionId)
@@ -194,6 +226,9 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                             .build()
             );
             if (modelResult == null || modelResult.isBlocked()) {
+                /**
+                 * 如果主模型执行被阻断，则记录状态迁移并尽早返回，防止后续摘要和写回覆盖真实阻断原因。
+                 */
                 stateTransitionTraceLogger.log(
                         traceId,
                         sessionId,
@@ -224,6 +259,9 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
             finalSnapshotId = firstNonBlank(modelResult.getFinalSnapshotId(), finalSnapshotId);
         }
 
+        /**
+         * 在主模型输出后生成本轮最终摘要，用于历史替换、状态写回和后续轮次上下文压缩。
+         */
         SummaryOrchestrationResult postSummary = taskOrchestratorService().orchestrateSummary(
                 sessionId,
                 nullSafe(request.getUserInput()),
@@ -238,6 +276,9 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
         SummaryResult summaryResult = postSummary == null ? null : postSummary.getSummaryResult();
 
         if (request.isWriteRoundState()) {
+            /**
+             * 轮次需要落状态时，统一写回决策、摘要、工具原始结果引用和检索计划信息。
+             */
             taskOrchestratorService().writeRoundState(RoundStateWriteRequest.builder()
                     .sessionId(sessionId)
                     .decision(request.getDecision())
@@ -256,6 +297,10 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                     .retrievalPlanOverrides(safeMap(request.getRetrievalPlanOverrides()))
                     .build());
         }
+
+        /**
+         * 轮次正常收尾时记录一次 writeback 迁移日志，为后续排查上下文演进提供链路证据。
+         */
         stateTransitionTraceLogger.log(
                 traceId,
                 sessionId,
@@ -291,11 +336,17 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                                                             ToolSemanticResult translated,
                                                             StructuredContextPackage contextPackage,
                                                             Map<String, Object> rawToolResultChannel) {
+        /**
+         * 先为缺失结果补回退语义对象，再做结构校验，避免下游消费 null 导致整轮失败。
+         */
         ToolSemanticResult safeTranslated = translated == null
                 ? fallbackToolSemanticResult("agent_tool_chain", "", "", "tool_semantic_translation_empty")
                 : translated;
         ToolSemanticResultValidator.ValidationResult validationResult = toolSemanticResultValidator.validate(safeTranslated, contextPackage);
         if (validationResult.valid()) {
+            /**
+             * 校验通过时记录成功审计，便于回溯语义链路的稳定性。
+             */
             runtimeAuditService.persistDecisionRecord(
                     sessionId,
                     planId,
@@ -305,6 +356,9 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                     "{}"
             );
         } else {
+            /**
+             * 校验失败时记录问题明细，并在 schema 非法场景下额外打点，便于专项排查。
+             */
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("issues", validationResult.issues());
             payload.put("stage", nullSafe(stage));
@@ -330,6 +384,10 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
         if (validationResult.normalized() != null) {
             safeTranslated = validationResult.normalized();
         }
+
+        /**
+         * 最后将语义结果、原始结果引用和校验问题统一落审计轨迹，供运行时回放和诊断。
+         */
         String rawResultRef = resolveLatestRawResultRef(rawToolResultChannel, null);
         List<String> validationIssues = validationResult.issues() == null ? List.of() : validationResult.issues();
         String semanticTraceId = UUID.randomUUID().toString();

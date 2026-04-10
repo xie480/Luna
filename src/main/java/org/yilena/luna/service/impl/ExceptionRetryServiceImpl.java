@@ -21,12 +21,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+/**
+ * 异常重试服务实现，负责根据异常分析结果决定是否调用工具自动修复，并向前端同步修复状态。
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
-/**
- * ExceptionRetryServiceImpl ??
- */
 public class ExceptionRetryServiceImpl implements ExceptionRetryService {
 
     private final ExceptionAgentService exceptionAgentService;
@@ -41,19 +41,29 @@ public class ExceptionRetryServiceImpl implements ExceptionRetryService {
         result.put("errorId", errorId);
         result.put("success", false);
 
-        // 防止无限循环：如果重试次数超过 1，直接返回兜底提示
+        /**
+         * 先做重试次数兜底，避免异常分析和自动修复再次触发递归失败。
+         */
         if (context.getRetryCount() > 1) {
-            log.warn("异常重试次数超限，直接返回。ErrorID: {}", errorId);
-            result.put("message", "唔...这个问题有点顽固，Luna尝试修复了几次都没有成功。建议主人稍后再试，或者查看日志。");
+            log.warn("异常重试次数超限，直接返回兜底结果，errorId={}", errorId);
+            result.put("message", "这个问题暂时没有自动修复成功，建议稍后重试或查看日志。");
             result.put("reason", "重试次数超限");
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "IDLE", "");
             return result;
         }
 
-        // 推送状态：正在分析异常
-        statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "ANALYZING", "哎呀，遇到点小状况，Luna 正在分析原因...");
+        /**
+         * 进入异常分析阶段前先推送前端状态，让用户知道系统正在尝试定位原因。
+         */
+        statusPublisher.publish(
+                LunaStatusPublisher.DEFAULT_CLIENT_ID,
+                "ANALYZING",
+                "遇到了一点小状况，Luna 正在分析原因..."
+        );
 
-        // 1. 调用 AI 分析
+        /**
+         * 调用异常分析代理产出结构化决策，决定是否可以进入自动修复流程。
+         */
         JsonNode aiDecision = exceptionAgentService.analyzeException(context);
         if (aiDecision == null) {
             result.put("message", "系统发生未知错误，且 AI 辅助分析失败。");
@@ -64,47 +74,61 @@ public class ExceptionRetryServiceImpl implements ExceptionRetryService {
 
         boolean canFix = aiDecision.has("canFix") && aiDecision.get("canFix").asBoolean();
 
-        // 2. 根据 AI 决策执行
+        /**
+         * 如果分析结果允许修复，则根据模型返回的工具和参数发起自动修复。
+         */
         if (canFix) {
             String toolName = aiDecision.get("tool").asText();
             JsonNode params = aiDecision.get("params");
             log.info("AI 判定可修复，尝试调用 MCP 工具: {}", toolName);
-
-            // 推送状态：正在尝试修复
-            statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "FIXING", "Luna 正在尝试调用工具自我修复...");
+            statusPublisher.publish(
+                    LunaStatusPublisher.DEFAULT_CLIENT_ID,
+                    "FIXING",
+                    "Luna 正在尝试调用工具进行自我修复..."
+            );
 
             try {
-                // 3. 动态调用 MCP Tool (替代原有的 @Tool 掃描)
+                /**
+                 * 先在资源目录中定位实际可执行的工具资源，避免模型返回了不存在的工具名。
+                 */
                 List<Resource> resources = mcpService.searchResources(toolName);
                 Resource targetResource = resources.stream()
                         .filter(r -> ResourceType.TOOL.equals(r.getType()))
                         .filter(r -> r.getName().equals(toolName))
                         .findFirst()
                         .orElse(null);
-
                 if (targetResource == null) {
-                    throw new RuntimeException("MCP 註冊中心未找到工具: " + toolName);
+                    throw new RuntimeException("MCP 资源中心未找到工具: " + toolName);
                 }
 
-                // 4. 使用稳定 sessionId（优先 JWT jti）
+                /**
+                 * 为修复任务生成稳定会话标识，优先复用 JWT 会话，保证链路追踪可关联。
+                 */
                 String jwtJti = AuthContextHolder.getSessionId();
                 String stableSessionId = (jwtJti != null && !jwtJti.isBlank())
                         ? jwtJti
                         : "exception-retry-" + errorId;
 
+                /**
+                 * 通过统一工具网关执行修复动作，并提取可回传给前端的执行结果。
+                 */
                 String safeParamsJson = (params == null || params.isNull()) ? "{}" : params.toString();
                 ExecutionResult exec = toolExecutionGateway.executeTool(stableSessionId, targetResource, safeParamsJson);
                 String toolResult = (exec.getRawResult() != null && !exec.getRawResult().isBlank())
                         ? exec.getRawResult()
                         : String.valueOf(exec.getData());
 
-                // 5. 修复成功，返回提示
+                /**
+                 * 修复成功后返回用户可理解的结论，并附带工具执行结果供界面展示。
+                 */
                 result.put("success", true);
-                result.put("message", "刚刚出了点小差错，不过Luna已经通过 " + toolName + " 自动修复啦！请重新尝试一下操作。");
+                result.put("message", "刚才出现了小问题，不过 Luna 已经通过 " + toolName + " 自动修复，请重新尝试操作。");
                 result.put("reason", "AI 自动修复成功");
                 result.put("repairResult", toolResult);
             } catch (NeedApprovalException e) {
-                // 6. 需要审批属于正常业务分支，不视为修复失败
+                /**
+                 * 如果修复动作触发审批，则将结果标记为待审批，让前端继续接管确认流程。
+                 */
                 log.info("自动修复触发审批流程，taskId={}", e.getApprovalTask().getTaskId());
                 result.put("success", true);
                 result.put("status", "pending_approval");
@@ -112,20 +136,26 @@ public class ExceptionRetryServiceImpl implements ExceptionRetryService {
                 result.put("reason", "AUTO_FIX_NEED_APPROVAL");
                 result.put("taskId", e.getApprovalTask().getTaskId());
             } catch (Exception e) {
+                /**
+                 * 如果工具执行仍然失败，则记录失败原因并退回人工处理提示。
+                 */
                 log.error("AI 尝试修复失败", e);
-                // 修复失败，返回遗憾的提示
-                result.put("message", "Luna尝试自动修复这个问题，但是执行工具时又失败了... (｡•́︿•̀｡)");
+                result.put("message", "Luna 尝试自动修复这个问题，但执行工具时仍然失败。");
                 result.put("reason", "自动修复工具执行失败: " + e.getMessage());
             }
         } else {
-            // 7. 无法修复，返回人设化提示
+            /**
+             * 对于无法修复的异常，直接透传模型生成的人类可读解释与原因说明。
+             */
             String message = aiDecision.has("message") ? aiDecision.get("message").asText() : "系统异常";
             String reason = aiDecision.has("reason") ? aiDecision.get("reason").asText() : "未知原因";
             result.put("message", message);
             result.put("reason", reason);
         }
 
-        // 恢复空闲状态
+        /**
+         * 无论结果如何，最后都恢复为空闲状态，避免前端长期停留在分析或修复中。
+         */
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, "IDLE", "");
         return result;
     }

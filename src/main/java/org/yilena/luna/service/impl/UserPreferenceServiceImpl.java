@@ -7,7 +7,7 @@ import org.yilena.luna.mapper.UserPreferenceMapper;
 import org.yilena.luna.service.UserPreferenceService;
 
 /**
- * 用戶偏好服務實現類
+ * 用户偏好服务实现，负责封装用户画像和偏好设置的基础数据访问能力，供个性化上下文构建使用。
  */
 @Service
 public class UserPreferenceServiceImpl extends ServiceImpl<UserPreferenceMapper, UserPreference> implements UserPreferenceService {

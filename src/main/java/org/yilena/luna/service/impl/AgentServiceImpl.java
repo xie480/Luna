@@ -48,6 +48,9 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+/**
+ * 工具决策代理服务实现，负责在治理上下文约束下选择能力、生成参数并驱动工具或工作流执行。
+ */
 public class AgentServiceImpl implements AgentService {
 
     private final ToolRouter toolRouter;
@@ -85,6 +88,9 @@ public class AgentServiceImpl implements AgentService {
 
     @Override
     public String processToolCallingWithGovernance(ToolDecisionCommand command) {
+        /**
+         * 先解析稳定会话并校验治理上下文，只有带签名且上下文完整的请求才允许进入工具决策。
+         */
         String sessionId = resolveStableSessionId(command == null ? null : command.getSessionId());
         if (!validateGovernedDecisionContext(sessionId, command, true)) {
             return null;
@@ -101,10 +107,16 @@ public class AgentServiceImpl implements AgentService {
             return null;
         }
 
+        /**
+         * 对于被策略识别为复杂任务的输入，优先切换到计划编排链路，而不是继续走单次工具调用。
+         */
         if (capabilityPolicyRouterService.shouldTriggerPlanOrchestration(decisionInput, taskState)) {
             return planOrchestratorService.createAndRunPlan(sessionId, decisionInput, false);
         }
 
+        /**
+         * 先确定候选能力集合，没有可执行候选时直接返回，让上游决定是否走纯文本回复。
+         */
         List<Resource> candidates = executionCandidates == null || executionCandidates.isEmpty()
                 ? toolRouter.findCandidates(decisionInput, taskState, relationalState)
                 : executionCandidates;
@@ -112,6 +124,9 @@ public class AgentServiceImpl implements AgentService {
             return null;
         }
 
+        /**
+         * 基于近期历史和组装后的决策工作集调用模型，产出本轮动作类型、目标能力和参数草案。
+         */
         List<String> history = loadRecentHistory(sessionId);
         String decisionJson = llmAdapter.generate(buildDecisionPrompt(command, assembledDecisionContext));
         DecisionAction decision = parseDecisionAction(decisionJson);
@@ -122,11 +137,17 @@ public class AgentServiceImpl implements AgentService {
             return decision.directAnswer();
         }
 
+        /**
+         * 将模型返回的目标名称映射到真实候选资源，避免模型幻觉导致执行到不存在的能力。
+         */
         Resource target = resolveTarget(candidates, decision);
         if (target == null) {
             return null;
         }
 
+        /**
+         * 参数缺失时补做一次参数生成，并在 schema 不匹配时触发修复 Prompt，保证执行参数可用。
+         */
         String generatedArgsJson = decision.argumentsJson();
         if (generatedArgsJson == null || generatedArgsJson.isBlank()) {
             generatedArgsJson = llmAdapter.generate(buildArgsPrompt(command, decisionInput, history, target));
@@ -140,8 +161,14 @@ public class AgentServiceImpl implements AgentService {
         }
         final String argsJson = generatedArgsJson;
 
+        /**
+         * 执行前统一走能力闸门校验，避免高风险能力绕过审批和权限控制。
+         */
         executionGate.check(target);
 
+        /**
+         * 根据目标资源类型分流到工作流、Prompt、资源读取或工具执行链路，并统一记录执行轨迹。
+         */
         if (ResourceType.WORKFLOW.equals(target.getType())) {
             return runAndTrace(target, argsJson, () -> workflowExecutor.execute(target, argsJson));
         }
@@ -165,6 +192,9 @@ public class AgentServiceImpl implements AgentService {
 
         long startAt = System.currentTimeMillis();
         try {
+            /**
+             * 普通工具统一通过执行网关调用，并把输出、状态和耗时写入工具追踪通道。
+             */
             ExecutionResult result = toolExecutionGateway.executeTool(sessionId, target, argsJson);
             String output = result.getRawResult() != null
                     ? result.getRawResult()
@@ -187,6 +217,9 @@ public class AgentServiceImpl implements AgentService {
     private String runAndTrace(Resource target, String argsJson, TraceSupplier supplier) {
         long startAt = System.currentTimeMillis();
         try {
+            /**
+             * 对非工具网关分支统一包裹追踪逻辑，保证所有能力调用都有一致的审计轨迹。
+             */
             String output = supplier.get();
             recordToolExecutionTrace(target, argsJson, output, parseStatusFromOutput(output, "SUCCESS"), null, System.currentTimeMillis() - startAt);
             return output;
@@ -211,6 +244,9 @@ public class AgentServiceImpl implements AgentService {
     }
 
     private String resolveDecisionInput(String sessionId, ToolDecisionCommand command) {
+        /**
+         * 再次校验治理输入，并把候选能力补写到线程上下文，供后续执行轨迹复用。
+         */
         if (!validateGovernedDecisionContext(sessionId, command, false)) {
             return "";
         }
@@ -223,6 +259,9 @@ public class AgentServiceImpl implements AgentService {
     }
 
     private boolean validateGovernedDecisionContext(String sessionId, ToolDecisionCommand command, boolean auditOnFailure) {
+        /**
+         * 统一治理校验出口，失败时按需记录审计日志，成功时才允许继续进入决策流程。
+         */
         GovernedDecisionRejectReason rejectReason = resolveRejectReason(sessionId, command);
         if (rejectReason == null) {
             return true;
@@ -286,6 +325,9 @@ public class AgentServiceImpl implements AgentService {
     }
 
     private String buildDecisionPrompt(ToolDecisionCommand command, String assembledDecisionContext) {
+        /**
+         * 优先读取治理中心中的决策 Prompt 模板，确保工具选择逻辑可按策略动态调整。
+         */
         String template = resolveToolDecisionPrompt(command, "agent.tool_decision", "tool.decision.default_v1", TOOL_DECISION_PROMPT_FALLBACK);
         String workset = assembledDecisionContext == null ? "" : assembledDecisionContext;
         if (template.contains("%s")) {
@@ -295,6 +337,9 @@ public class AgentServiceImpl implements AgentService {
     }
 
     private String buildArgsPrompt(ToolDecisionCommand command, String input, List<String> history, Resource resource) {
+        /**
+         * 参数生成 Prompt 会根据资源类型切换模板，工作流会附带能力槽位和思维链提示。
+         */
         String historyText = (history == null || history.isEmpty()) ? "(empty)" : String.join("\n", history);
         if (ResourceType.WORKFLOW.equals(resource.getType())) {
             return String.format(
@@ -418,6 +463,9 @@ public class AgentServiceImpl implements AgentService {
             return null;
         }
         try {
+            /**
+             * 兼容模型输出中的多种字段命名和 Markdown 包装，尽量归一化为统一动作对象。
+             */
             String clean = json.trim().replace("```json", "").replace("```", "");
             JsonNode node = objectMapper.readTree(clean);
             String actionType = text(node, "action_type");
@@ -474,6 +522,9 @@ public class AgentServiceImpl implements AgentService {
     }
 
     private Resource resolveTarget(List<Resource> candidates, DecisionAction decision) {
+        /**
+         * 先按目标名称和期望类型精确匹配，匹配不到时再退回名称级兜底，提高容错性。
+         */
         if (decision == null || candidates == null || candidates.isEmpty()) {
             return null;
         }
@@ -534,6 +585,9 @@ public class AgentServiceImpl implements AgentService {
                                           String status,
                                           String error,
                                           long latencyMs) {
+        /**
+         * 将调用输入、输出、状态和耗时统一收集到线程上下文，供后续语义翻译和审计落库使用。
+         */
         Map<String, Object> trace = new LinkedHashMap<>();
         trace.put("tool_name", target == null ? "unknown_tool" : target.getName());
         trace.put("call_status", normalizeStatus(status));
