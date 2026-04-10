@@ -16,24 +16,42 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+/**
+ * 该组件用于对 MCP 能力候选集做首轮预排序，便于后续工具决策优先处理更匹配当前任务阶段的候选项。
+ */
 @Component
 public class McpCandidatePreRank {
 
+    /**
+     * 用于解析候选元数据中的 JSON 扩展字段。
+     */
     private final ObjectMapper objectMapper;
 
     public McpCandidatePreRank(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * 基于重构后的用户意图、候选描述和任务阶段计算候选优先级，输出限制数量的排序结果。
+     */
     public List<Map<String, Object>> preRank(String mcpQuery,
                                              List<Map<String, Object>> candidates,
                                              InputReconstructionResult reconstructionResult,
                                              TaskRuntimeState taskState,
                                              int limit) {
+        /**
+         * 候选为空时直接返回，避免后续无效计算。
+         */
         if (candidates == null || candidates.isEmpty()) {
             return List.of();
         }
+        /**
+         * 先汇总查询语义和任务阶段信息，为统一打分提供检索词集合。
+         */
         String terms = buildTerms(mcpQuery, reconstructionResult, taskState);
+        /**
+         * 再复制原始候选并按综合得分倒序排序，确保后续流程只消费最相关的能力。
+         */
         return candidates.stream()
                 .map(this::copy)
                 .sorted(Comparator.comparingDouble((Map<String, Object> row) -> score(row, terms, taskState)).reversed())
@@ -42,17 +60,26 @@ public class McpCandidatePreRank {
     }
 
     private double score(Map<String, Object> row, String terms, TaskRuntimeState taskState) {
+        /**
+         * 先提取能力类型、名称和描述等基础语义字段，构造统一的打分文本。
+         */
         CapabilityTypeEnum capabilityType = CapabilityTypeEnum.fromCode(safe(row.get(McpFieldConstants.CAPABILITY_TYPE)));
         String capabilityName = safe(row.get(McpFieldConstants.CAPABILITY_NAME)).toLowerCase(Locale.ROOT);
         String description = safe(row.get(McpFieldConstants.DESCRIPTION)).toLowerCase(Locale.ROOT);
         String schemaWorkflowText = buildSchemaWorkflowText(row);
         String text = capabilityName + " " + description + " " + schemaWorkflowText;
 
+        /**
+         * 基础分综合考虑语义命中、结构化 schema 相关性和敏感能力带来的风险扣分。
+         */
         double score = 1.0;
         score += overlapScore(text, terms);
         score += schemaWorkflowScore(schemaWorkflowText, terms, capabilityType);
         score -= riskPenalty(row);
 
+        /**
+         * 根据当前任务阶段补充偏置分，让工具、工作流、资源等能力更符合当前业务链路。
+         */
         if ((taskState == TaskRuntimeState.EXECUTING || taskState == TaskRuntimeState.WAITING_TOOL)
                 && capabilityType == CapabilityTypeEnum.TOOL) {
             score += 0.35;

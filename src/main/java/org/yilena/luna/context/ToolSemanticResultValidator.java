@@ -16,17 +16,32 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+/**
+ * 该组件负责校验工具语义结果的结构、预算与状态一致性，避免异常语义结果污染后续任务编排。
+ */
 @Component
 public class ToolSemanticResultValidator {
 
+    /**
+     * 工具语义状态允许的标准取值集合。
+     */
     private static final List<String> ALLOWED_STATUS = List.of(
             ToolStatusEnum.SUCCESS.getCode(),
             ToolStatusEnum.PENDING.getCode(),
             ToolStatusEnum.FAILED.getCode(),
             ToolStatusEnum.UNKNOWN.getCode()
     );
+    /**
+     * 默认的工具语义 token 预算。
+     */
     private static final int DEFAULT_SEMANTIC_TOKEN_BUDGET = 1200;
+    /**
+     * 用于序列化工具语义结果并执行 schema 校验。
+     */
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    /**
+     * 提供工具语义结果的 JSON Schema 定义。
+     */
     private final ToolSemanticSchemaProvider schemaProvider;
 
     public ToolSemanticResultValidator() {
@@ -38,12 +53,21 @@ public class ToolSemanticResultValidator {
         this.schemaProvider = schemaProvider;
     }
 
+    /**
+     * 校验工具语义结果，并在发现问题时返回规范化后的兜底结果。
+     */
     public ValidationResult validate(ToolSemanticResult result) {
         return validate(result, null);
     }
 
+    /**
+     * 在结合上下文状态的前提下校验工具语义结果，确保语义结论与当前任务链路不冲突。
+     */
     public ValidationResult validate(ToolSemanticResult result, StructuredContextPackage contextPackage) {
         List<String> issues = new ArrayList<>();
+        /**
+         * 先处理空结果和 schema 不合法场景，尽早降级到最小可用语义结构。
+         */
         if (result == null) {
             issues.add("semantic_result_missing");
             return new ValidationResult(false, issues, null);
@@ -53,6 +77,9 @@ public class ToolSemanticResultValidator {
             return new ValidationResult(false, issues, minimalFallback(result, issues));
         }
 
+        /**
+         * 再校验状态、关键事实、业务影响和下一步建议等核心字段的完整性。
+         */
         String status = normalize(result.getToolStatus());
         if (!ALLOWED_STATUS.contains(status)) {
             issues.add("invalid_status");
@@ -72,6 +99,9 @@ public class ToolSemanticResultValidator {
         if (result.getSemanticPayload() == null || result.getSemanticPayload().isEmpty()) {
             issues.add("missing_semantic_payload");
         }
+        /**
+         * 最后联合校验语义载荷、自身预算和运行时状态冲突，避免后续编排基于错误信号推进。
+         */
         issues.addAll(validatePayloadConsistency(result, status));
         issues.addAll(validateBudget(result, contextPackage));
         issues.addAll(validateStateConflicts(result, status, contextPackage));
@@ -349,6 +379,9 @@ public class ToolSemanticResultValidator {
         return normalized;
     }
 
+    /**
+     * 该记录用于承载工具语义结果的校验结论、问题列表和规范化结果。
+     */
     public record ValidationResult(boolean valid, List<String> issues, ToolSemanticResult normalized) {
     }
 }

@@ -14,7 +14,14 @@ import org.yilena.luna.prompt.governance.model.PromptResolveResult;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 上下文组装器接口，负责将任务状态、检索结果、工具语义和提示词治理结果
+ * 整合为最终可供模型使用的上下文。
+ */
 public interface ContextAssembler {
+    /**
+     * 组装当前轮次的最终模型上下文。
+     */
     AssembledContext assemble(StructuredContextPackage contextPackage,
                               InputReconstructionResult reconstructionResult,
                               ContextRerankResult rerankResult,
@@ -36,6 +43,9 @@ public interface ContextAssembler {
                               Long planId,
                               Long nodeId);
 
+    /**
+     * 组装上下文并同步写入可审计快照。
+     */
     AssembledContext assembleAndSnapshot(StructuredContextPackage contextPackage,
                                          InputReconstructionResult reconstructionResult,
                                          ContextRerankResult rerankResult,
@@ -60,6 +70,9 @@ public interface ContextAssembler {
                                          Map<String, List<String>> activeRefs,
                                          Map<String, Object> structuredRecoveryPayload);
 
+    /**
+     * 兼容带预解析提示词结果的上下文组装入口。
+     */
     default AssembledContext assembleAndSnapshot(StructuredContextPackage contextPackage,
                                                  InputReconstructionResult reconstructionResult,
                                                  ContextRerankResult rerankResult,

@@ -26,39 +26,72 @@ import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
+/**
+ * 该服务实现负责从能力目录中加载候选，并结合任务阶段、关系状态、权限和风险策略完成能力路由。
+ */
 public class DefaultCapabilityPolicyRouterService implements CapabilityPolicyRouterService {
 
+    /**
+     * 能力目录查询 Mapper。
+     */
     private final CapabilityMapper capabilityMapper;
+    /**
+     * 能力目录同步服务，确保查询前目录数据已更新。
+     */
     private final CapabilityCatalogSyncService capabilityCatalogSyncService;
+    /**
+     * LLM 工具类，用于生成语义向量补充能力召回。
+     */
     private final LlmClientUtil llmClientUtil;
+    /**
+     * 用于解析角色映射和能力元数据。
+     */
     private final ObjectMapper objectMapper;
 
+    /**
+     * 主体与角色映射配置，用于把当前身份扩展为可参与权限判断的角色集合。
+     */
     @Value("${luna.capability.policy.role-mapping-json:{}}")
     private String principalRoleMappingJson;
 
     @Override
+    /**
+     * 为上下文构建阶段筛选能力候选，优先保留适合理解、规划和检索的能力。
+     */
     public List<Map<String, Object>> routeForContext(String sessionId,
                                                      String query,
                                                      TaskRuntimeState taskState,
                                                      RelationalRuntimeState relationalState,
                                                      int limit) {
+        /**
+         * 先加载目录候选，再按鉴权规则过滤，最后结合上下文阶段做策略排序。
+         */
         List<Map<String, Object>> rows = loadBaseCandidates(query, limit);
         rows = filterByAuthorization(rows);
         return rankByPolicy(rows, query, taskState, relationalState, false, limit);
     }
 
     @Override
+    /**
+     * 为执行阶段筛选能力候选，优先保留可直接调用且风险可控的能力。
+     */
     public List<Map<String, Object>> routeForExecution(String sessionId,
                                                        String query,
                                                        TaskRuntimeState taskState,
                                                        RelationalRuntimeState relationalState,
                                                        int limit) {
+        /**
+         * 执行阶段与上下文阶段共用候选加载和鉴权逻辑，但排序时会启用执行态约束。
+         */
         List<Map<String, Object>> rows = loadBaseCandidates(query, limit);
         rows = filterByAuthorization(rows);
         return rankByPolicy(rows, query, taskState, relationalState, true, limit);
     }
 
     @Override
+    /**
+     * 根据关键词和任务阶段判断是否应进入计划编排流程，避免普通对话误触发规划链路。
+     */
     public boolean shouldTriggerPlanOrchestration(String query, TaskRuntimeState taskState) {
         if (taskState != TaskRuntimeState.PLANNING
                 && taskState != TaskRuntimeState.REPLANNING
@@ -69,14 +102,23 @@ public class DefaultCapabilityPolicyRouterService implements CapabilityPolicyRou
         return containsAny(text, "计划", "规划", "方案", "roadmap", "plan", "milestone", "拆解", "分阶段", "replan");
     }
 
+    /**
+     * 同时融合词法召回和语义召回结果，形成能力路由的基础候选池。
+     */
     private List<Map<String, Object>> loadBaseCandidates(String query, int limit) {
         try {
+            /**
+             * 先同步能力目录，避免基于过期目录做路由决策。
+             */
             syncAllCapabilities();
             int safeLimit = Math.max(8, Math.min(limit <= 0 ? 24 : limit, 80));
             String text = query == null ? "" : query.trim();
             if (text.isBlank()) {
                 return capabilityMapper.selectTopCapabilities();
             }
+            /**
+             * 将语义召回与词法召回结果去重合并，尽量兼顾精确匹配和语义相近能力。
+             */
             int fetchLimit = Math.max(24, safeLimit * 3);
             List<Map<String, Object>> lexical = capabilityMapper.searchCapabilityCandidates(text, fetchLimit);
             List<Map<String, Object>> semantic = semanticCandidates(text, fetchLimit);
@@ -278,6 +320,9 @@ public class DefaultCapabilityPolicyRouterService implements CapabilityPolicyRou
         capabilityCatalogSyncService.syncFromServers();
     }
 
+    /**
+     * 结合阶段偏好、风险等级和关键词命中情况对候选能力做策略排序。
+     */
     private List<Map<String, Object>> rankByPolicy(List<Map<String, Object>> rows,
                                                    String query,
                                                    TaskRuntimeState taskState,
@@ -287,6 +332,9 @@ public class DefaultCapabilityPolicyRouterService implements CapabilityPolicyRou
         if (rows == null || rows.isEmpty()) {
             return Collections.emptyList();
         }
+        /**
+         * 先按阶段推断能力类型偏好，再用风险和文本命中情况细化排序。
+         */
         List<String> preferredTypes = preferredTypes(taskState, relationalState);
         String q = normalize(query);
 
@@ -297,6 +345,9 @@ public class DefaultCapabilityPolicyRouterService implements CapabilityPolicyRou
                 .thenComparingInt(row -> keywordPenalty(q, row))
                 .thenComparing(row -> String.valueOf(row.getOrDefault("capability_name", ""))));
 
+        /**
+         * 最后按执行场景限制与去重规则截取结果，确保后续流程只看到可用且高优先级的能力。
+         */
         Set<String> seen = new LinkedHashSet<>();
         List<Map<String, Object>> out = new ArrayList<>();
         int safeLimit = Math.max(1, limit <= 0 ? 24 : limit);

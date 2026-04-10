@@ -19,16 +19,20 @@ import java.time.format.DateTimeFormatter;
 import static com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES;
 
 /**
- * JacksonObjectMapper ??
+ * 该 ObjectMapper 扩展类用于统一项目中的 JSON 序列化规则，重点处理未知字段兼容和日期时间格式。
  */
 public class JacksonObjectMapper extends ObjectMapper {
 
     public JacksonObjectMapper() {
         super();
-        // 忽略未知字段，兼容前后端与历史数据的字段差异。
+        /**
+         * 先关闭未知字段报错，避免前后端字段演进时出现反序列化失败。
+         */
         this.configure(FAIL_ON_UNKNOWN_PROPERTIES, false);
         this.getDeserializationConfig().withoutFeatures(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
-        // 统一注册日期时间序列化/反序列化格式，避免默认格式不一致。
+        /**
+         * 再统一注册日期时间序列化与反序列化格式，保证全局 JSON 时间字段表现一致。
+         */
         SimpleModule simpleModule = new SimpleModule()
                 .addDeserializer(LocalDateTime.class, new LocalDateTimeDeserializer(DateTimeFormatter.ofPattern(DateTimeConstant.FORMAT_YYYYMMDDHHMM)))
                 .addDeserializer(LocalDate.class, new LocalDateDeserializer(DateTimeFormatter.ofPattern(DateTimeConstant.FORMAT_YYYYMMDD)))
@@ -37,7 +41,9 @@ public class JacksonObjectMapper extends ObjectMapper {
                 .addSerializer(LocalDate.class, new LocalDateSerializer(DateTimeFormatter.ofPattern(DateTimeConstant.FORMAT_YYYYMMDD)))
                 .addSerializer(LocalTime.class, new LocalTimeSerializer(DateTimeFormatter.ofPattern(DateTimeConstant.FORMAT_HHMMSS)));
 
-        // 应用自定义模块到 ObjectMapper。
+        /**
+         * 最后注册自定义模块，使全局 ObjectMapper 生效统一配置。
+         */
         this.registerModule(simpleModule);
     }
 }

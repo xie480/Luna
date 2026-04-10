@@ -8,13 +8,25 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * 该组件负责为记忆检索构建查询语句，突出未决槽位、约束和当前任务阶段等记忆补全线索。
+ */
 @Component
 public class MemoryQueryBuilder {
 
+    /**
+     * 将输入重构结果转换为面向记忆检索的查询表达式，帮助召回与当前任务最相关的历史信息。
+     */
     public String build(InputReconstructionResult reconstructionResult, TaskRuntimeState taskState) {
+        /**
+         * 缺少明确任务目标时不发起记忆查询，避免误召回无关内容。
+         */
         if (!isReconstructionReady(reconstructionResult)) {
             return "";
         }
+        /**
+         * 主查询突出目标语义，再补充未决槽位、实体和约束，方便检索聚焦缺失上下文。
+         */
         String base = resolveBaseQuery(reconstructionResult);
         String pending = formatList(reconstructionResult.getMissingSlots());
         String entities = formatEntities(reconstructionResult.getClarifiedEntities());
@@ -27,6 +39,9 @@ public class MemoryQueryBuilder {
                 + " | business_constraints=" + constraints;
     }
 
+    /**
+     * 从多个候选字段中挑选最能代表记忆检索意图的主查询语句。
+     */
     private String resolveBaseQuery(InputReconstructionResult reconstructionResult) {
         if (!isReconstructionReady(reconstructionResult)) {
             return "";

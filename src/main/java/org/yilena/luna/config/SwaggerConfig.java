@@ -8,12 +8,15 @@ import org.springdoc.core.models.GroupedOpenApi;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/*
-    swagger配置
+/**
+ * 该配置类负责注册 Swagger/OpenAPI 文档分组和基础元数据，便于开发阶段查看接口说明。
  */
 @Configuration
 public class SwaggerConfig {
 
+    /**
+     * 注册 Luna 服务的 Swagger 分组，统一暴露当前应用下的全部接口路径。
+     */
     @Bean
     public GroupedOpenApi userApi() {
         return GroupedOpenApi.builder()
@@ -22,12 +25,15 @@ public class SwaggerConfig {
                 .build();
     }
 
+    /**
+     * 配置 OpenAPI 基础信息，包括标题、说明、版本和联系方式。
+     */
     @Bean
     public OpenAPI springShopOpenAPI() {
         return new OpenAPI()
                 .info(new Info()
-                        .title("Luna接口文档")
-                        .description("Luna接口文档")
+                        .title("Luna 接口文档")
+                        .description("Luna 服务接口文档")
                         .version("v1")
                         .contact(new Contact().name("yilena"))
                         .license(new License().name("Apache 2.0")

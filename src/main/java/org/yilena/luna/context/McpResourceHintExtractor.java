@@ -22,17 +22,44 @@ import java.util.regex.Pattern;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+/**
+ * 该组件用于从 MCP 候选能力中提炼提示摘要，并在必要时回查资源或提示词正文，为上下文组装提供线索。
+ */
 public class McpResourceHintExtractor {
 
+    /**
+     * MCP 能力查询服务，用于按候选信息回查资源或提示词正文。
+     */
     private final McpService mcpService;
+    /**
+     * 用于解析候选元数据中的 JSON 扩展字段。
+     */
     private final ObjectMapper objectMapper;
 
+    /**
+     * 提示词候选摘要前缀。
+     */
     private static final String PREFIX_PROMPT_HINT = "prompt_hint";
+    /**
+     * 资源候选摘要前缀。
+     */
     private static final String PREFIX_RESOURCE_HINT = "resource_hint";
+    /**
+     * 工作流候选摘要前缀。
+     */
     private static final String PREFIX_WORKFLOW_HINT = "workflow_hint";
+    /**
+     * 工具候选摘要前缀。
+     */
     private static final String PREFIX_TOOL_HINT = "tool_hint";
+    /**
+     * 通用候选摘要前缀。
+     */
     private static final String PREFIX_GENERIC_HINT = "mcp_hint";
 
+    /**
+     * 将混合候选按能力类型拆分后统一提炼提示摘要，供后续上下文拼装使用。
+     */
     public List<String> extract(List<Map<String, Object>> promptAndResourceCandidates, int limit) {
         if (promptAndResourceCandidates == null || promptAndResourceCandidates.isEmpty()) {
             return List.of();
@@ -41,6 +68,9 @@ public class McpResourceHintExtractor {
         List<Map<String, Object>> resourceCandidates = new ArrayList<>();
         List<Map<String, Object>> workflowCandidates = new ArrayList<>();
         List<Map<String, Object>> toolCandidates = new ArrayList<>();
+        /**
+         * 先按能力类型分桶，后续不同类型会使用不同的摘要前缀和正文回查策略。
+         */
         for (Map<String, Object> row : promptAndResourceCandidates) {
             CapabilityTypeEnum type = CapabilityTypeEnum.fromCode(safe(row == null ? null : row.get(McpFieldConstants.CAPABILITY_TYPE)));
             switch (type) {
@@ -55,17 +85,26 @@ public class McpResourceHintExtractor {
         return extract(promptCandidates, resourceCandidates, workflowCandidates, toolCandidates, limit);
     }
 
+    /**
+     * 按既定顺序合并各类候选并提取摘要，在有限长度内保留最重要的资源线索。
+     */
     public List<String> extract(List<Map<String, Object>> promptCandidates,
                                 List<Map<String, Object>> resourceCandidates,
                                 List<Map<String, Object>> workflowCandidates,
                                 List<Map<String, Object>> toolCandidates,
                                 int limit) {
+        /**
+         * 合并后的候选顺序会直接影响提示保留优先级，因此先按调用方给出的通道顺序拼接。
+         */
         List<Map<String, Object>> mergedCandidates = mergeByOrder(promptCandidates, resourceCandidates, workflowCandidates, toolCandidates);
         if (mergedCandidates.isEmpty()) {
             return List.of();
         }
         int safeLimit = Math.max(1, limit);
         LinkedHashSet<String> hints = new LinkedHashSet<>();
+        /**
+         * 逐条构建摘要，并在资源类/提示词类候选上补充正文片段，帮助后续理解具体能力内容。
+         */
         for (Map<String, Object> row : mergedCandidates) {
             if (hints.size() >= safeLimit) {
                 break;
@@ -120,6 +159,9 @@ public class McpResourceHintExtractor {
     }
 
     private String fetchBody(CapabilityTypeEnum type, Map<String, Object> row) {
+        /**
+         * 只有提示词和资源类型需要回查正文，其余能力只保留摘要即可。
+         */
         if (type != CapabilityTypeEnum.PROMPT && type != CapabilityTypeEnum.RESOURCE) {
             return "";
         }
@@ -128,6 +170,9 @@ public class McpResourceHintExtractor {
         if (serverCode.isBlank() || invocationName.isBlank()) {
             return "";
         }
+        /**
+         * 先根据候选信息解析服务端编码和调用名，再请求 MCP 服务补充正文内容。
+         */
         try {
             if (type == CapabilityTypeEnum.PROMPT) {
                 McpPromptResult promptResult = mcpService.getPrompt(serverCode, invocationName, McpProtocolConstants.DEFAULT_ARGUMENTS_JSON);

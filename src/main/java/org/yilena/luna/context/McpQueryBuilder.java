@@ -8,13 +8,25 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * 该组件负责将输入重构结果整理为 MCP 检索查询语句，为能力发现阶段提供结构化检索条件。
+ */
 @Component
 public class McpQueryBuilder {
 
+    /**
+     * 组合核心任务目标、实体、约束和阶段信息，生成面向 MCP 的查询表达式。
+     */
     public String build(InputReconstructionResult reconstructionResult, TaskRuntimeState taskState) {
+        /**
+         * 重构结果不足以支撑检索时返回空查询，避免基于噪声条件误召回。
+         */
         if (!isReconstructionReady(reconstructionResult)) {
             return "";
         }
+        /**
+         * 先确定主查询语义，再补充实体、约束和阶段标签，便于服务端做更精确匹配。
+         */
         String base = resolveBaseQuery(reconstructionResult);
         String entities = formatEntities(reconstructionResult.getClarifiedEntities());
         String constraints = formatList(reconstructionResult.getBusinessConstraints());
@@ -30,6 +42,9 @@ public class McpQueryBuilder {
                 + " | blueprint_hint=" + blueprintHint;
     }
 
+    /**
+     * 从多个候选语义字段中挑选最适合的检索主语句，优先使用更明确的重写结果。
+     */
     private String resolveBaseQuery(InputReconstructionResult reconstructionResult) {
         if (!isReconstructionReady(reconstructionResult)) {
             return "";

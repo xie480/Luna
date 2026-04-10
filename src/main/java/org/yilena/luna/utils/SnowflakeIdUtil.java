@@ -5,30 +5,34 @@ import cn.hutool.core.util.IdUtil;
 import org.springframework.stereotype.Component;
 
 /**
- * 雪花算法 ID 生成工具類
- * 封裝 Hutool 的 Snowflake 算法
+ * 该工具类基于 Hutool 的雪花算法统一生成分布式唯一 ID，供业务主键和链路标识复用。
  */
 @Component
 public class SnowflakeIdUtil {
 
-    // 數據中心 ID (0-31)
+    /**
+     * 雪花算法使用的数据中心 ID。
+     */
     private static final long DATA_CENTER_ID = 1;
-    // 機器 ID (0-31)
+    /**
+     * 雪花算法使用的工作节点 ID。
+     */
     private static final long WORKER_ID = 1;
 
+    /**
+     * 全局复用的雪花算法实例。
+     */
     private static final Snowflake snowflake = IdUtil.getSnowflake(WORKER_ID, DATA_CENTER_ID);
 
     /**
-     * 生成下一個 ID
-     * @return Long 類型的雪花 ID
+     * 生成下一个 long 类型唯一 ID。
      */
     public static synchronized long nextId() {
         return snowflake.nextId();
     }
 
     /**
-     * 生成下一個 ID (String 類型)
-     * @return String 類型的雪花 ID
+     * 生成下一个字符串类型唯一 ID。
      */
     public static synchronized String nextIdStr() {
         return String.valueOf(snowflake.nextId());

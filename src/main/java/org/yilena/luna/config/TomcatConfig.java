@@ -7,21 +7,20 @@ import org.springframework.context.annotation.Configuration;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 
-/*
-    配置虚拟线程
+/**
+ * 该配置类负责为嵌入式 Tomcat 配置虚拟线程执行器，提升高并发请求下的线程利用效率。
  */
 @Configuration
 public class TomcatConfig {
 
+    /**
+     * 为 Tomcat 协议处理器注入虚拟线程执行器，让每个请求按任务创建轻量线程处理。
+     */
     @Bean
     public TomcatProtocolHandlerCustomizer<?> protocolHandlerVirtualThreadExecutorCustomizer() {
-        // 使用协程来处理请求
         return protocolHandler -> {
-            // 创建 OfVirtual，指定虚拟线程名称的前缀，以及线程编号起始值
             Thread.Builder.OfVirtual ofVirtual = Thread.ofVirtual().name("VirtualThread#", 1);
-            // 获取虚拟线程池工厂
             ThreadFactory factory = ofVirtual.factory();
-            // 通过该工厂，创建 ExecutorService
             protocolHandler.setExecutor(Executors.newThreadPerTaskExecutor(factory));
         };
     }

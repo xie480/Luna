@@ -12,12 +12,21 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 该组件负责校验摘要输出中的状态快照，确保摘要结果与当前任务态、工具态和上下文事实保持一致。
+ */
 @Component
 public class SummaryStateSnapshotValidator {
 
+    /**
+     * 校验并规范化摘要快照，在缺失关键状态时补齐兜底值，避免后续状态理解偏差。
+     */
     public ValidationResult validate(SummaryResult summaryResult,
                                      StructuredContextPackage contextPackage,
                                      ToolSemanticResult latestToolSemanticResult) {
+        /**
+         * 摘要结果缺失时根据当前上下文构建最小快照，保证后续链路仍有可用状态。
+         */
         if (summaryResult == null) {
             Map<String, Object> fallback = fallbackSnapshot(contextPackage, latestToolSemanticResult);
             SummaryResult normalized = SummaryResult.builder()
@@ -27,6 +36,9 @@ public class SummaryStateSnapshotValidator {
             return new ValidationResult(false, List.of("summary_result_missing"), normalized);
         }
 
+        /**
+         * 先提取运行时、任务态和工具态中的基础事实，作为摘要快照的校验基线。
+         */
         Map<String, Object> raw = summaryResult.getStateSnapshot() == null ? Map.of() : summaryResult.getStateSnapshot();
         List<String> issues = new ArrayList<>();
         Map<String, Object> normalized = new LinkedHashMap<>();
@@ -35,6 +47,9 @@ public class SummaryStateSnapshotValidator {
         ToolState toolState = contextPackage == null ? null : contextPackage.getToolState();
         String runtimeStage = contextPackage == null || contextPackage.getTaskState() == null ? "" : contextPackage.getTaskState().name();
 
+        /**
+         * 逐项校验阶段、槽位、完成步骤和待处理问题，缺失时回填状态侧真实数据。
+         */
         String currentStage = text(raw.get("currentStage"));
         if (currentStage.isBlank()) {
             issues.add("state_snapshot_missing_current_stage");
@@ -74,6 +89,9 @@ public class SummaryStateSnapshotValidator {
         }
         normalized.put("pendingIssues", pendingIssues);
 
+        /**
+         * 工具结论和下一步建议会直接影响后续编排，因此需要优先校验并提供推断兜底。
+         */
         String latestToolConclusion = text(raw.get("latestToolConclusion"));
         if (latestToolConclusion.isBlank()) {
             latestToolConclusion = latestToolSemanticResult == null ? "" : text(latestToolSemanticResult.getBusinessImpact());
@@ -101,6 +119,9 @@ public class SummaryStateSnapshotValidator {
         }
         normalized.put("nextStep", nextStep);
 
+        /**
+         * 返回标准化后的摘要结果，供后续上下文组装和状态推进统一消费。
+         */
         SummaryResult normalizedResult = SummaryResult.builder()
                 .narrativeSummary(summaryResult.getNarrativeSummary() == null ? "" : summaryResult.getNarrativeSummary())
                 .stateSnapshot(normalized)
@@ -173,7 +194,9 @@ public class SummaryStateSnapshotValidator {
         return value == null ? "" : String.valueOf(value);
     }
 
+    /**
+     * 该记录用于承载摘要快照的校验结论、问题列表和规范化后的结果。
+     */
     public record ValidationResult(boolean valid, List<String> issues, SummaryResult normalized) {
     }
 }
-

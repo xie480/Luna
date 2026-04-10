@@ -21,31 +21,52 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
-/*
-    程序应用初始化类
- */
 @Slf4j
 @Component
 @RequiredArgsConstructor
+/**
+ * 该初始化组件负责在应用启动阶段拉起本地推理 HTTP 服务，并在应用关闭时回收托管的子进程。
+ */
 public class ApplicationInitConfig {
 
+    /**
+     * Embedding 模型相关配置。
+     */
     private final EmbeddingProperty embeddingProperty;
 
+    /**
+     * 是否启用推理 HTTP 服务的自动启动。
+     */
     @Value("${inference.http.enabled:true}")
     private boolean inferenceHttpEnabled;
 
+    /**
+     * Embedding HTTP 服务地址。
+     */
     @Value("${inference.http.embedding-url:http://127.0.0.1:18080/embedding}")
     private String embeddingServiceUrl;
 
+    /**
+     * Rerank HTTP 服务地址。
+     */
     @Value("${inference.http.rerank-url:http://127.0.0.1:18081/rerank}")
     private String rerankServiceUrl;
 
+    /**
+     * Rerank 模型路径。
+     */
     @Value("${rerank.model-path:}")
     private String rerankModelPath;
 
+    /**
+     * 启动阶段等待 HTTP 服务就绪的超时时间，单位毫秒。
+     */
     @Value("${inference.http.startup-timeout-ms:180000}")
     private long startupTimeoutMs;
 
+    /**
+     * 启动阶段健康检查轮询间隔，单位毫秒。
+     */
     @Value("${inference.http.startup-check-interval-ms:1000}")
     private long startupCheckIntervalMs;
 
@@ -54,6 +75,9 @@ public class ApplicationInitConfig {
      */
     private final List<Process> managedProcesses = new ArrayList<>();
 
+    /**
+     * 应用启动后按配置拉起 embedding 与 rerank 推理服务，并阻塞等待服务健康检查通过。
+     */
     @PostConstruct
     public void symbolInit() {
         if (!inferenceHttpEnabled) {
@@ -62,6 +86,9 @@ public class ApplicationInitConfig {
         }
 
         try {
+            /**
+             * 先解析两个推理服务的 host 与端口，为后续子进程启动参数做准备。
+             */
             // 从 URL 中提取 host/port，避免配置重复
             HostPort embeddingHostPort = parseHostPort(embeddingServiceUrl, 18080);
             HostPort rerankHostPort = parseHostPort(rerankServiceUrl, 18081);
@@ -72,6 +99,9 @@ public class ApplicationInitConfig {
                 return;
             }
 
+            /**
+             * 先校验 Python 解释器和 embedding 模型路径，再启动 embedding HTTP 服务并等待就绪。
+             */
             // 启动 embedding HTTP 服务
             String embeddingScriptPath = resolveScriptPath("src/main/resources/python/embedding_service_http.py");
             String embeddingModelPath = embeddingProperty.getModelPath();
@@ -97,6 +127,9 @@ public class ApplicationInitConfig {
             );
             log.info("已自动拉起 embedding HTTP 服务，host={}, port={}", embeddingHostPort.host(), embeddingHostPort.port());
 
+            /**
+             * embedding 服务就绪后，再启动 rerank HTTP 服务，避免两个推理进程同时排障困难。
+             */
             // 启动 rerank HTTP 服务
             String rerankScriptPath = resolveScriptPath("src/main/resources/python/rerank_service_http.py");
             if (rerankModelPath == null || rerankModelPath.isBlank()) {
@@ -126,6 +159,9 @@ public class ApplicationInitConfig {
         }
     }
 
+    /**
+     * 应用关闭前遍历并终止所有托管子进程，避免本地推理服务残留。
+     */
     @PreDestroy
     public void shutdownManagedProcesses() {
         for (Process process : managedProcesses) {
@@ -141,6 +177,9 @@ public class ApplicationInitConfig {
         managedProcesses.clear();
     }
 
+    /**
+     * 启动指定 Python 子进程，并在短暂等待后校验进程是否存活，防止瞬时启动失败被误判为成功。
+     */
     private Process startPythonProcess(List<String> command, String tag) throws IOException {
         ProcessBuilder pb = new ProcessBuilder(command);
         pb.redirectErrorStream(true);
@@ -164,6 +203,9 @@ public class ApplicationInitConfig {
         return process;
     }
 
+    /**
+     * 轮询调用推理服务健康接口，直到服务可用或超时，以保证后续业务调用不会命中未就绪进程。
+     */
     private void waitUntilHttpReady(String serviceName, String url, String requestJson, Process process) throws Exception {
         long deadline = System.currentTimeMillis() + startupTimeoutMs;
         HttpClient client = HttpClient.newBuilder()
@@ -174,11 +216,17 @@ public class ApplicationInitConfig {
         int lastStatus = -1;
 
         while (System.currentTimeMillis() < deadline) {
+            /**
+             * 进程已退出时直接失败，避免持续等待一个已不可恢复的服务。
+             */
             if (process != null && !process.isAlive()) {
                 throw new IllegalStateException(serviceName + " 子进程已退出，pid=" + process.pid());
             }
 
             try {
+                /**
+                 * 通过实际 HTTP 请求确认服务已经可以接收推理流量，而不是仅判断端口占用。
+                 */
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(url))
                         .timeout(Duration.ofMillis(1500))
@@ -213,6 +261,9 @@ public class ApplicationInitConfig {
         throw new IllegalStateException(msg, lastException);
     }
 
+    /**
+     * 解析 Python 脚本路径，依次尝试磁盘路径、相对路径和 classpath 提取，兼容本地开发与打包运行。
+     */
     private String resolveScriptPath(String defaultPath) {
         // 1) 优先磁盘路径
         File f = new File(defaultPath);
@@ -248,6 +299,9 @@ public class ApplicationInitConfig {
         throw new IllegalStateException("找不到脚本文件: " + defaultPath);
     }
 
+    /**
+     * 从服务 URL 中解析 host 与端口，解析失败时返回默认本地地址。
+     */
     private HostPort parseHostPort(String url, int defaultPort) {
         if (url == null || url.isBlank()) {
             return new HostPort("127.0.0.1", defaultPort);
@@ -267,6 +321,9 @@ public class ApplicationInitConfig {
         }
     }
 
+    /**
+     * 该记录用于承载解析后的 host 与端口信息。
+     */
     private record HostPort(String host, int port) {
     }
 }

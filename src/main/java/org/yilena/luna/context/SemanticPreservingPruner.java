@@ -13,9 +13,15 @@ import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+/**
+ * 该组件负责在 token 预算受限时压缩上下文片段，同时尽量保留关键事实和约束，降低语义丢失风险。
+ */
 @Component
 public class SemanticPreservingPruner {
 
+    /**
+     * 这些章节属于关键上下文，裁剪时需要优先保留。
+     */
     private static final List<String> MUST_KEEP = List.of(
             "Instructions",
             "Current Task State",
@@ -23,19 +29,33 @@ public class SemanticPreservingPruner {
             "Tool Evidence",
             "Output Constraints"
     );
+
+    /**
+     * 用于识别日期、数值、约束和状态等关键事实的正则模式。
+     */
     private static final Pattern KEY_FACT_PATTERN = Pattern.compile(
             "(\\d{4}-\\d{2}-\\d{2}|\\b\\d+(?:\\.\\d+)?\\b|must|deadline|risk|status|pending|" + Lexicon.KEY_FACT_CHINESE_PATTERN + ")",
             Pattern.CASE_INSENSITIVE
     );
+
+    /**
+     * 这些信息即使在压缩阶段也不应被完全丢弃。
+     */
     private static final Pattern FORBIDDEN_DROP_PATTERN = Pattern.compile(
-            "(\\d{4}-\\d{2}-\\d{2}|\\b\\d+(?:\\.\\d+)?\\b|pending|unresolved|issue|latest\\s*tool\\s*conclusion|constraint|time|截止|时间|未决|待处理|工具结论|最新工具结论)",
+            "(\\d{4}-\\d{2}-\\d{2}|\\b\\d+(?:\\.\\d+)?\\b|pending|unresolved|issue|latest\\s*tool\\s*conclusion|constraint|time|鎴|鏃堕棿|鏈喅|寰呭鐞唡宸ュ叿缁撹|鏈€鏂板伐鍏风粨璁?",
             Pattern.CASE_INSENSITIVE
     );
 
+    /**
+     * 按章节预算压缩上下文内容，并校验关键约束在压缩后仍然可被后续流程感知。
+     */
     public PruneResult prune(Map<String, List<String>> sections, Map<String, Integer> sectionBudget) {
         Map<String, List<String>> input = sections == null ? Map.of() : sections;
         Map<String, Integer> budget = sectionBudget == null ? Map.of() : sectionBudget;
 
+        /**
+         * 先做去重和预算内压缩，生成每个章节的初步精简结果。
+         */
         Map<String, List<String>> normalized = new LinkedHashMap<>();
         Map<String, Integer> tokenCounts = new LinkedHashMap<>();
         for (Map.Entry<String, List<String>> entry : input.entrySet()) {
@@ -46,9 +66,16 @@ public class SemanticPreservingPruner {
             normalized.put(name, compact);
             tokenCounts.put(name, estimateTokens(compact));
         }
+
+        /**
+         * 再校验关键事实是否被误删，必要时回填到关键章节，保证后续推理不丢失约束。
+         */
         List<String> consistencyViolations = enforceConstraintConsistency(input, normalized);
         recalculateTokenCounts(normalized, tokenCounts);
 
+        /**
+         * 最后统计各章节 token 占比，为后续调参与上下文诊断提供依据。
+         */
         int total = tokenCounts.values().stream().mapToInt(Integer::intValue).sum();
         Map<String, Double> ratios = new LinkedHashMap<>();
         for (Map.Entry<String, Integer> entry : tokenCounts.entrySet()) {
@@ -303,7 +330,7 @@ public class SemanticPreservingPruner {
         if (text == null || text.isBlank()) {
             return List.of();
         }
-        String[] parts = text.split("[;；\\n]");
+        String[] parts = text.split("[;锛沑\n]");
         List<String> clauses = new ArrayList<>();
         for (String part : parts) {
             if (part == null) {
@@ -353,7 +380,7 @@ public class SemanticPreservingPruner {
             return clause;
         }
         List<String> keyTokens = new ArrayList<>();
-        for (String token : clause.split("[\\s,，]+")) {
+        for (String token : clause.split("[\\s,锛宂+")) {
             String compact = token == null ? "" : token.trim();
             if (compact.isBlank()) {
                 continue;
@@ -396,12 +423,27 @@ public class SemanticPreservingPruner {
         return sb.toString();
     }
 
+    /**
+     * 该模型用于承载上下文裁剪结果、各章节 token 统计以及一致性修复信息。
+     */
     @Value
     @Builder
     public static class PruneResult {
+        /**
+         * 按章节输出的裁剪后内容。
+         */
         Map<String, List<String>> sections;
+        /**
+         * 每个章节裁剪后的 token 估算值。
+         */
         Map<String, Integer> sectionTokenCounts;
+        /**
+         * 每个章节在总上下文中的 token 占比。
+         */
         Map<String, Double> sectionTokenRatios;
+        /**
+         * 裁剪过程中发现并修复的一致性问题记录。
+         */
         List<String> consistencyViolations;
     }
 }

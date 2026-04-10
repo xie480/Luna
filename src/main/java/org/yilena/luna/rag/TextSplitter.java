@@ -8,19 +8,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 文本分片工具类
- * 引入 LangChain4j 后，使用其内置的递归分片器 (Recursive Document Splitter)
- * 它会优先按段落、句子进行切分，最大程度保留语义完整性
+ * 该工具类负责基于 LangChain4j 的递归分片器拆分长文本，尽量在控制块大小的同时保留语义完整性。
  */
 public class TextSplitter {
 
     /**
-     * 按递归策略进行智能分片
-     *
-     * @param text      原始文本
-     * @param chunkSize 每个分片的最大字符数
-     * @param overlap   相邻分片之间的重叠字符数，用于保持上下文语义连贯
-     * @return 分片后的文本列表
+     * 按递归策略智能切分文本，优先按段落和句子边界拆分，并保留相邻分片的重叠内容。
      */
     public static List<String> splitText(String text, int chunkSize, int overlap) {
         List<String> chunks = new ArrayList<>();
@@ -28,10 +21,12 @@ public class TextSplitter {
             return chunks;
         }
 
-        // 使用 LangChain4j 的按字符递归分片器
-        dev.langchain4j.data.document.DocumentSplitter splitter = 
+        /**
+         * 先创建递归分片器，再按配置切分文档，保证不同长度文本都能统一处理。
+         */
+        dev.langchain4j.data.document.DocumentSplitter splitter =
                 DocumentSplitters.recursive(chunkSize, overlap);
-        
+
         List<TextSegment> segments = splitter.split(Document.from(text));
         for (TextSegment segment : segments) {
             chunks.add(segment.text());

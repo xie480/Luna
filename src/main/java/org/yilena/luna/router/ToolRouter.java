@@ -18,20 +18,38 @@ import java.util.Map;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+/**
+ * 该路由器负责把能力目录中的候选记录转换为统一的 Resource 对象，供工具决策与执行阶段使用。
+ */
 public class ToolRouter {
 
+    /**
+     * 能力策略路由服务，用于按任务状态和权限筛选候选能力。
+     */
     private final CapabilityPolicyRouterService capabilityPolicyRouterService;
 
+    /**
+     * 按默认路由条件检索工具候选。
+     */
     public List<Resource> findCandidates(String query) {
         return findCandidates(query, null, null);
     }
 
+    /**
+     * 根据查询文本和任务状态筛选工具候选，并将结果截断到默认上限，避免后续决策输入过长。
+     */
     public List<Resource> findCandidates(String query, TaskRuntimeState taskState, RelationalRuntimeState relationalState) {
         log.info("search candidates by query [{}]", query);
+        /**
+         * 先从能力目录获取符合条件的候选，再统一转为 Resource 结构供后续流程消费。
+         */
         List<Resource> capabilityCandidates = fromCapabilityRegistry(query, taskState, relationalState);
         return capabilityCandidates.size() > 10 ? capabilityCandidates.subList(0, 10) : capabilityCandidates;
     }
 
+    /**
+     * 将原始候选记录列表批量物化为 Resource 对象，方便统一交给工具执行链路处理。
+     */
     public List<Resource> materializeCandidates(List<Map<String, Object>> rows, int limit) {
         if (rows == null || rows.isEmpty()) {
             return List.of();
@@ -40,6 +58,9 @@ public class ToolRouter {
         return rows.stream().limit(safeLimit).map(this::toResource).toList();
     }
 
+    /**
+     * 调用能力路由服务获取执行阶段候选，并在异常场景下安全降级为空列表。
+     */
     private List<Resource> fromCapabilityRegistry(String query, TaskRuntimeState taskState, RelationalRuntimeState relationalState) {
         if (query == null || query.isBlank()) {
             return Collections.emptyList();
@@ -58,6 +79,9 @@ public class ToolRouter {
         }
     }
 
+    /**
+     * 将能力表中的通用字段映射为统一的 Resource 对象，屏蔽不同能力类型的元数据差异。
+     */
     private Resource toResource(Map<String, Object> row) {
         Map<String, Object> metadata = mapVal(row.get("metadata_json"));
         String capabilityType = stringVal(row.get("capability_type")).toUpperCase(Locale.ROOT);
