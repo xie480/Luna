@@ -17,21 +17,34 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * 知識庫服務實現類
+ * 知识库服务实现类，负责知识入库消息投递、向量检索以及后台分页查询。
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
 
+    /**
+     * LLM 客户端工具，用于生成检索查询向量。
+     */
     private final LlmClientUtil llmClientUtil;
+    /**
+     * RocketMQ 模板，用于异步投递知识入库请求。
+     */
     private final RocketMQTemplate rocketMQTemplate;
+    /**
+     * 知识库 Mapper，负责访问知识分片表。
+     */
     private final KnowledgeBaseMapper knowledgeBaseMapper;
 
     @Override
+    /**
+     * 提交一条知识入库请求到消息队列，由异步消费者完成分片和持久化。
+     */
     public void addKnowledge(String title, String content, SourceType sourceType, String sourcePath) {
-        // 向後兼容：SourceType 可能是 code 值枚舉序列化，不要再用 name()
-        // 這裡統一傳遞 value（FILE / WEB_SEARCH / MANUAL_INPUT）
+        /**
+         * 统一把来源类型转换为对外稳定的 value，避免历史枚举序列化差异影响消费者解析。
+         */
         KnowledgeBaseMessage msg = KnowledgeBaseMessage.builder()
                 .title(title)
                 .content(content)
@@ -39,31 +52,45 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
                 .sourcePath(sourcePath)
                 .build();
 
+        /**
+         * 入库流程采用异步投递，减少接口写入延迟并把重处理能力交给 MQ 消费链路。
+         */
         rocketMQTemplate.convertAndSend(RocketMqConstant.TOPIC_KB_ADD, msg);
-        log.info("已發送知識庫寫入請求至 MQ, 標題: {}, sourceType={}", title, msg.getSourceType());
+        log.info("已发送知识库导入请求至 MQ, 标题: {}, sourceType={}", title, msg.getSourceType());
     }
 
     @Override
+    /**
+     * 根据查询文本执行向量检索，返回最相关的知识片段。
+     */
     public List<KnowledgeChunkRecord> searchKnowledge(String query, int topK) {
         try {
-            // 檢索操作需要實時返回，無法異步，仍保持同步調用
+            /**
+             * 检索必须先生成查询向量；若向量为空则直接返回空结果，避免数据库执行无效相似度查询。
+             */
             String queryVectorStr = llmClientUtil.getEmbedding(query);
 
             if (queryVectorStr == null || queryVectorStr.trim().isEmpty() || queryVectorStr.trim().equals("[]")) {
-                log.warn("查詢問題向量化失敗，無法進行檢索: {}", query);
+                log.warn("查询文本向量化失败，无法进行检索: {}", query);
                 return Collections.emptyList();
             }
 
-            log.debug("開始向量檢索，TopK: {}", topK);
+            /**
+             * 使用生成好的向量执行 TopK 检索，返回最相关的知识分片。
+             */
+            log.debug("开始向量检索，TopK: {}", topK);
             return knowledgeBaseMapper.searchByVector(queryVectorStr, topK);
 
         } catch (Exception e) {
-            log.error("檢索知識庫異常: {}", e.getMessage(), e);
+            log.error("检索知识库异常: {}", e.getMessage(), e);
             throw new RuntimeException(e);
         }
     }
 
     @Override
+    /**
+     * 统计满足筛选条件的知识片段总数，供分页接口计算总页数。
+     */
     public Long countKnowledge(String title,
                                String content,
                                String sourceType,
@@ -79,6 +106,9 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     }
 
     @Override
+    /**
+     * 按条件分页查询知识片段，供后台管理页面展示。
+     */
     public List<KnowledgeChunkRecord> pageKnowledge(String title,
                                                     String content,
                                                     String sourceType,
@@ -88,6 +118,9 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
                                                     long pageNo,
                                                     long pageSize) {
         try {
+            /**
+             * 先规范分页参数并计算偏移量，避免负数页码或页大小影响数据库查询。
+             */
             long safePageNo = Math.max(1L, pageNo);
             long safePageSize = Math.max(1L, pageSize);
             long offset = (safePageNo - 1L) * safePageSize;
