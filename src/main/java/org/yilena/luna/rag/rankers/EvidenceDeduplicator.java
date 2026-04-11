@@ -18,14 +18,25 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/** Evidence deduplicator supporting exact and semantic deduplication. */
 @Component
 @RequiredArgsConstructor
+/**
+ * 该去重器负责对证据执行精确去重、语义去重以及偏好冲突合并，减少重复证据干扰后续推理。
+ */
 public class EvidenceDeduplicator {
 
+    /**
+     * RAG 去重阈值配置。
+     */
     private final RagProperties ragProperties;
+    /**
+     * 语义文本服务，用于判断证据内容是否高度相似。
+     */
     private final SemanticTextService semanticTextService;
 
+    /**
+     * 依次执行精确去重、语义去重和偏好冲突合并，输出更干净的证据集合。
+     */
     public List<Evidence> deduplicate(List<Evidence> evidences) {
         if (evidences == null || evidences.isEmpty()) {
             return List.of();
@@ -42,6 +53,9 @@ public class EvidenceDeduplicator {
         return deduplicatePreferenceConflicts(semanticDeduped);
     }
 
+    /**
+     * 通过语义相似度识别跨来源或同来源的重复证据，并保留分数更高的结果。
+     */
     private List<Evidence> deduplicateBySemanticSimilarity(List<Evidence> evidences) {
         if (evidences.size() <= 1) {
             return evidences;
@@ -113,6 +127,9 @@ public class EvidenceDeduplicator {
         return new ArrayList<>();
     }
 
+    /**
+     * 对偏好类证据按 pref_key 合并冲突值，避免同一偏好键返回多条互相竞争的结果。
+     */
     private List<Evidence> deduplicatePreferenceConflicts(List<Evidence> evidences) {
         Map<String, List<Evidence>> preferenceByKey = new HashMap<>();
         List<Evidence> others = new ArrayList<>();

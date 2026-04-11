@@ -25,10 +25,19 @@ import java.util.Arrays;
 import java.util.Locale;
 
 @Component
+/**
+ * 日程工具类，负责统一处理日程任务的新增、查询、更新和删除，供对话侧管理提醒与待办事项。
+ */
 public class ScheduleTools extends BaseTool {
 
+    /**
+     * 日程任务数据访问对象，用于持久化和查询任务记录。
+     */
     private final ScheduleTaskMapper scheduleTaskMapper;
 
+    /**
+     * 日程触发时间的统一解析格式。
+     */
     private static final DateTimeFormatter DATE_TIME_FORMATTER =
             DateTimeFormatter.ofPattern(DateTimeConstant.FORMAT_YYYYMMDDHHMMSS);
 
@@ -39,6 +48,9 @@ public class ScheduleTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_SCHEDULE, status = LunaStateConstant.STATUS_SCHEDULE)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_SCHEDULE, type = LogType.TOOL_CALL, content = "管理日程任务")
+    /**
+     * 统一处理日程任务管理请求，根据动作类型分发到新增、查询、更新或删除流程。
+     */
     public String manageScheduleTask(
             @RequestParam("action") String action,
             @RequestParam(value = "id", required = false) Long id,
@@ -49,6 +61,9 @@ public class ScheduleTools extends BaseTool {
             @RequestParam(value = "taskType", required = false) String taskType,
             @RequestParam(value = "hardDelete", required = false) Boolean hardDelete) {
         try {
+            /**
+             * 先解析动作枚举，再路由到对应子流程，保证入口层的调度逻辑清晰统一。
+             */
             ScheduleActionEnum actionEnum = ScheduleActionEnum.fromCode(action);
             return switch (actionEnum) {
                 case INSERT -> insertTask(content, triggerTime, status, taskType);
@@ -69,10 +84,16 @@ public class ScheduleTools extends BaseTool {
         }
     }
 
+    /**
+     * 新增日程任务，要求一次性提供任务内容、触发时间、状态和任务类型。
+     */
     private String insertTask(String content, String triggerTime, String status, String taskType) {
         if (content == null || triggerTime == null || status == null || taskType == null) {
             return error("INSERT 必须提供 content, triggerTime, status, taskType");
         }
+        /**
+         * 构建完整任务实体后直接入库，确保新任务具备可执行的最小信息集合。
+         */
         ScheduleTask task = ScheduleTask.builder()
                 .content(content)
                 .triggerTime(LocalDateTime.parse(triggerTime, DATE_TIME_FORMATTER))
@@ -83,6 +104,9 @@ public class ScheduleTools extends BaseTool {
         return success(scheduleTaskMapper.selectById(task.getId()));
     }
 
+    /**
+     * 查询日程任务，支持按状态过滤当前任务列表。
+     */
     private String queryTask(String status) {
         LambdaQueryWrapper<ScheduleTask> wrapper = new LambdaQueryWrapper<>();
         if (status != null) {
@@ -91,6 +115,9 @@ public class ScheduleTools extends BaseTool {
         return success(scheduleTaskMapper.selectList(wrapper));
     }
 
+    /**
+     * 更新日程任务，支持全量覆盖和局部修改两种模式。
+     */
     private String updateTask(Long id,
                               String mode,
                               String content,
@@ -105,6 +132,9 @@ public class ScheduleTools extends BaseTool {
             return error("未找到 id=" + id + " 的记录");
         }
 
+        /**
+         * 按更新模式决定是整体替换任务内容，还是只修改传入字段，避免误覆盖未变更数据。
+         */
         ScheduleUpdateModeEnum updateMode = ScheduleUpdateModeEnum.fromCode(mode);
         switch (updateMode) {
             case PUT -> {
@@ -132,10 +162,16 @@ public class ScheduleTools extends BaseTool {
         return success(scheduleTaskMapper.selectById(id));
     }
 
+    /**
+     * 删除日程任务，按参数决定执行逻辑删除还是物理删除。
+     */
     private String deleteTask(Long id, Boolean hardDelete) {
         if (id == null) {
             return error("DELETE 必须提供 id");
         }
+        /**
+         * 物理删除用于彻底移除任务，逻辑删除用于保留数据痕迹但隐藏任务。
+         */
         if (Boolean.TRUE.equals(hardDelete)) {
             scheduleTaskMapper.hardDeleteById(id);
             return success("已执行物理删除 id=" + id);

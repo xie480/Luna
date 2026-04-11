@@ -11,47 +11,59 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.Set;
 
 /**
- * JSON Schema 校驗器
- * 用於在 LLM 生成參數後，執行前進行強制校驗
+ * JSON Schema 校验器，负责在工具调用前验证参数 JSON 是否满足声明的输入结构。
  */
 @Slf4j
 public class JsonSchemaValidator {
 
+    /**
+     * JSON 解析器。
+     */
     private static final ObjectMapper objectMapper = new ObjectMapper();
+
+    /**
+     * JSON Schema 工厂，使用 Draft V7 规范执行校验。
+     */
     private static final JsonSchemaFactory schemaFactory = JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V7);
 
     /**
-     * 校驗 JSON 字符串是否符合指定的 JSON Schema
-     *
-     * @param schemaJson JSON Schema 字符串
-     * @param json       LLM 生成的參數 JSON 字符串
-     * @return 是否校驗通過
+     * 校验参数 JSON 是否满足指定 Schema。
      */
     public static boolean validate(String schemaJson, String json) {
         if (json == null || json.isBlank()) {
             return false;
         }
         if (schemaJson == null || schemaJson.isBlank()) {
-            // 如果沒有定義 Schema，默認通過（或者根據業務需求拒絕）
+            /**
+             * 未声明 Schema 时默认放行，兼容不带结构约束的工具定义。
+             */
             return true;
         }
 
         try {
+            /**
+             * 先解析待校验 JSON，再加载 Schema 并收集全部结构错误。
+             */
             JsonNode jsonNode = objectMapper.readTree(json);
             JsonSchema schema = schemaFactory.getSchema(schemaJson);
             Set<ValidationMessage> errors = schema.validate(jsonNode);
 
+            /**
+             * 存在校验错误时逐条记录日志，便于定位参数结构不匹配原因。
+             */
             if (!errors.isEmpty()) {
-                log.warn("JSON Schema 校驗失敗。錯誤信息：");
+                log.warn("JSON Schema 校验失败，错误明细如下：");
                 for (ValidationMessage error : errors) {
                     log.warn("- {}", error.getMessage());
                 }
                 return false;
             }
             return true;
-
         } catch (Exception e) {
-            log.error("JSON 校驗過程中發生異常: {}", e.getMessage());
+            /**
+             * 解析或校验过程异常时统一判定为失败，避免非法参数继续向下执行。
+             */
+            log.error("JSON Schema 校验过程中发生异常: {}", e.getMessage());
             return false;
         }
     }

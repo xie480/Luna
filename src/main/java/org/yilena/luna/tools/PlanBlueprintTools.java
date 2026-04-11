@@ -26,9 +26,18 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Component
+/**
+ * 计划蓝图工具类，负责保存、加载并校验计划蓝图结构，作为计划执行前的结构化定义入口。
+ */
 public class PlanBlueprintTools extends BaseTool {
 
+    /**
+     * 计划蓝图数据访问对象，用于读写蓝图持久化记录。
+     */
     private final PlanBlueprintMapper planBlueprintMapper;
+    /**
+     * 计划事件工具，用于输出蓝图校验结果的审计日志和 SSE 事件。
+     */
     private final PlanEventTools planEventTools;
 
     public PlanBlueprintTools(
@@ -43,6 +52,9 @@ public class PlanBlueprintTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_KNOWLEDGE, type = LogType.TOOL_CALL, content = "保存规划蓝图")
+    /**
+     * 保存计划蓝图，支持按计划标识和版本号执行新增或覆盖更新。
+     */
     public String savePlanBlueprint(
             @RequestParam("planId") String planId,
             @RequestParam("planVersion") Integer planVersion,
@@ -51,10 +63,16 @@ public class PlanBlueprintTools extends BaseTool {
             @RequestParam(value = "generatedAt", required = false) String generatedAt
     ) {
         try {
+            /**
+             * 先校验蓝图保存所需的核心参数，避免产生缺失主键信息的记录。
+             */
             if (isBlank(planId) || planVersion == null || isBlank(blueprintJson)) {
                 return error("planId, planVersion, blueprintJson 必填");
             }
 
+            /**
+             * 解析蓝图 JSON 后判断当前版本是否已存在，以便选择插入或更新策略。
+             */
             Map<String, Object> blueprint = objectMapper.readValue(blueprintJson, new TypeReference<>() {});
             LambdaQueryWrapper<PlanBlueprint> q = new LambdaQueryWrapper<PlanBlueprint>()
                     .eq(PlanBlueprint::getPlanId, planId)
@@ -69,6 +87,9 @@ public class PlanBlueprintTools extends BaseTool {
                     .generatedAt(parseDateTime(generatedAt))
                     .build();
 
+            /**
+             * 同版本蓝图不存在时新增，存在时按主键覆盖更新，保证版本唯一。
+             */
             if (existing == null) {
                 planBlueprintMapper.insert(entity);
             } else {
@@ -91,6 +112,9 @@ public class PlanBlueprintTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_KNOWLEDGE, type = LogType.TOOL_CALL, content = "加载并校验规划蓝图")
+    /**
+     * 加载计划蓝图，并在返回前执行结构校验与校验结果通知。
+     */
     public String loadPlanBlueprint(
             @RequestParam("planId") String planId,
             @RequestParam(value = "planVersion", required = false) Integer planVersion
@@ -99,6 +123,9 @@ public class PlanBlueprintTools extends BaseTool {
         try {
             if (isBlank(planId)) return error("planId 必填");
 
+            /**
+             * 指定版本时精确加载，否则回退到该计划的最新蓝图版本。
+             */
             PlanBlueprint row;
             if (planVersion != null) {
                 row = planBlueprintMapper.selectOne(new LambdaQueryWrapper<PlanBlueprint>()
@@ -122,6 +149,9 @@ public class PlanBlueprintTools extends BaseTool {
                 return error("未找到蓝图");
             }
 
+            /**
+             * 蓝图读取成功后执行结构校验，提前暴露 phase、node、edge 配置问题。
+             */
             Map<String, Object> blueprint = row.getBlueprintJson() == null ? Map.of() : row.getBlueprintJson();
             List<String> validationErrors = validateBlueprint(blueprint);
 
@@ -132,6 +162,9 @@ public class PlanBlueprintTools extends BaseTool {
             out.put("source", "db");
 
             if (!validationErrors.isEmpty()) {
+                /**
+                 * 校验失败时返回错误并同步发出告警事件，便于上层及时阻断无效计划。
+                 */
                 out.put("validationPassed", false);
                 out.put("validationErrors", validationErrors);
 
@@ -147,6 +180,9 @@ public class PlanBlueprintTools extends BaseTool {
                 return error("蓝图校验失败: " + String.join("; ", validationErrors));
             }
 
+            /**
+             * 校验通过后补充统计信息并发布蓝图已验证事件，供执行链路继续推进。
+             */
             out.put("validationPassed", true);
             out.put("validationErrors", List.of());
 
@@ -172,6 +208,9 @@ public class PlanBlueprintTools extends BaseTool {
         }
     }
 
+    /**
+     * 统一写入蓝图相关审计日志并发送 SSE 事件，失败时只记录告警不打断主流程。
+     */
     private void emitAuditAndSse(String planId, String level, String eventType, Map<String, Object> payload, String traceId) {
         try {
             String payloadJson = objectMapper.writeValueAsString(payload == null ? Map.of() : payload);
@@ -194,6 +233,9 @@ public class PlanBlueprintTools extends BaseTool {
         }
     }
 
+    /**
+     * 校验蓝图结构是否合法，重点检查阶段、节点、边和依赖图关系是否完整一致。
+     */
     private List<String> validateBlueprint(Map<String, Object> blueprint) {
         List<String> errors = new ArrayList<>();
         if (blueprint == null || blueprint.isEmpty()) {
@@ -201,6 +243,9 @@ public class PlanBlueprintTools extends BaseTool {
             return errors;
         }
 
+        /**
+         * 先抽取 phases、nodes、edges 三类基础结构，为后续一致性校验做准备。
+         */
         List<Map<String, Object>> phases = asListOfMap(blueprint.get("phases"));
         List<Map<String, Object>> nodes = asListOfMap(blueprint.get("nodes"));
         List<Map<String, Object>> edges = asListOfMap(blueprint.get("edges"));
@@ -273,6 +318,9 @@ public class PlanBlueprintTools extends BaseTool {
         return errors;
     }
 
+    /**
+     * 判断节点依赖图是否为 DAG，避免计划执行时出现循环依赖。
+     */
     private boolean isDag(List<Map<String, Object>> nodes, List<Map<String, Object>> edges) {
         Map<String, List<String>> graph = new LinkedHashMap<>();
         Map<String, Integer> indegree = new LinkedHashMap<>();
@@ -305,6 +353,9 @@ public class PlanBlueprintTools extends BaseTool {
             indegree.put(to, indegree.getOrDefault(to, 0) + 1);
         }
 
+        /**
+         * 通过拓扑排序统计可访问节点数，数量一致时说明依赖图无环。
+         */
         Deque<String> q = new ArrayDeque<>();
         indegree.forEach((k, v) -> {
             if (v == 0) q.offer(k);
@@ -325,6 +376,9 @@ public class PlanBlueprintTools extends BaseTool {
     }
 
     @SuppressWarnings("unchecked")
+    /**
+     * 将任意对象安全转换为 Map 列表，转换失败时返回空列表。
+     */
     private List<Map<String, Object>> asListOfMap(Object obj) {
         if (obj == null) return List.of();
         try {
@@ -334,6 +388,9 @@ public class PlanBlueprintTools extends BaseTool {
         }
     }
 
+    /**
+     * 将任意对象安全转换为字符串列表，转换失败时返回 null。
+     */
     private List<String> asStringList(Object obj) {
         if (obj == null) return null;
         try {
@@ -344,6 +401,9 @@ public class PlanBlueprintTools extends BaseTool {
         }
     }
 
+    /**
+     * 解析蓝图生成时间，非法时间格式返回 null。
+     */
     private static LocalDateTime parseDateTime(String text) {
         if (isBlank(text)) return null;
         try {
@@ -353,10 +413,16 @@ public class PlanBlueprintTools extends BaseTool {
         }
     }
 
+    /**
+     * 将对象转换为去空格文本，空对象返回空字符串。
+     */
     private String text(Object o) {
         return o == null ? "" : String.valueOf(o).trim();
     }
 
+    /**
+     * 判断字符串是否为空或仅包含空白字符。
+     */
     private static boolean isBlank(String s) {
         return s == null || s.isBlank();
     }

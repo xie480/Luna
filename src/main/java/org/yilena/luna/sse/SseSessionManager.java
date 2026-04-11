@@ -8,52 +8,54 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * SSE 會話管理器
- * 負責底層的連接管理、發送消息、斷開連接等通用邏輯
+ * SSE 会话管理器，负责维护客户端连接、断开连接、发送消息和在线状态判断。
  */
 @Slf4j
 @Component
 public class SseSessionManager {
 
-    // 存儲客戶端連接
+    /**
+     * 当前在线客户端与 SSE 发射器的映射关系。
+     */
     private final Map<String, SseEmitter> emitters = new ConcurrentHashMap<>();
 
-    // 超時時間設置為 1 天
+    /**
+     * SSE 默认超时时间，单位为毫秒，这里设置为 24 小时。
+     */
     private static final long DEFAULT_TIMEOUT = 1000L * 60 * 60 * 24;
 
     /**
-     * 建立連接
-     * 如果已存在同名客戶端，會先斷開舊連接（支持重連）
-     *
-     * @param clientId 客戶端標識
-     * @return SseEmitter
+     * 建立指定客户端的 SSE 连接，若已存在旧连接则先主动断开。
      */
     public SseEmitter connect(String clientId) {
-        // 如果已存在連接，先移除舊的，確保新連接能正常建立（解決刷新頁面問題）
+        /**
+         * 同一客户端重复连接时先清理旧连接，避免旧发射器残留导致推送异常。
+         */
         if (emitters.containsKey(clientId)) {
-            log.info("檢測到客戶端 {} 舊連接尚存，正在斷開以進行重連...", clientId);
+            log.info("检测到客户端 {} 旧连接尚存，正在断开以进行重连...", clientId);
             disconnect(clientId);
         }
 
         SseEmitter emitter = new SseEmitter(DEFAULT_TIMEOUT);
         emitters.put(clientId, emitter);
-        log.info("SSE 連接建立成功: {}", clientId);
+        log.info("SSE 连接建立成功: {}", clientId);
 
-        // 註冊回調
+        /**
+         * 为连接注册完成、超时和异常回调，确保会话表可以及时清理。
+         */
         emitter.onCompletion(() -> {
-            log.info("SSE 連接已完成 (Client Disconnected): {}", clientId);
-            // 只有當 map 中的對象是當前這個 emitter 時才移除，防止並發誤刪新連接
+            log.info("SSE 连接已完成(Client Disconnected): {}", clientId);
             emitters.remove(clientId, emitter);
         });
 
         emitter.onTimeout(() -> {
-            log.info("SSE 連接已超時: {}", clientId);
+            log.info("SSE 连接已超时: {}", clientId);
             emitter.complete();
             emitters.remove(clientId, emitter);
         });
 
         emitter.onError((e) -> {
-            log.error("SSE 連接發生錯誤: {}", clientId, e);
+            log.error("SSE 连接发生异常: {}", clientId, e);
             emitter.completeWithError(e);
             emitters.remove(clientId, emitter);
         });
@@ -62,26 +64,19 @@ public class SseSessionManager {
     }
 
     /**
-     * 主動斷開連接
-     *
-     * @param clientId 客戶端標識
+     * 主动断开指定客户端连接。
      */
     public void disconnect(String clientId) {
         SseEmitter emitter = emitters.get(clientId);
         if (emitter != null) {
-            log.info("主動斷開客戶端連接: {}", clientId);
+            log.info("主动断开客户端连接: {}", clientId);
             emitter.complete();
             emitters.remove(clientId);
         }
     }
 
     /**
-     * 發送數據給指定客戶端
-     *
-     * @param clientId 客戶端標識
-     * @param eventName 事件名稱
-     * @param data 數據對象
-     * @return 是否發送成功
+     * 向指定客户端发送 SSE 消息，发送失败时自动移除失效连接。
      */
     public boolean send(String clientId, String eventName, Object data) {
         SseEmitter emitter = emitters.get(clientId);
@@ -90,7 +85,7 @@ public class SseSessionManager {
                 emitter.send(SseEmitter.event().name(eventName).data(data));
                 return true;
             } catch (Exception e) {
-                log.warn("向客戶端 {} 發送消息失敗，移除連接", clientId);
+                log.warn("向客户端 {} 发送消息失败，移除连接", clientId);
                 disconnect(clientId);
                 return false;
             }
@@ -99,7 +94,7 @@ public class SseSessionManager {
     }
 
     /**
-     * 檢查客戶端是否在線
+     * 判断指定客户端当前是否仍然在线。
      */
     public boolean isConnected(String clientId) {
         return emitters.containsKey(clientId);

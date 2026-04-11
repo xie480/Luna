@@ -24,18 +24,39 @@ import java.util.stream.Collectors;
 
 @Component
 @RequiredArgsConstructor
+/**
+ * 该处理器负责把原始检索请求转换为标准查询对象，补齐查询类型、改写结果和来源过滤信号。
+ */
 public class QueryProcessor {
 
+    /**
+     * Embedding 适配器，用于生成检索向量。
+     */
     private final EmbeddingProvider embeddingProvider;
+    /**
+     * RAG 检索策略配置。
+     */
     private final RagProperties ragProperties;
+    /**
+     * 模型驱动的查询规划器。
+     */
     private final ModelDrivenRagPlanner modelDrivenRagPlanner;
 
+    /**
+     * 处理原始检索请求，生成统一的 QueryObject 供路由和流水线复用。
+     */
     public QueryObject process(RetrievalRequest request) {
+        /**
+         * 先做基础归一化和指代补全，减少用户口语化表达对后续检索的干扰。
+         */
         String original = request.getQuery() == null ? "" : request.getQuery();
         String normalized = normalize(original);
         String contextResolved = resolveReferences(normalized, request.getConversationContext());
         ModelDrivenRagPlanner.QueryPlanDecision planDecision = modelDrivenRagPlanner.planQuery(original, contextResolved, request);
 
+        /**
+         * 再结合模型规划结果补齐查询类型和改写文本，兼顾规则判断和模型规划。
+         */
         String queryType = planDecision.getQueryType() == null
                 ? detectQueryType(contextResolved)
                 : planDecision.getQueryType();
@@ -43,6 +64,9 @@ public class QueryProcessor {
                 ? rewrite(contextResolved, queryType)
                 : planDecision.getRewrittenQuery();
 
+        /**
+         * 最后收集标签、来源推断和各类过滤条件，统一写入 possibleFilters 供后续链路消费。
+         */
         List<Double> embedding = parseEmbedding(embeddingProvider.embedding(rewritten));
         List<String> queryTags = detectQueryTags(contextResolved, queryType);
 
@@ -153,6 +177,9 @@ public class QueryProcessor {
         }
     }
 
+    /**
+     * 检测查询标签，用于后续路由、检索策略和排序权重判断。
+     */
     private List<String> detectQueryTags(String query, String queryType) {
         Set<String> tags = new LinkedHashSet<>();
         tags.add(queryType);
@@ -199,6 +226,9 @@ public class QueryProcessor {
         return null;
     }
 
+    /**
+     * 在存在“这个、上次、继续”等指代词时，尝试结合最近对话恢复被省略的主题。
+     */
     private String resolveReferences(String normalized, List<ConversationMessage> context) {
         if (normalized == null || normalized.isBlank()) {
             return "";
@@ -265,6 +295,9 @@ public class QueryProcessor {
                 .trim();
     }
 
+    /**
+     * 根据关键词和配置推断本次检索最可能命中的数据源。
+     */
     private List<RetrievalSource> inferSources(String query, List<RetrievalSource> scoped) {
         List<RetrievalSource> scope = (scoped == null || scoped.isEmpty()) ? RetrievalSource.all() : scoped;
         Set<RetrievalSource> inferred = new LinkedHashSet<>();

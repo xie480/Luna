@@ -32,9 +32,18 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Component
+/**
+ * 计划节点工具类，负责查询节点、更新节点执行状态、沉淀节点输出并汇总阶段级执行结果。
+ */
 public class PlanNodeTools extends BaseTool {
 
+    /**
+     * 计划节点数据访问对象，用于读写节点执行状态和产出。
+     */
     private final PlanNodeMapper planNodeMapper;
+    /**
+     * 计划事件工具，用于在关键节点流程后发送审计和 SSE 事件。
+     */
     private final PlanEventTools planEventTools;
 
     public PlanNodeTools(
@@ -49,8 +58,14 @@ public class PlanNodeTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "列出阶段节点")
+    /**
+     * 查询指定计划阶段下的全部节点，按节点标识排序返回。
+     */
     public String listPhaseNodes(@RequestParam("planId") String planId, @RequestParam("phaseId") String phaseId) {
         try {
+            /**
+             * 按计划和阶段读取节点清单，为阶段执行或展示提供完整节点视图。
+             */
             List<PlanNode> nodes = planNodeMapper.selectList(new LambdaQueryWrapper<PlanNode>()
                     .eq(PlanNode::getPlanId, planId)
                     .eq(PlanNode::getPhaseId, phaseId)
@@ -65,6 +80,9 @@ public class PlanNodeTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "更新节点状态")
+    /**
+     * 更新节点执行状态，并在需要时补齐开始时间、结束时间和失败信息。
+     */
     public String updateNodeStatus(
             @RequestParam("planId") String planId,
             @RequestParam("nodeId") String nodeId,
@@ -74,6 +92,9 @@ public class PlanNodeTools extends BaseTool {
             @RequestParam(value = "retryCount", required = false) Integer retryCount
     ) {
         try {
+            /**
+             * 先定位目标节点，再基于新状态更新耗时、失败原因和重试次数等执行元数据。
+             */
             PlanNode node = findByPlanIdAndNodeId(planId, nodeId);
             if (node == null) return error("节点不存在");
 
@@ -82,6 +103,9 @@ public class PlanNodeTools extends BaseTool {
             if (failReason != null) node.setFailReason(failReason);
             if (retryCount != null) node.setRetryCount(retryCount);
 
+            /**
+             * 根据状态流转补齐开始和结束时间，保证节点生命周期信息完整可追踪。
+             */
             if (node.getStatus() == PlanNodeStatus.RUNNING && node.getStartedAt() == null) {
                 node.setStartedAt(LocalDateTime.now());
             }
@@ -100,6 +124,9 @@ public class PlanNodeTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "追加节点输出")
+    /**
+     * 保存节点输出和传递给后续节点的结构化结果，供阶段串联与结果汇总使用。
+     */
     public String appendNodeOutput(
             @RequestParam("planId") String planId,
             @RequestParam("nodeId") String nodeId,
@@ -107,6 +134,9 @@ public class PlanNodeTools extends BaseTool {
             @RequestParam(value = "outputForNext", required = false) String outputForNext
     ) {
         try {
+            /**
+             * 先校验目标节点存在，再解析输出 JSON，确保入库内容结构可靠。
+             */
             PlanNode node = findByPlanIdAndNodeId(planId, nodeId);
             if (node == null) return error("节点不存在");
 
@@ -116,6 +146,9 @@ public class PlanNodeTools extends BaseTool {
                 next = objectMapper.readValue(outputForNext, new TypeReference<>() {});
             }
 
+            /**
+             * 节点原始输出和供下游复用的输出分开保存，兼顾回放和链路透传。
+             */
             node.setOutputJson(out);
             node.setOutputForNext(next);
             planNodeMapper.updateById(node);
@@ -131,8 +164,14 @@ public class PlanNodeTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "查询计划进度")
+    /**
+     * 统计计划整体进度，按节点状态汇总当前计划的执行分布。
+     */
     public String queryPlanProgress(@RequestParam("planId") String planId) {
         try {
+            /**
+             * 拉取计划全部节点后按状态分组计数，形成当前执行进度快照。
+             */
             List<PlanNode> nodes = planNodeMapper.selectList(new LambdaQueryWrapper<PlanNode>()
                     .eq(PlanNode::getPlanId, planId));
             Map<String, Long> stats = nodes.stream().collect(Collectors.groupingBy(
@@ -153,12 +192,18 @@ public class PlanNodeTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "聚合阶段输出")
+    /**
+     * 汇总阶段内节点产出，并可选择写回摘要节点，作为下一阶段的输入基础。
+     */
     public String aggregatePhaseOutputs(
             @RequestParam("planId") String planId,
             @RequestParam("phaseId") String phaseId,
             @RequestParam(value = "summaryNodeId", required = false) String summaryNodeId
     ) {
         try {
+            /**
+             * 先读取阶段内全部节点，再筛出有下游输出且未跳过的有效节点。
+             */
             List<PlanNode> nodes = planNodeMapper.selectList(new LambdaQueryWrapper<PlanNode>()
                     .eq(PlanNode::getPlanId, planId)
                     .eq(PlanNode::getPhaseId, phaseId)
@@ -169,6 +214,9 @@ public class PlanNodeTools extends BaseTool {
                     .filter(n -> n.getStatus() != PlanNodeStatus.SKIPPED)
                     .toList();
 
+            /**
+             * 将可复用的节点输出整理为统一结构，便于阶段汇总和后续节点消费。
+             */
             List<Map<String, Object>> outputs = new ArrayList<>();
             for (PlanNode n : validNodes) {
                 Map<String, Object> one = new LinkedHashMap<>();
@@ -186,6 +234,9 @@ public class PlanNodeTools extends BaseTool {
             summary.put("validOutputNodes", validNodes.size());
             summary.put("outputs", outputs);
 
+            /**
+             * 指定摘要节点时，将阶段汇总结果回写到该节点，作为后续链路输入。
+             */
             if (summaryNodeId != null && !summaryNodeId.isBlank()) {
                 PlanNode summaryNode = findByPlanIdAndNodeId(planId, summaryNodeId);
                 if (summaryNode == null) {
@@ -195,6 +246,9 @@ public class PlanNodeTools extends BaseTool {
                 planNodeMapper.updateById(summaryNode);
             }
 
+            /**
+             * 汇总完成后发送阶段完成事件，通知外部链路可以进入下一阶段。
+             */
             emitAuditAndSse(
                     planId,
                     phaseId,
@@ -220,8 +274,14 @@ public class PlanNodeTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "失败节点重规划分析")
+    /**
+     * 汇总失败节点并生成重规划建议，为计划恢复或局部补救提供输入。
+     */
     public String replanFailedNodes(@RequestParam("planId") String planId) {
         try {
+            /**
+             * 先读取计划全部节点，再筛出失败节点作为重规划分析对象。
+             */
             List<PlanNode> nodes = planNodeMapper.selectList(new LambdaQueryWrapper<PlanNode>()
                     .eq(PlanNode::getPlanId, planId));
 
@@ -230,6 +290,9 @@ public class PlanNodeTools extends BaseTool {
                     .toList();
 
             List<Map<String, Object>> failedNodes = new ArrayList<>();
+            /**
+             * 为每个失败节点生成重规划建议，并写回到节点输出供后续链路消费。
+             */
             for (PlanNode n : failed) {
                 Map<String, Object> one = new LinkedHashMap<>();
                 one.put("nodeId", n.getNodeId());
@@ -275,6 +338,9 @@ public class PlanNodeTools extends BaseTool {
                     "对非关键路径失败节点可评估 SKIP 继续"
             ));
 
+            /**
+             * 重规划建议生成后发出告警事件，提醒上层关注失败节点和恢复策略。
+             */
             emitAuditAndSse(
                     planId,
                     null,
@@ -295,6 +361,9 @@ public class PlanNodeTools extends BaseTool {
         }
     }
 
+    /**
+     * 统一发送节点相关审计日志和 SSE 事件，失败时只记录告警不打断主流程。
+     */
     private void emitAuditAndSse(
             String planId,
             String phaseId,
@@ -312,6 +381,9 @@ public class PlanNodeTools extends BaseTool {
         }
     }
 
+    /**
+     * 按计划标识和节点标识查询单个节点，找不到时返回 null。
+     */
     private PlanNode findByPlanIdAndNodeId(String planId, String nodeId) {
         if (planId == null || planId.isBlank() || nodeId == null || nodeId.isBlank()) {
             return null;

@@ -21,7 +21,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Search 检索流水线，面向精确检索场景按路由数据源召回结果。 */
+/**
+ * 该流水线面向精确查找场景，优先按 exact/fts/keyword 组合策略从指定来源召回结果。
+ */
 @Component
 public class SearchPipeline extends AbstractRetrievalPipeline {
 
@@ -44,8 +46,14 @@ public class SearchPipeline extends AbstractRetrievalPipeline {
         return RetrievalRoute.SEARCH;
     }
 
+    /**
+     * 为精确检索场景注入 exact_first 策略，再复用通用来源检索流程构建结果。
+     */
     @Override
     public RetrievalResponse execute(QueryObject queryObject, RoutePlan plan, RetrievalRequest request) {
+        /**
+         * 先在查询过滤条件中写入搜索模式，明确当前路由应优先走精确匹配策略。
+         */
         Map<String, Object> searchFilters = new HashMap<>();
         if (queryObject.getPossibleFilters() != null) {
             searchFilters.putAll(queryObject.getPossibleFilters());
@@ -54,6 +62,9 @@ public class SearchPipeline extends AbstractRetrievalPipeline {
         searchFilters.put("retrieval_strategy", "keyword_fts_exact_then_vector");
         QueryObject searchQuery = queryObject.toBuilder().possibleFilters(searchFilters).build();
 
+        /**
+         * 再调用通用检索流程按来源召回，并把结果包装为统一响应结构。
+         */
         SourceRetrieveOutcome outcome = retrieveBySources(
                 searchQuery,
                 plan.getTopKConfig(),

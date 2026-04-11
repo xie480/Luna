@@ -26,6 +26,9 @@ import java.util.Map;
 import java.util.Set;
 
 @Component
+/**
+ * 该流水线面向模块化多源检索场景，支持查询改写、来源路由和跨源融合后的角色分组输出。
+ */
 public class ModularPipeline extends AbstractRetrievalPipeline {
 
     public ModularPipeline(
@@ -47,10 +50,19 @@ public class ModularPipeline extends AbstractRetrievalPipeline {
         return RetrievalRoute.MODULAR;
     }
 
+    /**
+     * 先按需要改写查询并细化来源路由，再执行多源检索和跨源融合。
+     */
     @Override
     public RetrievalResponse execute(QueryObject queryObject, RoutePlan plan, RetrievalRequest request) {
+        /**
+         * 先根据规划判断是否需要补做改写，避免原始查询对多源检索不够友好。
+         */
         QueryObject effectiveQuery = applyConditionalRewrite(queryObject, plan);
         List<RetrievalSource> routedSources = routeSources(effectiveQuery, plan, request);
+        /**
+         * 再按路由后的来源执行通用检索流程，并开启跨源融合与压缩。
+         */
         SourceRetrieveOutcome outcome = retrieveBySources(
                 effectiveQuery,
                 plan.getTopKConfig(),
@@ -61,6 +73,9 @@ public class ModularPipeline extends AbstractRetrievalPipeline {
                 request,
                 resolveTimeoutMs(request)
         );
+        /**
+         * 最后补充来源路由和角色分组结果，方便上层按证据语义角色消费。
+         */
         Map<String, Object> meta = new HashMap<>(outcome.meta());
         Map<RetrievalSource, List<Evidence>> grouped =
                 ensureAllEvidenceBuckets(outcome.grouped());

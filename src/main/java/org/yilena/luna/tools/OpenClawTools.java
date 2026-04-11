@@ -22,6 +22,9 @@ import org.springframework.stereotype.Component;
  */
 @Deprecated
 @Component
+/**
+ * OpenClaw 兼容占位类，负责保留历史 Bean 注入入口，避免旧代码在工具拆分后发生依赖注入失败。
+ */
 public class OpenClawTools extends BaseTool {
 
     public OpenClawTools(ObjectMapper objectMapper) {

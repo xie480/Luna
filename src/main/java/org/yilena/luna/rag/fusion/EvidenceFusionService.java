@@ -18,10 +18,19 @@ import java.util.Set;
 
 @Component
 @RequiredArgsConstructor
+/**
+ * 该服务负责将多数据源检索结果做跨源融合、全局重排和按源再分配，保证最终证据既相关又均衡。
+ */
 public class EvidenceFusionService {
 
+    /**
+     * 基于模型的规划器，用于执行跨来源全局重排。
+     */
     private final ModelDrivenRagPlanner modelDrivenRagPlanner;
 
+    /**
+     * 融合各来源证据，必要时执行全局重排，并按来源预算重新分桶。
+     */
     public FusionResult fuse(
             String query,
             Map<RetrievalSource, List<Evidence>> grouped,
@@ -34,6 +43,9 @@ public class EvidenceFusionService {
                 ? RetrievalSource.all()
                 : targetSources;
 
+        /**
+         * 先按目标来源汇总全部候选，后续统一做全局重排或直接截断。
+         */
         List<Evidence> all = new ArrayList<>();
         for (RetrievalSource source : sources) {
             all.addAll(grouped.getOrDefault(source, List.of()));
@@ -46,11 +58,17 @@ public class EvidenceFusionService {
             return new FusionResult(empty, List.of(), Map.of("global_candidates", 0));
         }
 
+        /**
+         * 根据总预算决定全局保留上限，再按配置决定是否启用跨源重排。
+         */
         int globalLimit = resolveGlobalLimit(topKConfig, sources);
         List<Evidence> ranked = allowGlobalRerank
                 ? modelDrivenRagPlanner.rerankGlobally(query, all, globalLimit, preferMidModel)
                 : all.stream().limit(globalLimit).toList();
 
+        /**
+         * 将全局排序结果重新按来源分配，确保最终输出仍满足各来源的 topK 约束。
+         */
         Map<RetrievalSource, List<Evidence>> redistributed = redistributeBySource(ranked, topKConfig, sources);
         List<RetrievalSource> hitSources = redistributed.entrySet().stream()
                 .filter(entry -> !entry.getValue().isEmpty())
@@ -65,6 +83,9 @@ public class EvidenceFusionService {
         return new FusionResult(redistributed, hitSources, meta);
     }
 
+    /**
+     * 对跨来源证据做内容去重，优先保留得分更高的一条并在元数据中记录融合来源。
+     */
     public List<Evidence> deduplicateAcrossSources(List<Evidence> evidences) {
         Map<String, Evidence> byKey = new HashMap<>();
         Map<String, Set<String>> fusedSources = new HashMap<>();
@@ -88,6 +109,9 @@ public class EvidenceFusionService {
         return result;
     }
 
+    /**
+     * 按来源预算把全局排序后的证据重新分桶，避免某个来源独占全部结果。
+     */
     public Map<RetrievalSource, List<Evidence>> redistributeBySource(
             List<Evidence> ranked,
             Map<RetrievalSource, Integer> topKConfig,
@@ -146,6 +170,9 @@ public class EvidenceFusionService {
         return normalized.substring(0, 320);
     }
 
+    /**
+     * 该记录用于承载融合后的证据分组、命中来源和过程元信息。
+     */
     public record FusionResult(
             Map<RetrievalSource, List<Evidence>> grouped,
             List<RetrievalSource> hitSources,

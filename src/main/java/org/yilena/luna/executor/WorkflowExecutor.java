@@ -33,13 +33,34 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Component
+/**
+ * 工作流执行器，负责调度工具工作流的同步或异步执行，并沉淀步骤结果、状态流和工具调用轨迹。
+ */
 public class WorkflowExecutor {
 
+    /**
+     * RocketMQ 模板，用于派发异步工作流执行消息。
+     */
     private final RocketMQTemplate rocketMQTemplate;
+    /**
+     * 工具执行网关，用于统一执行工作流步骤中命中的工具。
+     */
     private final ToolExecutionGateway toolExecutionGateway;
+    /**
+     * MCP 服务，用于按能力搜索可执行工具。
+     */
     private final McpService mcpService;
+    /**
+     * 大模型客户端工具，用于执行候选工具重排等能力。
+     */
     private final LlmClientUtil llmClientUtil;
+    /**
+     * JSON 处理器，用于解析入参与构建响应。
+     */
     private final ObjectMapper objectMapper;
+    /**
+     * 状态发布器，用于向前端推送工作流执行状态。
+     */
     private final LunaStatusPublisher statusPublisher;
 
     public WorkflowExecutor(RocketMQTemplate rocketMQTemplate,
@@ -56,14 +77,23 @@ public class WorkflowExecutor {
         this.statusPublisher = statusPublisher;
     }
 
+    /**
+     * 工作流统一执行入口，根据运行模式分发到异步消息派发或本地同步执行。
+     */
     public String execute(Resource workflow, String argsJson) {
         log.info("Workflow dispatch start, workflowName={}, runMode={}", workflow.getName(), workflow.getRunMode());
 
+        /**
+         * 先校验工作流配置是否可执行，避免缺失关键槽位时进入执行链路。
+         */
         String validateErr = validateExecutableWorkflow(workflow);
         if (validateErr != null) {
             return validateErr;
         }
 
+        /**
+         * 异步模式下只负责创建任务和投递消息，同步模式直接进入本地步骤执行循环。
+         */
         if (RunMode.ASYNC.equals(workflow.getRunMode())) {
             String taskId = UUID.randomUUID().toString();
             log.info("Workflow async task created, taskId={}, workflowName={}", taskId, workflow.getName());
@@ -92,6 +122,9 @@ public class WorkflowExecutor {
         return executeLoop(workflow, argsJson);
     }
 
+    /**
+     * 同步执行工作流步骤循环，按槽位依次匹配工具、执行工具并汇总状态。
+     */
     public String executeLoop(Resource workflow, String argsJson) {
         long start = System.currentTimeMillis();
 
@@ -108,6 +141,9 @@ public class WorkflowExecutor {
         );
 
         try {
+            /**
+             * 先解析输入参数和工作流配置，建立步骤状态容器，作为整个执行过程的上下文。
+             */
             JsonNode inputNode = parseArgs(argsJson);
             List<Resource.ToolSlotDto> slots = workflow.getToolSlots() != null ? workflow.getToolSlots() : Collections.emptyList();
             List<String> chain = workflow.getThoughtChain() != null ? workflow.getThoughtChain() : Collections.emptyList();
@@ -122,6 +158,9 @@ public class WorkflowExecutor {
             int successCount = 0;
             int failCount = 0;
 
+            /**
+             * 按步骤顺序遍历工具槽位，逐步完成工具匹配、参数构造、执行和结果沉淀。
+             */
             for (int i = 0; i < slots.size(); i++) {
                 Resource.ToolSlotDto slot = slots.get(i);
                 String stepDesc = i < chain.size() ? chain.get(i) : ("step-" + (i + 1));
@@ -142,6 +181,9 @@ public class WorkflowExecutor {
                 Resource matchedTool = null;
                 String toolArgs = "{}";
                 try {
+                    /**
+                     * 先按能力搜索并选择最合适的工具，必需槽位未命中时直接中断后续执行。
+                     */
                     matchedTool = selectBestToolByCapability(slot.getCapability(), inputNode);
                     if (matchedTool == null) {
                         if (Boolean.TRUE.equals(slot.getRequired())) {
@@ -157,6 +199,9 @@ public class WorkflowExecutor {
                     step.put("toolName", matchedTool.getName());
                     step.put("toolId", matchedTool.getId());
 
+                    /**
+                     * 基于当前输入和运行状态构建工具参数，再通过统一网关执行真实工具调用。
+                     */
                     toolArgs = buildToolArgs(inputNode, state);
                     step.put("toolArgs", safeToNode(toolArgs));
 
@@ -170,6 +215,9 @@ public class WorkflowExecutor {
                     JsonNode toolResultNode = safeToNode(toolResult);
                     boolean stepSuccess = isToolSuccess(toolResultNode);
 
+                    /**
+                     * 保存步骤结果和工具轨迹，并将输出写回共享状态供后续步骤继续消费。
+                     */
                     step.put("toolResult", toolResultNode != null ? toolResultNode : toolResult);
                     step.put("status", stepSuccess ? "SUCCESS" : "FAILED");
                     step.put("costMs", System.currentTimeMillis() - stepStart);
@@ -186,6 +234,9 @@ public class WorkflowExecutor {
                         }
                     }
                 } catch (Exception e) {
+                    /**
+                     * 单步执行异常时记录失败结果和调用轨迹，必需步骤失败则终止整个工作流。
+                     */
                     failCount++;
                     step.put("status", "FAILED");
                     step.put("error", e.getMessage());
@@ -203,6 +254,9 @@ public class WorkflowExecutor {
             boolean hasRequiredFailure = stepResults.stream().anyMatch(s ->
                     "FAILED".equals(s.get("status")) && Boolean.TRUE.equals(findRequiredBySlot(slots, String.valueOf(s.get("slot")))));
 
+            /**
+             * 所有步骤执行结束后汇总统计结果，区分必需步骤失败与整体成功两种终态。
+             */
             result.put("stepResults", stepResults);
             result.put("successSteps", successCount);
             result.put("failedSteps", failCount);
@@ -233,11 +287,17 @@ public class WorkflowExecutor {
         }
     }
 
+    /**
+     * 解析工作流入参，空入参时回退为空对象。
+     */
     private JsonNode parseArgs(String argsJson) throws Exception {
         String content = (argsJson == null || argsJson.isBlank()) ? "{}" : argsJson;
         return objectMapper.readTree(content);
     }
 
+    /**
+     * 查询指定槽位是否被标记为必需步骤。
+     */
     private Boolean findRequiredBySlot(List<Resource.ToolSlotDto> slots, String slotName) {
         return slots.stream()
                 .filter(s -> Objects.equals(s.getSlot(), slotName))
@@ -246,6 +306,9 @@ public class WorkflowExecutor {
                 .orElse(false);
     }
 
+    /**
+     * 判断工具返回结果是否表示成功，默认无状态字段时视为成功。
+     */
     private boolean isToolSuccess(JsonNode node) {
         if (node == null || !node.isObject() || !node.has("status")) {
             return true;
@@ -254,6 +317,9 @@ public class WorkflowExecutor {
         return "success".equalsIgnoreCase(status) || "ok".equalsIgnoreCase(status);
     }
 
+    /**
+     * 按能力搜索候选工具，并在存在多个候选时用重排结果选择最佳工具。
+     */
     private Resource selectBestToolByCapability(String capability, JsonNode inputNode) throws Exception {
         if (capability == null || capability.isBlank()) {
             return null;
@@ -280,10 +346,16 @@ public class WorkflowExecutor {
         return ranked.isEmpty() ? tools.get(0) : ranked.get(0);
     }
 
+    /**
+     * 构建工具调用参数，当前直接透传输入 JSON，保留后续按状态增强的扩展点。
+     */
     private String buildToolArgs(JsonNode inputNode, Map<String, Object> state) throws Exception {
         return objectMapper.writeValueAsString(inputNode);
     }
 
+    /**
+     * 尝试将字符串解析为 JSON 节点，解析失败时返回 null。
+     */
     private JsonNode safeToNode(String text) {
         if (text == null || text.isBlank()) return null;
         try {
@@ -293,6 +365,9 @@ public class WorkflowExecutor {
         }
     }
 
+    /**
+     * 将执行结果安全序列化为 JSON，序列化失败时返回统一错误结构。
+     */
     private String safeJson(ExecutionResult result) {
         try {
             return objectMapper.writeValueAsString(result);
@@ -301,6 +376,9 @@ public class WorkflowExecutor {
         }
     }
 
+    /**
+     * 记录工具调用轨迹，供审计回放和问题排查链路复用。
+     */
     private void recordToolTrace(Resource tool, String inputJson, String outputJson, String status, String errorMessage, long latencyMs) {
         Map<String, Object> trace = new LinkedHashMap<>();
         trace.put("tool_name", tool == null ? "unknown_tool" : tool.getName());
@@ -313,6 +391,9 @@ public class WorkflowExecutor {
         ToolCallingContextHolder.appendToolExecutionTrace(trace);
     }
 
+    /**
+     * 构建工作流统一错误响应，兼容缺失工具槽位等结构化错误场景。
+     */
     private String error(String errorCode, String message, String workflowName, String missingToolSlot, String missingCapability) {
         try {
             Map<String, Object> out = new LinkedHashMap<>();
@@ -333,6 +414,9 @@ public class WorkflowExecutor {
         }
     }
 
+    /**
+     * 校验工作流是否具备可执行的基础配置，重点检查名称、槽位和必需能力声明。
+     */
     private String validateExecutableWorkflow(Resource workflow) {
         if (workflow == null) {
             return error("WORKFLOW_CONFIG_INVALID", "workflow 不能为空", "", null, null);

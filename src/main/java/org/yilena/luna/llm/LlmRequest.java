@@ -10,38 +10,37 @@ import org.yilena.luna.enums.ModelType;
 import java.util.List;
 
 /**
- * 统一的 LLM 请求参数
+ * LLM 请求模型，负责统一封装模型选择、上下文消息和生成参数。
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class LlmRequest {
-    
+
     /**
-     * 指定使用的模型类型
+     * 指定调用的模型类型。
      */
     private ModelType modelType;
-    
+
     /**
-     * 具体的模型版本名称
+     * 具体模型名称或版本标识。
      */
     private String modelName;
-    
+
     /**
-     * 上下文消息列表
+     * 发送给模型的上下文消息列表。
      */
     private List<LlmMessage> messages;
-    
+
     /**
-     * 创造力/温度值
+     * 生成温度参数，用于控制回答的发散程度。
      */
     @Builder.Default
     private Double temperature = LlmConstant.DEFAULT_TEMPERATURE;
 
     /**
-     * 是否启用 Prompt Injection 检测
-     * 仅建议用于真实用户输入（如 Chat 接口）
+     * 是否启用 Prompt Injection 检测，默认对真实用户输入开启保护。
      */
     @Builder.Default
     private Boolean enablePromptInjectionCheck = true;

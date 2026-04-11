@@ -33,13 +33,31 @@ import java.util.stream.Collectors;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+/**
+ * 该规划器负责借助模型为 RAG 检索生成查询规划、来源处理策略、分阶段检索计划和全局重排结果。
+ */
 public class ModelDrivenRagPlanner {
 
+    /**
+     * 统一 LLM 调用工具。
+     */
     private final LlmClientUtil llmClientUtil;
+    /**
+     * Gemini 模型配置集合。
+     */
     private final GeminiProperty geminiProperty;
+    /**
+     * JSON 解析工具。
+     */
     private final ObjectMapper objectMapper;
+    /**
+     * 提示词注册服务，用于优先读取治理后的 Planner Prompt。
+     */
     private final PromptRegistryService promptRegistryService;
 
+    /**
+     * 为查询生成类型、改写文本和路由 hint，帮助后续处理器和路由器做更稳健的策略判断。
+     */
     public QueryPlanDecision planQuery(String original, String normalized, RetrievalRequest request) {
         List<RetrievalRoute> allowedRoutes = request.getAllowedRoutes() == null || request.getAllowedRoutes().isEmpty()
                 ? RetrievalRoute.all()
@@ -48,6 +66,9 @@ public class ModelDrivenRagPlanner {
                 ? RetrievalSource.all()
                 : request.getSourceScope();
 
+        /**
+         * 先构造严格 JSON 输出的规划提示词，限制模型只返回当前链路需要的最小决策字段。
+         */
         String prompt = resolvePrompt("rag.planner.query_v1", """
                 You are a RAG query planner. Return strict one-line JSON only.
                 Required schema:
@@ -70,6 +91,9 @@ public class ModelDrivenRagPlanner {
                 sourceScope.stream().map(RetrievalSource::value).collect(Collectors.joining(","))
         ));
 
+        /**
+         * 调用小模型进行规划，失败时回退到基于原始归一化查询的保守默认方案。
+         */
         JsonNode node = callJson(prompt, selectSmallModel());
         if (node == null || !node.isObject()) {
             return QueryPlanDecision.builder().rewrittenQuery(normalized).complexity("simple").build();
@@ -92,6 +116,9 @@ public class ModelDrivenRagPlanner {
                 .build();
     }
 
+    /**
+     * 为单一来源的后处理阶段生成去重、重排、压缩与 topK 策略。
+     */
     public SourceProcessPlan planSourceProcessing(
             String query,
             RetrievalSource source,
@@ -100,6 +127,9 @@ public class ModelDrivenRagPlanner {
             boolean allowRerank,
             boolean allowCompress
     ) {
+        /**
+         * 候选极少时直接走保守策略，避免额外模型规划带来不必要开销。
+         */
         if (candidateCount <= 1) {
             return SourceProcessPlan.builder()
                     .deduplicate(true)
@@ -110,6 +140,9 @@ public class ModelDrivenRagPlanner {
                     .build();
         }
 
+        /**
+         * 借助模型判断当前来源是否值得继续去重、重排或压缩，以控制成本和信息密度。
+         */
         String prompt = resolvePrompt("rag.planner.source_process_v1", """
                 You are a retrieval post-processing policy planner.
                 Return strict one-line JSON only.
@@ -159,6 +192,9 @@ public class ModelDrivenRagPlanner {
                 .build();
     }
 
+    /**
+     * 生成 Agentic 检索的阶段性拆解计划，把复杂问题拆成更易覆盖的多阶段子目标。
+     */
     public List<AgentStage> planAgentStages(String query, List<RetrievalSource> sourceScope, int maxStages) {
         List<RetrievalSource> safeScope = sourceScope == null || sourceScope.isEmpty() ? RetrievalSource.all() : sourceScope;
         int boundedMaxStages = clamp(maxStages, 1, 5);
@@ -189,6 +225,9 @@ public class ModelDrivenRagPlanner {
                 safe(query)
         ));
 
+        /**
+         * 让模型按受限来源范围输出阶段计划，失败时回退到单阶段直接检索。
+         */
         JsonNode node = callJson(prompt, selectMidModel());
         if (node == null || !node.isObject() || !node.path("stages").isArray()) {
             return List.of(defaultStage(query, safeScope));
@@ -212,6 +251,9 @@ public class ModelDrivenRagPlanner {
         return stages.stream().limit(boundedMaxStages).toList();
     }
 
+    /**
+     * 对多来源证据执行全局重排，尽量把最能回答当前问题的证据放到前面。
+     */
     public List<Evidence> rerankGlobally(String query, List<Evidence> evidences, int limit, boolean preferMidModel) {
         if (evidences == null || evidences.isEmpty()) {
             return Collections.emptyList();
@@ -221,6 +263,9 @@ public class ModelDrivenRagPlanner {
             return evidences.stream().limit(safeLimit).toList();
         }
 
+        /**
+         * 先裁剪候选规模并构造紧凑提示词，再让模型返回按优先级排序的证据 ID 列表。
+         */
         List<Evidence> candidates = evidences.stream().limit(60).toList();
         String docs = candidates.stream()
                 .map(it -> "id=" + it.getId() + " | source=" + it.getSource().value() + " | content=" + trimForPrompt(it.getContent(), 200))
@@ -245,6 +290,9 @@ public class ModelDrivenRagPlanner {
                     .toList();
         }
 
+        /**
+         * 如果模型结果不完整，则按模型顺序优先补齐，剩余部分再回退到原始排序结果。
+         */
         Map<String, Evidence> byId = candidates.stream().collect(Collectors.toMap(Evidence::getId, it -> it, (a, b) -> a, LinkedHashMap::new));
         List<Evidence> ordered = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
@@ -309,6 +357,9 @@ public class ModelDrivenRagPlanner {
                 .build();
     }
 
+    /**
+     * 调用模型并解析严格 JSON 结果，解析失败时返回空。
+     */
     private JsonNode callJson(String prompt, String modelName) {
         try {
             LlmRequest request = LlmRequest.builder()
@@ -391,30 +442,75 @@ public class ModelDrivenRagPlanner {
         return promptRegistryService.resolvePromptValue(key, fallback);
     }
 
+    /**
+     * 该模型用于承载查询规划结果。
+     */
     @Value
     @Builder
     public static class QueryPlanDecision {
+        /**
+         * 识别出的查询类型。
+         */
         String queryType;
+        /**
+         * 推荐的改写查询。
+         */
         String rewrittenQuery;
+        /**
+         * 模型建议的路由提示。
+         */
         RetrievalRoute routeHint;
+        /**
+         * 识别出的复杂度等级。
+         */
         String complexity;
     }
 
+    /**
+     * 该模型用于描述单个来源的后处理策略。
+     */
     @Value
     @Builder
     public static class SourceProcessPlan {
+        /**
+         * 是否需要去重。
+         */
         boolean deduplicate;
+        /**
+         * 是否需要重排。
+         */
         boolean rerank;
+        /**
+         * 是否需要压缩内容。
+         */
         boolean compress;
+        /**
+         * 当前来源允许保留的 topK。
+         */
         int topK;
+        /**
+         * 压缩后的最大字符数。
+         */
         int compressionChars;
     }
 
+    /**
+     * 该模型用于定义 Agentic 检索的单个阶段。
+     */
     @Value
     @Builder
     public static class AgentStage {
+        /**
+         * 当前阶段的检索目标。
+         */
         String objective;
+        /**
+         * 当前阶段使用的改写查询。
+         */
         String rewrittenQuery;
+        /**
+         * 当前阶段允许访问的数据源。
+         */
         List<RetrievalSource> sources;
     }
 }

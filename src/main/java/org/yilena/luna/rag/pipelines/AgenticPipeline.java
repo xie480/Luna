@@ -27,9 +27,18 @@ import java.util.Map;
 import java.util.Set;
 
 @Component
+/**
+ * 该流水线面向复杂推理场景，通过多阶段检索逐步补全证据，并在预算不足或证据不足时回退到 modular 结果。
+ */
 public class AgenticPipeline extends AbstractRetrievalPipeline {
 
+    /**
+     * Embedding 适配器，用于为阶段改写查询重新生成向量。
+     */
     private final EmbeddingProvider embeddingProvider;
+    /**
+     * 语义文本服务，用于判断阶段目标与最终证据之间的覆盖程度。
+     */
     private final SemanticTextService semanticTextService;
 
     public AgenticPipeline(
@@ -55,8 +64,14 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
         return RetrievalRoute.AGENTIC;
     }
 
+    /**
+     * 依次执行阶段规划、阶段检索、充分性评估和必要时的 modular 回退，输出最终检索结果。
+     */
     @Override
     public RetrievalResponse execute(QueryObject queryObject, RoutePlan plan, RetrievalRequest request) {
+        /**
+         * 先准备来源范围、总预算和阶段上限，为后续多阶段检索设定边界。
+         */
         List<RetrievalSource> sources = plan.getSources() == null || plan.getSources().isEmpty()
                 ? resolveSources(request)
                 : plan.getSources();
@@ -66,6 +81,9 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
         int maxCalls = Math.max(1, getRagProperties().getAgenticMaxCalls());
         int maxTotalTopK = Math.max(1, getRagProperties().getAgenticMaxTotalTopK());
 
+        /**
+         * 再让规划器把复杂问题拆成多个检索阶段，后续按阶段逐步补齐证据。
+         */
         List<ModelDrivenRagPlanner.AgentStage> stages = getModelDrivenRagPlanner()
                 .planAgentStages(queryObject.getRewrittenQuery(), sources, maxSteps);
 
@@ -79,6 +97,9 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
         Map<RetrievalSource, Integer> baseTopK = normalizeTopKConfig(plan.getTopKConfig(), sources);
         SufficiencyCheck latestSufficiency = SufficiencyCheck.empty();
 
+        /**
+         * 按阶段执行检索，并在每一轮后累计证据、记录阶段元信息和评估证据充分性。
+         */
         for (int i = 0; i < stages.size() && i < maxSteps && callCount < maxCalls; i++) {
             long remaining = remainingMs(deadline);
             if (remaining < 120) {
@@ -138,6 +159,9 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                 break;
             }
 
+            /**
+             * 当前阶段结束后如果仍有缺失来源，则尝试补发一次定向补充检索。
+             */
             if (callCount < maxCalls) {
                 List<RetrievalSource> missingSources = missingSources(cumulative, sources);
                 if (!missingSources.isEmpty()) {
@@ -195,6 +219,9 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                 || totalTopKExceeded
                 || cumulativeRequestedTopK >= maxTotalTopK;
 
+        /**
+         * 当达到时限、步数或证据仍不足时，统一回退到 modular 风格的最终融合结果，保证始终有可用输出。
+         */
         if (timeoutReached || overLimit || !evidenceSufficient) {
             int fallbackBudget = maxTotalTopK - cumulativeRequestedTopK;
             Map<RetrievalSource, List<Evidence>> fallbackGrouped;
@@ -269,6 +296,9 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                     .build();
         }
 
+        /**
+         * 证据充分时执行最终融合，输出 agentic 路由的完整结果。
+         */
         EvidenceFusionService.FusionResult finalFusion = getEvidenceFusionService().fuse(
                 queryObject.getRewrittenQuery(),
                 cumulative,
@@ -309,6 +339,9 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                 .build();
     }
 
+    /**
+     * 为阶段改写查询补充新的 embedding，避免沿用旧向量导致阶段召回偏移。
+     */
     private QueryObject buildStageQuery(QueryObject original, String stageRewrittenQuery) {
         if (stageRewrittenQuery == null || stageRewrittenQuery.isBlank()
                 || stageRewrittenQuery.equals(original.getRewrittenQuery())) {
@@ -346,6 +379,9 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
         }
     }
 
+    /**
+     * 从证据覆盖数、来源覆盖和语义相似度三个维度判断当前阶段结果是否已经足够支撑回答。
+     */
     private SufficiencyCheck evaluateEvidenceSufficiency(
             Map<RetrievalSource, List<Evidence>> grouped,
             List<RetrievalSource> sources,
@@ -443,6 +479,9 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
         return String.join(",", reasons);
     }
 
+    /**
+     * 该记录用于承载 agentic 证据充分性评估结果。
+     */
     private record SufficiencyCheck(
             boolean sufficient,
             double stageCoverage,

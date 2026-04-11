@@ -20,11 +20,16 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-/** 知识库检索器，负责知识库向量召回并转换为标准 Evidence。 */
+/**
+ * 该检索器负责从知识库中召回候选分片，并融合向量、全文、时效和来源权重生成标准化证据。
+ */
 @Component
 @RequiredArgsConstructor
 public class KnowledgeRetriever implements BaseRetriever {
 
+    /**
+     * PostgreSQL 检索适配器。
+     */
     private final PgRetrievalAdapter pgRetrievalAdapter;
 
     @Override
@@ -32,6 +37,9 @@ public class KnowledgeRetriever implements BaseRetriever {
         return RetrievalSource.KNOWLEDGE;
     }
 
+    /**
+     * 按查询特征组合精确检索、全文检索和向量检索结果，并汇总为最终知识证据。
+     */
     @Override
     public List<Evidence> retrieve(QueryObject queryObject, int topK, Map<String, Object> filters) {
         String query = effectiveQuery(queryObject);
@@ -40,6 +48,9 @@ public class KnowledgeRetriever implements BaseRetriever {
         List<Integer> sourceTypes = parseSourceTypes(filters);
         List<KnowledgeChunkRecord> candidates = new ArrayList<>();
 
+        /**
+         * 先根据查询标签决定检索顺序，精确查找场景优先命中原文一致或高相似文本。
+         */
         if (exactFirst) {
             candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchKnowledgeByExact(query, topK, sourceTypes)));
             candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchKnowledgeByFts(query, topK, sourceTypes)));
@@ -63,6 +74,9 @@ public class KnowledgeRetriever implements BaseRetriever {
             return List.of();
         }
 
+        /**
+         * 将多种检索通道返回的同一知识块按 ID 合并，避免重复命中在后续排序中重复计权。
+         */
         Map<String, ScoredKnowledge> merged = new HashMap<>();
         for (KnowledgeChunkRecord item : candidates) {
             if (item == null) {
@@ -77,6 +91,9 @@ public class KnowledgeRetriever implements BaseRetriever {
             }
         }
 
+        /**
+         * 最后把融合后的分数写回 Evidence，并按最终分排序后截断到目标数量。
+         */
         return merged.values().stream()
                 .map(ScoredKnowledge::toEvidence)
                 .sorted(Comparator.comparingDouble(Evidence::getScore).reversed())

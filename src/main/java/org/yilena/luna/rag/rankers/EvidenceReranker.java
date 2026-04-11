@@ -10,14 +10,22 @@ import java.util.Collections;
 import java.util.List;
 import java.util.stream.IntStream;
 
-/** 证据重排器，调用模型重排接口对候选证据重新排序。 */
+/**
+ * 该重排器负责调用模型重排接口对候选证据重新排序，并把排序结果回写为统一分数。
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class EvidenceReranker {
 
+    /**
+     * 统一 LLM 调用工具。
+     */
     private final LlmClientUtil llmClientUtil;
 
+    /**
+     * 基于查询对候选证据执行重排，失败时回退到原始顺序。
+     */
     public List<Evidence> rerank(String query, List<Evidence> evidences, int topK) {
         if (evidences == null || evidences.isEmpty()) {
             return Collections.emptyList();
@@ -36,6 +44,9 @@ public class EvidenceReranker {
         }
     }
 
+    /**
+     * 根据排序名次生成递减分数，便于后续统一比较。
+     */
     private double scoreByRank(int index, int total) {
         if (total <= 1) {
             return 1.0D;

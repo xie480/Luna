@@ -23,19 +23,40 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+/**
+ * 该服务实现负责串联查询处理、路由选择和具体检索流水线，并统一补齐检索元信息输出。
+ */
 public class RetrievalServiceImpl implements RetrievalService {
 
+    /**
+     * 查询预处理器，用于完成归一化、改写和过滤信号提取。
+     */
     private final QueryProcessor queryProcessor;
+    /**
+     * 路由选择器，用于决定当前请求应该进入哪条检索流水线。
+     */
     private final RouteSelector routeSelector;
+    /**
+     * 所有已注册的检索流水线实现。
+     */
     private final List<RetrievalPipeline> pipelines;
 
     @Override
+    /**
+     * 执行统一检索入口，依次完成请求校验、查询处理、路由分发和结果包装。
+     */
     public RetrievalResponse retrieve(RetrievalRequest request) {
         long start = System.currentTimeMillis();
+        /**
+         * 空查询直接返回空响应，避免无意义进入后续检索链路。
+         */
         if (request == null || request.getQuery() == null || request.getQuery().isBlank()) {
             return emptyResponse(RetrievalRoute.SEARCH, "empty_query", 0);
         }
 
+        /**
+         * 先把原始请求处理为统一查询对象，再根据查询特征生成路由计划。
+         */
         QueryObject queryObject = queryProcessor.process(request);
         RoutePlan plan = routeSelector.selectPlan(queryObject, request);
         RetrievalPipeline pipeline = selectPipeline(plan.getRoute());
@@ -43,6 +64,9 @@ public class RetrievalServiceImpl implements RetrievalService {
             return emptyResponse(plan.getRoute(), queryObject.getRewrittenQuery(), elapsed(start));
         }
 
+        /**
+         * 执行命中的检索流水线，并在响应上补充统一元信息和调试数据。
+         */
         RetrievalResponse rawResponse = pipeline.execute(queryObject, plan, request);
         Map<String, Object> meta = new HashMap<>();
         meta.put("sources_used", resolveSourcesUsed(rawResponse, request));
@@ -53,6 +77,9 @@ public class RetrievalServiceImpl implements RetrievalService {
         if (rawResponse.getMeta() != null && !rawResponse.getMeta().isEmpty()) {
             meta.putAll(rawResponse.getMeta());
         }
+        /**
+         * 调试模式下追加路由计划与改写信息，便于排查检索策略命中原因。
+         */
         if (request.getOptions() != null && request.getOptions().isDebug()) {
             Map<String, Object> mergedDebug = new HashMap<>();
             if (meta.get("debug") instanceof Map<?, ?> existedDebug) {
@@ -75,6 +102,9 @@ public class RetrievalServiceImpl implements RetrievalService {
             meta.put("debug", mergedDebug);
         }
 
+        /**
+         * 返回经过统一包装的检索结果，并输出关键链路日志便于后续追踪。
+         */
         RetrievalResponse response = RetrievalResponse.builder()
                 .route(rawResponse.getRoute())
                 .rewrittenQuery(rawResponse.getRewrittenQuery())

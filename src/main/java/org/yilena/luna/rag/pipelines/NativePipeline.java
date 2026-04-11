@@ -21,6 +21,9 @@ import java.util.List;
 import java.util.Map;
 
 @Component
+/**
+ * 该流水线面向单一主来源检索场景，根据查询意图挑选一个最可能命中的来源执行快速检索。
+ */
 public class NativePipeline extends AbstractRetrievalPipeline {
 
     public NativePipeline(
@@ -42,8 +45,14 @@ public class NativePipeline extends AbstractRetrievalPipeline {
         return RetrievalRoute.NATIVE;
     }
 
+    /**
+     * 识别主来源后仅对单一来源执行检索，减少多源检索带来的额外成本。
+     */
     @Override
     public RetrievalResponse execute(QueryObject queryObject, RoutePlan plan, RetrievalRequest request) {
+        /**
+         * 先根据来源 hint、优先级和关键词推断主来源，再按该来源执行通用检索流程。
+         */
         RetrievalSource primary = detectPrimarySource(queryObject, request);
         SourceRetrieveOutcome outcome = retrieveBySources(
                 queryObject,

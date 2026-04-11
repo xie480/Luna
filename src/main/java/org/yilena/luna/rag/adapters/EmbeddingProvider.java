@@ -1,12 +1,12 @@
 package org.yilena.luna.rag.adapters;
 
 /**
- * Embedding 适配接口。
- * 通过接口隔离具体实现（HTTP、本地进程、mock 等）。
+ * 该适配接口用于隔离具体的 Embedding 生成实现，便于在 HTTP、本地进程或 mock 方案之间切换。
  */
 public interface EmbeddingProvider {
+
     /**
-     * 将文本转为向量字符串（pgvector 可直接使用的 JSON-like 形式）。
+     * 将文本转换为向量字符串，返回可直接供 pgvector 等存储或检索组件使用的表示形式。
      */
     String embedding(String text);
 }

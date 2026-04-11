@@ -20,13 +20,28 @@ import java.util.stream.Collectors;
 
 @Component
 @RequiredArgsConstructor
+/**
+ * 该路由选择器负责根据查询类型、来源线索和延迟预算生成检索路线与 topK 分配方案。
+ */
 public class RouteSelector {
 
+    /**
+     * 低延迟预算阈值，低于该值时应更保守分配检索资源。
+     */
     private static final long LOW_LATENCY_BUDGET_MS = 1600;
+    /**
+     * 高延迟预算阈值，高于该值时可启用更充分的多源检索。
+     */
     private static final long HIGH_LATENCY_BUDGET_MS = 3200;
 
+    /**
+     * RAG 检索策略配置。
+     */
     private final RagProperties ragProperties;
 
+    /**
+     * 根据查询对象和请求范围生成完整路由计划，包括路线、来源、改写和 rerank 决策。
+     */
     public RoutePlan selectPlan(QueryObject queryObject, RetrievalRequest request) {
         List<RetrievalRoute> allowedRoutes = request.getAllowedRoutes() == null || request.getAllowedRoutes().isEmpty()
                 ? RetrievalRoute.all()
@@ -35,6 +50,9 @@ public class RouteSelector {
                 ? RetrievalSource.all()
                 : new ArrayList<>(request.getSourceScope());
 
+        /**
+         * 先推断可能命中的数据源，再根据查询特征和允许路由选择最合适的检索模式。
+         */
         List<RetrievalSource> inferredSources = inferSources(queryObject, scopedSources);
         RetrievalRoute route = selectRoute(queryObject, allowedRoutes, inferredSources.size());
 
@@ -48,6 +66,9 @@ public class RouteSelector {
                 .build();
     }
 
+    /**
+     * 按精确查找、复杂推理、配置优先级和显式 hint 依次判断最终检索路由。
+     */
     private RetrievalRoute selectRoute(QueryObject queryObject, List<RetrievalRoute> allowedRoutes, int inferredSourceCount) {
         String query = queryObject.getNormalizedQuery();
         String queryType = queryObject.getQueryType();
@@ -232,11 +253,17 @@ public class RouteSelector {
     /**
      * docs/rag.md 8.3.4: modular top-k 在区间内动态分配。
      */
+    /**
+     * 为 modular 路由动态分配 topK，兼顾最小保障、延迟预算和查询复杂度。
+     */
     private Map<RetrievalSource, Integer> resolveDynamicModularTopK(
             QueryObject queryObject,
             RetrievalRequest request,
             List<RetrievalSource> inferredSources
     ) {
+        /**
+         * 先基于最小和最大配置建立可分配区间，确保每个来源至少保留一部分召回额度。
+         */
         Map<RetrievalSource, Integer> min = normalizeTopKMap(
                 ragProperties.getModularMinTopK(),
                 Map.of(
@@ -257,6 +284,9 @@ public class RouteSelector {
             dynamic.put(source, min.get(source));
         }
 
+        /**
+         * 再根据延迟预算和查询复杂度决定本次应投入多少额外召回额度。
+         */
         int minTotal = sumTopK(min);
         int maxTotal = sumTopK(max);
         int extraBudget = Math.max(0, maxTotal - minTotal);
@@ -273,6 +303,9 @@ public class RouteSelector {
             return dynamic;
         }
 
+        /**
+         * 最后按来源权重逐步分配剩余额度，让更相关的数据源获得更多召回空间。
+         */
         Map<RetrievalSource, Double> weights = dynamicWeights(queryObject, inferredSources);
         while (toAllocate > 0) {
             RetrievalSource candidate = pickCandidateSource(weights, dynamic, max);

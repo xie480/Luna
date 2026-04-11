@@ -29,15 +29,27 @@ import java.util.stream.Stream;
  */
 @Slf4j
 @Component
+/**
+ * 代码运维工具类，负责在受控工作区内提供仓库读写、命令执行、Git 操作和依赖扫描等工程能力。
+ */
 public class CodeOpsTools extends BaseTool {
 
+    /**
+     * 受控工作区根目录，用于限制工具只在指定目录内操作文件。
+     */
     @Value("${codeops.workspace-root:}")
     private String workspaceRoot;
 
+    /**
+     * 允许执行的命令白名单，用于约束构建、测试和扫描命令的入口。
+     */
     private static final Set<String> CMD_HEAD_WHITELIST = Set.of(
             "mvn", "gradle", "npm", "pnpm", "yarn", "pytest", "python", "python3", "bash", "sh", "pip-audit"
     );
 
+    /**
+     * 命令中禁止出现的危险符号，用于阻断串联命令和重定向等高风险操作。
+     */
     private static final List<String> DANGEROUS_TOKENS = List.of("&&", ";", "|", ">", "<", "`", "$(");
 
     public CodeOpsTools(ObjectMapper objectMapper) {
@@ -46,6 +58,9 @@ public class CodeOpsTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "读取仓库目录树")
+    /**
+     * 读取仓库目录树，并按深度和隐藏文件参数返回受控目录下的结构清单。
+     */
     public String readRepoTree(
             @RequestParam("repoPath") String repoPath,
             @RequestParam(value = "maxDepth", required = false) Integer maxDepth,
@@ -53,6 +68,9 @@ public class CodeOpsTools extends BaseTool {
     ) {
         try {
             // 所有路径先做工作区安全校验，避免越界读取。
+            /**
+             * 所有路径先做安全校验，再限定遍历深度，避免越界读取和过深扫描。
+             */
             Path root = resolveSafePath(repoPath, true);
             int depth = maxDepth == null ? 4 : maxDepth;
             boolean hidden = Boolean.TRUE.equals(includeHidden);
@@ -79,12 +97,18 @@ public class CodeOpsTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "读取源码文件")
+    /**
+     * 读取源码文件内容，并按编码和最大字节数限制返回文本。
+     */
     public String readSourceFile(
             @RequestParam("filePath") String filePath,
             @RequestParam(value = "encoding", required = false) String encoding,
             @RequestParam(value = "maxBytes", required = false) Integer maxBytes
     ) {
         try {
+            /**
+             * 先校验文件路径，再控制读取大小，避免将超大文件一次性拉入对话链路。
+             */
             Path p = resolveSafePath(filePath, false);
             String enc = (encoding == null || encoding.isBlank()) ? "UTF-8" : encoding;
             int limit = maxBytes == null ? 1024 * 1024 : maxBytes;
@@ -101,18 +125,27 @@ public class CodeOpsTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "写入源码文件")
+    /**
+     * 写入源码文件内容，必要时先创建备份，确保文件修改过程可回退。
+     */
     public String writeSourceFile(
             @RequestParam("filePath") String filePath,
             @RequestParam("content") String content,
             @RequestParam(value = "backup", required = false) Boolean backup
     ) {
         try {
+            /**
+             * 先校验目标路径，再按需创建备份，避免写入越界和误覆盖关键文件。
+             */
             Path p = resolveSafePath(filePath, false);
             String backupPath = null;
             if (Boolean.TRUE.equals(backup) && Files.exists(p)) {
                 backupPath = p.toString() + ".bak." + System.currentTimeMillis();
                 Files.copy(p, Paths.get(backupPath), StandardCopyOption.REPLACE_EXISTING);
             }
+            /**
+             * 目标目录不存在时先创建目录，再以 UTF-8 覆盖写入最新内容。
+             */
             Files.createDirectories(p.getParent());
             Files.writeString(p, content, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
             log.info("write_source_file 完成, filePath={}", p);
@@ -125,6 +158,9 @@ public class CodeOpsTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "应用补丁")
+    /**
+     * 在指定仓库中执行统一补丁，可选择仅校验补丁可用性而不真正应用。
+     */
     public String applyUnifiedPatch(
             @RequestParam("repoPath") String repoPath,
             @RequestParam("patchText") String patchText,
@@ -132,9 +168,15 @@ public class CodeOpsTools extends BaseTool {
     ) {
         try {
             boolean dryRun = Boolean.TRUE.equals(checkOnly);
+            /**
+             * 先确定受控仓库路径，再根据 checkOnly 决定走校验还是实际应用流程。
+             */
             Path repo = resolveSafePath(repoPath, true);
 
             // 先落盘临时 patch 文件，再调用 git apply。
+            /**
+             * 先将补丁内容写入临时文件，再交给 git apply 处理，复用标准补丁能力。
+             */
             Path patchFile = Files.createTempFile("luna_patch_", ".diff");
             Files.writeString(patchFile, patchText == null ? "" : patchText, StandardCharsets.UTF_8, StandardOpenOption.TRUNCATE_EXISTING);
 
@@ -151,6 +193,9 @@ public class CodeOpsTools extends BaseTool {
             ProcessResult pr = runCommandInternal(repo.toFile(), cmd, 120);
             Files.deleteIfExists(patchFile);
 
+            /**
+             * 无论补丁是否成功，都统一回传命令结果和失败摘要，便于上层判断下一步动作。
+             */
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("checkOnly", dryRun);
             out.put("checkOnlyResult", pr.exitCode == 0 ? "OK" : "FAILED");
@@ -172,35 +217,53 @@ public class CodeOpsTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "执行构建命令")
+    /**
+     * 执行构建命令，复用统一命令执行入口并受白名单约束。
+     */
     public String runBuildCommand(@RequestParam("workDir") String workDir, @RequestParam("command") String command, @RequestParam(value = "timeoutSec", required = false) Integer timeoutSec) {
         return runCommand(workDir, command, timeoutSec);
     }
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "执行测试命令")
+    /**
+     * 执行测试命令，返回命令退出码和标准输出摘要。
+     */
     public String runTestCommand(@RequestParam("workDir") String workDir, @RequestParam("command") String command, @RequestParam(value = "timeoutSec", required = false) Integer timeoutSec) {
         return runCommand(workDir, command, timeoutSec);
     }
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "执行静态检查")
+    /**
+     * 执行静态检查命令，供代码质量扫描链路复用。
+     */
     public String runLintCommand(@RequestParam("workDir") String workDir, @RequestParam("command") String command, @RequestParam(value = "timeoutSec", required = false) Integer timeoutSec) {
         return runCommand(workDir, command, timeoutSec);
     }
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "执行格式化")
+    /**
+     * 执行格式化命令，统一走受控命令执行链路。
+     */
     public String runFormatCommand(@RequestParam("workDir") String workDir, @RequestParam("command") String command, @RequestParam(value = "timeoutSec", required = false) Integer timeoutSec) {
         return runCommand(workDir, command, timeoutSec);
     }
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "收集测试报告")
+    /**
+     * 收集测试报告目录中的 XML 报告，并汇总通过、失败和跳过统计。
+     */
     public String collectTestReport(
             @RequestParam("reportDirs") String reportDirs,
             @RequestParam(value = "parserType", required = false) String parserType
     ) {
         try {
+            /**
+             * 先解析报告目录列表，再逐目录扫描 testsuite XML 文件汇总测试结果。
+             */
             List<String> dirs = parseReportDirs(reportDirs);
             int passed = 0, failed = 0, skipped = 0;
             List<Map<String, Object>> failedCases = new ArrayList<>();
@@ -215,6 +278,9 @@ public class CodeOpsTools extends BaseTool {
                             .filter(p -> Files.isRegularFile(p) && p.getFileName().toString().endsWith(".xml"))
                             .toList();
                     for (Path xml : xmlFiles) {
+                        /**
+                         * 对每个测试报告文件同时提取总量统计和失败用例明细，便于排查异常。
+                         */
                         String content = Files.readString(xml, StandardCharsets.UTF_8);
                         if (!content.contains("<testsuite")) {
                             continue;
@@ -269,12 +335,18 @@ public class CodeOpsTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "创建代码检查点")
+    /**
+     * 创建 Git 检查点，支持 stash、tag 和 commit 三种策略。
+     */
     public String gitCreateCheckpoint(
             @RequestParam("repoPath") String repoPath,
             @RequestParam("mode") String mode,
             @RequestParam("message") String message
     ) {
         try {
+            /**
+             * 先规范化检查点模式，再按不同 Git 策略创建可回退的状态锚点。
+             */
             String m = mode == null ? "commit" : mode.trim().toLowerCase(Locale.ROOT);
             File repo = resolveSafePath(repoPath, true).toFile();
 
@@ -316,12 +388,18 @@ public class CodeOpsTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "回滚代码检查点")
+    /**
+     * 回滚到指定 Git 检查点，并返回回滚后的当前 HEAD。
+     */
     public String gitRollbackCheckpoint(
             @RequestParam("repoPath") String repoPath,
             @RequestParam("checkpointId") String checkpointId,
             @RequestParam(value = "mode", required = false) String mode
     ) {
         try {
+            /**
+             * 先校验回滚模式，再执行对应级别的 git reset，避免出现非法重置操作。
+             */
             String m = (mode == null || mode.isBlank()) ? "soft" : mode.trim().toLowerCase(Locale.ROOT);
             if (!List.of("hard", "soft", "mixed").contains(m)) {
                 return error("mode 非法，仅支持 hard/soft/mixed");
@@ -345,12 +423,18 @@ public class CodeOpsTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "搜索符号引用")
+    /**
+     * 在仓库中搜索符号引用，返回命中文件、行号和代码片段。
+     */
     public String searchSymbolReferences(
             @RequestParam("repoPath") String repoPath,
             @RequestParam("symbol") String symbol,
             @RequestParam(value = "language", required = false) String language
     ) {
         try {
+            /**
+             * 先校验仓库根路径，再遍历文件内容，限制返回结果规模避免响应过大。
+             */
             Path root = resolveSafePath(repoPath, true);
             if (!Files.exists(root)) {
                 return error("repoPath 不存在");
@@ -389,12 +473,18 @@ public class CodeOpsTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_CODEOPS, status = LunaStateConstant.STATUS_CODEOPS)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "扫描依赖漏洞")
+    /**
+     * 扫描项目依赖漏洞，自动识别生态并基于阈值判断是否需要阻断。
+     */
     public String scanDependencyVulnerabilities(
             @RequestParam("repoPath") String repoPath,
             @RequestParam(value = "ecosystem", required = false) String ecosystem,
             @RequestParam(value = "failOnSeverity", required = false) String failOnSeverity
     ) {
         try {
+            /**
+             * 先确定仓库和生态类型，再组装对应的依赖扫描命令。
+             */
             Path repo = resolveSafePath(repoPath, true);
             String eco = ecosystem == null ? "" : ecosystem.trim().toLowerCase(Locale.ROOT);
 
@@ -404,6 +494,9 @@ public class CodeOpsTools extends BaseTool {
                 return error("无法识别项目生态，请传 ecosystem=maven|gradle|npm|pnpm|yarn|python");
             }
 
+            /**
+             * 执行漏洞扫描后收集报告文件，并生成统一漏洞摘要和阈值判断结果。
+             */
             ProcessResult pr = runCommandInternal(repo.toFile(), cmd, 1800);
 
             List<Path> reportCandidates = findSCAReports(repo, eco);
@@ -438,12 +531,21 @@ public class CodeOpsTools extends BaseTool {
         }
     }
 
+    /**
+     * 执行受控命令，统一完成路径校验、命令校验和结果包装。
+     */
     private String runCommand(String workDir, String command, Integer timeoutSec) {
         try {
+            /**
+             * 先校验工作目录是否在受控范围内，避免命令在未知目录执行。
+             */
             Path wd = resolveSafePath(workDir, true);
             // 执行前做命令白名单与危险符号校验。
             validateCommand(command);
 
+            /**
+             * 路径和命令均通过校验后执行进程，并统一封装退出码和输出摘要。
+             */
             ProcessResult pr = runCommandInternal(wd.toFile(), parseCommand(command), timeoutSec == null ? 600 : timeoutSec);
             return success(Map.of(
                     "exitCode", pr.exitCode,
@@ -457,6 +559,9 @@ public class CodeOpsTools extends BaseTool {
         }
     }
 
+    /**
+     * 使用原生进程执行命令，并截断保存标准输出、错误输出和耗时信息。
+     */
     private ProcessResult runCommandInternal(File workDir, List<String> cmd, int timeoutSec) throws Exception {
         long start = System.currentTimeMillis();
         ProcessBuilder pb = new ProcessBuilder(cmd);
@@ -480,21 +585,33 @@ public class CodeOpsTools extends BaseTool {
         );
     }
 
+    /**
+     * 将命令字符串按空白拆分为进程参数列表。
+     */
     private static List<String> parseCommand(String cmd) {
         return Arrays.stream(cmd.trim().split("\\s+")).toList();
     }
 
+    /**
+     * 截取字符串尾部内容，避免长输出占用过大响应体。
+     */
     private static String tail(String s, int max) {
         if (s == null) return "";
         return s.length() <= max ? s : s.substring(s.length() - max);
     }
 
+    /**
+     * 截断单行片段长度，便于搜索结果展示。
+     */
     private static String trimLine(String s, int max) {
         if (s == null) return "";
         String t = s.trim();
         return t.length() <= max ? t : t.substring(0, max);
     }
 
+    /**
+     * 解析测试报告目录参数，兼容 JSON 数组和逗号分隔两种输入格式。
+     */
     private List<String> parseReportDirs(String reportDirs) {
         if (reportDirs == null || reportDirs.isBlank()) {
             return List.of();
@@ -516,6 +633,9 @@ public class CodeOpsTools extends BaseTool {
         return Arrays.stream(txt.split(",")).map(String::trim).filter(s -> !s.isBlank()).toList();
     }
 
+    /**
+     * 读取 XML 节点中的整数字段，解析失败时返回 0。
+     */
     private static int parseIntAttr(org.w3c.dom.Element el, String attr) {
         try {
             String v = el.getAttribute(attr);
@@ -526,6 +646,9 @@ public class CodeOpsTools extends BaseTool {
         }
     }
 
+    /**
+     * 校验命令是否为空、是否包含危险符号以及是否命中白名单头部命令。
+     */
     private void validateCommand(String command) {
         if (command == null || command.isBlank()) {
             throw new IllegalArgumentException("command 不能为空");
@@ -546,6 +669,9 @@ public class CodeOpsTools extends BaseTool {
         }
     }
 
+    /**
+     * 解析并校验受控路径，必要时强制要求目标必须是目录。
+     */
     private Path resolveSafePath(String inputPath, boolean mustDirectory) throws Exception {
         if (inputPath == null || inputPath.isBlank()) {
             throw new IllegalArgumentException("路径不能为空");
@@ -567,6 +693,9 @@ public class CodeOpsTools extends BaseTool {
         return target;
     }
 
+    /**
+     * 根据项目生态生成对应的依赖漏洞扫描命令。
+     */
     private List<String> buildScaCommand(Path repo, String ecosystem) {
         String eco = detectEcoLabel(repo, ecosystem);
         if ("maven".equals(eco)) {
@@ -593,6 +722,9 @@ public class CodeOpsTools extends BaseTool {
         return null;
     }
 
+    /**
+     * 自动识别项目生态，优先使用外部显式指定值。
+     */
     private String detectEcoLabel(Path repo, String requestedEco) {
         if (requestedEco != null && !requestedEco.isBlank()) {
             return requestedEco.trim().toLowerCase(Locale.ROOT);
@@ -606,6 +738,9 @@ public class CodeOpsTools extends BaseTool {
         return "";
     }
 
+    /**
+     * 按生态约定位置收集依赖扫描报告文件。
+     */
     private List<Path> findSCAReports(Path repo, String eco) {
         List<Path> reports = new ArrayList<>();
         try {
@@ -627,6 +762,9 @@ public class CodeOpsTools extends BaseTool {
         return reports;
     }
 
+    /**
+     * 汇总依赖扫描报告中的漏洞等级和依赖数，形成统一摘要。
+     */
     private Map<String, Object> summarizeScaReports(List<Path> reportFiles) {
         Map<String, Object> summary = new LinkedHashMap<>();
         summary.put("critical", 0);
@@ -675,6 +813,9 @@ public class CodeOpsTools extends BaseTool {
         return summary;
     }
 
+    /**
+     * 规范化漏洞严重级别阈值，非法值回退到 HIGH。
+     */
     private String normalizeSeverity(String severity) {
         if (severity == null || severity.isBlank()) return "HIGH";
         String s = severity.trim().toUpperCase(Locale.ROOT);
@@ -682,6 +823,9 @@ public class CodeOpsTools extends BaseTool {
         return s;
     }
 
+    /**
+     * 判断当前漏洞摘要是否达到阻断阈值。
+     */
     private boolean isThresholdReached(Map<String, Object> summary, String severity) {
         int critical = intOf(summary.get("critical"));
         int high = intOf(summary.get("high"));
@@ -698,6 +842,9 @@ public class CodeOpsTools extends BaseTool {
         };
     }
 
+    /**
+     * 将任意对象安全转换为整数，转换失败时返回 0。
+     */
     private int intOf(Object v) {
         if (v == null) return 0;
         if (v instanceof Number n) return n.intValue();

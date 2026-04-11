@@ -12,51 +12,60 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 執行網關
- * 負責權限檢查和審批標記
+ * 执行权限闸门，负责在工具真正执行前校验调用主体、敏感级别和审批要求。
  */
 @Slf4j
 @Component
 public class ExecutionGate {
 
+    /**
+     * 具备高权限能力的主体集合，用于放行高敏感或需审批工具。
+     */
     private static final Set<String> PRIVILEGED_PRINCIPALS = loadPrivilegedPrincipals();
 
     /**
-     * 檢查資源是否允許執行
-     * @param resource 目標資源
-     * @throws RuntimeException 如果權限不足
+     * 校验当前资源是否允许执行，不满足策略时直接抛出安全异常。
      */
     public void check(Resource resource) {
-        log.info("正在進行安全檢查: {}", resource == null ? "" : resource.getName());
+        log.info("正在进行安全检查: {}", resource == null ? "" : resource.getName());
         String principal = normalizePrincipal(AuthContextHolder.getPrincipalKey());
         Sensitivity sensitivity = resource == null || resource.getSensitivity() == null
                 ? Sensitivity.LOW
                 : resource.getSensitivity();
         boolean approvalRequired = resource != null && Boolean.TRUE.equals(resource.getRequiresApproval());
 
-        // 0. 基础执行身份校验（治理硬策略）
+        /**
+         * 先校验受保护能力是否具备明确调用主体，避免匿名身份调用高风险工具。
+         */
         if ((approvalRequired || Sensitivity.MEDIUM.equals(sensitivity) || Sensitivity.HIGH.equals(sensitivity))
                 && principal.isBlank()) {
             throw new IllegalStateException("SECURITY_POLICY_VIOLATION: missing principal for protected capability");
         }
 
-        // 1. 敏感度檢查
+        /**
+         * 高敏感工具要求调用主体在高权限名单中，否则直接阻断执行。
+         */
         if (Sensitivity.HIGH.equals(sensitivity)) {
             if (!isPrivilegedPrincipal(principal)) {
                 throw new SecurityException("SECURITY_POLICY_VIOLATION: HIGH sensitivity requires privileged principal");
             }
-            log.info("檢測到高敏感度工具: {}，後續將觸發審批流程", resource.getName());
+            log.info("检测到高敏感工具 {}，后续将允许进入审批流程", resource.getName());
         }
 
-        // 2. 審批標記檢查
+        /**
+         * 明确要求审批的工具同样需要高权限主体，避免普通身份绕过治理流程。
+         */
         if (approvalRequired) {
             if (!isPrivilegedPrincipal(principal)) {
                 throw new SecurityException("SECURITY_POLICY_VIOLATION: approval-required capability requires privileged principal");
             }
-            log.info("工具 [{}] 需要人工審批，將進入審批流程", resource.getName());
+            log.info("工具 [{}] 需要人工审批，将进入审批流程", resource.getName());
         }
     }
 
+    /**
+     * 从环境变量或系统属性加载高权限主体名单，未配置时默认包含 admin。
+     */
     private static Set<String> loadPrivilegedPrincipals() {
         String fromEnv = System.getenv("LUNA_MCP_PRIVILEGED_PRINCIPALS");
         String fromProp = System.getProperty("luna.mcp.privileged-principals");
@@ -74,6 +83,9 @@ public class ExecutionGate {
                 .collect(Collectors.toSet());
     }
 
+    /**
+     * 规范化主体列表字符串，空值回退为空串。
+     */
     private static String normalizeList(String value) {
         if (value == null) {
             return "";
@@ -81,6 +93,9 @@ public class ExecutionGate {
         return value.trim();
     }
 
+    /**
+     * 判断当前主体是否属于高权限名单，兼容带命名空间前缀的主体标识。
+     */
     private boolean isPrivilegedPrincipal(String principal) {
         if (principal == null || principal.isBlank()) {
             return false;
@@ -95,6 +110,9 @@ public class ExecutionGate {
         return false;
     }
 
+    /**
+     * 规范化主体标识，统一转为小写便于权限判断。
+     */
     private String normalizePrincipal(String principal) {
         if (principal == null) {
             return "";

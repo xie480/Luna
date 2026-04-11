@@ -4,16 +4,21 @@ import org.apache.ibatis.type.BaseTypeHandler;
 import org.apache.ibatis.type.JdbcType;
 import org.postgresql.util.PGobject;
 
-import java.sql.*;
+import java.sql.CallableStatement;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 
 /**
- * PostgreSQL pgvector 字段类型处理器
- * 负责将 Java String (如 "[0.1,0.2,...]") 写入 vector 列
+ * PostgreSQL pgvector 类型处理器，负责在数据库向量字段与 Java 字符串表达之间做转换。
  */
 public class VectorTypeHandler extends BaseTypeHandler<String> {
 
     @Override
     public void setNonNullParameter(PreparedStatement ps, int i, String parameter, JdbcType jdbcType) throws SQLException {
+        /**
+         * 将字符串形式的向量内容写入 PostgreSQL vector 类型字段。
+         */
         PGobject vector = new PGobject();
         vector.setType("vector");
         vector.setValue(parameter);

@@ -1,14 +1,12 @@
 package org.yilena.luna.adapter;
 
 /**
- * LLM 適配接口
- * 隔離具體模型實現
+ * LLM 适配器接口，负责抽象不同大模型服务的统一文本生成能力。
  */
 public interface LlmAdapter {
+
     /**
-     * 生成回復
-     * @param prompt 提示詞
-     * @return 模型生成的文本
+     * 根据提示词生成文本结果。
      */
     String generate(String prompt);
 }

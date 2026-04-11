@@ -19,8 +19,14 @@ import java.time.LocalDateTime;
 
 @Component
 @RequiredArgsConstructor
+/**
+ * 该检索器负责从会话记忆中召回证据，并结合记忆类型、时效和权重信息输出标准化结果。
+ */
 public class MemoryRetriever implements BaseRetriever {
 
+    /**
+     * PostgreSQL 检索适配器。
+     */
     private final PgRetrievalAdapter pgRetrievalAdapter;
 
     @Override
@@ -28,6 +34,9 @@ public class MemoryRetriever implements BaseRetriever {
         return RetrievalSource.MEMORY;
     }
 
+    /**
+     * 按会话、时间窗口和记忆类型检索候选记忆，并融合多维分数生成最终证据。
+     */
     @Override
     public List<Evidence> retrieve(QueryObject queryObject, int topK, Map<String, Object> filters) {
         String sessionId = queryObject.getSessionId();
@@ -35,6 +44,9 @@ public class MemoryRetriever implements BaseRetriever {
             return List.of();
         }
 
+        /**
+         * 先从过滤条件中提取记忆类型和时间范围，缩小会话记忆检索范围。
+         */
         List<String> memoryTypes = resolveMemoryTypes(filters);
         LocalDateTime endTime = resolveEndTime(filters);
         LocalDateTime startTime = resolveStartTime(filters, endTime);
@@ -42,6 +54,9 @@ public class MemoryRetriever implements BaseRetriever {
         String keyword = effectiveQuery(queryObject);
         TypeScoreProfile profile = resolveTypeScoreProfile(filters, queryObject.getQueryTags());
 
+        /**
+         * 根据查询形态决定先关键词还是先向量召回，兼顾精确命中与语义召回。
+         */
         List<Map<String, Object>> candidates = new ArrayList<>();
         boolean exactFirst = queryObject.getQueryTags() != null && queryObject.getQueryTags().contains("exact_match_first");
         if (exactFirst) {
@@ -70,6 +85,9 @@ public class MemoryRetriever implements BaseRetriever {
             return List.of();
         }
 
+        /**
+         * 合并不同召回通道命中的同一记忆记录，并融合各类得分后统一排序。
+         */
         Map<String, ScoredMemory> merged = new HashMap<>();
         for (Map<String, Object> row : candidates) {
             String id = str(row.get("id"));

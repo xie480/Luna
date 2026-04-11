@@ -21,6 +21,9 @@ import java.util.Map;
  */
 @Slf4j
 @Component
+/**
+ * 桌面工具类，负责对外暴露桌面截图与界面元素识别入口，当前主要作为桌面自动化能力的占位实现。
+ */
 public class DesktopTools extends BaseTool {
 
     public DesktopTools(ObjectMapper objectMapper) {
@@ -29,11 +32,17 @@ public class DesktopTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_DESKTOP, status = LunaStateConstant.STATUS_DESKTOP)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "抓取桌面截图")
+    /**
+     * 截取指定显示器或区域的桌面图像，当前返回占位结果用于保持工具协议稳定。
+     */
     public String captureDesktopScreenshot(
             @RequestParam(value = "monitorIndex", required = false) Integer monitorIndex,
             @RequestParam(value = "region", required = false) String region
     ) {
         log.info("capture_desktop_screenshot 占位执行, monitorIndex={}, region={}", monitorIndex, region);
+        /**
+         * 在桌面能力尚未接入时返回固定结构，避免调用方因字段缺失而中断流程。
+         */
         return success(Map.of(
                 "imagePath", "",
                 "width", 0,
@@ -46,12 +55,18 @@ public class DesktopTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_DESKTOP, status = LunaStateConstant.STATUS_DESKTOP)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "识别UI元素")
+    /**
+     * 识别截图中的 UI 元素，当前返回空结果作为后续视觉识别链路的兼容占位。
+     */
     public String detectUiElements(
             @RequestParam(value = "imagePath", required = false) String imagePath,
             @RequestParam(value = "detectorType", required = false) String detectorType,
             @RequestParam(value = "targetHints", required = false) String targetHints
     ) {
         log.info("detect_ui_elements 占位执行, imagePath={}, detectorType={}", imagePath, detectorType);
+        /**
+         * 统一返回空元素集合和原始请求参数，便于前后链路在未实现阶段完成联调。
+         */
         return success(Map.of(
                 "elements", List.of(),
                 "imagePath", imagePath,

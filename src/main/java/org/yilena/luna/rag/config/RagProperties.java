@@ -16,26 +16,50 @@ import java.util.stream.Collectors;
 @Data
 @Component
 @ConfigurationProperties(prefix = "luna.rag")
+/**
+ * 该配置类负责统一管理 RAG 路由、来源关键词、topK 预算和语义处理阈值等策略参数。
+ */
 public class RagProperties {
 
+    /**
+     * 分析型查询的默认改写模板。
+     */
     private static final String DEFAULT_ANALYSIS_REWRITE_TEMPLATE = "请围绕问题进行结构化检索与分析：%s";
+    /**
+     * 多源推理查询的默认改写模板。
+     */
     private static final String DEFAULT_MULTI_SOURCE_REWRITE_TEMPLATE = "请执行多源联合检索并对齐证据：%s";
 
+    /**
+     * 检索默认超时时间，单位毫秒。
+     */
     private long defaultTimeoutMs = 2500;
+    /**
+     * 证据压缩后的默认最大字符数。
+     */
     private int compressionMaxChars = 500;
 
+    /**
+     * Search 路由的来源 topK 配置。
+     */
     private Map<RetrievalSource, Integer> searchTopK = Map.of(
             RetrievalSource.KNOWLEDGE, 3,
             RetrievalSource.MEMORY, 3,
             RetrievalSource.PREFERENCE, 2
     );
 
+    /**
+     * Native 路由的来源 topK 配置。
+     */
     private Map<RetrievalSource, Integer> nativeTopK = Map.of(
             RetrievalSource.KNOWLEDGE, 5,
             RetrievalSource.MEMORY, 5,
             RetrievalSource.PREFERENCE, 3
     );
 
+    /**
+     * Modular 路由的默认来源 topK 配置。
+     */
     private Map<RetrievalSource, Integer> modularTopK = Map.of(
             RetrievalSource.KNOWLEDGE, 8,
             RetrievalSource.MEMORY, 6,
@@ -60,6 +84,9 @@ public class RagProperties {
             RetrievalSource.PREFERENCE, 3
     );
 
+    /**
+     * Agentic 路由的来源 topK 配置。
+     */
     private Map<RetrievalSource, Integer> agenticTopK = Map.of(
             RetrievalSource.KNOWLEDGE, 8,
             RetrievalSource.MEMORY, 6,
@@ -136,6 +163,9 @@ public class RagProperties {
     private String analysisRewriteTemplate = DEFAULT_ANALYSIS_REWRITE_TEMPLATE;
     private String multiSourceRewriteTemplate = DEFAULT_MULTI_SOURCE_REWRITE_TEMPLATE;
 
+    /**
+     * 检索完成后清洗配置中的关键词、别名与模板，避免乱码或非法值影响后续判断。
+     */
     @PostConstruct
     public void sanitizeConfiguredKeywords() {
         preciseKeywords = sanitizeList(preciseKeywords);
@@ -154,6 +184,9 @@ public class RagProperties {
         multiSourceRewriteTemplate = sanitizeRewriteTemplate(multiSourceRewriteTemplate, DEFAULT_MULTI_SOURCE_REWRITE_TEMPLATE);
     }
 
+    /**
+     * 该枚举用于定义可配置的检索路由优先级规则。
+     */
     public enum RetrievalRouteRule {
         SEARCH,
         NATIVE,
@@ -161,6 +194,9 @@ public class RagProperties {
         AGENTIC
     }
 
+    /**
+     * 获取指定来源对应的关键词列表。
+     */
     public List<String> keywordsOf(RetrievalSource source) {
         if (source == null || sourceKeywords == null || sourceKeywords.isEmpty()) {
             return List.of();
@@ -168,6 +204,9 @@ public class RagProperties {
         return sourceKeywords.getOrDefault(source.value(), List.of());
     }
 
+    /**
+     * 把来源关键词配置转换为枚举键映射，便于路由与查询处理器统一使用。
+     */
     public Map<RetrievalSource, List<String>> sourceKeywordMap() {
         Map<RetrievalSource, List<String>> mapped = new EnumMap<>(RetrievalSource.class);
         for (RetrievalSource source : RetrievalSource.values()) {
@@ -251,6 +290,9 @@ public class RagProperties {
         return normalized;
     }
 
+    /**
+     * 根据查询类型选择对应的改写模板。
+     */
     public String rewriteWithTemplate(String queryType, String normalizedQuery) {
         String safeQuery = normalizedQuery == null ? "" : normalizedQuery;
         if ("analysis_reasoning".equalsIgnoreCase(queryType)) {

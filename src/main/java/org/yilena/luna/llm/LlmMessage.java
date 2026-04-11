@@ -8,38 +8,46 @@ import lombok.NoArgsConstructor;
 import java.util.List;
 
 /**
- * 统一的 LLM 消息体，支持多模态（文本+图片）
+ * LLM 消息模型，负责描述一次对话中的角色内容和多模态输入片段。
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class LlmMessage {
-    
+
     /**
-     * 角色：system, user, assistant
+     * 消息角色，如 system、user、assistant。
      */
     private String role;
-    
+
     /**
-     * 文本内容
+     * 消息中的文本内容。
      */
     private String text;
-    
+
     /**
-     * 图片列表（支持 URL 或 Base64 编码）
-     * 用于多模态视觉模型
+     * 附带的图片地址列表，可用于多模态模型输入。
      */
     private List<String> imageUrls;
-    
+
+    /**
+     * 快速构造用户消息。
+     */
     public static LlmMessage user(String text) {
         return LlmMessage.builder().role("user").text(text).build();
     }
-    
+
+    /**
+     * 快速构造系统消息。
+     */
     public static LlmMessage system(String text) {
         return LlmMessage.builder().role("system").text(text).build();
     }
-    
+
+    /**
+     * 快速构造助手消息。
+     */
     public static LlmMessage assistant(String text) {
         return LlmMessage.builder().role("assistant").text(text).build();
     }

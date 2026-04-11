@@ -28,6 +28,9 @@ import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @RequiredArgsConstructor
+/**
+ * 该抽象流水线封装了多来源检索、后处理、跨源融合和调试元信息组装的通用逻辑。
+ */
 public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
 
     private final Map<RetrievalSource, BaseRetriever> retrieverMap;
@@ -38,6 +41,9 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
     private final ModelDrivenRagPlanner modelDrivenRagPlanner;
     private final EvidenceFusionService evidenceFusionService;
 
+    /**
+     * 按指定来源并发检索证据，并统一执行来源内后处理与可选的跨源融合。
+     */
     protected SourceRetrieveOutcome retrieveBySources(
             QueryObject queryObject,
             Map<RetrievalSource, Integer> topKConfig,
@@ -48,11 +54,17 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
             RetrievalRequest request,
             long timeoutMs
     ) {
+        /**
+         * 先归一化目标来源和 topK 预算，并计算本轮检索的总时间预算。
+         */
         List<RetrievalSource> targetSources = sources == null || sources.isEmpty() ? RetrievalSource.all() : sources;
         Map<RetrievalSource, Integer> effectiveTopK = normalizeTopKConfig(topKConfig, targetSources);
         long budgetMs = timeoutMs > 0 ? timeoutMs : resolveTimeoutMs(request);
         long deadline = System.currentTimeMillis() + budgetMs;
 
+        /**
+         * 并发发起各来源检索，尽量在统一时限内拿到更多候选。
+         */
         Map<RetrievalSource, CompletableFuture<List<Evidence>>> retrievalFutures = new EnumMap<>(RetrievalSource.class);
         for (RetrievalSource source : targetSources) {
             int topK = effectiveTopK.getOrDefault(source, 3);
@@ -69,6 +81,9 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
             }
         }
 
+        /**
+         * 收集各来源已完成结果，并在来源内执行去重、重排和压缩等后处理。
+         */
         Map<RetrievalSource, List<Evidence>> processedBySource = new EnumMap<>(RetrievalSource.class);
         Map<RetrievalSource, Integer> rawCountBySource = new EnumMap<>(RetrievalSource.class);
         List<RetrievalSource> timedOutSources = new ArrayList<>();
@@ -100,6 +115,9 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
             processedBySource.put(source, sourceEvidences);
         }
 
+        /**
+         * 开启跨源融合时执行全局重排和再分配，否则直接保留来源内处理后的结果。
+         */
         Map<RetrievalSource, List<Evidence>> grouped;
         List<RetrievalSource> hitSources;
         Map<String, Object> meta;
@@ -130,6 +148,9 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
             meta.put("hit_sources", hitSources.stream().map(RetrievalSource::value).toList());
         }
 
+        /**
+         * 最后补充超时、topK 和调试元数据，供上层日志与排障使用。
+         */
         meta.put("cross_source_fusion", enableCrossSourceFusion);
         meta.put("timed_out_sources", timedOutSources.stream().map(RetrievalSource::value).toList());
         meta.put("timeout_ms", budgetMs);
@@ -174,6 +195,9 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
         }
     }
 
+    /**
+     * 对单个来源的证据执行规划驱动的去重、重排和压缩。
+     */
     private List<Evidence> processSourceEvidence(
             QueryObject queryObject,
             RetrievalSource source,
@@ -187,6 +211,9 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
             return List.of();
         }
 
+        /**
+         * 先生成来源后处理计划，再按计划依次执行去重、重排和压缩。
+         */
         ModelDrivenRagPlanner.SourceProcessPlan plan = modelDrivenRagPlanner.planSourceProcessing(
                 queryObject.getRewrittenQuery(),
                 source,
@@ -211,6 +238,9 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
         return result;
     }
 
+    /**
+     * 对跨源融合后的结果做再次去重、压缩和按来源回分配，确保最终输出更干净且满足来源配额。
+     */
     private PostFusionOutcome postFusionProcess(
             Map<RetrievalSource, List<Evidence>> grouped,
             Map<RetrievalSource, Integer> topKConfig,
@@ -452,6 +482,9 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
                 : request.getSourceScope();
     }
 
+    /**
+     * 该结果模型用于承载来源检索结果、超时来源和过程元信息。
+     */
     protected record SourceRetrieveOutcome(
             Map<RetrievalSource, List<Evidence>> grouped,
             List<RetrievalSource> timedOutSources,

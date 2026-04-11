@@ -6,16 +6,16 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 统一的 LLM 响应结果
+ * LLM 响应模型，负责承载模型最终生成的文本结果。
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class LlmResponse {
-    
+
     /**
-     * 模型生成的文本回复
+     * 模型输出的文本内容。
      */
     private String content;
 }

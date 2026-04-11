@@ -14,10 +14,19 @@ import java.util.Set;
 
 @Component
 @RequiredArgsConstructor
+/**
+ * 该语义文本服务负责计算文本相似度、切分句子并生成语义摘要，为去重、压缩和充分性判断提供基础能力。
+ */
 public class SemanticTextService {
 
+    /**
+     * Embedding 适配器，用于在需要时生成文本向量。
+     */
     private final EmbeddingProvider embeddingProvider;
 
+    /**
+     * 综合词法相似度与向量余弦相似度计算两段文本的语义相近程度。
+     */
     public double similarity(String left, String right, Map<String, List<Double>> embeddingCache) {
         String normalizedLeft = normalize(left);
         String normalizedRight = normalize(right);
@@ -28,6 +37,9 @@ public class SemanticTextService {
             return 1.0;
         }
 
+        /**
+         * 先做轻量词法相似度估算，再在可用时叠加向量相似度提升语义判断精度。
+         */
         double lexical = lexicalSimilarity(normalizedLeft, normalizedRight);
         List<Double> leftEmbedding = embeddingOf(normalizedLeft, embeddingCache);
         List<Double> rightEmbedding = embeddingOf(normalizedRight, embeddingCache);
@@ -40,6 +52,9 @@ public class SemanticTextService {
         return lexical;
     }
 
+    /**
+     * 按句号、问号等语义边界切分文本，供摘要和去重逻辑复用。
+     */
     public List<String> splitSentences(String content) {
         if (content == null || content.isBlank()) {
             return List.of();
@@ -58,6 +73,9 @@ public class SemanticTextService {
         return List.of(content.trim());
     }
 
+    /**
+     * 从长文本中抽取语义最强的若干句，并控制总长度，作为压缩后的摘要结果。
+     */
     public String summarizeBySemantic(
             String content,
             int sentenceCount,
@@ -76,6 +94,9 @@ public class SemanticTextService {
             return joinWithBudget(sentences, maxChars);
         }
 
+        /**
+         * 先给每个句子打相关度分数，再用 MMR 兼顾相关性与多样性挑选代表句。
+         */
         List<SentenceScore> scored = new ArrayList<>(sentences.size());
         for (int i = 0; i < sentences.size(); i++) {
             String sentence = sentences.get(i);
@@ -90,6 +111,9 @@ public class SemanticTextService {
         return joinWithBudget(ordered, maxChars);
     }
 
+    /**
+     * 使用最大边际相关性选择句子，降低摘要内容重复。
+     */
     private List<SentenceScore> selectByMmr(
             List<SentenceScore> scored,
             int keep,

@@ -20,8 +20,14 @@ import java.util.Objects;
 
 @Component
 @RequiredArgsConstructor
+/**
+ * 该检索器负责召回用户偏好信息，优先按偏好键精确匹配，再用向量召回补齐语义相关偏好。
+ */
 public class PreferenceRetriever implements BaseRetriever {
 
+    /**
+     * PostgreSQL 检索适配器。
+     */
     private final PgRetrievalAdapter pgRetrievalAdapter;
 
     @Override
@@ -29,6 +35,9 @@ public class PreferenceRetriever implements BaseRetriever {
         return RetrievalSource.PREFERENCE;
     }
 
+    /**
+     * 结合偏好键、语义向量和时间新鲜度检索偏好证据，并输出统一 Evidence 结构。
+     */
     @Override
     public List<Evidence> retrieve(QueryObject queryObject, int topK, Map<String, Object> filters) {
         String prefKey = resolvePrefKey(queryObject, filters);
@@ -36,6 +45,9 @@ public class PreferenceRetriever implements BaseRetriever {
         String vector = toVector(queryObject.getEmbedding());
         int keepTopK = Math.max(1, Math.min(3, topK));
 
+        /**
+         * 优先执行按偏好键的精确或模糊匹配，结果不足时再回退到向量召回。
+         */
         List<Map<String, Object>> candidates = new ArrayList<>();
         candidates.addAll(safeCall(() -> pgRetrievalAdapter.searchPreferenceByExactOrTrigram(prefKey, query, keepTopK)));
         if (candidates.size() < keepTopK && vector != null) {
@@ -45,6 +57,9 @@ public class PreferenceRetriever implements BaseRetriever {
             return List.of();
         }
 
+        /**
+         * 把重复命中的偏好记录合并评分后统一排序，避免相同偏好多次占位。
+         */
         Map<String, ScoredPreference> merged = new HashMap<>();
         for (Map<String, Object> row : candidates) {
             String id = str(row.get("id"));

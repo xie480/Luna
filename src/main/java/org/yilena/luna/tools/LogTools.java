@@ -18,11 +18,23 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
 @Component
+/**
+ * 日志工具类，负责提供日志的新增、条件查询和清理能力，便于智能体回溯系统运行轨迹。
+ */
 public class LogTools extends BaseTool {
 
+    /**
+     * 日志时间字符串解析格式，用于统一处理查询条件中的时间参数。
+     */
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    /**
+     * 日志查询默认返回条数，避免单次工具调用读取过多数据。
+     */
     private static final int DEFAULT_QUERY_LIMIT = 50;
 
+    /**
+     * 日志服务，用于执行日志持久化、查询和删除操作。
+     */
     private final LunaLogService lunaLogService;
 
     public LogTools(ObjectMapper objectMapper, LunaLogService lunaLogService) {
@@ -32,6 +44,9 @@ public class LogTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_LOG, status = LunaStateConstant.STATUS_LOG)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "管理系统日志")
+    /**
+     * 统一处理日志管理请求，根据动作类型执行日志写入、检索或清理流程。
+     */
     public String manageLog(
             @RequestParam("action") String action,
             @RequestParam(value = "logType", required = false) String logType,
@@ -43,7 +58,13 @@ public class LogTools extends BaseTool {
             @RequestParam(value = "id", required = false) Long id,
             @RequestParam(value = "beforeTime", required = false) String beforeTime) {
         try {
+            /**
+             * 先解析工具动作，确保日志操作只在受支持的增删查范围内执行。
+             */
             ToolActionEnum actionEnum = ToolActionEnum.getByCode(action).orElse(null);
+            /**
+             * 插入流程将外部参数组装为日志实体并立即持久化，便于后续审计和排障。
+             */
             if (actionEnum == ToolActionEnum.INSERT) {
                 LunaLog log = LunaLog.builder()
                         .logType(logType != null ? LogType.valueOf(logType.toUpperCase()) : LogType.SYSTEM_EVENT)
@@ -54,6 +75,9 @@ public class LogTools extends BaseTool {
                 lunaLogService.save(log);
                 return success("日志插入成功，ID: " + log.getId());
             }
+            /**
+             * 查询流程按主键、类型、模块、内容和时间窗口动态拼接条件，返回最近日志结果。
+             */
             if (actionEnum == ToolActionEnum.QUERY) {
                 LambdaQueryWrapper<LunaLog> wrapper = new LambdaQueryWrapper<>();
                 if (id != null) wrapper.eq(LunaLog::getId, id);
@@ -67,6 +91,9 @@ public class LogTools extends BaseTool {
                 wrapper.last("LIMIT " + (limit != null ? limit : DEFAULT_QUERY_LIMIT));
                 return success(lunaLogService.list(wrapper));
             }
+            /**
+             * 删除流程支持按单条主键删除，或按时间阈值批量清理历史日志。
+             */
             if (actionEnum == ToolActionEnum.DELETE) {
                 if (id != null) {
                     lunaLogService.removeById(id);

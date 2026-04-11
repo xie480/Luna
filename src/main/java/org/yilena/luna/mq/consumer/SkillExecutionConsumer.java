@@ -26,17 +26,41 @@ import java.util.Map;
 /**
  * SkillExecutionConsumer ??
  */
+/**
+ * 工作流异步执行消费者，负责消费异步任务消息并回写 Redis 状态、SSE 事件和内存痕迹。
+ */
 public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMessage> {
 
+    /**
+     * Redis 中存储异步任务状态的键前缀。
+     */
     private static final String TASK_REDIS_KEY_PREFIX = "luna:workflow:task:";
 
+    /**
+     * 工作流执行器，用于真正执行异步任务主体。
+     */
     private final WorkflowExecutor workflowExecutor;
+    /**
+     * Redis 模板，用于维护异步任务状态快照。
+     */
     private final StringRedisTemplate stringRedisTemplate;
+    /**
+     * JSON 处理器，用于解析和构造异步结果负载。
+     */
     private final ObjectMapper objectMapper;
+    /**
+     * 状态发布器，用于通知前端异步任务状态变化。
+     */
     private final LunaStatusPublisher statusPublisher;
+    /**
+     * 热层记忆服务，用于清理异步任务挂起的工具调用痕迹。
+     */
     private final MemoryHotLayerService memoryHotLayerService;
 
     @Override
+    /**
+     * 消费异步技能执行消息，负责执行工作流并维护任务结果回写链路。
+     */
     public void onMessage(SkillExecutionMessage msg) {
         // 先做基础消息校验，避免无效任务进入执行链路。
         if (msg == null) {
@@ -44,6 +68,9 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
             return;
         }
 
+        /**
+         * 消息通过基础判空后继续提取任务标识，缺失时直接放弃消费。
+         */
         String taskId = msg.getTaskId();
         if (taskId == null || taskId.isBlank()) {
             log.error("SkillAsync MQ：消息缺少 taskId，msg={}", msg);
@@ -59,6 +86,9 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
             return;
         }
 
+        /**
+         * 任务进入运行阶段后准备执行参数和起始时间，用于后续状态回写与耗时统计。
+         */
         String skillName = msg.getResource().getName();
         String argsJson = (msg.getArgsJson() == null || msg.getArgsJson().isBlank()) ? "{}" : msg.getArgsJson();
         long start = System.currentTimeMillis();
@@ -68,6 +98,9 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
         log.info("SkillAsync MQ：开始执行异步技能任务，taskId={}, skillName={}", taskId, skillName);
 
         try {
+            /**
+             * 执行工作流主流程，结果为错误状态时按业务失败处理，成功时回写完成态。
+             */
             // 执行技能主流程并统计耗时。
             String result = workflowExecutor.executeLoop(msg.getResource(), argsJson);
             long costMs = System.currentTimeMillis() - start;
@@ -92,6 +125,9 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_THINKING, "异步技能执行完成：" + skillName);
 
         } catch (Exception e) {
+            /**
+             * 运行期异常统一按失败态回写 Redis 和 SSE，并继续抛出异常交由消息机制处理。
+             */
             long costMs = System.currentTimeMillis() - start;
             String err = e.getMessage() != null ? e.getMessage() : e.toString();
 
@@ -104,12 +140,18 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
 
             throw new RuntimeException("Async skill execution failed, taskId=" + taskId + ", err=" + err, e);
         } finally {
+            /**
+             * 无论执行结果如何，都要清理挂起工具调用并恢复全局空闲状态。
+             */
             memoryHotLayerService.clearPendingToolCallByTaskId(taskId);
             // 无论成功失败都将全局状态恢复到空闲态。
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
         }
     }
 
+    /**
+     * 将任务标记为运行中，并写入最新更新时间和技能名称。
+     */
     private void markTaskRunning(String taskId, String skillName) {
         String key = TASK_REDIS_KEY_PREFIX + taskId;
         // 维护任务运行态快照，供轮询接口读取。
@@ -121,6 +163,9 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
         stringRedisTemplate.opsForHash().putAll(key, fields);
     }
 
+    /**
+     * 将任务标记为已完成，并保存最终结果与耗时。
+     */
     private void markTaskCompleted(String taskId, String result, String skillName, long costMs) {
         String key = TASK_REDIS_KEY_PREFIX + taskId;
         // 维护任务完成态快照并记录结果。
@@ -134,6 +179,9 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
         stringRedisTemplate.opsForHash().putAll(key, fields);
     }
 
+    /**
+     * 将任务标记为失败，并保存错误信息与耗时。
+     */
     private void markTaskFailed(String taskId, String error, String skillName, long costMs) {
         String key = TASK_REDIS_KEY_PREFIX + taskId;
         // 维护任务失败态快照并记录错误信息。
@@ -147,6 +195,9 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
         stringRedisTemplate.opsForHash().putAll(key, fields);
     }
 
+    /**
+     * 推送异步执行结果事件，同时兼容新的工作流事件名和旧的技能事件名。
+     */
     private void notifyAsyncResult(String taskId, boolean success, String result, String errorCode, String error,
                                    String skillName, String status, long costMs) {
         try {
@@ -178,6 +229,9 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
         }
     }
 
+    /**
+     * 判断执行结果是否为错误状态，约定 status=error 或 failed 视为失败。
+     */
     private boolean isErrorResult(String result) {
         if (result == null || result.isBlank()) {
             return true;
@@ -195,6 +249,9 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
         }
     }
 
+    /**
+     * 从结果 JSON 中提取错误信息，提取失败时返回兜底文案。
+     */
     private String extractErrorMessage(String result) {
         if (result == null || result.isBlank()) {
             return "empty result";
@@ -210,6 +267,9 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
         }
     }
 
+    /**
+     * 从结果 JSON 中提取错误码，缺失时返回默认错误码。
+     */
     private String extractErrorCode(String result) {
         if (result == null || result.isBlank()) {
             return "UNKNOWN_ERROR";
@@ -225,6 +285,9 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
         }
     }
 
+    /**
+     * 将可空文本转换为非空字符串，便于写入 Redis 字段。
+     */
     private String safe(String text) {
         return text == null ? "" : text;
     }

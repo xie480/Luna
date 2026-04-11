@@ -6,42 +6,46 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
- * Luna 狀態發布器
- * 專注於業務邏輯，調用 SseSessionManager 進行底層通信
+ * Luna 状态发布器，负责对外提供默认状态流订阅、取消订阅和统一事件推送入口。
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class LunaStatusPublisher {
 
+    /**
+     * SSE 会话管理器，用于维护连接和真正发送事件。
+     */
     private final SseSessionManager sessionManager;
 
-    // 默認的單機客戶端ID
+    /**
+     * 默认客户端标识，适用于单用户状态流场景。
+     */
     public static final String DEFAULT_CLIENT_ID = "default";
 
     /**
-     * 訂閱狀態流
+     * 建立默认状态流订阅，并在连接成功后主动推送一次初始状态。
      */
     public SseEmitter subscribe() {
-        log.info("----------------SSE 訂閱請求: {}", DEFAULT_CLIENT_ID);
+        log.info("----------------SSE 订阅请求: {}", DEFAULT_CLIENT_ID);
 
+        /**
+         * 建立 SSE 连接后立即下发初始状态，便于前端拿到稳定的起始值。
+         */
         SseEmitter emitter = sessionManager.connect(DEFAULT_CLIENT_ID);
-
-        // 初始状态
         publish(DEFAULT_CLIENT_ID, "IDLE", "");
-
         return emitter;
     }
 
     /**
-     * 斷開訂閱
+     * 取消默认状态流订阅。
      */
     public void unsubscribe() {
         sessionManager.disconnect(DEFAULT_CLIENT_ID);
     }
 
     /**
-     * 发布普通状态（兼容旧调用）
+     * 发布普通状态消息，兼容旧版状态更新调用方式。
      */
     public void publish(String clientId, String status, String message) {
         LunaStatusMessage msg = new LunaStatusMessage(
@@ -56,16 +60,19 @@ public class LunaStatusPublisher {
     }
 
     /**
-     * 统一事件发布
+     * 发布统一 SSE 事件，底层复用会话管理器完成实际发送。
      */
     public void publishEvent(String clientId, String eventType, Object payload) {
+        /**
+         * 仅在客户端仍然在线时发送事件，避免无效推送和无意义异常日志。
+         */
         if (sessionManager.isConnected(clientId)) {
             boolean success = sessionManager.send(clientId, eventType, payload);
             if (success) {
-                log.info("向客戶端 {} 推送事件成功, eventType={}", clientId, eventType);
+                log.info("向客户端 {} 推送事件成功, eventType={}", clientId, eventType);
             }
         } else {
-            log.debug("客戶端 {} 未連接，跳過推送 eventType={}", clientId, eventType);
+            log.debug("客户端 {} 未连接，跳过推送, eventType={}", clientId, eventType);
         }
     }
 }

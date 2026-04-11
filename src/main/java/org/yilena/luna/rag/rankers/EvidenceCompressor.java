@@ -12,18 +12,32 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Evidence compressor with semantic merge and extractive summarization. */
 @Component
 @RequiredArgsConstructor
+/**
+ * 该压缩器负责合并语义相近的证据，并在内容过长时抽取关键句生成更短的证据摘要。
+ */
 public class EvidenceCompressor {
 
+    /**
+     * RAG 压缩相关配置。
+     */
     private final RagProperties ragProperties;
+    /**
+     * 语义文本服务，用于相似度计算和摘要生成。
+     */
     private final SemanticTextService semanticTextService;
 
+    /**
+     * 按默认压缩上限压缩证据内容。
+     */
     public List<Evidence> compress(List<Evidence> evidences) {
         return compress(evidences, ragProperties.getCompressionMaxChars());
     }
 
+    /**
+     * 先合并语义相近证据，再逐条压缩正文长度，减少重复信息占用。
+     */
     public List<Evidence> compress(List<Evidence> evidences, int maxChars) {
         List<Evidence> merged = mergeSimilar(evidences);
         return merged.stream()
@@ -31,6 +45,9 @@ public class EvidenceCompressor {
                 .toList();
     }
 
+    /**
+     * 通过语义相似度合并重复或高度相似的证据，并在元数据中保留融合痕迹。
+     */
     private List<Evidence> mergeSimilar(List<Evidence> evidences) {
         if (evidences == null || evidences.isEmpty()) {
             return List.of();

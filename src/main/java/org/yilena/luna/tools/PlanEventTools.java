@@ -28,9 +28,18 @@ import java.util.Map;
  */
 @Slf4j
 @Component
+/**
+ * 计划事件工具类，负责计划审计日志落库、SSE 事件推送以及两者的统一编排。
+ */
 public class PlanEventTools extends BaseTool {
 
+    /**
+     * 计划事件日志数据访问对象，用于持久化审计事件。
+     */
     private final PlanEventLogMapper planEventLogMapper;
+    /**
+     * SSE 会话管理器，用于向前端或订阅方推送计划事件。
+     */
     private final SseSessionManager sseSessionManager;
 
     public PlanEventTools(
@@ -45,6 +54,9 @@ public class PlanEventTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "记录计划审计日志")
+    /**
+     * 记录计划审计日志，将事件级别、类型和负载持久化到事件日志表。
+     */
     public String recordPlanAuditLog(
             @RequestParam("planId") String planId,
             @RequestParam(value = "phaseId", required = false) String phaseId,
@@ -55,6 +67,9 @@ public class PlanEventTools extends BaseTool {
             @RequestParam(value = "traceId", required = false) String traceId
     ) {
         try {
+            /**
+             * 先组装事件实体并解析等级、类型与负载结构，再写入审计日志。
+             */
             PlanEventLog logEntity = PlanEventLog.builder()
                     .planId(planId)
                     .phaseId(normalizeNullableId(phaseId))
@@ -77,14 +92,23 @@ public class PlanEventTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "发送计划SSE事件")
+    /**
+     * 发送计划 SSE 事件，将结构化负载推送给指定客户端或默认订阅方。
+     */
     public String emitPlanEventSse(
             @RequestParam(value = "clientId", required = false) String clientId,
             @RequestParam("eventType") String eventType,
             @RequestParam("payload") String payload
     ) {
         try {
+            /**
+             * 先规范化客户端标识并解析负载 JSON，确保推送事件结构稳定。
+             */
             String cid = (clientId == null || clientId.isBlank()) ? "default" : clientId;
             Object body = objectMapper.readValue(payload, Object.class);
+            /**
+             * 通过 SSE 会话管理器发送事件，返回本次推送是否命中有效订阅者。
+             */
             boolean sent = sseSessionManager.send(cid, eventType, body);
             log.info("emit_plan_event_sse 完成, clientId={}, eventType={}, sent={}", cid, eventType, sent);
             return success(Map.of("sent", sent, "clientId", cid, "eventType", eventType));
@@ -96,6 +120,9 @@ public class PlanEventTools extends BaseTool {
 
     @LunaState(value = LunaStateConstant.VALUE_PLAN, status = LunaStateConstant.STATUS_PLAN)
     @LunaLogRecord(module = LogModuleConstant.TOOL, action = LogActionConstant.MANAGE_LOG, type = LogType.TOOL_CALL, content = "发送并落库计划事件")
+    /**
+     * 统一发送计划事件，同时执行审计落库和 SSE 推送，并汇总两条链路的执行结果。
+     */
     public String emitPlanEvent(
             @RequestParam(value = "clientId", required = false) String clientId,
             @RequestParam("planId") String planId,
@@ -107,9 +134,15 @@ public class PlanEventTools extends BaseTool {
             @RequestParam(value = "traceId", required = false) String traceId
     ) {
         try {
+            /**
+             * 先规范化阶段和节点标识，避免空白字符串污染事件数据。
+             */
             String safePhaseId = normalizeNullableId(phaseId);
             String safeNodeId = normalizeNullableId(nodeId);
 
+            /**
+             * 审计日志与 SSE 推送分别执行，并在结果汇总时区分完全成功与部分成功场景。
+             */
             String record = recordPlanAuditLog(planId, safePhaseId, safeNodeId, level, eventType, payload, traceId);
             String sse = emitPlanEventSse(clientId, eventType, payload);
 
@@ -150,6 +183,9 @@ public class PlanEventTools extends BaseTool {
         }
     }
 
+    /**
+     * 解析事件级别，非法值自动降级为 INFO。
+     */
     private PlanEventLevel parseEventLevel(String level) {
         if (level == null || level.isBlank()) {
             return PlanEventLevel.INFO;
@@ -162,6 +198,9 @@ public class PlanEventTools extends BaseTool {
         }
     }
 
+    /**
+     * 解析事件类型，非法值自动降级为默认报告完成事件。
+     */
     private PlanEventType parseEventType(String eventType) {
         if (eventType == null || eventType.isBlank()) {
             return PlanEventType.PLAN_REPORT_READY;
@@ -174,6 +213,9 @@ public class PlanEventTools extends BaseTool {
         }
     }
 
+    /**
+     * 判断统一响应 JSON 是否为错误结果，用于汇总双写链路状态。
+     */
     private boolean isError(String json) {
         try {
             Object obj = objectMapper.readValue(json, Object.class);
@@ -187,6 +229,9 @@ public class PlanEventTools extends BaseTool {
         }
     }
 
+    /**
+     * 尝试将响应 JSON 解析为对象，解析失败时保留原始字符串。
+     */
     private Object safeReadObject(String json) {
         try {
             return objectMapper.readValue(json, Object.class);
@@ -195,6 +240,9 @@ public class PlanEventTools extends BaseTool {
         }
     }
 
+    /**
+     * 将可选标识规范化为 null 或去空格后的有效值。
+     */
     private String normalizeNullableId(String value) {
         if (value == null) {
             return null;

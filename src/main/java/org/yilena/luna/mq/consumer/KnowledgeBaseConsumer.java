@@ -15,13 +15,23 @@ import org.yilena.luna.utils.LlmClientUtil;
 import java.util.List;
 import java.util.Locale;
 
+/**
+ * 知识库消费者，负责消费异步知识入库消息并完成文档切片和向量化写入。
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 @RocketMQMessageListener(topic = RocketMqConstant.TOPIC_KB_ADD, consumerGroup = RocketMqConstant.GROUP_KB_ADD)
 public class KnowledgeBaseConsumer implements RocketMQListener<KnowledgeBaseMessage> {
 
+    /**
+     * 大模型客户端工具，用于生成知识切片向量。
+     */
     private final LlmClientUtil llmClientUtil;
+
+    /**
+     * 知识库数据访问对象，用于插入文档和切片记录。
+     */
     private final KnowledgeBaseMapper knowledgeBaseMapper;
 
     @Override
@@ -31,12 +41,18 @@ public class KnowledgeBaseConsumer implements RocketMQListener<KnowledgeBaseMess
         String rawSourceType = msg.getSourceType();
         String sourcePath = msg.getSourcePath();
 
+        /**
+         * 先解析来源类型，来源非法时直接终止入库，避免生成无法归类的知识数据。
+         */
         SourceType sourceType = parseSourceType(rawSourceType);
         if (sourceType == null) {
             log.error("invalid source type, title={}, sourceType={}", title, rawSourceType);
             return;
         }
 
+        /**
+         * 将长文本切分为知识片段，并先创建文档主记录作为切片归属。
+         */
         List<String> chunks = TextSplitter.splitText(content, 500, 50);
         Long docId = null;
         try {
@@ -48,6 +64,9 @@ public class KnowledgeBaseConsumer implements RocketMQListener<KnowledgeBaseMess
             return;
         }
 
+        /**
+         * 对每个片段生成向量并写入知识切片表，生成失败的片段仅跳过不影响整体消费。
+         */
         int successCount = 0;
         for (int i = 0; i < chunks.size(); i++) {
             try {
@@ -65,6 +84,9 @@ public class KnowledgeBaseConsumer implements RocketMQListener<KnowledgeBaseMess
         log.info("knowledge ingested, successChunks={}/{}", successCount, chunks.size());
     }
 
+    /**
+     * 解析知识来源类型，兼容枚举名和历史数字编码。
+     */
     private SourceType parseSourceType(String raw) {
         if (raw == null || raw.isBlank()) {
             return null;
