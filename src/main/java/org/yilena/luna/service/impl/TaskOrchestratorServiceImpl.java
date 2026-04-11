@@ -2522,9 +2522,15 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .count();
     }
 
+    /**
+     * 召回阈值配置，定义输入重构结果进入后续流程所需满足的门槛。
+     */
     private record RecallThreshold(double minIntentConfidence, int maxMissingSlots, int requiredEntities) {
     }
 
+    /**
+     * 重构召回门控结果，记录当前重构结果是否满足证据召回前置条件。
+     */
     private record ReconstructionRecallGate(boolean ready,
                                             String blockedReason,
                                             double intentConfidence,
@@ -4684,15 +4690,24 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .toList();
     }
 
+    /**
+     * 工具追踪引用集合，保存最近一次引用和历史引用列表。
+     */
     private record ToolTraceRefs(String latestRawRef, List<String> historyRefs) {
         private static ToolTraceRefs empty() {
             return new ToolTraceRefs("", List.of());
         }
     }
 
+    /**
+     * 恢复触发结果，描述当前轮次是否需要进入恢复链路及对应事件原因。
+     */
     private record RecoveryTrigger(boolean shouldRecover, String recoveryEvent, String interruptReason) {
     }
 
+    /**
+     * 恢复刷新计划，描述恢复链路中需要立即刷新的上下文子系统。
+     */
     private record RecoveryRefreshPlan(boolean refreshRagNow,
                                        boolean refreshMcpNow,
                                        boolean reassembleNow,
@@ -4704,12 +4719,21 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         }
     }
 
+    /**
+     * 引用评分结果，记录单条证据引用的治理分值与当轮是否已出现。
+     */
     private record ScoredRef(String ref, double score, boolean seenThisRound) {
     }
 
+    /**
+     * 活跃引用治理结果，保存最终保留的引用列表及其年龄信息。
+     */
     private record ActiveRefGovernanceResult(List<String> refs, Map<String, Integer> ageByRef) {
     }
 
+    /**
+     * 模型回复结果，分别保存原始文本、校验后文本和最终回复正文。
+     */
     private record ModelReply(String raw, String valid, String replyText) {
     }
 }

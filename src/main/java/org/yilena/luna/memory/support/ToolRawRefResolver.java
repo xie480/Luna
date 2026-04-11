@@ -96,12 +96,27 @@ public final class ToolRawRefResolver {
         return value == null ? "" : String.valueOf(value);
     }
 
+    /**
+     * 工具引用类型枚举，用于标识原始引用字符串采用的解析模式。
+     */
     private enum RefType {
+        /**
+         * 最近一次工具调用引用。
+         */
         LATEST,
+        /**
+         * 基于追踪 ID 的工具调用引用。
+         */
         TRACE_ID,
+        /**
+         * 基于工具名与状态组合的引用。
+         */
         NAME_STATUS
     }
 
+    /**
+     * 工具引用解析结果，承载引用类型以及提取出的追踪标识和状态信息。
+     */
     private record Ref(RefType type, String traceId, String toolName, String callStatus) {
     }
 }

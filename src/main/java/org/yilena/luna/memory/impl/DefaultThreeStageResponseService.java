@@ -615,6 +615,9 @@ public class DefaultThreeStageResponseService implements ThreeStageResponseServi
         return text == null || text.isBlank() ? fallback : text;
     }
 
+    /**
+     * 模板组合包，统一承载任务、关系与混合响应阶段使用的模板及规范。
+     */
     private record TemplateBundle(String taskTemplate,
                                   String relationalTemplate,
                                   String hybridTemplate,

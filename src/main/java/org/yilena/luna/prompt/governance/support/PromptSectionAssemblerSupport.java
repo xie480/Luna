@@ -370,6 +370,9 @@ public final class PromptSectionAssemblerSupport {
         }
     }
 
+    /**
+     * 提示词引用过滤结果，汇总保留引用、分槽映射以及被剔除的条目。
+     */
     public record PromptRefFilterResult(List<Map<String, Object>> promptRefs,
                                         Map<String, List<Map<String, Object>>> slotMapping,
                                         List<Map<String, Object>> filteredOutItems) {
@@ -378,6 +381,9 @@ public final class PromptSectionAssemblerSupport {
         }
     }
 
+    /**
+     * 提示词引用过滤决策，标记单条引用是否被采用及其去向或过滤原因。
+     */
     private record PromptRefFilterDecision(boolean used, String reason, String targetSection) {
         private static PromptRefFilterDecision used(String targetSection) {
             return new PromptRefFilterDecision(true, "", targetSection == null ? "" : targetSection);

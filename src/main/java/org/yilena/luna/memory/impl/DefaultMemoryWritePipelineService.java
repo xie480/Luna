@@ -1201,6 +1201,9 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
         }
     }
 
+    /**
+     * 语义事实候选项，表示从对话中抽取出的待写入关系记忆事实。
+     */
     private record SemanticFactCandidate(String domain,
                                          String factType,
                                          String factKey,
@@ -1210,6 +1213,9 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
                                          double stability) {
     }
 
+    /**
+     * 关系工作态快照，汇总当前轮次识别出的情绪、互动目标与风险信号。
+     */
     private record RelationalWorkingSnapshot(String inferredEmotion,
                                              double emotionConfidence,
                                              String desiredTone,
@@ -1259,6 +1265,9 @@ public class DefaultMemoryWritePipelineService implements MemoryWritePipelineSer
         return failures;
     }
 
+    /**
+     * 学习信号集合，用于判断本轮对话是否需要触发任务或关系反思学习。
+     */
     private record LearningSignal(boolean taskFailureSignal,
                                   boolean highCostSignal,
                                   boolean relationGapSignal,

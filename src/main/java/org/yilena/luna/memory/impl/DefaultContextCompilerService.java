@@ -670,6 +670,9 @@ public class DefaultContextCompilerService implements ContextCompilerService {
                 || taskState == TaskRuntimeState.WAITING_APPROVAL;
     }
 
+    /**
+     * 预加载决策结果，用于描述本轮上下文编译是否提前拉取任务或关系记忆。
+     */
     private record PreloadDecision(boolean preloadTaskMemory,
                                    boolean preloadRelationalMemory,
                                    String preloadMode,

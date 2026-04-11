@@ -137,11 +137,17 @@ public class JdbcTaskMemoryRetriever implements TaskMemoryRetriever {
         }
     }
 
+    /**
+     * 单行 SQL 查询供应器，用于延迟执行并返回一条任务记忆记录。
+     */
     @FunctionalInterface
     private interface SqlOneSupplier {
         Map<String, Object> get();
     }
 
+    /**
+     * 列表 SQL 查询供应器，用于延迟执行并返回多条任务记忆记录。
+     */
     @FunctionalInterface
     private interface SqlListSupplier {
         List<Map<String, Object>> get();

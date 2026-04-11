@@ -1578,6 +1578,9 @@ public class DefaultContextAssembler implements ContextAssembler {
         return PromptSectionAssemblerSupport.withPromptRefAliases(row);
     }
 
+    /**
+     * 提示词值选择结果，封装最终采用的文本内容及其来源引用。
+     */
     private record PromptValueSelection(String value, Map<String, Object> ref) {
         private static PromptValueSelection of(String value, Map<String, Object> ref) {
             return new PromptValueSelection(value == null ? "" : value, ref == null ? Map.of() : ref);
@@ -1736,6 +1739,9 @@ public class DefaultContextAssembler implements ContextAssembler {
         return mapped;
     }
 
+    /**
+     * 按需记忆载荷，汇总组装上下文时临时拉取的各类记忆与知识片段。
+     */
     private record OnDemandMemoryPayload(List<String> workingMemorySnippets,
                                          List<String> retrievedMemorySnippets,
                                          List<String> knowledgeSnippets,

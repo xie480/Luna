@@ -191,11 +191,17 @@ public class PreferenceRetriever implements BaseRetriever {
         return 1.0D / (1.0D + (days / 45.0D));
     }
 
+    /**
+     * 可抛异常的查询供应器，用于统一包装偏好检索调用。
+     */
     @FunctionalInterface
     private interface SupplierWithException<T> {
         T get() throws Exception;
     }
 
+    /**
+     * 偏好评分对象，用于融合语义、键匹配和时间衰减等维度得分。
+     */
     private class ScoredPreference {
         private final Map<String, Object> row;
         private double vectorScore;

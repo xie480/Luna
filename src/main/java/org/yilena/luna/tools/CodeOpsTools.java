@@ -855,6 +855,9 @@ public class CodeOpsTools extends BaseTool {
         }
     }
 
+    /**
+     * 进程执行结果，记录命令退出码、输出尾部内容和耗时信息。
+     */
     private record ProcessResult(int exitCode, String stdoutTail, String stderrTail, long costMs) {
     }
 }

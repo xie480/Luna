@@ -313,11 +313,17 @@ public class MemoryRetriever implements BaseRetriever {
         return EvidenceRole.EXPERIENCE;
     }
 
+    /**
+     * 可抛异常的查询供应器，用于统一包装记忆检索调用。
+     */
     @FunctionalInterface
     private interface SupplierWithException<T> {
         T get() throws Exception;
     }
 
+    /**
+     * 记忆评分对象，用于融合向量、权重、时效和类型等多维得分。
+     */
     private class ScoredMemory {
         private final Map<String, Object> row;
         private final TypeScoreProfile profile;
@@ -362,9 +368,21 @@ public class MemoryRetriever implements BaseRetriever {
         }
     }
 
+    /**
+     * 记忆类型评分配置枚举，用于按检索场景调整类型偏好权重。
+     */
     private enum TypeScoreProfile {
+        /**
+         * 偏向建议类记忆的评分配置。
+         */
         ADVICE("advice"),
+        /**
+         * 偏向反思类记忆的评分配置。
+         */
         REFLECTIVE("reflective"),
+        /**
+         * 通用检索场景的默认评分配置。
+         */
         GENERAL("general");
 
         private final String value;

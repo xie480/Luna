@@ -303,6 +303,9 @@ public class SemanticTextService {
         return content.substring(0, maxChars) + "...";
     }
 
+    /**
+     * 句子评分结果，记录文本切片在语义评估中的位置与分数。
+     */
     private record SentenceScore(int index, String sentence, double score) {
     }
 }

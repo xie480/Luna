@@ -493,6 +493,9 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
     ) {
     }
 
+    /**
+     * 融合后检索结果，承载去重融合后的命中来源与过程元信息。
+     */
     private record PostFusionOutcome(
             Map<RetrievalSource, List<Evidence>> grouped,
             List<RetrievalSource> hitSources,

@@ -61,19 +61,12 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-/**
- * OpenClaw 計劃編排服務實現（Master Planner 版）
- *
- * 職責劃分：
- * - 本類負責計劃生命週期管理：創建、持久化、狀態流轉、報告生成
- * - 階段內節點調度委託給 {@link PhaseExecutionService}
- * - 事件推送通過 {@link PlanEventTools} 統一處理
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 /**
  * 计划编排服务实现，负责管理计划从蓝图生成、持久化、阶段执行到结果汇总的完整生命周期。
+ * 该类位于 OpenClaw 主链路中，统一协调阶段执行服务与事件推送工具推进整条计划链路。
  */
 public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
@@ -1551,6 +1544,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         }
     }
 
+    /**
+     * 计划意图对象，封装计划目标及其附带元数据供后续编排使用。
+     */
     private record PlanningIntent(String goal, Map<String, String> meta) {
     }
 

@@ -123,6 +123,9 @@ public class SessionTypeResolver {
         return text == null ? "" : text.toLowerCase(Locale.ROOT);
     }
 
+    /**
+     * 会话评分结果，记录任务导向与陪伴导向两个维度的判分值。
+     */
     private record SessionScore(int taskScore, int companionScore) {
     }
 }

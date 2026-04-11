@@ -987,6 +987,9 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
         return false;
     }
 
+    /**
+     * 结构化信号结果，承载会话编排时识别出的意图、目标和缺失槽位信息。
+     */
     private record StructuredSignal(boolean structured,
                                     String intent,
                                     String goal,
@@ -1030,25 +1033,73 @@ public class DefaultSessionOrchestratorService implements SessionOrchestratorSer
         }
     }
 
+    /**
+     * 执行状态快照，组合计划级与节点级执行状态供编排阶段统一判断。
+     */
     private record ExecutionSnapshot(PlanExecutionStatus planStatus, NodeExecutionStatus nodeStatus) {
     }
 
+    /**
+     * 计划执行状态枚举，用于归一化计划级运行阶段。
+     */
     private enum PlanExecutionStatus {
+        /**
+         * 计划尚未开始执行。
+         */
         PENDING,
+        /**
+         * 计划正在执行中。
+         */
         RUNNING,
+        /**
+         * 计划因等待用户审批而暂停。
+         */
         WAITING_USER_APPROVAL,
+        /**
+         * 计划已成功完成。
+         */
         SUCCESS,
+        /**
+         * 计划执行失败。
+         */
         FAILED,
+        /**
+         * 计划已被取消。
+         */
         CANCELLED
     }
 
+    /**
+     * 节点执行状态枚举，用于归一化单个计划节点的运行结果。
+     */
     private enum NodeExecutionStatus {
+        /**
+         * 节点尚未开始执行。
+         */
         PENDING,
+        /**
+         * 节点正在执行中。
+         */
         RUNNING,
+        /**
+         * 节点执行成功。
+         */
         SUCCESS,
+        /**
+         * 节点执行失败。
+         */
         FAILED,
+        /**
+         * 节点被上游条件阻塞。
+         */
         BLOCKED,
+        /**
+         * 节点正在等待审批结果。
+         */
         APPROVAL_PENDING,
+        /**
+         * 节点被策略跳过。
+         */
         SKIPPED
     }
 }

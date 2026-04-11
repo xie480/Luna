@@ -590,6 +590,9 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
         );
     }
 
+    /**
+     * 上下文信号集合，承载输入重构阶段需要参考的状态与历史线索。
+     */
     private record ContextSignals(String goalFromState,
                                   String currentNode,
                                   String pendingQuestions,

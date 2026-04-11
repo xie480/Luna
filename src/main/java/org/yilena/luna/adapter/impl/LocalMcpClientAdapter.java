@@ -623,6 +623,9 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
         }
     }
 
+    /**
+     * WebSocket 文本收集器，负责聚合分片返回并在消息结束时完成结果回传。
+     */
     private static final class WsCollector implements WebSocket.Listener {
 
         private final CompletableFuture<String> resultFuture;

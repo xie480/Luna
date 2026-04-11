@@ -213,11 +213,17 @@ public class KnowledgeRetriever implements BaseRetriever {
         }
     }
 
+    /**
+     * 可抛异常的查询供应器，用于统一包装知识检索调用。
+     */
     @FunctionalInterface
     private interface SupplierWithException<T> {
         T get() throws Exception;
     }
 
+    /**
+     * 知识评分对象，用于聚合多路得分并生成最终证据分值。
+     */
     private class ScoredKnowledge {
         private final KnowledgeChunkRecord record;
         private double vectorScore;

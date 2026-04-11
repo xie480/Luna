@@ -674,6 +674,9 @@ public class DefaultGlobalContextRerankAgent implements GlobalContextRerankAgent
         return geminiProperty.getFlash().getModelName();
     }
 
+    /**
+     * 模型重排结果，记录各类候选证据在重排后的命中顺序与解释信息。
+     */
     private record ModelRerankResult(List<String> knowledgeRankIds,
                                      List<String> memoryRankIds,
                                      List<String> preferenceRankIds,

@@ -1278,12 +1278,18 @@ public class ChatServiceImpl implements ChatService {
         return value;
     }
 
+    /**
+     * 工具追踪引用集合，保存最近一次引用和历史引用列表。
+     */
     private record ToolTraceRefs(String latestRawRef, List<String> historyRefs) {
         private static ToolTraceRefs empty() {
             return new ToolTraceRefs("", List.of());
         }
     }
 
+    /**
+     * 记忆写入门控结果，描述当前回复是否允许写入记忆及其判定原因。
+     */
     private record MemoryWriteGateDecision(boolean allowWrite, double score, String reason) {
     }
 

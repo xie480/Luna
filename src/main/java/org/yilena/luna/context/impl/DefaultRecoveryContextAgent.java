@@ -1220,6 +1220,9 @@ public class DefaultRecoveryContextAgent implements RecoveryContextAgent {
         return out;
     }
 
+    /**
+     * 恢复决策结果，描述上下文恢复阶段是否需要刷新证据、能力或重新组装提示词。
+     */
     private record RecoveryDecision(boolean needRagRefresh,
                                     boolean needMcpRefresh,
                                     boolean needReassembly,

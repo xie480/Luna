@@ -652,17 +652,35 @@ public class AgentServiceImpl implements AgentService {
         }
     }
 
+    /**
+     * 追踪文本供应器，用于按需读取工具或执行链路的调试轨迹。
+     */
     @FunctionalInterface
     private interface TraceSupplier {
         String get() throws Exception;
     }
 
+    /**
+     * 决策动作结果，表示代理决策后选择的动作类型、目标和参数。
+     */
     private record DecisionAction(String actionType, String targetName, String argumentsJson, String directAnswer) {
     }
 
+    /**
+     * 治理决策拒绝原因枚举，用于标识受控决策解析失败的具体原因。
+     */
     private enum GovernedDecisionRejectReason {
+        /**
+         * 治理输入为空，无法执行后续决策解析。
+         */
         EMPTY_GOVERNED_DECISION_INPUT("empty_governed_decision_input"),
+        /**
+         * 治理输入签名不合法，说明返回结构不符合预期。
+         */
         INVALID_GOVERNED_INPUT_SIGNATURE("invalid_governed_input_signature"),
+        /**
+         * 决策上下文缺失，无法完成治理判定。
+         */
         MISSING_ASSEMBLED_DECISION_CONTEXT("missing_assembled_decision_context");
 
         private final String code;

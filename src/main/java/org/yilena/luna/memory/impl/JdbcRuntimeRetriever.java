@@ -92,11 +92,17 @@ public class JdbcRuntimeRetriever implements RuntimeRetriever {
         }
     }
 
+    /**
+     * 单行 SQL 查询供应器，用于延迟执行并返回一条运行态记录。
+     */
     @FunctionalInterface
     private interface SqlOneSupplier {
         Map<String, Object> get();
     }
 
+    /**
+     * 列表 SQL 查询供应器，用于延迟执行并返回多条运行态记录。
+     */
     @FunctionalInterface
     private interface SqlListSupplier {
         List<Map<String, Object>> get();

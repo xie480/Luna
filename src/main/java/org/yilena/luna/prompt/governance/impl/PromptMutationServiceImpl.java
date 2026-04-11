@@ -687,6 +687,9 @@ public class PromptMutationServiceImpl implements PromptMutationService {
         return new PromptKeyPrefix(parts[0], parts[1]);
     }
 
+    /**
+     * 提示词键前缀对象，用于拆分并保存分类与子分类两个层级键。
+     */
     private static final class PromptKeyPrefix {
         private final String category;
         private final String subCategory;

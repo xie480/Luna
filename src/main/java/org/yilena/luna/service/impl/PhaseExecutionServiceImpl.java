@@ -1507,9 +1507,21 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
     // 内部值对象
     // =========================================================
 
+    /**
+     * 阶段中断原因枚举，用于标记批次执行提前停止的触发因素。
+     */
     private enum InterruptReason {
+        /**
+         * 未发生中断。
+         */
         NONE,
+        /**
+         * 因执行失败而中断。
+         */
         FAILURE,
+        /**
+         * 因等待审批而中断。
+         */
         PENDING_APPROVAL
     }
 

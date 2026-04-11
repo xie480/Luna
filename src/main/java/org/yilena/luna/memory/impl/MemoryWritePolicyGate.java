@@ -176,12 +176,18 @@ public class MemoryWritePolicyGate {
         return Math.max(0.0, Math.min(value, 1.0));
     }
 
+    /**
+     * 写入门控上下文，汇总本轮记忆写入判断所需的会话状态与置信度信息。
+     */
     public record GateContext(String sessionId,
                               TaskRuntimeState taskState,
                               double summaryConfidence,
                               double toolSemanticConfidence) {
     }
 
+    /**
+     * 写入门控决策结果，标识当前写入是否放行以及对应原因与置信度。
+     */
     public record GateDecision(boolean allow, String reasonCode, double confidence) {
         private static GateDecision allow(double confidence) {
             return new GateDecision(true, "ALLOW", confidence);

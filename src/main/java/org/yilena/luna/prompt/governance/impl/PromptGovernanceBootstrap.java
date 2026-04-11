@@ -424,6 +424,9 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
         );
     }
 
+    /**
+     * 分类种子数据，描述治理启动时需要预置的提示词分类元信息。
+     */
     private record CategorySeed(String categoryKey,
                                 String categoryName,
                                 String description,
