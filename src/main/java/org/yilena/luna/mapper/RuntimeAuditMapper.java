@@ -8,6 +8,10 @@ import org.apache.ibatis.annotations.Select;
 import java.util.Map;
 
 @Mapper
+/**
+ * 运行审计 Mapper，负责持久化上下文快照、决策记录和工具执行轨迹等运行审计数据，
+ * 为问题排查、回放和恢复提供底层存储能力。
+ */
 public interface RuntimeAuditMapper {
 
     @Insert("""

@@ -3,6 +3,10 @@ package org.yilena.luna.prompt;
 /*
     提示模板
  */
+/**
+ * 提示词模板常量类，负责集中维护系统提示、工具决策、异常修复和知识注入等核心模板，
+ * 为对话主链路、规划链路与修复链路提供统一的模板来源。
+ */
 public final class PromptTemplates {
 
     private PromptTemplates() {}
@@ -763,7 +767,7 @@ Luna对时间流逝有自觉。她不会假装什么都没发生，但也不会�
             """;
 
     /*
-        User preference prompt block.
+        用户偏好提示块。
      */
     public static final String PREFERENCE_PROMPT = """
             【用户偏好记忆】
@@ -773,7 +777,7 @@ Luna对时间流逝有自觉。她不会假装什么都没发生，但也不会�
             """;
 
     /*
-        Long-term memory prompt block.
+        长期记忆提示块。
      */
     public static final String LONG_TERM_MEMORY_PROMPT = """
             【长期记忆片段】

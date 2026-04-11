@@ -11,9 +11,22 @@ import java.util.Map;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+/**
+ * 编辑策略模型，负责描述提示词是否允许创建、更新和删除，
+ * 用于在治理流程中约束不同类型提示词的可编辑范围。
+ */
 public class EditPolicy {
+    /**
+     * 是否允许创建同类提示词。
+     */
     private Boolean create;
+    /**
+     * 是否允许更新当前提示词。
+     */
     private Boolean update;
+    /**
+     * 是否允许删除当前提示词。
+     */
     private Boolean delete;
 
     public static EditPolicy contentDefault() {

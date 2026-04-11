@@ -11,6 +11,9 @@ import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
+/**
+ * 项目启动入口类，负责启用缓存、异步、调度、事务和日志记录等基础框架能力。
+ */
 @Slf4j
 @EnableAsync
 @EnableScheduling
@@ -19,12 +22,12 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 @EnableLogRecord(tenant = "RunaApplication")
 @SpringBootApplication(exclude = {RedissonAutoConfigurationV2.class})
 @EnableTransactionManagement
-/**
- * RunaApplication ??
- */
 public class RunaApplication {
+
     public static void main(String[] args) {
-        // 启动 Spring Boot 应用并加载全部自动配置。
+        /**
+         * 启动 Spring Boot 应用并加载当前项目的全部自动配置与组件。
+         */
         SpringApplication.run(RunaApplication.class, args);
     }
 }

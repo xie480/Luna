@@ -8,6 +8,10 @@ import org.yilena.luna.prompt.governance.model.PromptPolicyDetailView;
 import java.util.List;
 import java.util.Set;
 
+/**
+ * 提示策略服务接口，负责维护提示策略包、策略版本和包含排除规则，
+ * 用于控制不同场景下提示词集合的生效范围。
+ */
 public interface PromptPolicyService {
     PromptPolicyEntity getByPolicyId(String policyId);
 

@@ -4,8 +4,15 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * 提示词键别名辅助类，负责维护历史键与规范键之间的映射关系，
+ * 保证旧配置和新命名体系在匹配阶段能够互相兼容。
+ */
 public final class PromptKeyAliasSupport {
 
+    /**
+     * 历史提示词键到规范提示词键的映射表。
+     */
     private static final Map<String, String> LEGACY_TO_CANONICAL = Map.ofEntries(
             Map.entry("system.base_v1", "system.base.default_v1"),
             Map.entry("runtime.main_v1", "task.runtime.main_v1"),
@@ -25,6 +32,9 @@ public final class PromptKeyAliasSupport {
     private PromptKeyAliasSupport() {
     }
 
+    /**
+     * 将任意提示词键转换为规范键。
+     */
     public static String canonicalKeyOf(String key) {
         return toCanonical(key);
     }

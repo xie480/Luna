@@ -6,6 +6,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * 提示词注册表服务接口，负责管理运行时可用提示词的读取、存在性判断和分类分组查询，
+ * 是提示词治理到运行时消费之间的注册表入口。
+ */
 public interface PromptRegistryService {
     Optional<PromptItemRecord> getByKey(String key);
 

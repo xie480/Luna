@@ -6,6 +6,10 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 @Mapper
+/**
+ * 感知缓冲区 Mapper，负责维护会话感知事件缓冲、过期清理和待处理事件读取，
+ * 为事件去重和感知链路提供底层存储支持。
+ */
 public interface PerceptualBufferMapper {
 
     @Insert("""

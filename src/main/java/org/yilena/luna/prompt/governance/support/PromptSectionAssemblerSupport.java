@@ -9,6 +9,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+/**
+ * 提示词分段组装辅助类，负责把解析后的提示词槽位映射到运行时上下文章节，
+ * 并输出快照引用、章节预览和最终拼装所需的中间结构。
+ */
 public final class PromptSectionAssemblerSupport {
     private static final String SECTION_INSTRUCTIONS = "Instructions";
     private static final String SECTION_CURRENT_TASK_STATE = "Current Task State";

@@ -106,7 +106,7 @@ public class PromptSnapshotBridgeServiceImpl implements PromptSnapshotBridgeServ
                 promptRuntimeSnapshotRefMapper.insert(entity);
             }
         } catch (Exception ignore) {
-            // noop, must not block main flow
+            // 快照引用写入失败时直接忽略，不能阻断主执行链路。
         }
     }
 

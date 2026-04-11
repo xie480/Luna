@@ -20,17 +20,29 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Map;
 
+/**
+ * 全局异常处理器，负责统一拦截认证异常、审批中断和系统异常，并返回标准响应结构。
+ */
 @Slf4j
 @RestControllerAdvice
 @RequiredArgsConstructor
 public class GlobalExceptionHandler {
 
+    /**
+     * 审批中断场景的统一状态值。
+     */
     private static final String STATUS_PENDING_APPROVAL = "pending_approval";
 
+    /**
+     * 异常重试服务，用于根据异常上下文生成可恢复的错误响应。
+     */
     private final ExceptionRetryService exceptionRetryService;
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Object> handleException(Exception e, HttpServletRequest request) {
+        /**
+         * 认证异常和审批中断优先按业务语义返回，避免落入通用 500 处理逻辑。
+         */
         if (e instanceof AuthException) {
             log.warn("用户认证失败: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
@@ -49,6 +61,9 @@ public class GlobalExceptionHandler {
 
         log.error("捕获全局异常: {}", e.getMessage(), e);
 
+        /**
+         * 通用异常场景下尽可能提取原始请求体，构造完整异常上下文供重试服务判断。
+         */
         String userInput = MessageConstants.UNKNOWN_INPUT;
         if (request instanceof ContentCachingRequestWrapper wrapper) {
             byte[] buf = wrapper.getContentAsByteArray();
@@ -68,6 +83,9 @@ public class GlobalExceptionHandler {
             }
         }
 
+        /**
+         * 组装异常上下文后交给异常重试服务处理，统一输出标准错误响应。
+         */
         LunaExceptionContext context = LunaExceptionContext.builder()
                 .errorType(e.getClass().getSimpleName())
                 .errorMessage(e.getMessage())

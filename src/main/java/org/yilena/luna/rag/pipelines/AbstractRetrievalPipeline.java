@@ -77,7 +77,7 @@ public abstract class AbstractRetrievalPipeline implements RetrievalPipeline {
             try {
                 CompletableFuture.allOf(all).get(remaining, TimeUnit.MILLISECONDS);
             } catch (Exception ignore) {
-                // Partial results are allowed. We collect completed futures below.
+        // 允许保留部分成功结果，后续只汇总已完成的异步检索任务。
             }
         }
 

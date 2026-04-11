@@ -11,6 +11,10 @@ import java.util.List;
 import java.util.Map;
 
 @Mapper
+/**
+ * 工具记忆 Mapper，负责工具驱动记忆管理场景中的工作记忆、事实和事件写入与查询，
+ * 为记忆工具和工具结果沉淀提供底层数据支持。
+ */
 public interface ToolMemoryMapper {
 
     @Update("""

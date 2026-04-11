@@ -26,11 +26,6 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.Map;
 
-/**
- * Report related tools:
- * - write_html_report_file
- * - open_browser_with_file
- */
 @Slf4j
 @Component
 /**

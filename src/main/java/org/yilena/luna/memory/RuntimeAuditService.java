@@ -5,6 +5,10 @@ import org.yilena.luna.memory.model.StructuredContextPackage;
 
 import java.util.Map;
 
+/**
+ * 运行审计服务接口，负责持久化上下文快照、决策记录和工具执行轨迹，
+ * 为问题排查、回放分析和状态恢复提供审计依据。
+ */
 public interface RuntimeAuditService {
     void persistContextSnapshot(String sessionId, StructuredContextPackage contextPackage);
 

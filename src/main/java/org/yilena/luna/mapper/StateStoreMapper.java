@@ -10,6 +10,10 @@ import org.apache.ibatis.annotations.Delete;
 import java.util.Map;
 
 @Mapper
+/**
+ * 状态存储 Mapper，负责按槽位读写任务工作记忆中的状态数据，
+ * 为任务态、检索态、工具态和恢复态等状态仓储提供统一底层接口。
+ */
 public interface StateStoreMapper {
 
     @Insert("""

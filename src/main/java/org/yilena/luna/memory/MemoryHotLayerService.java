@@ -6,6 +6,10 @@ import org.yilena.luna.memory.model.StructuredContextPackage;
 
 import java.util.Map;
 
+/**
+ * 记忆热层服务接口，负责维护会话级缓存、上下文缓存和待执行工具调用的临时热数据，
+ * 用于降低重复装载成本并支撑异步任务回写。
+ */
 public interface MemoryHotLayerService {
 
     Map<String, Object> getSessionCache(String sessionId);

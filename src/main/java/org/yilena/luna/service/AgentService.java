@@ -7,6 +7,10 @@ import org.yilena.luna.service.model.ToolDecisionCommand;
 
 import java.util.List;
 
+/**
+ * Agent 工具决策服务接口，负责根据治理后的输入、运行状态和候选资源决定是否发起工具调用，
+ * 在会话执行链路中承担能力选择与兼容旧调用入口的职责。
+ */
 public interface AgentService {
 
     String processToolCallingWithGovernance(ToolDecisionCommand command);

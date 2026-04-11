@@ -24,9 +24,6 @@ import java.util.Map;
 @RequiredArgsConstructor
 @RocketMQMessageListener(topic = RocketMqConstant.TOPIC_WORKFLOW_ASYNC, consumerGroup = RocketMqConstant.GROUP_WORKFLOW_ASYNC)
 /**
- * SkillExecutionConsumer ??
- */
-/**
  * 工作流异步执行消费者，负责消费异步任务消息并回写 Redis 状态、SSE 事件和内存痕迹。
  */
 public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMessage> {
@@ -221,7 +218,9 @@ public class SkillExecutionConsumer implements RocketMQListener<SkillExecutionMe
             payload.put("timestamp", System.currentTimeMillis());
 
             statusPublisher.publishEvent(LunaStatusPublisher.DEFAULT_CLIENT_ID, "WORKFLOW_ASYNC_RESULT", payload);
-            // Legacy event name for backward compatibility.
+            /**
+             * 淇濈暀鏃т簨浠跺悕锛岀敤浜庡吋瀹规湭鍚屾鍒版柊浜嬩欢鍗忚鐨勫墠绔垨鎺ュ叆鏂广€?
+             */
             statusPublisher.publishEvent(LunaStatusPublisher.DEFAULT_CLIENT_ID, "SKILL_ASYNC_RESULT", payload);
             log.debug("SkillAsync SSE 推送完成，taskId={}, success={}", taskId, success);
         } catch (Exception e) {

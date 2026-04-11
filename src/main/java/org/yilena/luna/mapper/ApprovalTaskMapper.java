@@ -9,6 +9,9 @@ import org.apache.ibatis.annotations.Update;
 import java.util.Map;
 
 @Mapper
+/**
+ * 审批任务 Mapper，负责读写需要人工审批的任务记录及其执行状态。
+ */
 public interface ApprovalTaskMapper {
 
     @Insert("""
@@ -25,6 +28,9 @@ public interface ApprovalTaskMapper {
                 approval_payload = excluded.approval_payload,
                 updated_at = current_timestamp
             """)
+    /**
+     * 新增或更新审批任务，确保同一任务标识在表中只保留一条最新记录。
+     */
     int upsertTask(@Param("taskId") Long taskId,
                    @Param("resourceId") Long resourceId,
                    @Param("status") String status,
@@ -41,6 +47,9 @@ public interface ApprovalTaskMapper {
             where task_id = #{taskId}
             limit 1
             """)
+    /**
+     * 按任务标识查询审批任务详情。
+     */
     Map<String, Object> selectTaskById(@Param("taskId") Long taskId);
 
     @Update("""
@@ -51,6 +60,9 @@ public interface ApprovalTaskMapper {
                 updated_at = current_timestamp
             where task_id = #{taskId}
             """)
+    /**
+     * 更新审批任务执行状态，并按需补充执行结果和错误码。
+     */
     int updateTaskStatus(@Param("taskId") Long taskId,
                          @Param("status") String status,
                          @Param("result") String result,

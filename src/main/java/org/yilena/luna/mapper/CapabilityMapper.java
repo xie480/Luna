@@ -9,6 +9,9 @@ import java.util.List;
 import java.util.Map;
 
 @Mapper
+/**
+ * 能力注册表 Mapper，负责把工具、提示词、资源和工作流等能力同步到统一能力注册表并执行检索。
+ */
 public interface CapabilityMapper {
 
     @Update("""
@@ -43,6 +46,9 @@ public interface CapabilityMapper {
                 embedding = excluded.embedding,
                 updated_at = current_timestamp
             """)
+    /**
+     * 将工具目录同步到能力注册表。
+     */
     int syncToolsIntoRegistry();
 
     @Update("""
@@ -73,6 +79,9 @@ public interface CapabilityMapper {
                 embedding = excluded.embedding,
                 updated_at = current_timestamp
             """)
+    /**
+     * 将提示词目录同步到能力注册表。
+     */
     int syncPromptsIntoRegistry();
 
     @Update("""
@@ -125,6 +134,9 @@ public interface CapabilityMapper {
                 embedding = excluded.embedding,
                 updated_at = current_timestamp
             """)
+    /**
+     * 将资源目录和内置资源模板同步到能力注册表。
+     */
     int syncResourcesIntoRegistry();
 
     @Update("""
@@ -156,6 +168,9 @@ public interface CapabilityMapper {
                 embedding = excluded.embedding,
                 updated_at = current_timestamp
             """)
+    /**
+     * 将工作流模板同步到能力注册表。
+     */
     int syncWorkflowsIntoRegistry();
 
     @Update("""
@@ -186,6 +201,9 @@ public interface CapabilityMapper {
                 embedding = excluded.embedding,
                 updated_at = current_timestamp
             """)
+    /**
+     * 将任务策略模式同步到能力注册表。
+     */
     int syncTaskStrategiesIntoRegistry();
 
     @Update("""
@@ -216,6 +234,9 @@ public interface CapabilityMapper {
                 embedding = excluded.embedding,
                 updated_at = current_timestamp
             """)
+    /**
+     * 将关系策略模式同步到能力注册表。
+     */
     int syncRelationalStrategiesIntoRegistry();
 
     @Select("""
@@ -226,6 +247,9 @@ public interface CapabilityMapper {
             order by capability_type asc, capability_name asc
             limit 24
             """)
+    /**
+     * 查询已启用的高优先级能力列表。
+     */
     List<Map<String, Object>> selectTopCapabilities();
 
     @Select("""
@@ -241,6 +265,9 @@ public interface CapabilityMapper {
             order by updated_at desc, capability_name asc
             limit #{limit}
             """)
+    /**
+     * 按关键字搜索能力候选项。
+     */
     List<Map<String, Object>> searchCapabilityCandidates(@Param("query") String query, @Param("limit") int limit);
 
     @Select("""
@@ -252,5 +279,8 @@ public interface CapabilityMapper {
             order by embedding::vector <-> #{vector}::vector
             limit #{limit}
             """)
+    /**
+     * 按向量相似度搜索能力候选项。
+     */
     List<Map<String, Object>> searchCapabilityCandidatesByVector(@Param("vector") String vector, @Param("limit") int limit);
 }

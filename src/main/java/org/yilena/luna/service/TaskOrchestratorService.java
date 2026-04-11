@@ -17,6 +17,10 @@ import org.yilena.luna.service.model.ToolDecisionNodeResult;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 任务编排服务接口，负责把用户输入、恢复事件、节点工作集、工具决策、主模型执行和状态写回
+ * 拆分为可复用的编排阶段，是任务主链路的核心协调入口。
+ */
 public interface TaskOrchestratorService {
 
     TaskOrchestrationResult orchestrateUserInput(String sessionId, String userInput);

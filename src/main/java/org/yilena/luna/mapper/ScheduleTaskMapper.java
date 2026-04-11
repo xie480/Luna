@@ -12,6 +12,10 @@ import java.util.List;
 import java.util.Map;
 
 @Mapper
+/**
+ * 日程任务 Mapper，负责对日程任务实体执行基础持久化与时间范围查询操作，
+ * 为日程管理工具和提醒能力提供底层支持。
+ */
 public interface ScheduleTaskMapper extends BaseMapper<ScheduleTask> {
 
     @Select("""

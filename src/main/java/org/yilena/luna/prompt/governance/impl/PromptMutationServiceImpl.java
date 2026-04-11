@@ -310,7 +310,7 @@ public class PromptMutationServiceImpl implements PromptMutationService {
             }
         }
         if (request.getKeywordMatchEnabled() != null && !request.getKeywordMatchEnabled()) {
-            // allowed
+        // 当前模式已通过内容提示词的组装模式校验，可继续后续流程。
         }
         validateRuntimeSlotForCreate(request.getRuntimeSlot());
     }

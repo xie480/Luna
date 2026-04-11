@@ -17,16 +17,24 @@ import org.yilena.luna.entity.WorkflowTemplate;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * MCP 能力服务接口，负责统一管理远端与本地 MCP 资源目录、协议调用以及迁移期目录写入，
+ * 是系统检索与调用 MCP 能力的核心服务入口。
+ */
 public interface McpService {
 
-    // Unified host capability retrieval.
+    /**
+     * 统一查询宿主侧可用能力资源列表。
+     */
     List<Resource> listAll();
 
     Resource getResourceById(Long id);
 
     List<Resource> searchResources(String query);
 
-    // MCP protocol style API.
+    /**
+     * 按 MCP 协议风格列出指定服务端的工具能力。
+     */
     List<McpToolDescriptor> listTools(String serverCode);
 
     McpToolCallResult callTool(String serverCode, String toolName, String argumentsJson);
@@ -41,7 +49,9 @@ public interface McpService {
 
     Map<String, Object> syncCapabilityCatalog();
 
-    // Migration upsert APIs (full-field)
+    /**
+     * 迁移期写入 MCP 服务注册信息，按完整字段执行 upsert。
+     */
     McpServerRegistry upsertServerRegistry(McpServerRegistry registry);
 
     McpToolCatalog upsertToolCatalog(McpToolCatalog toolCatalog);

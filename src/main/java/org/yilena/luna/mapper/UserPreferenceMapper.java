@@ -10,6 +10,10 @@ import java.util.List;
 import java.util.Map;
 
 @Mapper
+/**
+ * 用户偏好 Mapper，负责对用户偏好实体执行基础持久化与向量检索操作，
+ * 为偏好管理和偏好召回提供底层支持。
+ */
 public interface UserPreferenceMapper extends BaseMapper<UserPreference> {
 
     @Select("""

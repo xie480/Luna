@@ -1,7 +1,8 @@
 package org.yilena.luna.constants;
 
 /**
- * Shared user-facing and business messages.
+ * 通用消息常量类，负责统一维护面向用户和业务流程的常用提示文案，
+ * 避免各类接口和过滤器重复硬编码提示内容。
  */
 public final class MessageConstants {
 

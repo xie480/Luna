@@ -8,6 +8,10 @@ import java.util.List;
 import java.util.Map;
 
 @Mapper
+/**
+ * MCP 历史数据迁移 Mapper，负责读取旧版工具、技能与目录表中的迁移源数据，
+ * 为 MCP 能力目录迁移和兼容校验提供底层查询能力。
+ */
 public interface McpLegacyMigrationMapper {
 
     @Select("""

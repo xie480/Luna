@@ -7,6 +7,10 @@ import org.apache.ibatis.annotations.Select;
 import org.yilena.luna.entity.McpToolImplMapping;
 
 @Mapper
+/**
+ * MCP 工具实现映射 Mapper，负责维护工具目录项与本地实现之间的映射关系，
+ * 供运行时根据服务端编码和工具名定位实际执行实现。
+ */
 public interface McpToolImplMappingMapper extends BaseMapper<McpToolImplMapping> {
 
     @Select("""

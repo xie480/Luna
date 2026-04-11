@@ -340,7 +340,7 @@ public class PromptGovernanceBootstrap implements ApplicationRunner {
                 }
             }
         } catch (Exception ignore) {
-            // optional seed
+        // 初始化种子数据可按需开启，避免在未配置场景下强制写入默认数据。
         }
     }
 

@@ -7,6 +7,10 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 @Mapper
+/**
+ * 记忆写入 Mapper，负责把消息、工作记忆和记忆摘要等数据写入持久化存储，
+ * 为单轮结束后的记忆沉淀提供底层写入能力。
+ */
 public interface MemoryWriteMapper {
 
     @Insert("""

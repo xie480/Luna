@@ -14,12 +14,34 @@ import java.util.Set;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+/**
+ * 匹配范围模型，负责描述提示词在代理、节点、任务状态、模型家族和人格场景等维度上的适用范围，
+ * 用于运行时判断提示词是否命中当前上下文。
+ */
 public class MatchScope {
+    /**
+     * 允许命中的代理标识列表。
+     */
     private List<String> agents;
+    /**
+     * 允许命中的节点类型列表。
+     */
     private List<String> nodeKinds;
+    /**
+     * 允许命中的任务状态列表。
+     */
     private List<String> taskStates;
+    /**
+     * 允许命中的模型家族列表。
+     */
     private List<String> modelFamilies;
+    /**
+     * 允许命中的人格标识列表。
+     */
     private List<String> personaIds;
+    /**
+     * 允许命中的场景标识列表。
+     */
     private List<String> sceneIds;
 
     public static MatchScope empty() {

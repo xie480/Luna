@@ -182,7 +182,7 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
                 }
             }
         } catch (Exception ignore) {
-            // fallback below
+            // 当前映射缺失时，继续走下方兜底逻辑补齐分类键。
         }
         if (!builtinFallbackEnabled) {
             return false;
@@ -231,7 +231,7 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
                 }
             }
         } catch (Exception ignore) {
-            // ignore and return current merged view
+            // 分类刷新异常时忽略本次失败，直接返回当前合并视图，避免影响主流程查询。
         }
         return merged.values().stream()
                 .filter(item -> includeDisabled || item.isEnabled())
@@ -271,7 +271,7 @@ public class PromptRegistryServiceImpl implements PromptRegistryService {
                 return categories;
             }
         } catch (Exception ignore) {
-            // fallback to item-driven categories
+        // 分类表无结果时退回到按提示词条目反推分类，保证前端仍能拿到可用分类列表。
         }
         if (builtinFallbackEnabled) {
             List<String> builtinCategories = builtins.values().stream()

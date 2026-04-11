@@ -28,10 +28,22 @@ import java.util.Map;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+/**
+ * 组合工作流本地处理器，负责把本地 MCP 工具名映射为工作流模板并交给工作流执行器执行。
+ */
 public class CompositeWorkflowLocalMcpToolHandler implements LocalMcpToolHandler {
 
+    /**
+     * 工作流模板 Mapper，用于按名称加载本地工作流模板。
+     */
     private final WorkflowTemplateMapper workflowTemplateMapper;
+    /**
+     * 工作流执行器提供器，用于延迟获取执行器实例。
+     */
     private final ObjectProvider<WorkflowExecutor> workflowExecutorProvider;
+    /**
+     * JSON 处理器，用于序列化模板中的输入输出结构。
+     */
     private final ObjectMapper objectMapper;
 
     @Override
@@ -46,6 +58,9 @@ public class CompositeWorkflowLocalMcpToolHandler implements LocalMcpToolHandler
 
     @Override
     public boolean supports(InvocationContext context) {
+        /**
+         * 仅当实现类型为本地处理器且能加载到同名工作流模板时才认为支持。
+         */
         if (context == null) {
             return false;
         }
@@ -61,6 +76,9 @@ public class CompositeWorkflowLocalMcpToolHandler implements LocalMcpToolHandler
 
     @Override
     public String handle(InvocationContext context) {
+        /**
+         * 先按工具名加载并校验工作流模板，模板不存在或未启用时直接返回错误。
+         */
         String toolName = context == null ? "" : text(context.toolName());
         if (toolName.isBlank()) {
             return error("WORKFLOW_TOOL_NAME_REQUIRED", "toolName is required");
@@ -69,6 +87,9 @@ public class CompositeWorkflowLocalMcpToolHandler implements LocalMcpToolHandler
         if (template == null || !Boolean.TRUE.equals(template.getEnabled())) {
             return error("WORKFLOW_TEMPLATE_NOT_FOUND", "workflow template not found: " + toolName);
         }
+        /**
+         * 将模板记录转换为可执行的工作流资源对象，供统一工作流执行链路复用。
+         */
         Resource workflow = Resource.builder()
                 .id(String.valueOf(template.getId()))
                 .type(ResourceType.WORKFLOW)
@@ -90,6 +111,9 @@ public class CompositeWorkflowLocalMcpToolHandler implements LocalMcpToolHandler
             if (workflowExecutor == null) {
                 return error("WORKFLOW_EXECUTOR_UNAVAILABLE", "workflow executor unavailable");
             }
+            /**
+             * 工作流执行器可用后，构造参数 JSON 并进入统一执行入口。
+             */
             String argsJson = context.argumentsJson() == null || context.argumentsJson().isBlank()
                     ? McpProtocolConstants.DEFAULT_ARGUMENTS_JSON
                     : context.argumentsJson();
@@ -105,6 +129,9 @@ public class CompositeWorkflowLocalMcpToolHandler implements LocalMcpToolHandler
         return error("TOOL_CONTEXT_REQUIRED", "InvocationContext is required");
     }
 
+    /**
+     * 按工作流名称加载模板记录，加载失败时返回 null。
+     */
     private WorkflowTemplate loadWorkflowTemplate(String workflowName) {
         try {
             return workflowTemplateMapper.selectOne(new LambdaQueryWrapper<WorkflowTemplate>()
@@ -115,6 +142,9 @@ public class CompositeWorkflowLocalMcpToolHandler implements LocalMcpToolHandler
         }
     }
 
+    /**
+     * 将模板中的工具槽位配置转换为工作流资源可识别的槽位定义。
+     */
     private List<Resource.ToolSlotDto> toSlots(List<Map<String, Object>> source) {
         if (source == null || source.isEmpty()) {
             return List.of();
@@ -126,6 +156,9 @@ public class CompositeWorkflowLocalMcpToolHandler implements LocalMcpToolHandler
                 .build()).toList();
     }
 
+    /**
+     * 安全序列化模板中的结构化字段，失败时返回 null。
+     */
     private String toJson(Object value) {
         if (value == null) {
             return null;
@@ -137,6 +170,9 @@ public class CompositeWorkflowLocalMcpToolHandler implements LocalMcpToolHandler
         }
     }
 
+    /**
+     * 构建本地工作流处理器错误响应。
+     */
     private String error(String code, String message) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put(JsonFieldConstants.STATUS, ResultStatusConstants.ERROR);
@@ -149,6 +185,9 @@ public class CompositeWorkflowLocalMcpToolHandler implements LocalMcpToolHandler
         }
     }
 
+    /**
+     * 将任意值转换为布尔值，无法识别时回退到默认值。
+     */
     private boolean bool(Object raw, boolean fallback) {
         if (raw == null) {
             return fallback;
@@ -170,6 +209,9 @@ public class CompositeWorkflowLocalMcpToolHandler implements LocalMcpToolHandler
         return fallback;
     }
 
+    /**
+     * 将任意对象转换为去空格文本。
+     */
     private String text(Object raw) {
         return raw == null ? "" : String.valueOf(raw).trim();
     }

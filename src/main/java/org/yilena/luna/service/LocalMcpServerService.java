@@ -10,8 +10,8 @@ import org.yilena.luna.entity.McpToolDescriptor;
 import java.util.List;
 
 /**
- * Local MCP server-side execution facade.
- * Host-side adapter should reach local capabilities through this server boundary.
+ * 本地 MCP 服务端执行门面接口，负责以统一的服务端边界暴露本地工具、提示词和资源能力，
+ * 让宿主侧适配器能够按 MCP 风格访问本地实现。
  */
 public interface LocalMcpServerService {
 
@@ -27,4 +27,3 @@ public interface LocalMcpServerService {
 
     McpResourceResult readResource(String serverCode, String resourceUri);
 }
-

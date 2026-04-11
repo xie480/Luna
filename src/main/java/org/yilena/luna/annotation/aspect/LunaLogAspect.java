@@ -31,30 +31,32 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
+/**
+ * 日志切面，负责拦截带有日志注解的方法并异步发送结构化日志消息到 RocketMQ。
+ */
 @Slf4j
 @Aspect
 @Component
 @RequiredArgsConstructor
-/**
- * LunaLogAspect ??
- */
 public class LunaLogAspect {
 
+    /**
+     * RocketMQ 模板，用于异步发送日志消息。
+     */
     private final RocketMQTemplate rocketMQTemplate;
 
     /**
-     * 用于在业务逻辑中覆盖默认的返回值日志记录
+     * 用于在业务逻辑中覆盖默认的返回值日志记录。
      */
     public static final ThreadLocal<Object> LOG_RESPONSE_OVERRIDE = new ThreadLocal<>();
 
     /**
-     * MQ 临时降级窗口（毫秒）
-     * 当检测到 broker 不可用时，在该窗口内跳过发送，避免请求线程反复打满错误日志。
+     * MQ 临时降级窗口，单位为毫秒。
      */
     private static final long MQ_DEGRADE_WINDOW_MS = 30_000L;
 
     /**
-     * 降级截止时间戳（毫秒）
+     * 当前 MQ 降级截止时间戳。
      */
     private final AtomicLong mqDegradeUntilMs = new AtomicLong(0L);
 
@@ -65,19 +67,37 @@ public class LunaLogAspect {
         Exception exception = null;
 
         try {
+            /**
+             * 先执行目标方法，记录正常返回结果或捕获异常，便于 finally 中统一落日志。
+             */
             result = point.proceed();
             return result;
         } catch (Exception e) {
             exception = e;
             throw e;
         } finally {
+            /**
+             * 无论成功还是失败，都按统一结构组装日志并尝试异步发送到 MQ。
+             */
             long costTime = System.currentTimeMillis() - startTime;
             sendLogToMq(point, lunaLogRecord, result, exception, costTime);
         }
     }
 
-    private void sendLogToMq(ProceedingJoinPoint point, LunaLogRecord annotation, Object result, Exception exception, long costTime) {
+    /**
+     * 组装结构化日志消息并异步发送到 MQ，必要时进入短期降级窗口。
+     */
+    private void sendLogToMq(
+            ProceedingJoinPoint point,
+            LunaLogRecord annotation,
+            Object result,
+            Exception exception,
+            long costTime
+    ) {
         try {
+            /**
+             * 先提取方法参数、响应数据和异常信息，构造可审计的日志负载。
+             */
             MethodSignature signature = (MethodSignature) point.getSignature();
             String[] parameterNames = signature.getParameterNames();
             Object[] args = point.getArgs();
@@ -96,7 +116,6 @@ public class LunaLogAspect {
 
             LogType logType = annotation.type();
             if (exception != null && !approvalInterrupt) {
-                // 非审批中断异常才记为 ERROR
                 logType = LogType.ERROR;
             }
 
@@ -107,8 +126,6 @@ public class LunaLogAspect {
 
             String errorMessage = null;
             String errorStack = null;
-
-            // 审批中断属于正常业务流，不记录错误堆栈
             if (exception != null && !approvalInterrupt) {
                 errorMessage = exception.getMessage();
                 StringWriter sw = new StringWriter();
@@ -123,7 +140,6 @@ public class LunaLogAspect {
             String phaseId = tryGetAsString(requestData, "phaseId");
             String nodeId = tryGetAsString(requestData, "nodeId");
 
-            // 构建 DTO 发送 MQ
             LogMessage msg = LogMessage.builder()
                     .logType(logType)
                     .module(annotation.module())
@@ -142,7 +158,9 @@ public class LunaLogAspect {
                     .nodeId(nodeId)
                     .build();
 
-            // 若处于降级窗口，直接跳过发送，避免主流程被反复拖慢
+            /**
+             * 若当前处于降级窗口则直接跳过 MQ 发送，避免高频故障持续拖慢主流程。
+             */
             long now = System.currentTimeMillis();
             if (now < mqDegradeUntilMs.get()) {
                 log.warn("日志MQ处于降级窗口，跳过发送，topic={}, 剩余={}ms",
@@ -150,12 +168,13 @@ public class LunaLogAspect {
                 return;
             }
 
-            // 异步发送，避免阻塞主业务线程
+            /**
+             * 采用异步发送避免阻塞主线程，失败时根据异常类型决定是否开启降级窗口。
+             */
             Message<LogMessage> message = MessageBuilder.withPayload(msg).build();
             rocketMQTemplate.asyncSend(RocketMqConstant.TOPIC_LOG, message, new SendCallback() {
                 @Override
                 public void onSuccess(SendResult sendResult) {
-                    // 高频路径不打印成功日志，避免噪音
                 }
 
                 @Override
@@ -168,31 +187,38 @@ public class LunaLogAspect {
                     }
                 }
             });
-
         } catch (MessagingException e) {
             if (isMqTemporarilyUnavailable(e)) {
                 openDegradeWindow();
                 log.error("发送日志MQ失败：Broker暂不可用，已进入降级窗口，topic={}", RocketMqConstant.TOPIC_LOG);
             } else {
-                log.error("发送日志 MQ 失败", e);
+                log.error("发送日志MQ失败", e);
             }
         } catch (Exception e) {
             if (isMqTemporarilyUnavailable(e)) {
                 openDegradeWindow();
                 log.error("发送日志MQ失败：Broker暂不可用，已进入降级窗口，topic={}", RocketMqConstant.TOPIC_LOG);
             } else {
-                log.error("发送日志 MQ 失败", e);
+                log.error("发送日志MQ失败", e);
             }
         } finally {
-            // 兜底清理，避免 ThreadLocal 泄漏到复用线程
+            /**
+             * 最后清理线程级响应覆盖，避免 ThreadLocal 污染到后续请求。
+             */
             LOG_RESPONSE_OVERRIDE.remove();
         }
     }
 
+    /**
+     * 打开短期 MQ 降级窗口，避免连续故障时频繁尝试发送。
+     */
     private void openDegradeWindow() {
         mqDegradeUntilMs.set(System.currentTimeMillis() + MQ_DEGRADE_WINDOW_MS);
     }
 
+    /**
+     * 判断当前异常是否属于 MQ 临时不可用场景。
+     */
     private boolean isMqTemporarilyUnavailable(Throwable t) {
         Throwable cur = t;
         while (cur != null) {
@@ -210,17 +236,27 @@ public class LunaLogAspect {
         return false;
     }
 
+    /**
+     * 从请求数据中安全提取字符串字段，缺失时返回空字符串。
+     */
     private String tryGetAsString(Map<String, Object> data, String key) {
-        if (data == null || key == null) return "";
+        if (data == null || key == null) {
+            return "";
+        }
         Object val = data.get(key);
-        if (val == null) return "";
+        if (val == null) {
+            return "";
+        }
         return String.valueOf(val);
     }
 
+    /**
+     * 判断参数是否为不适合直接记录到日志中的框架对象。
+     */
     private boolean isFilterObject(Object arg) {
-        return arg instanceof ServletRequest ||
-               arg instanceof ServletResponse ||
-               arg instanceof MultipartFile ||
-               arg instanceof BindingResult;
+        return arg instanceof ServletRequest
+                || arg instanceof ServletResponse
+                || arg instanceof MultipartFile
+                || arg instanceof BindingResult;
     }
 }

@@ -21,9 +21,18 @@ import java.util.Map;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+/**
+ * 内置 Bean 方法本地处理器，负责把本地工具调用路由到 Spring Bean 的公开方法执行。
+ */
 public class BuiltinBeanMethodLocalMcpToolHandler implements LocalMcpToolHandler {
 
+    /**
+     * Spring 容器，用于按名称获取目标 Bean。
+     */
     private final ApplicationContext applicationContext;
+    /**
+     * JSON 处理器，用于解析参数和序列化执行结果。
+     */
     private final ObjectMapper objectMapper;
 
     @Override
@@ -49,6 +58,9 @@ public class BuiltinBeanMethodLocalMcpToolHandler implements LocalMcpToolHandler
 
     @Override
     public String handle(InvocationContext context) {
+        /**
+         * 先校验上下文是否支持当前处理器，再定位目标 Bean 和公开方法。
+         */
         if (!supports(context)) {
             return error("TOOL_UNSUPPORTED_IMPL", "Unsupported invocation context");
         }
@@ -62,9 +74,15 @@ public class BuiltinBeanMethodLocalMcpToolHandler implements LocalMcpToolHandler
                         "No public method found, bean=" + beanName + ", method=" + methodName);
             }
 
+            /**
+             * 解析工具参数 JSON，并按方法签名构造调用参数后执行目标方法。
+             */
             Map<String, Object> argsMap = parseArguments(context.argumentsJson());
             Object[] args = buildArguments(method, argsMap);
             Object result = method.invoke(bean, args);
+            /**
+             * 调用结束后统一规范化返回结构，兼容字符串、对象和空结果三类场景。
+             */
             return normalizeResult(result);
         } catch (Exception e) {
             log.warn("invoke local tool handler failed, bean={}, method={}, toolName={}, err={}",
@@ -73,6 +91,9 @@ public class BuiltinBeanMethodLocalMcpToolHandler implements LocalMcpToolHandler
         }
     }
 
+    /**
+     * 在目标 Bean 中解析同名公开方法，优先选择参数更多的方法重载。
+     */
     private Method resolveMethod(Class<?> beanClass, String methodName) {
         if (beanClass == null || methodName == null || methodName.isBlank()) {
             return null;
@@ -88,6 +109,9 @@ public class BuiltinBeanMethodLocalMcpToolHandler implements LocalMcpToolHandler
         return candidates.get(0);
     }
 
+    /**
+     * 根据方法参数定义从参数映射中构建真实调用参数列表。
+     */
     private Object[] buildArguments(Method method, Map<String, Object> argsMap) {
         Parameter[] parameters = method.getParameters();
         if (parameters == null || parameters.length == 0) {
@@ -106,6 +130,9 @@ public class BuiltinBeanMethodLocalMcpToolHandler implements LocalMcpToolHandler
         return out;
     }
 
+    /**
+     * 解析参数名，优先使用 RequestParam 显式声明，其次使用反射参数名。
+     */
     private String resolveParamName(Parameter parameter, int index) {
         if (parameter == null) {
             return "arg" + index;
@@ -125,6 +152,9 @@ public class BuiltinBeanMethodLocalMcpToolHandler implements LocalMcpToolHandler
         return "arg" + index;
     }
 
+    /**
+     * 将原始参数值转换为目标参数类型，必要时对基础类型做兜底处理。
+     */
     private Object convertArgument(Object raw, Class<?> targetType) {
         if (targetType == null) {
             return raw;
@@ -162,6 +192,9 @@ public class BuiltinBeanMethodLocalMcpToolHandler implements LocalMcpToolHandler
         }
     }
 
+    /**
+     * 解析参数 JSON 为键值映射，解析失败时返回空映射。
+     */
     private Map<String, Object> parseArguments(String argumentsJson) {
         if (argumentsJson == null || argumentsJson.isBlank()) {
             return Collections.emptyMap();
@@ -174,6 +207,9 @@ public class BuiltinBeanMethodLocalMcpToolHandler implements LocalMcpToolHandler
         }
     }
 
+    /**
+     * 统一规范化方法执行结果，确保本地工具返回结构可被上游稳定消费。
+     */
     private String normalizeResult(Object result) {
         if (result == null) {
             return success(Map.of());
@@ -192,6 +228,9 @@ public class BuiltinBeanMethodLocalMcpToolHandler implements LocalMcpToolHandler
         }
     }
 
+    /**
+     * 构建本地处理器成功响应。
+     */
     private String success(Map<String, Object> data) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("status", "success");
@@ -199,6 +238,9 @@ public class BuiltinBeanMethodLocalMcpToolHandler implements LocalMcpToolHandler
         return toJson(payload);
     }
 
+    /**
+     * 构建本地处理器错误响应。
+     */
     private String error(String code, String message) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("status", "error");
@@ -207,6 +249,9 @@ public class BuiltinBeanMethodLocalMcpToolHandler implements LocalMcpToolHandler
         return toJson(payload);
     }
 
+    /**
+     * 安全序列化对象为 JSON，失败时返回最小错误结构。
+     */
     private String toJson(Object value) {
         try {
             return objectMapper.writeValueAsString(value);
@@ -215,6 +260,9 @@ public class BuiltinBeanMethodLocalMcpToolHandler implements LocalMcpToolHandler
         }
     }
 
+    /**
+     * 规范化文本输入，空值返回空字符串。
+     */
     private String text(String value) {
         return value == null ? "" : value.trim();
     }

@@ -8,6 +8,10 @@ import java.util.List;
 import java.util.Map;
 
 @Mapper
+/**
+ * 运行态读取 Mapper，负责读取会话、消息、工具结果和上下文快照等运行态窗口数据，
+ * 为上下文编译和运行态展示提供聚合读取能力。
+ */
 public interface RuntimeReadMapper {
 
     @Select("""

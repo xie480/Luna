@@ -10,6 +10,10 @@ import java.util.List;
 import java.util.Map;
 
 @Mapper
+/**
+ * 记忆查询 Mapper，负责聚合短期记忆、长期记忆和语义事实等多类记忆数据的检索查询，
+ * 为记忆管理和运行时上下文召回提供底层访问能力。
+ */
 public interface MemoryMapper extends BaseMapper<Memory> {
 
     @Select("""

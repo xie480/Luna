@@ -12,6 +12,10 @@ import java.util.List;
 import java.util.Map;
 
 @Mapper
+/**
+ * 会话运行态 Mapper，负责读取和更新会话、计划、节点以及主体信息等运行态数据，
+ * 为会话编排和状态切换提供底层访问能力。
+ */
 public interface SessionRuntimeMapper {
 
     @Select("select task_state from agent_session where session_id = #{sessionId} limit 1")

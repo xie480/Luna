@@ -11,6 +11,9 @@ import java.util.List;
 import java.util.Map;
 
 @Mapper
+/**
+ * 知识库 Mapper，负责执行知识文档筛选查询、RAG 检索以及知识文档和切片写入。
+ */
 public interface KnowledgeBaseMapper {
 
     @Select("""
@@ -20,6 +23,9 @@ public interface KnowledgeBaseMapper {
             order by updated_at desc
             limit #{limit}
             """)
+    /**
+     * 按关键字检索基础知识资源列表。
+     */
     List<Map<String, Object>> selectResourceKnowledgeByKeyword(@Param("keyword") String keyword,
                                                                @Param("limit") int limit);
 
@@ -29,6 +35,9 @@ public interface KnowledgeBaseMapper {
             where id = #{id}
             limit 1
             """)
+    /**
+     * 按主键查询单条知识资源。
+     */
     List<Map<String, Object>> selectResourceKnowledgeById(@Param("id") Long id);
 
     @Select("""
@@ -56,6 +65,9 @@ public interface KnowledgeBaseMapper {
             order by kb.embedding::vector <-> #{vector}::vector
             limit #{topK}
             """)
+    /**
+     * 按向量相似度搜索知识记录。
+     */
     List<KnowledgeChunkRecord> searchByVector(@Param("vector") String vector, @Param("topK") int topK);
 
     @Select("""
@@ -100,6 +112,9 @@ public interface KnowledgeBaseMapper {
             limit #{topK}
             </script>
             """)
+    /**
+     * 在指定来源范围内执行 RAG 向量检索。
+     */
     List<KnowledgeChunkRecord> searchRagKnowledgeByVector(@Param("vector") String vector,
                                                           @Param("topK") int topK,
                                                           @Param("sourceTypes") List<Integer> sourceTypes);
@@ -153,6 +168,9 @@ public interface KnowledgeBaseMapper {
             limit #{topK}
             </script>
             """)
+    /**
+     * 按完全匹配方式检索 RAG 知识。
+     */
     List<KnowledgeChunkRecord> searchRagKnowledgeByExact(@Param("query") String query,
                                                          @Param("topK") int topK,
                                                          @Param("sourceTypes") List<Integer> sourceTypes);
@@ -203,6 +221,9 @@ public interface KnowledgeBaseMapper {
             limit #{topK}
             </script>
             """)
+    /**
+     * 按全文检索分数搜索 RAG 知识。
+     */
     List<KnowledgeChunkRecord> searchRagKnowledgeByFts(@Param("query") String query,
                                                        @Param("topK") int topK,
                                                        @Param("sourceTypes") List<Integer> sourceTypes);
@@ -256,6 +277,9 @@ public interface KnowledgeBaseMapper {
             limit #{topK}
             </script>
             """)
+    /**
+     * 按关键字模糊匹配搜索 RAG 知识。
+     */
     List<KnowledgeChunkRecord> searchRagKnowledgeByKeyword(@Param("query") String query,
                                                            @Param("topK") int topK,
                                                            @Param("sourceTypes") List<Integer> sourceTypes);
@@ -309,6 +333,9 @@ public interface KnowledgeBaseMapper {
             limit #{topK}
             </script>
             """)
+    /**
+     * 按 trigram 相似度搜索 RAG 知识。
+     */
     List<KnowledgeChunkRecord> searchRagKnowledgeByTrigram(@Param("query") String query,
                                                            @Param("topK") int topK,
                                                            @Param("sourceTypes") List<Integer> sourceTypes);
@@ -327,6 +354,9 @@ public interface KnowledgeBaseMapper {
               and (#{startTime} is null or kb.created_at >= #{startTime})
               and (#{endTime} is null or kb.created_at <= #{endTime})
             """)
+    /**
+     * 按组合筛选条件统计知识记录总数。
+     */
     Long countByFilters(@Param("title") String title,
                         @Param("content") String content,
                         @Param("sourceType") String sourceType,
@@ -368,6 +398,9 @@ public interface KnowledgeBaseMapper {
             order by kb.created_at desc
             limit #{limit} offset #{offset}
             """)
+    /**
+     * 按组合筛选条件分页查询知识记录。
+     */
     List<KnowledgeChunkRecord> selectByFilters(@Param("title") String title,
                                                @Param("content") String content,
                                                @Param("sourceType") String sourceType,
@@ -382,6 +415,9 @@ public interface KnowledgeBaseMapper {
             values ('GLOBAL', null, #{sourceType}, #{sourcePath}, #{title}, jsonb_build_object('source','knowledge_mq'), current_timestamp)
             returning doc_id
             """)
+    /**
+     * 插入知识文档主记录并返回文档主键。
+     */
     Long insertKnowledgeDocument(@Param("title") String title,
                                  @Param("sourceType") String sourceType,
                                  @Param("sourcePath") String sourcePath);
@@ -391,6 +427,9 @@ public interface KnowledgeBaseMapper {
             values (#{docId}, #{chunkOrder}, #{chunkText}, #{chunkSummary}, cast(#{keywordsJson} as jsonb), #{embedding}::vector,
                     jsonb_build_object('source','knowledge_mq'), current_timestamp)
             """)
+    /**
+     * 插入知识切片记录。
+     */
     int insertKnowledgeChunk(@Param("docId") Long docId,
                              @Param("chunkOrder") int chunkOrder,
                              @Param("chunkText") String chunkText,

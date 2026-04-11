@@ -378,7 +378,7 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
                 Map<String, Object> payloadMap = objectMapper.readValue(payload, new TypeReference<>() {});
                 out.putAll(payloadMap);
             } catch (Exception ignore) {
-                // ignore invalid payload json and keep query-only params
+            // 忽略无效载荷 JSON，保留仅依赖查询参数的读取结果。
             }
         }
         return out;
@@ -539,7 +539,7 @@ public class LocalMcpClientAdapter implements McpClientAdapter {
                 List<String> list = objectMapper.readValue(text, new TypeReference<>() {});
                 return list == null ? List.of() : list.stream().filter(s -> s != null && !s.isBlank()).map(String::trim).toList();
             } catch (Exception ignore) {
-                // fallback to whitespace splitting below
+        // 当前分词失败时退回到后续的按空白拆分逻辑。
             }
         }
         return Arrays.stream(text.split("\\s+")).filter(s -> !s.isBlank()).toList();

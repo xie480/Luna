@@ -2,8 +2,15 @@ package org.yilena.luna.prompt.governance.support;
 
 import java.util.Set;
 
+/**
+ * 运行时槽位词表工具类，负责定义系统允许使用的提示词运行时槽位集合，
+ * 用于在提示词治理阶段约束槽位配置是否合法。
+ */
 public final class RuntimeSlotVocabulary {
 
+    /**
+     * 系统允许的运行时槽位集合。
+     */
     private static final Set<String> ALLOWED_SLOTS = Set.of(
             "instructions.system",
             "instructions.persona",

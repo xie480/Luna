@@ -4505,7 +4505,7 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             Map<String, Object> snapshotPayload = promptSnapshotBridgeService.buildSnapshotPayload(resolveResult, policyId);
             promptSnapshotBridgeService.persistSnapshotRefs(sessionId, roundId, nodeId, snapshotId, snapshotPayload);
         } catch (Exception ignore) {
-            // must not break main model flow
+        // 此处异常不能影响主模型主链路，失败时仅记录并继续后续流程。
         }
     }
 

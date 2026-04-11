@@ -9,6 +9,10 @@ import java.util.List;
 import java.util.Map;
 
 @Mapper
+/**
+ * RAG 记忆 Mapper，负责查询知识检索与记忆检索融合阶段所需的数据，
+ * 为 RAG 规划、重排和证据选择提供底层访问能力。
+ */
 public interface RagMemoryMapper {
 
     @Select("""

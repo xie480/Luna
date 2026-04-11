@@ -6,6 +6,10 @@ import org.yilena.luna.state.model.ContextSnapshot;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 上下文快照存储接口，负责保存工具决策前后与主模型执行阶段的上下文快照，
+ * 供审计、回放与恢复流程按快照读取历史现场。
+ */
 public interface ContextSnapshotStore {
     String savePreToolDecisionSnapshot(String sessionId,
                                        Long planId,

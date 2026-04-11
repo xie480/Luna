@@ -25,8 +25,14 @@ import java.util.Set;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+/**
+ * 核心工具本地处理器，负责把本地 MCP 工具名路由到内存、日程、知识、日志和搜索等核心工具实现。
+ */
 public class CoreToolLocalMcpToolHandler implements LocalMcpToolHandler {
 
+    /**
+     * 当前处理器支持的核心工具名集合。
+     */
     private static final Set<String> CORE_TOOLS = Set.of(
             LocalToolConstants.TOOL_MANAGE_MEMORY,
             LocalToolConstants.TOOL_MANAGE_SCHEDULE_TASK,
@@ -39,11 +45,29 @@ public class CoreToolLocalMcpToolHandler implements LocalMcpToolHandler {
             LocalToolConstants.TOOL_WEB_SCRAPE
     );
 
+    /**
+     * 记忆工具。
+     */
     private final MemoryTools memoryTools;
+    /**
+     * 日程工具。
+     */
     private final ScheduleTools scheduleTools;
+    /**
+     * 知识库工具。
+     */
     private final KnowledgeBaseTools knowledgeBaseTools;
+    /**
+     * 日志工具。
+     */
     private final LogTools logTools;
+    /**
+     * 搜索工具。
+     */
     private final SearchTools searchTools;
+    /**
+     * JSON 处理器，用于解析本地工具参数。
+     */
     private final ObjectMapper objectMapper;
 
     @Override
@@ -58,6 +82,9 @@ public class CoreToolLocalMcpToolHandler implements LocalMcpToolHandler {
 
     @Override
     public boolean supports(InvocationContext context) {
+        /**
+         * 仅当实现类型为本地处理器且工具名属于核心工具集合时才匹配。
+         */
         if (context == null) {
             return false;
         }
@@ -70,6 +97,9 @@ public class CoreToolLocalMcpToolHandler implements LocalMcpToolHandler {
     @Override
     public String handle(InvocationContext context) {
         try {
+            /**
+             * 先解析工具名和参数，再按工具类型分发到对应核心工具方法。
+             */
             String tool = normalize(context == null ? null : context.toolName());
             Map<String, Object> args = parseArgs(context == null ? McpProtocolConstants.DEFAULT_ARGUMENTS_JSON : context.argumentsJson());
             return switch (tool) {
@@ -132,6 +162,9 @@ public class CoreToolLocalMcpToolHandler implements LocalMcpToolHandler {
         return error("TOOL_CONTEXT_REQUIRED", "InvocationContext is required");
     }
 
+    /**
+     * 将参数 JSON 解析为键值映射，解析失败时返回空映射。
+     */
     private Map<String, Object> parseArgs(String json) {
         if (json == null || json.isBlank()) {
             return Map.of();
@@ -144,6 +177,9 @@ public class CoreToolLocalMcpToolHandler implements LocalMcpToolHandler {
         }
     }
 
+    /**
+     * 从参数映射中提取字符串参数。
+     */
     private String stringArg(Map<String, Object> args, String key) {
         Object value = args.get(key);
         if (value == null) {
@@ -153,6 +189,9 @@ public class CoreToolLocalMcpToolHandler implements LocalMcpToolHandler {
         return text.isEmpty() ? null : text;
     }
 
+    /**
+     * 从参数映射中提取长整型参数。
+     */
     private Long longArg(Map<String, Object> args, String key) {
         Object value = args.get(key);
         if (value == null) {
@@ -168,6 +207,9 @@ public class CoreToolLocalMcpToolHandler implements LocalMcpToolHandler {
         }
     }
 
+    /**
+     * 从参数映射中提取整型参数。
+     */
     private Integer intArg(Map<String, Object> args, String key) {
         Object value = args.get(key);
         if (value == null) {
@@ -183,6 +225,9 @@ public class CoreToolLocalMcpToolHandler implements LocalMcpToolHandler {
         }
     }
 
+    /**
+     * 从参数映射中提取布尔参数，兼容多种文本表示。
+     */
     private Boolean boolArg(Map<String, Object> args, String key) {
         Object value = args.get(key);
         if (value == null) {
@@ -205,6 +250,9 @@ public class CoreToolLocalMcpToolHandler implements LocalMcpToolHandler {
         return null;
     }
 
+    /**
+     * 构建核心本地工具错误响应。
+     */
     private String error(String code, String message) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put(JsonFieldConstants.STATUS, ResultStatusConstants.ERROR);
@@ -217,10 +265,16 @@ public class CoreToolLocalMcpToolHandler implements LocalMcpToolHandler {
         }
     }
 
+    /**
+     * 规范化文本输入，空值返回空字符串。
+     */
     private String text(String value) {
         return value == null ? "" : value.trim();
     }
 
+    /**
+     * 规范化工具名，统一转小写后做路由匹配。
+     */
     private String normalize(String value) {
         if (value == null || value.isBlank()) {
             return "";

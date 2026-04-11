@@ -4,6 +4,10 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Update;
 
 @Mapper
+/**
+ * 离线学习 Mapper，负责执行记忆归档、批量整理等离线学习前置数据处理操作，
+ * 为后续离线分析与模型增强提供底层支持。
+ */
 public interface OfflineLearningMapper {
 
     @Update("""

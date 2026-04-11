@@ -6,11 +6,18 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+/**
+ * 工具原始结果引用解析器，负责把工具轨迹引用标识解析为实际原始输出内容，
+ * 便于后续上下文组装时按引用回填最近一次或指定一次工具结果。
+ */
 public final class ToolRawRefResolver {
 
     private ToolRawRefResolver() {
     }
 
+    /**
+     * 按引用规则从工具轨迹列表中解析原始结果 JSON。
+     */
     public static String resolveRawJson(String rawRef,
                                         List<Map<String, Object>> toolRows,
                                         ObjectMapper objectMapper) {
