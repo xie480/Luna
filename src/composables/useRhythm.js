@@ -3,6 +3,10 @@ import { gsap } from "gsap";
 
 export function useRhythm() {
   const showSystemAudioListening = ref(false);
+  const isStarting = ref(false);
+  const audioSourceLabel = ref("未连接");
+  const motionIntensity = ref(1.0);
+  const beatSensitivity = ref(1.0);
 
   const state = {
     isListening: false,
@@ -28,6 +32,7 @@ export function useRhythm() {
     beatEcho: 0,
     bootDone: false,
     quantumNoise: 0,
+    prevTrackingEnabled: null,
   };
 
   const RHYTHM_CFG = {
@@ -95,8 +100,62 @@ export function useRhythm() {
   function lerp(a, b, t) {
     return a + (b - a) * t;
   }
+
+  function clamp(v, min, max) {
+    return Math.min(max, Math.max(min, v));
+  }
+
   function randSigned() {
     return (Math.random() - 0.5) * 2;
+  }
+
+  function hasBooleanRef(maybeRef) {
+    return !!maybeRef && typeof maybeRef === "object" && typeof maybeRef.value === "boolean";
+  }
+
+  function setMotionIntensity(value) {
+    motionIntensity.value = clamp(Number(value) || 1, 0.6, 1.8);
+  }
+
+  function setBeatSensitivity(value) {
+    beatSensitivity.value = clamp(Number(value) || 1, 0.6, 1.8);
+  }
+
+  function rememberTrackingState(trackingEnabled) {
+    if (!hasBooleanRef(trackingEnabled)) {
+      state.prevTrackingEnabled = null;
+      return;
+    }
+
+    state.prevTrackingEnabled = trackingEnabled.value;
+    if (trackingEnabled.value) trackingEnabled.value = false;
+  }
+
+  function restoreTrackingState(trackingEnabled) {
+    if (!hasBooleanRef(trackingEnabled)) {
+      state.prevTrackingEnabled = null;
+      return;
+    }
+
+    if (typeof state.prevTrackingEnabled === "boolean") {
+      trackingEnabled.value = state.prevTrackingEnabled;
+    }
+    state.prevTrackingEnabled = null;
+  }
+
+  function resetMotionState() {
+    state.bassLevel = 0;
+    state.midLevel = 0;
+    state.beatDetected = false;
+    state.beatIntensity = 0;
+    state.bodySway = 0;
+    state.headNod = 0;
+    state.breath = 0.5;
+    state.glitchJitter = 0;
+    state.scanPulseActive = false;
+    state.scanPulseValue = 0;
+    state.beatEcho = 0;
+    state.bootDone = false;
   }
 
   function quantumNoiseSample(phase) {
@@ -109,9 +168,11 @@ export function useRhythm() {
   }
 
   function detectBeat(bassLevel, prevBass) {
+    const sensitivity = beatSensitivity.value;
     const rise = bassLevel - prevBass;
-    const isBeat = rise > RHYTHM_CFG.beatDetection.threshold && bassLevel > 0.06;
-    return { isBeat, intensity: Math.min(1.0, rise * 2.0) };
+    const threshold = RHYTHM_CFG.beatDetection.threshold / sensitivity;
+    const isBeat = rise > threshold && bassLevel > 0.06 / Math.sqrt(sensitivity);
+    return { isBeat, intensity: Math.min(1.0, rise * (1.6 + sensitivity * 0.5)) };
   }
 
   function runBootSequence(core) {
@@ -175,6 +236,7 @@ export function useRhythm() {
         } catch {}
       },
     });
+
     tl.to(bootState, {
       duration: 0.9,
       headY: -3.5,
@@ -185,6 +247,7 @@ export function useRhythm() {
         } catch {}
       },
     });
+
     tl.to(bootState, {
       duration: 0.65,
       headY: 0,
@@ -220,7 +283,7 @@ export function useRhythm() {
       Math.floor(Math.random() * (RHYTHM_CFG.glitch.maxInterval - RHYTHM_CFG.glitch.minInterval));
     state.scanPulseTimer = Math.floor(Math.random() * RHYTHM_CFG.scan.interval);
 
-    state.bootDone = false;
+    resetMotionState();
     runBootSequence(core);
 
     const frame = () => {
@@ -312,30 +375,35 @@ export function useRhythm() {
 
         const qNoise = quantumNoiseSample(quantumPhase) * RHYTHM_CFG.quantum.amplitude;
         const cfg = RHYTHM_CFG;
+        const motionScale = motionIntensity.value;
 
         const targetBodyX =
-          Math.sin(bodyPhase) * (1 + state.bassLevel * cfg.body.bassMultiplier) * cfg.body.maxSway * 0.5 +
+          Math.sin(bodyPhase) *
+            (1 + state.bassLevel * cfg.body.bassMultiplier) *
+            cfg.body.maxSway *
+            0.5 *
+            motionScale +
           (state.bootDone ? state.glitchJitter * 0.8 : 0);
 
         let targetHeadZ;
         if (state.beatDetected) {
-          targetHeadZ = state.beatIntensity * cfg.head.nodMaxAngle;
+          targetHeadZ = state.beatIntensity * cfg.head.nodMaxAngle * motionScale;
         } else {
           targetHeadZ =
-            Math.sin(headSwayPhase * 0.7) * state.midLevel * cfg.head.nodMaxAngle * 0.35 +
-            state.beatEcho * cfg.head.nodMaxAngle * 0.45 +
+            Math.sin(headSwayPhase * 0.7) * state.midLevel * cfg.head.nodMaxAngle * 0.35 * motionScale +
+            state.beatEcho * cfg.head.nodMaxAngle * 0.45 * motionScale +
             (state.bootDone ? state.glitchJitter * 0.5 : 0);
         }
 
         if (state.bootDone && state.scanPulseActive) targetHeadZ += state.scanPulseValue * 0.6;
 
-        let targetHeadY = Math.sin(headSwayPhase) * state.bassLevel * cfg.head.swayMaxAngle * 0.4;
+        let targetHeadY = Math.sin(headSwayPhase) * state.bassLevel * cfg.head.swayMaxAngle * 0.4 * motionScale;
 
         if (state.bootDone && state.scanPulseActive) targetHeadY += Math.sin(state.scanPulseValue * 0.8) * 1.8;
 
         const targetBreath =
           cfg.breath.baseRate +
-          Math.sin(breathPhase) * cfg.breath.amplitude * (1 + state.midLevel * 0.5) +
+          Math.sin(breathPhase) * cfg.breath.amplitude * (1 + state.midLevel * 0.5) * (0.75 + motionScale * 0.25) +
           qNoise;
 
         const headSmooth = state.beatDetected ? cfg.head.nodSmoothness : cfg.head.returnSpeed;
@@ -373,6 +441,69 @@ export function useRhythm() {
       cancelAnimationFrame(state.rafId);
       state.rafId = null;
     }
+  }
+
+  async function requestSystemAudioStream() {
+    if (!navigator?.mediaDevices?.getDisplayMedia) {
+      throw new Error("getDisplayMedia is unavailable");
+    }
+
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      },
+    });
+
+    if (!stream.getAudioTracks().length) {
+      stream.getTracks().forEach((t) => t.stop());
+      throw new Error("Display capture has no audio tracks");
+    }
+
+    stream.getVideoTracks().forEach((t) => {
+      try {
+        stream.removeTrack(t);
+      } catch {}
+      t.stop();
+    });
+
+    audioSourceLabel.value = "系统音频";
+    return stream;
+  }
+
+  async function requestMicrophoneStream() {
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      throw new Error("getUserMedia is unavailable");
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      },
+      video: false,
+    });
+
+    if (!stream.getAudioTracks().length) {
+      stream.getTracks().forEach((t) => t.stop());
+      throw new Error("Microphone capture has no audio tracks");
+    }
+
+    audioSourceLabel.value = "麦克风";
+    return stream;
+  }
+
+  async function acquireAudioStream() {
+    try {
+      return await requestSystemAudioStream();
+    } catch (systemErr) {
+      console.warn("[律动] getDisplayMedia 失败，回退麦克风:", systemErr);
+    }
+
+    return requestMicrophoneStream();
   }
 
   function smoothReset(core) {
@@ -449,22 +580,23 @@ export function useRhythm() {
   }
 
   async function toggleSystemAudio(core, trackingEnabled) {
+    if (isStarting.value) return;
+
     if (showSystemAudioListening.value) {
       stopSystemAudioListening(core, trackingEnabled);
       return;
     }
 
-    if (trackingEnabled.value) trackingEnabled.value = false;
+    if (!navigator?.mediaDevices) {
+      alert("当前环境不支持音频采集。");
+      return;
+    }
+
+    isStarting.value = true;
+    rememberTrackingState(trackingEnabled);
 
     try {
-      let stream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      } catch (micErr) {
-        console.warn("[律动] getUserMedia 失败，尝试 getDisplayMedia:", micErr);
-        stream = await navigator.mediaDevices.getDisplayMedia({ video: false, audio: true });
-      }
-
+      const stream = await acquireAudioStream();
       state.currentStream = stream;
 
       if (!state.audioContext) {
@@ -488,21 +620,27 @@ export function useRhythm() {
       showSystemAudioListening.value = true;
 
       startNaturalRhythm(core);
-      console.log("[律动] 已连接到音频源");
+      console.log(`[律动] 已连接到音频源: ${audioSourceLabel.value}`);
     } catch (err) {
+      restoreTrackingState(trackingEnabled);
+      audioSourceLabel.value = "未连接";
       console.error("[律动] 音频初始化失败:", err);
-      alert("音频访问失败，请检查浏览器权限设置。");
+      alert("音频访问失败，请检查系统共享音频或麦克风权限。");
+    } finally {
+      isStarting.value = false;
     }
   }
 
   function stopSystemAudioListening(core, trackingEnabled) {
-    if (!trackingEnabled.value) trackingEnabled.value = true;
+    restoreTrackingState(trackingEnabled);
 
     state.isListening = false;
     showSystemAudioListening.value = false;
+    audioSourceLabel.value = "未连接";
 
     stopRhythmLoop();
     smoothReset(core);
+    resetMotionState();
 
     if (state.currentStream) {
       state.currentStream.getTracks().forEach((t) => t.stop());
@@ -531,11 +669,18 @@ export function useRhythm() {
       stopSystemAudioListening(core, trackingEnabled);
     } else {
       stopRhythmLoop();
+      restoreTrackingState(trackingEnabled);
     }
   }
 
   return {
     showSystemAudioListening,
+    isStarting,
+    audioSourceLabel,
+    motionIntensity,
+    beatSensitivity,
+    setMotionIntensity,
+    setBeatSensitivity,
     toggleSystemAudio,
     dispose,
   };

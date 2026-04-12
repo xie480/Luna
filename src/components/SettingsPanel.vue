@@ -128,8 +128,38 @@
           <div class="section">
             <div class="section-title">RHYTHM <em>/ 律动</em></div>
             <label class="app-item">
-              <input type="checkbox" :checked="rhythm.showSystemAudioListening.value" @change="rhythm.toggleSystemAudio(core, { value: true })" />
-              <span>开启系统音频律动 (Beta)</span>
+              <input
+                type="checkbox"
+                :checked="rhythm.showSystemAudioListening.value"
+                :disabled="rhythm.isStarting.value"
+                @change="rhythm.toggleSystemAudio(core, trackingEnabled)"
+              />
+              <span>{{ rhythm.isStarting.value ? '正在连接音频源...' : '开启系统音频律动 (Beta)' }}</span>
+            </label>
+            <div class="desc">当前音频源：{{ rhythm.audioSourceLabel.value }}</div>
+            <label class="slider-row">
+              <span>律动强度</span>
+              <input
+                type="range"
+                min="0.6"
+                max="1.8"
+                step="0.05"
+                :value="rhythm.motionIntensity.value"
+                @input="rhythm.setMotionIntensity($event.target.value)"
+              />
+              <em>{{ rhythm.motionIntensity.value.toFixed(2) }}</em>
+            </label>
+            <label class="slider-row">
+              <span>节拍灵敏度</span>
+              <input
+                type="range"
+                min="0.6"
+                max="1.8"
+                step="0.05"
+                :value="rhythm.beatSensitivity.value"
+                @input="rhythm.setBeatSensitivity($event.target.value)"
+              />
+              <em>{{ rhythm.beatSensitivity.value.toFixed(2) }}</em>
             </label>
           </div>
         </div>
@@ -160,7 +190,7 @@ import SkillManager from '../views/settings/SkillManager.vue';
 const props = defineProps([
   'core', 'model', 'appearance', 'rhythm',
   'isLoggedIn', 'isSetupMode', 'isTrackingSetupMode',
-  'isModelVisible'
+  'isModelVisible', 'trackingEnabled'
 ]);
 const emit = defineEmits([
   'close', 'reset-model', 'toggle-setup', 'toggle-tracking-setup',
@@ -507,6 +537,29 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   cursor: pointer;
 }
+.app-item input[type="checkbox"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.slider-row {
+  display: grid;
+  grid-template-columns: 84px 1fr 42px;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-dim, rgba(232,255,248,0.68));
+}
+.slider-row input[type="range"] {
+  width: 100%;
+  accent-color: var(--primary, #00ffc8);
+}
+.slider-row em {
+  font-style: normal;
+  text-align: right;
+  color: var(--text-main, #e8fff8);
+  font-variant-numeric: tabular-nums;
+}
 
 .btn-group {
   display: flex;
@@ -653,3 +706,4 @@ onBeforeUnmount(() => {
   background: linear-gradient(180deg, color-mix(in oklab, var(--primary, #00ffc8) 68%, transparent), color-mix(in oklab, var(--primary-2, #00aaff) 65%, transparent));
 }
 </style>
+
