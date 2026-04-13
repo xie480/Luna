@@ -5,7 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 // 引入統一的 HTTP 客戶端和 Token 管理
-import http, { setAuthToken, getAuthToken } from "../src/main/httpClient.js";
+import http, { getAuthToken, getErrorMessage, setAuthToken } from "../src/main/httpClient.js";
 // 引入我們寫好的 chatIpc 以及暴露出來的 startSSE 和 stopSSE
 import { registerChatIpc, startSSE, stopSSE } from "../src/main/ipc/chatIpc.js";
 // 引入 MCP IPC
@@ -40,7 +40,7 @@ ipcMain.handle("luna.api.chat.history.date", async (_event, yearMonth) => {
       params: { ym: yearMonth },
     })
     .catch((err) => {
-      throw new Error(err.message);
+      throw new Error(getErrorMessage(err));
     });
 });
 
@@ -52,39 +52,39 @@ ipcMain.handle("luna.api.chat.history", async (_event, yearMonthDay) => {
   return http
     .get("/luna/api/chat/history", { params: { ymd: yearMonthDay } })
     .catch((err) => {
-      throw new Error(err.message);
+      throw new Error(getErrorMessage(err));
     });
 });
 
 /* ===== 查询 IPC ===== */
 ipcMain.handle("luna.api.query.knowledge-base", async (_event, payload = {}) => {
   return http.post("/luna/api/query/knowledge-base", payload).catch((err) => {
-    throw new Error(err.message);
+    throw new Error(getErrorMessage(err));
   });
 });
 
 ipcMain.handle("luna.api.query.log", async (_event, payload = {}) => {
   return http.post("/luna/api/query/log", payload).catch((err) => {
-    throw new Error(err.message);
+    throw new Error(getErrorMessage(err));
   });
 });
 
 /* ===== OpenClaw Plan IPC ===== */
 ipcMain.handle("luna.api.plan.run", async (_event, payload = {}) => {
   return http.post("/luna/api/plan/run", payload).catch((err) => {
-    throw new Error(err.message);
+    throw new Error(getErrorMessage(err));
   });
 });
 
 ipcMain.handle("luna.api.plan.phase.run", async (_event, payload = {}) => {
   return http.post("/luna/api/plan/phase/run", payload).catch((err) => {
-    throw new Error(err.message);
+    throw new Error(getErrorMessage(err));
   });
 });
 
 ipcMain.handle("luna.api.plan.report.finalize", async (_event, payload = {}) => {
   return http.post("/luna/api/plan/report/finalize", payload).catch((err) => {
-    throw new Error(err.message);
+    throw new Error(getErrorMessage(err));
   });
 });
 
@@ -93,7 +93,7 @@ ipcMain.handle("luna.api.plan.graph", async (_event, planId) => {
     throw new Error("planId is required");
   }
   return http.get(`/luna/api/plan/graph/${encodeURIComponent(planId)}`).catch((err) => {
-    throw new Error(err.message);
+    throw new Error(getErrorMessage(err));
   });
 });
 
@@ -116,7 +116,7 @@ ipcMain.handle("auth.login", async (event, payload) => {
       return data;
     })
     .catch((err) => {
-      throw new Error(err.message);
+      throw new Error(getErrorMessage(err));
     });
 });
 
@@ -143,7 +143,7 @@ ipcMain.handle("auth.logout", async (_event, token) => {
     })
     .catch((err) => {
       setAuthToken(null);
-      throw new Error(err.message);
+      throw new Error(getErrorMessage(err));
     });
 });
 

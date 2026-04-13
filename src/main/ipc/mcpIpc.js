@@ -1,15 +1,23 @@
 import { ipcMain } from "electron";
-import http from "../httpClient.js";
+import http, { getErrorMessage } from "../httpClient.js";
 
 function registerGet(channel, urlBuilder) {
   ipcMain.handle(channel, async (_, payload) => {
-    return http.get(urlBuilder(payload));
+    try {
+      return await http.get(urlBuilder(payload));
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
+    }
   });
 }
 
 function registerPost(channel, url, mapPayload) {
   ipcMain.handle(channel, async (_, payload) => {
-    return http.post(url, mapPayload ? mapPayload(payload) : payload);
+    try {
+      return await http.post(url, mapPayload ? mapPayload(payload) : payload);
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
+    }
   });
 }
 
@@ -56,29 +64,27 @@ export function registerMcpIpc() {
 
   registerPost("mcp.rpc.call", "/mcp/rpc");
 
-  // Legacy CRUD: kept only as explicit compatibility paths.
-  registerPost("mcp.tool.create", "/mcp/tools");
-  ipcMain.handle("mcp.tool.update", async (_, payload) => http.put("/mcp/tools", payload));
-  ipcMain.handle("mcp.tool.delete", async (_, id) => http.delete(`/mcp/tools/${id}`));
-
   ipcMain.handle("mcp.skill.list", async () => {
-    const resources = await http.get("/mcp/resources");
-    if (!Array.isArray(resources)) return [];
-    return resources.filter((item) => item?.type === "WORKFLOW" || item?.type === "SKILL");
+    try {
+      const resources = await http.get("/mcp/resources");
+      if (!Array.isArray(resources)) return [];
+      return resources.filter((item) => item?.type === "WORKFLOW" || item?.type === "SKILL");
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
+    }
   });
 
   ipcMain.handle("mcp.skill.detail", async (_, id) => {
-    const resource = await http.get(`/mcp/resources/${id}`);
-    if (resource && resource.type && !["WORKFLOW", "SKILL"].includes(resource.type)) {
-      throw new Error(`Resource ${id} is not a workflow/skill`);
+    try {
+      const resource = await http.get(`/mcp/resources/${id}`);
+      if (resource && resource.type && !["WORKFLOW", "SKILL"].includes(resource.type)) {
+        throw new Error(`Resource ${id} is not a workflow/skill`);
+      }
+      return resource;
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
     }
-    return resource;
   });
 
-  registerPost("mcp.skill.create", "/mcp/skills");
-  ipcMain.handle("mcp.skill.update", async (_, payload) => http.put("/mcp/skills", payload));
-  ipcMain.handle("mcp.skill.delete", async (_, id) => http.delete(`/mcp/skills/${id}`));
-
   registerPost("mcp.tool.approve", "/mcp/tools/approval");
-  registerPost("mcp.skill.approve", "/mcp/tools/approval");
 }

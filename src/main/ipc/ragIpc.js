@@ -1,5 +1,5 @@
 import { ipcMain } from "electron";
-import http from "../httpClient.js";
+import http, { getErrorMessage } from "../httpClient.js";
 
 export function registerRagIpc() {
   console.log("[RagIPC] Registering IPC handlers...");
@@ -11,7 +11,7 @@ export function registerRagIpc() {
       if (error?.response?.status === 422) {
         return error.response?.data ?? {};
       }
-      throw new Error(error?.message || "RAG retrieve failed");
+      throw new Error(getErrorMessage(error, "RAG retrieve failed"));
     }
   });
 }

@@ -386,10 +386,11 @@ export function usePlanGraphStore() {
       return;
     }
 
-    if (eventType === "SKILL_ASYNC_RESULT") {
+    if (eventType === "SKILL_ASYNC_RESULT" || eventType === "WORKFLOW_ASYNC_RESULT") {
       const evt = {
         taskId: p.taskId || "",
-        skillName: p.skillName || "",
+        skillName: p.skillName || p.workflowName || "",
+        workflowName: p.workflowName || p.skillName || "",
         status: p.status || "",
         success: !!p.success,
         message: p.message || "",

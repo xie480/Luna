@@ -22,6 +22,16 @@
           <span class="value">{{ task.serverCode }}</span>
         </div>
 
+        <div class="info-row">
+          <span class="label">任务状态:</span>
+          <span class="value">{{ task?.status || "-" }}</span>
+        </div>
+
+        <div class="info-row">
+          <span class="label">任务 ID:</span>
+          <span class="value mono">{{ task?.taskId || "-" }}</span>
+        </div>
+
         <div class="args-container">
           <div class="label">参数详情:</div>
 
@@ -61,7 +71,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(["approve", "reject", "mouseenter", "mouseleave"]);
+const emit = defineEmits(["approve", "reject", "expire", "mouseenter", "mouseleave"]);
 
 // 拖拽逻辑（先定义，避免 watch(immediate) 调用 centerModal 时变量未初始化）
 const modalX = ref(0);
@@ -148,8 +158,9 @@ function resetTimer() {
   if (timer) clearInterval(timer);
 
   let initial = TTL_SECONDS;
-  if (props.task?.createTime) {
-    const elapsed = Math.floor((Date.now() - props.task.createTime) / 1000);
+  const createdAt = Number(props.task?.createTime) || Date.parse(props.task?.createTime || "");
+  if (Number.isFinite(createdAt) && createdAt > 0) {
+    const elapsed = Math.floor((Date.now() - createdAt) / 1000);
     initial = Math.max(0, TTL_SECONDS - elapsed);
   }
   timeLeft.value = initial;
@@ -160,7 +171,7 @@ function resetTimer() {
     } else {
       clearInterval(timer);
       timer = null;
-      emit("reject");
+      emit("expire");
     }
   }, 1000);
 }
@@ -283,6 +294,15 @@ function formatTime(seconds) {
 .label {
   color: #888;
   min-width: 72px;
+}
+
+.value {
+  color: #f3f8f6;
+  word-break: break-all;
+}
+
+.value.mono {
+  font-family: "Consolas", "Monaco", monospace;
 }
 
 .highlight {

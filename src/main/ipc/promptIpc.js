@@ -1,5 +1,5 @@
 import { ipcMain } from "electron";
-import http from "../httpClient.js";
+import http, { getErrorMessage } from "../httpClient.js";
 
 function withQuery(url, params = {}) {
   const search = new URLSearchParams();
@@ -14,13 +14,21 @@ function withQuery(url, params = {}) {
 
 function registerGet(channel, url, mapPayload) {
   ipcMain.handle(channel, async (_, payload = {}) => {
-    return http.get(withQuery(url, mapPayload ? mapPayload(payload) : payload));
+    try {
+      return await http.get(withQuery(url, mapPayload ? mapPayload(payload) : payload));
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
+    }
   });
 }
 
 function registerPost(channel, url) {
   ipcMain.handle(channel, async (_, payload = {}) => {
-    return http.post(url, payload);
+    try {
+      return await http.post(url, payload);
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
+    }
   });
 }
 

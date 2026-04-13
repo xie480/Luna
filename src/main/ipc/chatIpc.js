@@ -1,5 +1,5 @@
 import { ipcMain } from "electron";
-import http from "../httpClient.js";
+import http, { getErrorMessage } from "../httpClient.js";
 
 // 全局變量管理 SSE 連接狀態
 let currentStream = null;
@@ -153,7 +153,7 @@ export async function stopSSE() {
   try {
     await http.get("/api/luna/status/disconnect");
   } catch (e) {
-    console.error("[ChatIPC] Disconnect error:", e.message);
+    console.error("[ChatIPC] Disconnect error:", getErrorMessage(e));
   }
 }
 
@@ -172,13 +172,23 @@ export function registerChatIpc() {
       return response;
     } catch (error) {
       console.error("[ChatIPC] Chat startup failed:", error);
-      return { status: "connected", error: error.message };
+      if (error?.response?.status === 503 && error?.response?.data) {
+        return error.response.data;
+      }
+      throw new Error(getErrorMessage(error));
     }
   });
 
   ipcMain.handle("luna.api.chat.message", async (_, payload) => {
     console.log("[ChatIPC] IPC 'luna.api.chat.message' invoked.");
-    return http.post("/luna/api/chat/message", payload);
+    try {
+      return await http.post("/luna/api/chat/message", payload);
+    } catch (error) {
+      if ((error?.response?.status === 400 || error?.response?.status === 503) && error?.response?.data) {
+        return error.response.data;
+      }
+      throw new Error(getErrorMessage(error));
+    }
   });
 
   ipcMain.handle("luna.api.chat.shutdown", async () => {

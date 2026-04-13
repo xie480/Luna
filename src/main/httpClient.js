@@ -16,6 +16,32 @@ export function getAuthToken() {
   return authToken;
 }
 
+export function getErrorMessage(error, fallback = "Request failed") {
+  const responseData = error?.response?.data;
+
+  if (typeof responseData === "string" && responseData.trim()) {
+    return responseData.trim();
+  }
+
+  if (responseData && typeof responseData === "object") {
+    const text =
+      responseData.message ||
+      responseData.reason ||
+      responseData.error ||
+      responseData.reply;
+
+    if (typeof text === "string" && text.trim()) {
+      return text.trim();
+    }
+  }
+
+  if (typeof error?.message === "string" && error.message.trim()) {
+    return error.message.trim();
+  }
+
+  return fallback;
+}
+
 function toBearerToken(token) {
   if (!token || typeof token !== "string") return "";
   return token.startsWith("Bearer ") ? token : `Bearer ${token}`;

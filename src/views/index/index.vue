@@ -202,6 +202,7 @@
         :task="approvalTask"
         @approve="onApprove(true)"
         @reject="onApprove(false)"
+        @expire="handleApprovalExpired"
         @mouseenter="uiEnter"
         @mouseleave="uiLeave"
       />
@@ -264,7 +265,7 @@ import {
   logout as logoutApi,
 } from "../../api/index.js";
 import { EMOTION_EXPRESSIONS } from "../../utils/emotion-expressions";
-import { normalizeApprovalTask } from "../../utils/data-utils.js";
+import { normalizeApprovalTask, pickTextMessage } from "../../utils/data-utils.js";
 
 import { useBubble } from "../../composables/useBubble.js";
 import { useAppearance } from "../../composables/useAppearance.js";
@@ -329,7 +330,7 @@ function schedulePlanSnapshotSync(planId, immediate = false) {
       await planStore.syncGraphSnapshot(runPid);
       planReconnectAttempt = 0;
     } catch (e) {
-      console.error("[Plan] 鑺傛祦蹇収鍚屾澶辫触:", e);
+      console.error("[Plan] 图谱快照同步失败:", e);
       schedulePlanSnapshotReconnect();
     }
   };
@@ -502,9 +503,71 @@ const PLAN_EVENTS = new Set([
   "PLAN_NODE_FAILED",
   "PLAN_FINISHED",
   "PLAN_REPORT_READY",
-  "APPROVAL_RESULT",
-  "SKILL_ASYNC_RESULT",
 ]);
+
+const renderedTaskResultIds = new Set();
+
+function hasRenderedTaskResult(taskId) {
+  return !!taskId && renderedTaskResultIds.has(taskId);
+}
+
+function rememberTaskResult(taskId) {
+  if (!taskId) return;
+  renderedTaskResultIds.add(taskId);
+  if (renderedTaskResultIds.size > 120) {
+    const firstKey = renderedTaskResultIds.values().next().value;
+    if (firstKey) renderedTaskResultIds.delete(firstKey);
+  }
+}
+
+function extractTaskResultPayload(data) {
+  const candidate = normalizeResponse(data?.result ?? data?.payload ?? data);
+
+  if (typeof candidate === "string" && candidate.trim()) {
+    return candidate;
+  }
+
+  if (candidate && typeof candidate === "object" && pickTextMessage(candidate)) {
+    return candidate;
+  }
+
+  const fallbackText = pickTextMessage(data);
+  if (fallbackText) {
+    return { reply: fallbackText };
+  }
+
+  return null;
+}
+
+async function renderTaskEventResult(taskId, data, fallbackHint = "") {
+  const payload = extractTaskResultPayload(data);
+  if (!payload) {
+    if (fallbackHint) {
+      appearance.showAppearanceHint(fallbackHint);
+    }
+    return;
+  }
+
+  if (hasRenderedTaskResult(taskId)) {
+    return;
+  }
+
+  rememberTaskResult(taskId);
+  isStreaming.value = true;
+  streamText.value = "";
+
+  try {
+    await handleModelReply(payload);
+  } catch (error) {
+    console.error("[Luna] Failed to render task event result:", error);
+    if (fallbackHint) {
+      appearance.showAppearanceHint(fallbackHint);
+    }
+  } finally {
+    isStreaming.value = false;
+    streamText.value = "";
+  }
+}
 
 const isSetupMode = ref(false);
 const isTrackingSetupMode = ref(false);
@@ -591,7 +654,7 @@ const currentEmotion = ref("neutral");
 
 async function performLogin() {
   if (!loginForm.value.username || !loginForm.value.password) {
-    loginError.value = "鐢ㄦ埛鍚嶆垨瀵嗙爜涓嶈兘涓虹┖";
+    loginError.value = "用户名或密码不能为空";
     return;
   }
   loginLoading.value = true;
@@ -628,9 +691,10 @@ async function performLogin() {
       planStore.syncGraphSnapshot(cachedPlanId).catch(() => {});
     }
   } catch (e) {
-    console.error("[Auth] 鐧诲綍璇锋眰澶辫触", e);
-    loginError.value = "无法连接鉴权服务，请检查网络或服务状态";
-    loginLogLines.value.push("网络错误：无法连接到鉴权端点。");
+    const errorMessage = e?.message || "无法连接鉴权服务，请检查网络或服务状态";
+    console.error("[Auth] 登录请求失败", e);
+    loginError.value = errorMessage;
+    loginLogLines.value.push(`登录失败：${errorMessage}`);
   } finally {
     loginLoading.value = false;
   }
@@ -660,7 +724,7 @@ async function handleLogout() {
     await callShutdown();
     await logoutApi(authToken.value);
   } catch (e) {
-    console.error("[Auth] 鐧诲嚭璇锋眰澶辫触", e);
+    console.error("[Auth] 登出请求失败", e);
   } finally {
     authToken.value = "";
     loginSuccess.value = false;
@@ -669,6 +733,10 @@ async function handleLogout() {
     closeWorkspacePanels();
     showApproval.value = false;
     approvalTask.value = null;
+    isConnecting.value = false;
+    isStreaming.value = false;
+    streamText.value = "";
+    lunaStatus.value = "";
     activePlanId = "";
     sessionStorage.removeItem("luna:current-plan-id");
     planStore.reset("");
@@ -785,20 +853,26 @@ async function handleModelReply(res) {
 }
 
 function handleNetworkError() {
-  appearance.showAppearanceHint("缃戠粶璇锋眰澶辫触");
+  appearance.showAppearanceHint("网络请求失败");
 }
 
 async function onSend(text) {
-  if (isConnecting.value || isStreaming.value) return;
-  if (!text) return;
+  if (isConnecting.value || isStreaming.value || showApproval.value) return;
+
+  const userInput = String(text || "").trim();
+  if (!userInput) {
+    appearance.showAppearanceHint("输入不能为空");
+    return;
+  }
 
   isConnecting.value = true;
   streamText.value = "";
+  let holdStreamingLock = false;
 
   if (showHistory.value && historyPanelRef.value) {
     historyPanelRef.value.pushMessage({
       sender: "user",
-      content: text,
+      content: userInput,
       timestamp: Date.now(),
     });
   }
@@ -807,7 +881,7 @@ async function onSend(text) {
     const minLoadTime = new Promise((resolve) => setTimeout(resolve, 800));
 
     const [res] = await Promise.all([
-      chatApi({ userInput: text }),
+      chatApi({ userInput }),
       minLoadTime,
     ]);
 
@@ -815,15 +889,39 @@ async function onSend(text) {
     isStreaming.value = true;
     streamText.value = "";
 
-    await handleModelReply(normalizeResponse(res));
+    const normalized = normalizeResponse(res);
+
+    if (typeof normalized === "string" && normalized.trim().toLowerCase() === "empty input") {
+      appearance.showAppearanceHint("输入不能为空");
+      return;
+    }
+
+    if (normalized?.status === "pending_approval") {
+      holdStreamingLock = true;
+      if (!approvalTask.value || approvalTask.value.taskId !== normalized.taskId) {
+        approvalTask.value = normalizeApprovalTask({
+          taskId: normalized.taskId || "",
+          status: "PENDING_APPROVAL",
+        });
+      }
+      showApproval.value = true;
+      streamText.value = normalized.message || "等待审批确认...";
+      uiEnter();
+      appearance.showAppearanceHint(normalized.message || "操作需要审批确认");
+      return;
+    }
+
+    await handleModelReply(normalized);
   } catch (e) {
     console.error("[Luna] 发送失败", e);
     handleNetworkError();
   } finally {
     isConnecting.value = false;
-    isStreaming.value = false;
-    streamText.value = "";
-    lunaStatus.value = "";
+    if (!holdStreamingLock) {
+      isStreaming.value = false;
+      streamText.value = "";
+      lunaStatus.value = "";
+    }
   }
 }
 
@@ -842,20 +940,31 @@ async function onApprove(approved) {
       approved,
     });
 
-    if (res && typeof res === "object" && (res.reply || res.text || res.message || res.content || res.answer || res.data)) {
+    const normalized = normalizeResponse(res);
+    if (pickTextMessage(normalized)) {
+      rememberTaskResult(currentTaskId);
       isStreaming.value = true;
       streamText.value = "";
-      await handleModelReply(normalizeResponse(res));
+      await handleModelReply(normalized);
     } else {
       appearance.showAppearanceHint(approved ? "已同意操作" : "已拒绝操作");
     }
   } catch (e) {
     console.error("[Approval] Failed:", e);
-    appearance.showAppearanceHint("瀹℃壒鎻愪氦澶辫触");
+    appearance.showAppearanceHint(e?.message || "审批提交失败");
   } finally {
     isStreaming.value = false;
     streamText.value = "";
   }
+}
+
+function handleApprovalExpired() {
+  showApproval.value = false;
+  approvalTask.value = null;
+  isStreaming.value = false;
+  streamText.value = "";
+  uiLeave();
+  appearance.showAppearanceHint("审批已过期");
 }
 
 async function callStartup() {
@@ -863,9 +972,9 @@ async function callStartup() {
   try {
     const res = await startupApi();
     isConnecting.value = false;
-    handleModelReply(normalizeResponse(res));
+    await handleModelReply(normalizeResponse(res));
   } catch (e) {
-    console.error("[Luna] 鍚姩澶辫触", e);
+    console.error("[Luna] 启动失败", e);
     isConnecting.value = false;
     handleNetworkError();
   }
@@ -1050,7 +1159,7 @@ function loadModelTransform() {
 
 function resetModelTransform() {
   if (!container) {
-    appearance.showAppearanceHint("瀹瑰櫒鏈垵濮嬪寲");
+    appearance.showAppearanceHint("容器未初始化");
     return;
   }
 
@@ -1446,7 +1555,7 @@ onMounted(async () => {
   }
 
   if (window.desktopApi && window.desktopApi.onStatusUpdate) {
-    window.desktopApi.onStatusUpdate((rawPayload) => {
+    window.desktopApi.onStatusUpdate(async (rawPayload) => {
       const { event, data } = normalizeSseEventPayload(rawPayload);
       const eventType = toUpperEventType(event, data);
 
@@ -1454,6 +1563,10 @@ onMounted(async () => {
         const task = data?.payload ? data.payload : data;
         approvalTask.value = task ? normalizeApprovalTask(task) : null;
         showApproval.value = !!approvalTask.value;
+        isStreaming.value = showApproval.value;
+        if (showApproval.value) {
+          streamText.value = "等待审批确认...";
+        }
         if (showApproval.value) {
           uiEnter();
           appearance.showAppearanceHint("收到敏感操作审批请求");
@@ -1464,6 +1577,41 @@ onMounted(async () => {
           eventType: "APPROVAL_REQUEST",
           planId: data?.planId || activePlanId || "",
         });
+        return;
+      }
+
+      if (eventType === "APPROVAL_RESULT") {
+        planStore.applyEvent({
+          ...(data || {}),
+          eventType: "APPROVAL_RESULT",
+          planId: data?.planId || activePlanId || "",
+        });
+        showApproval.value = false;
+        approvalTask.value = null;
+        isStreaming.value = false;
+        streamText.value = "";
+        uiLeave();
+        const approvalFallbackHint = data?.approved === true
+          ? "审批已通过"
+          : data?.approved === false
+            ? "审批已拒绝"
+            : "审批结果已返回";
+        await renderTaskEventResult(
+          data?.taskId || "",
+          data,
+          approvalFallbackHint,
+        );
+        return;
+      }
+
+      if (eventType === "WORKFLOW_ASYNC_RESULT" || eventType === "SKILL_ASYNC_RESULT") {
+        planStore.applyEvent({
+          ...(data || {}),
+          eventType,
+        });
+        const ok = !!data?.success;
+        const fallbackHint = ok ? "异步任务已完成" : (data?.error || data?.message || "异步任务执行失败");
+        await renderTaskEventResult(data?.taskId || "", data, fallbackHint);
         return;
       }
 
@@ -1493,10 +1641,6 @@ onMounted(async () => {
           schedulePlanSnapshotSync(activePlanId, false);
         }
 
-        if (eventType === "SKILL_ASYNC_RESULT") {
-          const ok = !!data?.success;
-          appearance.showAppearanceHint(ok ? "异步技能已完成" : "异步技能执行失败");
-        }
       }
 
       const msg = normalizeStatusPayload(data);
