@@ -10,6 +10,8 @@ import http, { setAuthToken, getAuthToken } from "../src/main/httpClient.js";
 import { registerChatIpc, startSSE, stopSSE } from "../src/main/ipc/chatIpc.js";
 // 引入 MCP IPC
 import { registerMcpIpc } from "../src/main/ipc/mcpIpc.js";
+import { registerPromptIpc } from "../src/main/ipc/promptIpc.js";
+import { registerRagIpc } from "../src/main/ipc/ragIpc.js";
 
 // [Fix] 禁用硬件加速，解決透明窗口下 WebGL/Canvas 渲染問題 (模型不可見的關鍵修復)
 app.disableHardwareAcceleration();
@@ -22,6 +24,8 @@ const __dirname = path.dirname(__filename);
 registerChatIpc();
 // 註冊 MCP 相關監聽器
 registerMcpIpc();
+registerPromptIpc();
+registerRagIpc();
 
 /* ===== IPC handlers for History API ===== */
 ipcMain.handle("luna.api.chat.history.date", async (_event, yearMonth) => {
@@ -134,16 +138,23 @@ ipcMain.handle("auth.logout", async (_event, token) => {
 
   const bearer = typeof t === "string" && t.startsWith("Bearer ") ? t : `Bearer ${t}`;
 
+  try {
+    // 断流接口也需要鉴权，必须在清 token 前完成。
+    await stopSSE();
+  } catch (err) {
+    console.error("[Auth] Stop SSE before logout failed:", err);
+  }
+
   return http
     .post("/auth/logout", null, {
       headers: { Authorization: bearer },
     })
     .then((data) => {
       setAuthToken(null);
-      stopSSE();
       return data;
     })
     .catch((err) => {
+      setAuthToken(null);
       throw new Error(err.message);
     });
 });

@@ -188,10 +188,11 @@ export function registerChatIpc() {
 
     try {
       console.log("[ChatIPC] Calling backend chat shutdown endpoint...");
-      return await http.post("/luna/api/chat/shutdown");
+      await http.post("/luna/api/chat/shutdown");
+      return null;
     } catch (error) {
       console.error("[ChatIPC] Chat shutdown failed:", error);
-      return { status: "disconnected" };
+      return null;
     }
   });
 }

@@ -1,64 +1,84 @@
 import { ipcMain } from "electron";
 import http from "../httpClient.js";
 
+function registerGet(channel, urlBuilder) {
+  ipcMain.handle(channel, async (_, payload) => {
+    return http.get(urlBuilder(payload));
+  });
+}
+
+function registerPost(channel, url, mapPayload) {
+  ipcMain.handle(channel, async (_, payload) => {
+    return http.post(url, mapPayload ? mapPayload(payload) : payload);
+  });
+}
+
 export function registerMcpIpc() {
   console.log("[McpIPC] Registering IPC handlers...");
 
-  // === Resources (资源查询) ===
-  // 获取所有资源（Tool + Skill）
-  ipcMain.handle("mcp.resource.list", async () => {
-    return http.get("/mcp/resources");
-  });
+  registerGet("mcp.resource.list", () => "/mcp/resources");
+  registerGet("mcp.resource.get", (id) => `/mcp/resources/${encodeURIComponent(id)}`);
+  registerPost("mcp.resource.search", "/mcp/search", (payload = {}) => ({
+    query: payload.query ?? "",
+  }));
 
-  // 获取单个资源详情（Tool 或 Skill）
-  ipcMain.handle("mcp.resource.get", async (_, id) => {
-    return http.get(`/mcp/resources/${id}`);
+  registerGet("mcp.tool.list", (payload = {}) => {
+    const search = new URLSearchParams();
+    if (payload?.serverCode) search.set("serverCode", payload.serverCode);
+    const query = search.toString();
+    return query ? `/mcp/tools/list?${query}` : "/mcp/tools/list";
   });
+  registerPost("mcp.tool.call", "/mcp/tools/call");
 
-  // === Tools (工具管理) ===
-  ipcMain.handle("mcp.tool.create", async (_, payload) => {
-    return http.post("/mcp/tools", payload);
+  registerGet("mcp.prompt.list", (payload = {}) => {
+    const search = new URLSearchParams();
+    if (payload?.serverCode) search.set("serverCode", payload.serverCode);
+    const query = search.toString();
+    return query ? `/mcp/prompts/list?${query}` : "/mcp/prompts/list";
   });
+  registerPost("mcp.prompt.get", "/mcp/prompts/get");
 
-  ipcMain.handle("mcp.tool.update", async (_, payload) => {
-    return http.put("/mcp/tools", payload);
+  registerGet("mcp.catalog.resource.list", (payload = {}) => {
+    const search = new URLSearchParams();
+    if (payload?.serverCode) search.set("serverCode", payload.serverCode);
+    const query = search.toString();
+    return query ? `/mcp/resources/list?${query}` : "/mcp/resources/list";
   });
+  registerPost("mcp.catalog.resource.read", "/mcp/resources/read");
 
-  ipcMain.handle("mcp.tool.delete", async (_, id) => {
-    return http.delete(`/mcp/tools/${id}`);
-  });
+  registerPost("mcp.catalog.sync", "/mcp/catalog/sync", () => undefined);
+  registerPost("mcp.migrate.serverRegistry", "/mcp/migrate/server-registry");
+  registerPost("mcp.migrate.toolCatalog", "/mcp/migrate/tool-catalog");
+  registerPost("mcp.migrate.toolImplMapping", "/mcp/migrate/tool-impl-mapping");
+  registerPost("mcp.migrate.promptCatalog", "/mcp/migrate/prompt-catalog");
+  registerPost("mcp.migrate.resourceCatalog", "/mcp/migrate/resource-catalog");
+  registerPost("mcp.migrate.workflowTemplate", "/mcp/migrate/workflow-template");
 
-  // === Skills (技能管理) ===
-  // 按文档：列表通过 /mcp/resources 过滤 type=SKILL
+  registerPost("mcp.rpc.call", "/mcp/rpc");
+
+  // Legacy CRUD: kept only as explicit compatibility paths.
+  registerPost("mcp.tool.create", "/mcp/tools");
+  ipcMain.handle("mcp.tool.update", async (_, payload) => http.put("/mcp/tools", payload));
+  ipcMain.handle("mcp.tool.delete", async (_, id) => http.delete(`/mcp/tools/${id}`));
+
   ipcMain.handle("mcp.skill.list", async () => {
     const resources = await http.get("/mcp/resources");
     if (!Array.isArray(resources)) return [];
-    return resources.filter((r) => r?.type === "SKILL");
+    return resources.filter((item) => item?.type === "WORKFLOW" || item?.type === "SKILL");
   });
 
-  // 按文档：详情通过 /mcp/resources/{id} 获取后校验 type=SKILL
   ipcMain.handle("mcp.skill.detail", async (_, id) => {
     const resource = await http.get(`/mcp/resources/${id}`);
-    if (resource && resource.type && resource.type !== "SKILL") {
-      throw new Error(`Resource ${id} is not a SKILL`);
+    if (resource && resource.type && !["WORKFLOW", "SKILL"].includes(resource.type)) {
+      throw new Error(`Resource ${id} is not a workflow/skill`);
     }
     return resource;
   });
 
-  ipcMain.handle("mcp.skill.create", async (_, payload) => {
-    return http.post("/mcp/skills", payload);
-  });
+  registerPost("mcp.skill.create", "/mcp/skills");
+  ipcMain.handle("mcp.skill.update", async (_, payload) => http.put("/mcp/skills", payload));
+  ipcMain.handle("mcp.skill.delete", async (_, id) => http.delete(`/mcp/skills/${id}`));
 
-  ipcMain.handle("mcp.skill.update", async (_, payload) => {
-    return http.put("/mcp/skills", payload);
-  });
-
-  ipcMain.handle("mcp.skill.delete", async (_, id) => {
-    return http.delete(`/mcp/skills/${id}`);
-  });
-
-  // === Approval (敏感操作审批) ===
-  ipcMain.handle("mcp.skill.approve", async (_, payload) => {
-    return http.post("/mcp/skills/approval", payload);
-  });
+  registerPost("mcp.tool.approve", "/mcp/tools/approval");
+  registerPost("mcp.skill.approve", "/mcp/tools/approval");
 }
