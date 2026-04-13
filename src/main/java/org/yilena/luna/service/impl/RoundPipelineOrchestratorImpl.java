@@ -118,9 +118,8 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
 
     @Override
     public RoundPipelineResult executeRound(RoundPipelineRequest request) {
-        /**
-         * 缺少轮次请求时直接阻断，避免继续执行导致状态写回和审计记录失真。
-         */
+        // 第一步：请求参数校验
+        // 如果轮次请求为空则直接阻断，避免继续执行导致状态写回和审计记录失真
         if (request == null) {
             return RoundPipelineResult.builder()
                     .blocked(true)
@@ -136,9 +135,9 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                     .nodeWorksetResult(null)
                     .build();
         }
-        /**
-         * 先整理上下文、候选能力、MCP 提示和知识证据，形成当前轮次执行所需的统一工作集。
-         */
+
+        // 第二步：构建轮次执行上下文并提取工作集
+        // 从请求中整理上下文包、候选能力、MCP提示和知识证据，形成当前轮次执行所需的统一工作集
         String sessionId = nullSafe(request.getSessionId());
         StructuredContextPackage contextPackage = request.getContextPackage();
         Long planId = contextPlanId(contextPackage);
@@ -146,21 +145,26 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
         String traceId = "round_pipeline:" + sessionId + ":" + System.currentTimeMillis();
         NodeWorksetResult nodeWorksetResult = request.getNodeWorksetResult();
         ContextRerankResult rerankResult = nodeWorksetResult == null ? null : nodeWorksetResult.getRerankResult();
+
+        // 提取执行候选项：优先使用请求中的值，缺失时回退到节点工作集中的值
         List<Resource> executionCandidates = request.getExecutionCandidates() == null
                 ? (nodeWorksetResult == null || nodeWorksetResult.getExecutionCandidates() == null ? List.of() : nodeWorksetResult.getExecutionCandidates())
                 : request.getExecutionCandidates();
+
+        // 提取MCP资源提示：优先使用请求中的值，缺失时回退到节点工作集中的值
         List<String> mcpResourceHints = request.getMcpResourceHints() == null
                 ? (nodeWorksetResult == null || nodeWorksetResult.getMcpResourceHints() == null ? List.of() : nodeWorksetResult.getMcpResourceHints())
                 : request.getMcpResourceHints();
+
+        // 提取知识证据块：从节点工作集中获取已选中的知识证据
         List<EvidenceBlock> knowledgeEvidenceBlocks = nodeWorksetResult == null || nodeWorksetResult.getSelectedKnowledgeEvidenceBlocks() == null
                 ? List.of()
                 : nodeWorksetResult.getSelectedKnowledgeEvidenceBlocks();
 
+        // 第三步：解析工具语义
+        // 如果上游尚未提供工具语义结果，则在轮次内部补做一次语义解析，确保主模型有足够的工具总结信息
         ToolSemanticResult effectiveToolSemantic = request.getToolSemanticResult();
         if (effectiveToolSemantic == null) {
-            /**
-             * 如果上游尚未提供工具语义，则在轮次内部补做一次语义解析，避免主模型缺少工具总结。
-             */
             effectiveToolSemantic = resolveToolSemantic(RoundToolSemanticRequest.builder()
                     .sessionId(sessionId)
                     .contextPackage(contextPackage)
@@ -173,15 +177,16 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                     .build());
         }
 
+        // 第四步：初始化结果变量
         SummaryResult preAssemblySummary = null;
         MainModelOrchestrationResult modelResult = null;
         String assistantReply = nullSafe(request.getAssistantReplyOverride());
         String finalSnapshotId = nullSafe(request.getLatestSnapshotId());
 
+        // 第五步：主模型执行流程（条件执行）
+        // 仅当请求明确要求运行主模型时才执行以下步骤
         if (request.isRunMainModel()) {
-            /**
-             * 主模型执行前先做一次预摘要，将当前轮次上下文压缩成更利于生成的输入片段。
-             */
+            // 5.1 执行预摘要：在主模型执行前将当前轮次上下文压缩成更利于生成的输入片段
             SummaryOrchestrationResult preSummaryResult = taskOrchestratorService().orchestrateSummary(
                     sessionId,
                     nullSafe(request.getUserInput()),
@@ -195,9 +200,7 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
             );
             preAssemblySummary = preSummaryResult == null ? null : preSummaryResult.getSummaryResult();
 
-            /**
-             * 基于完整工作集触发主模型编排，生成本轮回复并更新最新快照引用。
-             */
+            // 5.2 触发主模型编排：基于完整工作集调用主模型生成本轮回复
             modelResult = taskOrchestratorService().orchestrateMainModel(
                     MainModelExecutionRequest.builder()
                             .sessionId(sessionId)
@@ -225,10 +228,10 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                             .rawToolResultChannel(safeMap(request.getRawToolResultChannel()))
                             .build()
             );
+
+            // 5.3 主模型执行结果校验
+            // 如果主模型执行被阻断，则记录状态迁移并尽早返回，防止后续摘要和写回覆盖真实阻断原因
             if (modelResult == null || modelResult.isBlocked()) {
-                /**
-                 * 如果主模型执行被阻断，则记录状态迁移并尽早返回，防止后续摘要和写回覆盖真实阻断原因。
-                 */
                 stateTransitionTraceLogger.log(
                         traceId,
                         sessionId,
@@ -255,13 +258,14 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                         .nodeWorksetResult(nodeWorksetResult)
                         .build();
             }
+
+            // 5.4 更新最终结果：从主模型输出中提取回复文本和快照ID
             assistantReply = nullSafe(modelResult.getReplyText());
             finalSnapshotId = firstNonBlank(modelResult.getFinalSnapshotId(), finalSnapshotId);
         }
 
-        /**
-         * 在主模型输出后生成本轮最终摘要，用于历史替换、状态写回和后续轮次上下文压缩。
-         */
+        // 第六步：生成轮次后摘要
+        // 在主模型输出后生成本轮最终摘要，用于历史替换、状态写回和后续轮次的上下文压缩
         SummaryOrchestrationResult postSummary = taskOrchestratorService().orchestrateSummary(
                 sessionId,
                 nullSafe(request.getUserInput()),
@@ -275,10 +279,9 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
         );
         SummaryResult summaryResult = postSummary == null ? null : postSummary.getSummaryResult();
 
+        // 第七步：状态写回（条件执行）
+        // 当轮次需要持久化状态时，统一写回决策、摘要、工具原始结果引用和检索计划信息
         if (request.isWriteRoundState()) {
-            /**
-             * 轮次需要落状态时，统一写回决策、摘要、工具原始结果引用和检索计划信息。
-             */
             taskOrchestratorService().writeRoundState(RoundStateWriteRequest.builder()
                     .sessionId(sessionId)
                     .decision(request.getDecision())
@@ -298,9 +301,8 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                     .build());
         }
 
-        /**
-         * 轮次正常收尾时记录一次 writeback 迁移日志，为后续排查上下文演进提供链路证据。
-         */
+        // 第八步：记录状态迁移日志
+        // 轮次正常收尾时记录一次 writeback 迁移日志，为后续排查上下文演进提供链路证据
         stateTransitionTraceLogger.log(
                 traceId,
                 sessionId,
@@ -314,6 +316,8 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                 contextPackage == null || contextPackage.getRecoveryState() == null ? "" : nullSafe(contextPackage.getRecoveryState().getRecoveryEvent())
         );
 
+        // 第九步：构建并返回最终结果
+        // 返回完整的轮次执行结果，包含所有阶段的产出物
         return RoundPipelineResult.builder()
                 .blocked(false)
                 .blockedReason("")
@@ -328,6 +332,7 @@ public class RoundPipelineOrchestratorImpl implements RoundPipelineOrchestrator 
                 .nodeWorksetResult(nodeWorksetResult)
                 .build();
     }
+
 
     private ToolSemanticResult validateAndTraceToolSemantic(String sessionId,
                                                             Long planId,

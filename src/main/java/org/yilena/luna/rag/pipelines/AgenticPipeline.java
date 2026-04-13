@@ -83,10 +83,14 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
 
         /**
          * 再让规划器把复杂问题拆成多个检索阶段，后续按阶段逐步补齐证据。
+         * LLM 会根据查询类型（如 analysis_reasoning）将问题拆解为有序的子目标序列。
          */
         List<ModelDrivenRagPlanner.AgentStage> stages = getModelDrivenRagPlanner()
                 .planAgentStages(queryObject.getRewrittenQuery(), sources, maxSteps);
 
+        /**
+         * 初始化累积证据容器和追踪变量，用于跨阶段聚合检索结果。
+         */
         Map<RetrievalSource, List<Evidence>> cumulative = initGrouped(sources);
         List<Map<String, Object>> stageMeta = new ArrayList<>();
         boolean timeoutReached = false;
@@ -99,14 +103,21 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
 
         /**
          * 按阶段执行检索，并在每一轮后累计证据、记录阶段元信息和评估证据充分性。
+         * 循环终止条件：完成所有阶段、达到最大步数、超过调用次数限制或证据已充分。
          */
         for (int i = 0; i < stages.size() && i < maxSteps && callCount < maxCalls; i++) {
+            /**
+             * 检查剩余时间预算，低于 120ms 时判定超时并退出循环。
+             */
             long remaining = remainingMs(deadline);
             if (remaining < 120) {
                 timeoutReached = true;
                 break;
             }
 
+            /**
+             * 构建当前阶段的检索上下文，包括专用查询、超时控制和目标来源。
+             */
             ModelDrivenRagPlanner.AgentStage stage = stages.get(i);
             QueryObject stageQuery = buildStageQuery(queryObject, stage.getRewrittenQuery());
             RetrievalRequest stageRequest = withTimeout(request, remaining);
@@ -114,6 +125,9 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                     ? sources
                     : stage.getSources();
 
+            /**
+             * 根据剩余额度动态分配本阶段的 Top-K 配额，避免超出全局上限。
+             */
             int stageBudget = maxTotalTopK - cumulativeRequestedTopK;
             Map<RetrievalSource, Integer> stageTopKConfig = allocateTopKByBudget(baseTopK, stageSources, stageBudget);
             if (stageTopKConfig.isEmpty()) {
@@ -123,6 +137,9 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
             int stageRequestedTopK = sumTopK(stageTopKConfig, stageSources);
             cumulativeRequestedTopK += stageRequestedTopK;
 
+            /**
+             * 执行当前阶段的检索，启用重排、压缩和跨源融合以优化证据质量。
+             */
             SourceRetrieveOutcome stageOutcome = retrieveBySources(
                     stageQuery,
                     stageTopKConfig,
@@ -135,8 +152,14 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
             );
             callCount++;
 
+            /**
+             * 将本阶段召回的证据合并到累积容器中，供后续充分性评估使用。
+             */
             cumulative = mergeBySource(cumulative, stageOutcome.grouped(), sources);
 
+            /**
+             * 记录当前阶段的详细元信息，包括目标、查询、来源分布和召回统计。
+             */
             Map<String, Object> singleStageMeta = new HashMap<>();
             singleStageMeta.put("stage_index", i + 1);
             singleStageMeta.put("objective", stage.getObjective());
@@ -148,6 +171,9 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
             singleStageMeta.put("timed_out_sources", stageOutcome.timedOutSources().stream().map(RetrievalSource::value).toList());
             stageMeta.add(singleStageMeta);
 
+            /**
+             * 评估累积证据是否充分支撑原始查询，三维判断：数量、来源覆盖、语义覆盖度。
+             */
             latestSufficiency = evaluateEvidenceSufficiency(
                     cumulative,
                     sources,
@@ -161,6 +187,7 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
 
             /**
              * 当前阶段结束后如果仍有缺失来源，则尝试补发一次定向补充检索。
+             * 补充检索会明确指定需要填补的来源类型，确保多源证据完整性。
              */
             if (callCount < maxCalls) {
                 List<RetrievalSource> missingSources = missingSources(cumulative, sources);
@@ -214,6 +241,9 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
             }
         }
 
+        /**
+         * 判断是否触发回退机制：超时、超步数、超配额或证据不足时降级为 MODULAR 模式。
+         */
         boolean overLimit = callCount >= maxCalls
                 || stageMeta.size() >= maxSteps
                 || totalTopKExceeded
@@ -221,12 +251,16 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
 
         /**
          * 当达到时限、步数或证据仍不足时，统一回退到 modular 风格的最终融合结果，保证始终有可用输出。
+         * 优先尝试用剩余额度执行一次完整检索，否则直接对累积证据做跨源融合。
          */
         if (timeoutReached || overLimit || !evidenceSufficient) {
             int fallbackBudget = maxTotalTopK - cumulativeRequestedTopK;
             Map<RetrievalSource, List<Evidence>> fallbackGrouped;
             Map<String, Object> fallbackMeta;
             if (fallbackBudget > 0 && !timeoutReached) {
+                /**
+                 * 还有预算且未超时时，发起最后一次兜底检索以补充证据。
+                 */
                 Map<RetrievalSource, Integer> fallbackTopK = allocateTopKByBudget(baseTopK, sources, fallbackBudget);
                 if (!fallbackTopK.isEmpty()) {
                     SourceRetrieveOutcome fallback = retrieveBySources(
@@ -243,6 +277,9 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                     fallbackGrouped = fallback.grouped();
                     fallbackMeta = new HashMap<>(fallback.meta());
                 } else {
+                    /**
+                     * 预算耗尽时，直接对累积证据执行跨源融合作为兜底结果。
+                     */
                     EvidenceFusionService.FusionResult fallbackFusion = getEvidenceFusionService().fuse(
                             queryObject.getRewrittenQuery(),
                             cumulative,
@@ -255,6 +292,9 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                     fallbackMeta = new HashMap<>(fallbackFusion.meta());
                 }
             } else {
+                /**
+                 * 超时或无预算时，仅依赖已有累积证据进行融合。
+                 */
                 EvidenceFusionService.FusionResult fallbackFusion = getEvidenceFusionService().fuse(
                         queryObject.getRewrittenQuery(),
                         cumulative,
@@ -266,6 +306,10 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                 fallbackGrouped = fallbackFusion.grouped();
                 fallbackMeta = new HashMap<>(fallbackFusion.meta());
             }
+
+            /**
+             * 注入 AGENTIC 特有的诊断元信息，记录回退原因和各阶段执行情况。
+             */
             fallbackMeta.put("agentic_stage_count", stageMeta.size());
             fallbackMeta.put("agentic_stages", stageMeta);
             fallbackMeta.put("agentic_timeout_reached", timeoutReached);
@@ -298,6 +342,7 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
 
         /**
          * 证据充分时执行最终融合，输出 agentic 路由的完整结果。
+         * 对所有阶段累积的证据进行跨源全局重排和角色分组。
          */
         EvidenceFusionService.FusionResult finalFusion = getEvidenceFusionService().fuse(
                 queryObject.getRewrittenQuery(),
@@ -338,6 +383,7 @@ public class AgenticPipeline extends AbstractRetrievalPipeline {
                 .meta(meta)
                 .build();
     }
+
 
     /**
      * 为阶段改写查询补充新的 embedding，避免沿用旧向量导致阶段召回偏移。

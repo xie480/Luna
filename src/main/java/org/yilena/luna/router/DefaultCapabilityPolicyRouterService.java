@@ -71,6 +71,8 @@ public class DefaultCapabilityPolicyRouterService implements CapabilityPolicyRou
         return rankByPolicy(rows, query, taskState, relationalState, false, limit);
     }
 
+    // ... existing code ...
+
     @Override
     /**
      * 为执行阶段筛选能力候选，优先保留可直接调用且风险可控的能力。
@@ -83,10 +85,39 @@ public class DefaultCapabilityPolicyRouterService implements CapabilityPolicyRou
         /**
          * 执行阶段与上下文阶段共用候选加载和鉴权逻辑，但排序时会启用执行态约束。
          */
+
+        /**
+         * 第一步：从能力目录中加载基础候选列表。
+         * 该方法会先同步最新的能力目录数据，然后结合词法召回（基于关键词匹配）
+         * 和语义召回（基于向量相似度）两种方式获取候选能力，并去重合并结果。
+         * 如果查询为空，则返回热门能力列表作为默认候选。
+         */
         List<Map<String, Object>> rows = loadBaseCandidates(query, limit);
+
+        /**
+         * 第二步：根据当前用户的身份和角色进行权限过滤。
+         * 解析用户主体（principal）及其关联的角色集合，检查每个能力的元数据中的
+         * 访问控制策略（allowedPrincipals、deniedPrincipals、requiredRoles），
+         * 移除用户无权访问的能力，确保后续流程只处理有权限调用的能力。
+         */
         rows = filterByAuthorization(rows);
+
+        /**
+         * 第三步：根据执行阶段的策略对候选能力进行排序和筛选。
+         * 传入 executionOnly=true 表示这是执行阶段的路由，会应用以下额外约束：
+         * 1. 排除 STRATEGY 类型的能力（策略类能力仅用于规划阶段，不适合直接执行）
+         * 2. 过滤掉高风险或需要审批的能力（通过 isRiskAllowedForExecution 检查）
+         * 3. 按类型偏好、风险等级、关键词匹配度等多维度排序
+         * 4. 去除重复的能力名称，返回前 limit 个高优先级能力
+         *
+         * 执行阶段的能力偏好顺序为：TOOL > WORKFLOW > RESOURCE > PROMPT > STRATEGY
+         * 这确保了优先选择可直接调用的工具和工作流，而非抽象的策略或提示词。
+         */
         return rankByPolicy(rows, query, taskState, relationalState, true, limit);
     }
+
+    // ... existing code ...
+
 
     @Override
     /**

@@ -519,22 +519,48 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
     }
 
     @SuppressWarnings("unchecked")
+        /**
+     * 从结构化上下文包中提取关键运行信号，用于意图重构。
+     *
+     * <p>该方法汇总任务状态、工具执行、检索历史和对话上下文等多维度信息，
+     * 为后续的输入意图重构提供完整的上下文参考。</p>
+     *
+     * @param contextPackage 结构化上下文包，包含任务、工具、检索和关系等状态信息。
+     *                       如果为null，则返回空的ContextSignals对象
+     * @return ContextSignals 包含12个维度的上下文字段：
+     *         - goalFromState: 当前任务目标
+     *         - currentNode: 当前执行的节点
+     *         - pendingQuestions: 待解答的问题列表
+     *         - lastToolName: 最近调用的工具名称
+     *         - lastToolSemantic: 最近工具的语义摘要
+     *         - retrievalIntent: 重构的检索意图
+     *         - lastSummary: 最新的叙事摘要
+     *         - latestTimeScope: 最新的时间范围
+     *         - recentDialog: 近期对话历史（格式：role:content|）
+     *         - lastNextActionHint: 下一步行动提示
+     *         - latestStateSnapshotDigest: 状态快照摘要
+     *         - unfinishedActions: 未完成的事项列表
+     */
     private ContextSignals collectSignals(StructuredContextPackage contextPackage) {
         if (contextPackage == null) {
             return new ContextSignals("", "", "", "", "", "", "", "", "", "", "", "");
         }
-        /**
-         * 汇总任务、工具、检索与上下文状态中的关键运行信号，
-         * 让意图重构能够参考当前执行阶段、未完成事项和近期对话轨迹。
-         */
+
+        // 提取任务状态实体中的核心字段
         String goalFromState = contextPackage.getTaskStateEntity() == null ? "" : asText(contextPackage.getTaskStateEntity().getObjective());
         String currentNode = contextPackage.getTaskStateEntity() == null ? "" : asText(contextPackage.getTaskStateEntity().getCurrentNode());
         String pendingQuestions = contextPackage.getTaskStateEntity() == null ? "" : asText(contextPackage.getTaskStateEntity().getPendingQuestions());
         String lastNextActionHint = contextPackage.getTaskStateEntity() == null ? "" : asText(contextPackage.getTaskStateEntity().getNextActionHint());
+
+        // 提取工具执行状态
         String lastToolName = contextPackage.getToolState() == null ? "" : asText(contextPackage.getToolState().getLastToolName());
         String lastToolSemantic = contextPackage.getToolState() == null ? "" : asText(contextPackage.getToolState().getLastToolSemanticSummary());
+
+        // 提取检索和上下文状态
         String retrievalIntent = contextPackage.getRetrievalState() == null ? "" : asText(contextPackage.getRetrievalState().getReconstructedIntent());
         String lastSummary = contextPackage.getContextState() == null ? "" : asText(contextPackage.getContextState().getLatestNarrativeSummary());
+
+        // 从状态快照中提取时间范围和未完成事项
         String latestTimeScope = "";
         String latestStateSnapshotDigest = "";
         String unfinishedActions = "";
@@ -544,12 +570,16 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
             latestStateSnapshotDigest = buildStateSnapshotDigest(latestSnapshot);
             unfinishedActions = extractUnfinishedActions(latestSnapshot);
         }
+
+        // 降级策略：从任务上下文的工作记忆中获取时间范围
         if (latestTimeScope.isBlank() && contextPackage.getTaskContext() != null) {
             Object working = contextPackage.getTaskContext().get("working_memory");
             if (working instanceof Map<?, ?> map) {
                 latestTimeScope = asText(((Map<String, Object>) map).get("time_scope"));
             }
         }
+
+        // 降级策略：从任务状态实体中聚合未完成事项
         if (unfinishedActions.isBlank() && contextPackage.getTaskStateEntity() != null) {
             List<String> unfinished = new ArrayList<>();
             if (contextPackage.getTaskStateEntity().getPendingQuestions() != null) {
@@ -565,6 +595,8 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
                     .toList()
                     .toString();
         }
+
+        // 格式化近期对话历史为 role:content| 的字符串形式
         String recentDialog = "";
         if (contextPackage.getRecentMessages() != null && !contextPackage.getRecentMessages().isEmpty()) {
             List<Map<String, Object>> messages = contextPackage.getRecentMessages();
@@ -589,6 +621,7 @@ public class DefaultInputReconstructionAgent implements InputReconstructionAgent
                 unfinishedActions
         );
     }
+
 
     /**
      * 上下文信号集合，承载输入重构阶段需要参考的状态与历史线索。

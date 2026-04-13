@@ -47,6 +47,7 @@ public class RetrievalServiceImpl implements RetrievalService {
      */
     public RetrievalResponse retrieve(RetrievalRequest request) {
         long start = System.currentTimeMillis();
+
         /**
          * 空查询直接返回空响应，避免无意义进入后续检索链路。
          */
@@ -56,9 +57,16 @@ public class RetrievalServiceImpl implements RetrievalService {
 
         /**
          * 先把原始请求处理为统一查询对象，再根据查询特征生成路由计划。
+         * queryProcessor.process 负责查询标准化、改写和类型识别。
+         * routeSelector.selectPlan 基于查询对象和请求配置选择最优检索路由。
          */
         QueryObject queryObject = queryProcessor.process(request);
         RoutePlan plan = routeSelector.selectPlan(queryObject, request);
+
+        /**
+         * 根据路由计划选择对应的检索流水线执行引擎。
+         * 如果未找到匹配的流水线，返回空响应并记录耗时。
+         */
         RetrievalPipeline pipeline = selectPipeline(plan.getRoute());
         if (pipeline == null) {
             return emptyResponse(plan.getRoute(), queryObject.getRewrittenQuery(), elapsed(start));
@@ -66,25 +74,45 @@ public class RetrievalServiceImpl implements RetrievalService {
 
         /**
          * 执行命中的检索流水线，并在响应上补充统一元信息和调试数据。
+         * rawResponse 包含从各数据源召回的原始证据列表。
          */
         RetrievalResponse rawResponse = pipeline.execute(queryObject, plan, request);
+
+        /**
+         * 构建响应元信息映射，包含来源统计、延迟、查询类型等关键字段。
+         */
         Map<String, Object> meta = new HashMap<>();
         meta.put("sources_used", resolveSourcesUsed(rawResponse, request));
         meta.put("latency_ms", elapsed(start));
         meta.put("query_type", queryObject.getQueryType());
         meta.put("session_id", request.getSessionId());
         meta.put("needs_rerank", plan.isNeedsRerank());
+
+        /**
+         * 合并流水线内部产生的元信息到统一元数据容器中。
+         */
         if (rawResponse.getMeta() != null && !rawResponse.getMeta().isEmpty()) {
             meta.putAll(rawResponse.getMeta());
         }
+
         /**
          * 调试模式下追加路由计划与改写信息，便于排查检索策略命中原因。
+         * 将路由选择依据、查询改写前后对比等诊断数据注入 debug 字段。
          */
         if (request.getOptions() != null && request.getOptions().isDebug()) {
             Map<String, Object> mergedDebug = new HashMap<>();
+
+            /**
+             * 保留流水线已有的调试信息，避免覆盖底层诊断数据。
+             */
             if (meta.get("debug") instanceof Map<?, ?> existedDebug) {
                 existedDebug.forEach((k, v) -> mergedDebug.put(String.valueOf(k), v));
             }
+
+            /**
+             * 注入路由计划详情，包括选中的路由、允许的候选路由、
+             * 数据源范围、是否需要改写/重排以及 Top-K 配置。
+             */
             mergedDebug.put("route_plan", Map.of(
                     "selected_route", plan.getRoute().value(),
                     "allowed_routes", request.getAllowedRoutes() == null ? List.of() : request.getAllowedRoutes().stream().map(RetrievalRoute::value).toList(),
@@ -94,6 +122,10 @@ public class RetrievalServiceImpl implements RetrievalService {
                     "top_k_config", plan.getTopKConfig() == null ? Map.of() : plan.getTopKConfig().entrySet().stream()
                             .collect(Collectors.toMap(entry -> entry.getKey().value(), Map.Entry::getValue))
             ));
+
+            /**
+             * 注入查询改写信息，记录原始查询、改写后查询和识别的查询类型。
+             */
             mergedDebug.put("query", Map.of(
                     "original", request.getQuery(),
                     "rewritten", queryObject.getRewrittenQuery(),
@@ -104,6 +136,7 @@ public class RetrievalServiceImpl implements RetrievalService {
 
         /**
          * 返回经过统一包装的检索结果，并输出关键链路日志便于后续追踪。
+         * 最终响应包含路由标识、改写查询、证据列表和完整元信息。
          */
         RetrievalResponse response = RetrievalResponse.builder()
                 .route(rawResponse.getRoute())
@@ -120,6 +153,7 @@ public class RetrievalServiceImpl implements RetrievalService {
                 request.getSessionId());
         return response;
     }
+
 
     private List<String> resolveSourcesUsed(RetrievalResponse response, RetrievalRequest request) {
         if (response != null && response.getMeta() != null && response.getMeta().get("hit_sources") instanceof List<?> hitSources) {

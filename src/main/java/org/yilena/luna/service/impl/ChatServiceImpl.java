@@ -110,8 +110,10 @@ public class ChatServiceImpl implements ChatService {
      * 该方法会完成输入校验、上下文治理、工具决策、回复生成、记忆写入和轮次状态落库，是聊天主流程的核心入口。
      */
     public ResponseEntity<Object> chat(ChatRequest chatRequest) {
-        /**
-         * 先提取并校验用户输入，空输入直接拒绝，避免后续治理链路消耗无效资源。
+        /*
+         * 第一步：提取并校验用户输入
+         * 从请求对象中安全地提取用户输入内容，进行空值处理和去除首尾空格
+         * 如果输入为空，直接返回400错误响应，避免后续处理链路消耗无效资源
          */
         String input = Optional.ofNullable(chatRequest)
                 .map(ChatRequest::getUserInput)
@@ -121,13 +123,26 @@ public class ChatServiceImpl implements ChatService {
             return ResponseEntity.badRequest().body("empty input");
         }
 
+        /*
+         * 发布"思考中"状态通知前端
+         * 生成运行时会话ID：优先使用认证上下文中的会话ID，如果不存在则使用当前时间戳格式化生成
+         */
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_THINKING, LunaStateConstant.VALUE_THINKING);
         String runtimeSessionId = Optional.ofNullable(AuthContextHolder.getSessionId())
                 .filter(s -> !s.isBlank())
                 .orElse(SESSION_KEY_FORMATTER.format(LocalDateTime.now()));
 
-        /**
-         * 先运行工具前的上下文治理流水线，产出本轮决策、重构输入和节点工作集，为后续工具判断打基础。
+        /*
+         * 第二步：执行工具前的上下文治理流水线（Pre-Tool Pipeline）
+         * 该阶段负责：
+         * 1. 分析用户意图和任务类型
+         * 2. 检索相关知识库、记忆、偏好等信息
+         * 3. 重构和优化用户输入
+         * 4. 确定节点工作集和执行候选资源
+         * 5. 产出编排决策和结构化上下文包
+         *
+         * 触发源标记为"CHAT_PRE_TOOL"，表示这是聊天流程的工具前置阶段
+         * runMainModel=false 表示此阶段不运行主模型生成回复
          */
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_RETRIEVING, LunaStateConstant.VALUE_RETRIEVING);
         RoundPipelineResult preToolPipelineResult = stateDrivenContextPipeline.run(
@@ -148,24 +163,53 @@ public class ChatServiceImpl implements ChatService {
                                 .build())
                         .build()
         );
+
+        /*
+         * 检查上下文治理流水线是否成功执行
+         * 如果被阻断或结果为空，发布空闲状态并返回503服务不可用错误
+         */
         if (preToolPipelineResult == null || preToolPipelineResult.isBlocked()) {
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
             return ResponseEntity.status(503).body(contextGovernanceBlockedPayload("chat pre-tool pipeline blocked"));
         }
+
+        /*
+         * 提取流水线产出的关键工件：
+         * - decision: 编排决策，包含任务类型、策略选择等
+         * - contextPackage: 结构化上下文包，包含各类检索结果
+         * - reconstruction: 输入重构结果，优化后的用户输入
+         * - nodeWorkset: 节点工作集，包含执行候选资源和MCP提示
+         */
         OrchestrationDecision decision = preToolPipelineResult.getDecision();
         StructuredContextPackage contextPackage = preToolPipelineResult.getContextPackage();
         InputReconstructionResult reconstruction = preToolPipelineResult.getReconstructionResult();
         NodeWorksetResult nodeWorkset = preToolPipelineResult.getNodeWorksetResult();
+
+        /*
+         * 验证所有关键工件是否都存在
+         * 任何一个缺失都表明流水线执行异常，需要终止流程
+         */
         if (contextPackage == null || decision == null || reconstruction == null || nodeWorkset == null) {
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
             return ResponseEntity.status(503).body(contextGovernanceBlockedPayload("chat pre-tool pipeline artifacts missing"));
         }
 
+        /*
+         * 第三步：从上下文包中提取各类知识片段
+         * 包括：任务知识、关系偏好、长期记忆、工作记忆、运行时消息等
+         * 这些片段将作为后续回复生成的上下文依据
+         */
         List<String> knowledgeSnippets = extractTaskKnowledgeSnippets(contextPackage);
         List<String> preferenceSnippets = extractRelationalPreferenceSnippets(contextPackage);
         List<String> longTermMemorySnippets = extractTaskLongTermSnippets(contextPackage);
         List<String> workingMemorySnippets = extractWorkingMemorySnippets(contextPackage);
         List<String> runtimeMemorySnippets = extractRuntimeMessageSnippets(contextPackage);
+
+        /*
+         * 解析节点模板策略，决定如何组织和管理上下文节点
+         * 提取执行候选资源列表和MCP资源提示列表
+         * 提取RAG记忆片段和知识证据块
+         */
         ContextNodeTemplatePolicy nodeTemplatePolicy = resolveNodeTemplatePolicy(decision, contextPackage);
         List<Resource> executionCandidates = nodeWorkset == null || nodeWorkset.getExecutionCandidates() == null
                 ? List.of()
@@ -179,6 +223,11 @@ public class ChatServiceImpl implements ChatService {
         List<EvidenceBlock> knowledgeEvidenceBlocks = nodeWorkset == null || nodeWorkset.getSelectedKnowledgeEvidenceBlocks() == null
                 ? List.of()
                 : nodeWorkset.getSelectedKnowledgeEvidenceBlocks();
+
+        /*
+         * 如果节点工作集中包含选定的知识片段，则覆盖默认提取的知识片段
+         * 合并偏好片段，确保去重后保留所有相关偏好信息
+         */
         if (nodeWorkset != null && nodeWorkset.getSelectedKnowledgeSnippets() != null && !nodeWorkset.getSelectedKnowledgeSnippets().isEmpty()) {
             knowledgeSnippets = nodeWorkset.getSelectedKnowledgeSnippets();
         }
@@ -189,8 +238,16 @@ public class ChatServiceImpl implements ChatService {
                         : nodeWorkset.getSelectedPreferenceSnippets()
         );
 
-        /**
-         * 基于治理后的上下文执行工具决策节点，拿到工具语义、原始执行轨迹和工具上下文，决定本轮是否需要走工具链路。
+        /*
+         * 第四步：执行工具决策节点
+         * 基于治理后的上下文，判断本轮对话是否需要调用工具
+         * 产出：
+         * - toolSemanticResult: 工具语义结果，描述工具的用途和参数
+         * - rawToolResultChannel: 原始工具执行结果通道
+         * - toolDecisionSnapshotId: 工具决策快照ID，用于追溯
+         * - latestToolRawRef: 最新工具原始引用
+         * - latestToolHistoryRefs: 工具历史引用列表
+         * - latestToolExecutionTraces: 工具执行轨迹列表
          */
         ToolDecisionNodeResult toolDecisionNodeResult = taskOrchestratorService.orchestrateToolDecisionNode(
                 runtimeSessionId,
@@ -216,8 +273,14 @@ public class ChatServiceImpl implements ChatService {
                 ? ((List<Object>) traces).stream().filter(Map.class::isInstance).map(item -> (Map<String, Object>) item).toList()
                 : List.of();
 
-        /**
-         * 将工具结果和综合摘要合并为统一的工具上下文，便于后续回复生成与审计记录复用同一份事实来源。
+        /*
+         * 第五步：合并工具上下文
+         * 1. 生成综合摘要：将用户输入、工具上下文和结构化上下文包进行综合分析
+         * 2. 合并工具语义：将工具语义结果与工具上下文融合
+         * 3. 合并综合摘要：将综合摘要进一步融入工具上下文
+         * 最终形成统一的mergedToolContext，作为后续回复生成的事实来源
+         *
+         * 同时持久化决策记录到审计日志，便于追踪合成过程
          */
         String synthesisBrief = threeStageResponseService.generateSynthesisBrief(input, toolContext, contextPackage);
         String semanticToolContext = mergeToolContextWithSemantic(toolContext, toolSemanticResult);
@@ -231,8 +294,17 @@ public class ChatServiceImpl implements ChatService {
                 toJsonSafe(Map.of("synthesisBrief", synthesisBrief == null ? "" : synthesisBrief))
         );
 
-        /**
-         * 如果工具仍处于异步挂起状态，则先返回挂起回复并按条件写入记忆，保证用户能及时看到当前执行状态。
+        /*
+         * 第六步：处理异步挂起状态
+         * 如果工具执行处于异步挂起状态（如等待外部回调），则：
+         * 1. 构建挂起回复，告知用户当前状态
+         * 2. 缓存挂起的工具调用信息，便于后续恢复
+         * 3. 评估记忆写入闸门，决定是否保存当前轮次的对话
+         * 4. 如果允许写入，执行记忆写入操作
+         * 5. 运行上下文流水线更新轮次状态，标记为挂起状态
+         * 6. 返回挂起回复给前端，结束本轮交互
+         *
+         * 这种机制保证用户能及时看到工具执行状态，同时保持系统状态的一致性
          */
         if (isAsyncPending(mergedToolContext)) {
             String pendingReply = buildPendingReply(mergedToolContext);
@@ -305,8 +377,19 @@ public class ChatServiceImpl implements ChatService {
             return ResponseEntity.ok(tryParseJsonNode(pendingReply));
         }
 
-        /**
-         * 工具链路结束后进入主模型回复阶段，使用治理结果、检索片段和工具上下文生成最终回复。
+        /*
+         * 第七步：主模型回复生成阶段
+         * 工具链路结束后，进入正式的回复生成流程：
+         * 1. 发布"思考中-整理"状态
+         * 2. 保存之前的上下文状态，用于后续对比
+         * 3. 构建完整的轮次流水线请求，包含所有上下文信息和配置
+         * 4. 运行状态驱动的上下文流水线，生成最终回复
+         *
+         * 关键配置说明：
+         * - runMainModel=true: 启用主模型生成回复
+         * - replaceHistoryWithSummary=true: 用摘要替换历史记录以控制上下文长度
+         * - writeRoundState=true: 写入轮次状态到数据库
+         * - stage="CHAT_TURN": 标记为正式聊天轮次阶段
          */
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_THINKING, LunaStateConstant.VALUE_THINKING_ORGANIZE);
         ContextState previousContextState = contextPackage == null ? null : contextPackage.getContextState();
@@ -352,6 +435,17 @@ public class ChatServiceImpl implements ChatService {
                         .roundPipelineRequest(roundPipelineRequest)
                         .build()
         );
+
+        /*
+         * 提取流水线结果中的关键信息：
+         * - modelResult: 主模型编排结果，包含生成的回复文本
+         * - toolSemanticResult: 可能更新的工具语义结果
+         * - finalSnapshotId: 最终快照ID
+         * - summaryResult: 摘要结果
+         *
+         * 验证结果有效性：如果流水线被阻断或模型结果为空，返回503错误
+         * 设置日志响应覆盖，确保审计日志记录正确的回复内容
+         */
         MainModelOrchestrationResult modelResult = roundPipelineResult == null ? null : roundPipelineResult.getMainModelResult();
         toolSemanticResult = roundPipelineResult == null ? toolSemanticResult : roundPipelineResult.getToolSemanticResult();
         String finalSnapshotId = roundPipelineResult == null ? "" : stringValue(roundPipelineResult.getFinalSnapshotId());
@@ -362,8 +456,18 @@ public class ChatServiceImpl implements ChatService {
         }
         LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(modelResult.getRawResponse());
 
-        /**
-         * 按记忆写入闸门结果决定是否沉淀本轮对话，再补写回放与治理痕迹，确保后续轮次可追溯。
+        /*
+         * 第八步：记忆写入和审计持久化
+         * 1. 评估记忆写入闸门：基于输入质量、回复质量等因素决定是否保存对话
+         * 2. 持久化闸门决策记录到审计日志
+         * 3. 如果允许写入，执行记忆写入流水线，将对话保存到长期记忆
+         * 4. 持久化回放和记忆治理信息，包括：
+         *    - 上下文计划ID和节点ID
+         *    - 前后上下文状态对比
+         *    - 快照ID和摘要结果
+         *    - 工具语义和输入重构结果
+         *
+         * 这一步确保对话可追溯，并为后续轮次提供历史依据
          */
         MemoryWriteGateDecision writeGate = evaluateMemoryWriteGate(input, modelResult.getReplyText(), reconstruction, toolSemanticResult, false);
         runtimeAuditService.persistDecisionRecord(
@@ -392,9 +496,19 @@ public class ChatServiceImpl implements ChatService {
                 toolSemanticResult,
                 reconstruction
         );
+
+        /*
+         * 第九步：完成本轮对话
+         * 1. 发布空闲状态，通知前端对话结束
+         * 2. 解析并返回模型生成的有效回复（尝试解析为JSON格式）
+         *
+         * 至此，一轮完整的对话流程结束，包括：
+         * 输入校验 → 上下文治理 → 工具决策 → 回复生成 → 记忆写入 → 状态落库
+         */
         statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
         return ResponseEntity.ok(tryParseJsonNode(modelResult.getValidResponse()));
     }
+
 
     @Override
     @LunaLogRecord(module = LogModuleConstant.SYSTEM, action = LogActionConstant.STARTUP, type = LogType.SYSTEM_EVENT, content = "startup")
