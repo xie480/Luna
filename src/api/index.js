@@ -10,7 +10,7 @@ export const history = async (payload) => window.desktopApi.history(payload);
 
 export const login = async (payload) => window.desktopApi.login(payload);
 
-export const logout = async (token) => window.desktopApi.logout(token);
+export const logout = async () => window.desktopApi.logout();
 
 export const queryKnowledgeBase = async (payload) => window.desktopApi.queryKnowledgeBase(payload);
 

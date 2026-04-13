@@ -606,7 +606,6 @@ const loginLogLines = ref([
   "检测到当前会话尚未认证。",
   "请输入用户名与密码以继续。",
 ]);
-const authToken = ref("");
 const loginCollapsed = ref(false);
 
 function exitApp() {
@@ -665,6 +664,8 @@ onMounted(() => { hexTimer = setInterval(genHex, 260); });
 onBeforeUnmount(() => { clearInterval(hexTimer); });
 
 const currentEmotion = ref("neutral");
+let removeStatusUpdateListener = null;
+let removeAuthExpiredListener = null;
 
 async function performLogin() {
   if (!loginForm.value.username || !loginForm.value.password) {
@@ -686,7 +687,6 @@ async function performLogin() {
       loginLogLines.value.push("鉴权失败：Token 缺失。");
       return;
     }
-    authToken.value = token;
     loginSuccess.value = true;
     loginLogLines.value.push("鉴权通过，正在启动 LUNA 核心...");
 
@@ -733,45 +733,71 @@ function handleCloseChat() {
   refreshUiInteractivity();
 }
 
+function resetSessionUi({
+  loginLines = [
+    "会话已终止。",
+    "请重新输入凭证以建立连接。",
+  ],
+  loginMessage = "",
+  hint = "",
+} = {}) {
+  loginSuccess.value = false;
+  loginVisible.value = true;
+  loginCollapsed.value = false;
+  showChat.value = false;
+  closeWorkspacePanels();
+  showApproval.value = false;
+  approvalTask.value = null;
+  resetBusyState();
+  activePlanId = "";
+  sessionStorage.removeItem("luna:current-plan-id");
+  planStore.reset("");
+
+  overUI = true;
+  overModel = false;
+  updatePetState();
+  refreshUiInteractivity();
+
+  if (model) {
+    gsap.to(model, {
+      alpha: 0,
+      y: (app?.renderer?.height || window.innerHeight) + 60,
+      duration: 0.8,
+      ease: "power2.in",
+    });
+  }
+
+  loginLogLines.value = loginLines;
+  loginError.value = loginMessage;
+  loginForm.value.password = "";
+
+  if (hint) {
+    appearance.showAppearanceHint(hint);
+  }
+}
+
+function handleAuthExpired(payload = {}) {
+  if (!loginSuccess.value && loginVisible.value) return;
+
+  const message = String(payload?.message || "").trim();
+  resetSessionUi({
+    loginLines: [
+      "认证状态已失效，当前会话已断开。",
+      "请重新登录以继续使用 Luna。",
+    ],
+    loginMessage: message || "登录已过期，请重新登录",
+    hint: message || "登录状态已失效",
+  });
+}
+
 async function handleLogout() {
   try {
     await callShutdown();
-    await logoutApi(authToken.value);
+    await logoutApi();
   } catch (e) {
     console.error("[Auth] 登出请求失败", e);
   } finally {
-    authToken.value = "";
-    loginSuccess.value = false;
-    loginVisible.value = true;
-    showChat.value = false;
-    closeWorkspacePanels();
-    showApproval.value = false;
-    approvalTask.value = null;
-    resetBusyState();
-    activePlanId = "";
-    sessionStorage.removeItem("luna:current-plan-id");
-    planStore.reset("");
-
-    overUI = true;
-    overModel = false;
-    updatePetState();
-    refreshUiInteractivity();
-
-    if (model) {
-      gsap.to(model, {
-        alpha: 0,
-        y: (app?.renderer?.height || window.innerHeight) + 60,
-        duration: 0.8,
-        ease: "power2.in",
-      });
-    }
-
-    loginLogLines.value = [
-      "会话已终止。",
-      "请重新输入凭证以建立连接。",
-    ];
-    loginError.value = "";
-    loginForm.value.password = "";
+    resetSessionUi();
   }
 }
 
@@ -1021,7 +1047,7 @@ async function callStartup() {
 }
 
 async function callShutdown() {
-  if (!authToken.value && !loginSuccess.value) return;
+  if (!loginSuccess.value) return;
   try {
     await shutdownApi();
   } catch {}
@@ -1595,7 +1621,7 @@ onMounted(async () => {
   }
 
   if (window.desktopApi && window.desktopApi.onStatusUpdate) {
-    window.desktopApi.onStatusUpdate(async (rawPayload) => {
+    removeStatusUpdateListener = window.desktopApi.onStatusUpdate(async (rawPayload) => {
       const { event, data } = normalizeSseEventPayload(rawPayload);
       const eventType = toUpperEventType(event, data);
 
@@ -1696,6 +1722,13 @@ onMounted(async () => {
     });
   }
 
+  if (window.desktopApi && window.desktopApi.onAuthExpired) {
+    removeAuthExpiredListener = window.desktopApi.onAuthExpired((payload) => {
+      console.warn("[Auth] Session expired:", payload);
+      handleAuthExpired(payload);
+    });
+  }
+
   try {
     model = await Live2DModel.from(`/models/luna/${encodeURIComponent("jk盐.model3.json")}`, {
       autoInteract: false,
@@ -1780,6 +1813,8 @@ onBeforeUnmount(() => {
   rhythm.dispose(getCoreModel(), trackingEnabled);
   app?.destroy(true);
   callShutdown();
+  removeStatusUpdateListener?.();
+  removeAuthExpiredListener?.();
 
   window.removeEventListener("mousemove", onWindowMouseMove, true);
 

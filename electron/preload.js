@@ -7,7 +7,7 @@ contextBridge.exposeInMainWorld("desktopApi", {
   historyDate: (date) => ipcRenderer.invoke("luna.api.chat.history.date", date),
   history: (date) => ipcRenderer.invoke("luna.api.chat.history", date),
   login: (payload) => ipcRenderer.invoke("auth.login", payload),
-  logout: (token) => ipcRenderer.invoke("auth.logout", token),
+  logout: () => ipcRenderer.invoke("auth.logout"),
   quit: () => ipcRenderer.invoke("luna.app.quit"),
   setAlwaysOnTop: (flag) => ipcRenderer.invoke("luna.window.setAlwaysOnTop", flag),
 
@@ -21,8 +21,16 @@ contextBridge.exposeInMainWorld("desktopApi", {
   planGraph: (planId) => ipcRenderer.invoke("luna.api.plan.graph", planId),
   openExternal: (target) => ipcRenderer.invoke("luna.app.openExternal", target),
 
-  onStatusUpdate: (callback) =>
-    ipcRenderer.on("luna:status-update", (_event, value) => callback(value)),
+  onStatusUpdate: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("luna:status-update", listener);
+    return () => ipcRenderer.removeListener("luna:status-update", listener);
+  },
+  onAuthExpired: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("luna:auth-expired", listener);
+    return () => ipcRenderer.removeListener("luna:auth-expired", listener);
+  },
 });
 
 contextBridge.exposeInMainWorld("mcpApi", {
