@@ -394,6 +394,7 @@ function schedulePlanSnapshotReconnect() {
 
 const showApproval = ref(false);
 const approvalTask = ref(null);
+const pendingAsyncTask = ref(false);
 
 const { loadTheme } = useTheme();
 
@@ -746,10 +747,7 @@ async function handleLogout() {
     closeWorkspacePanels();
     showApproval.value = false;
     approvalTask.value = null;
-    isConnecting.value = false;
-    isStreaming.value = false;
-    streamText.value = "";
-    lunaStatus.value = "";
+    resetBusyState();
     activePlanId = "";
     sessionStorage.removeItem("luna:current-plan-id");
     planStore.reset("");
@@ -804,6 +802,16 @@ function getCoreModel() { return model?.internalModel?.coreModel ?? null; }
 const isConnecting = ref(false);
 const isStreaming = ref(false);
 const streamText = ref("");
+
+function resetBusyState({ clearStatus = true } = {}) {
+  pendingAsyncTask.value = false;
+  isConnecting.value = false;
+  isStreaming.value = false;
+  streamText.value = "";
+  if (clearStatus) {
+    lunaStatus.value = "";
+  }
+}
 
 function normalizeResponse(res) {
   const data = res?.data ?? res;
@@ -879,7 +887,7 @@ function handleNetworkError() {
 }
 
 async function onSend(text) {
-  if (isConnecting.value || isStreaming.value || showApproval.value) return;
+  if (isConnecting.value || isStreaming.value || showApproval.value || pendingAsyncTask.value) return;
 
   const userInput = String(text || "").trim();
   if (!userInput) {
@@ -933,16 +941,26 @@ async function onSend(text) {
       return;
     }
 
+    if (normalized?.status === "pending") {
+      holdStreamingLock = true;
+      pendingAsyncTask.value = true;
+      isStreaming.value = true;
+      streamText.value = pickTextMessage(normalized) || "任务执行中...";
+      appearance.showAppearanceHint(
+        normalized.workflowName ? `${normalized.workflowName} 正在执行` : "任务正在后台执行",
+      );
+      return;
+    }
+
     await handleModelReply(normalized);
   } catch (e) {
     console.error("[Luna] 发送失败", e);
+    pendingAsyncTask.value = false;
     handleNetworkError();
   } finally {
     isConnecting.value = false;
     if (!holdStreamingLock) {
-      isStreaming.value = false;
-      streamText.value = "";
-      lunaStatus.value = "";
+      resetBusyState();
     }
   }
 }
@@ -975,16 +993,16 @@ async function onApprove(approved) {
     console.error("[Approval] Failed:", e);
     appearance.showAppearanceHint(e?.message || "审批提交失败");
   } finally {
-    isStreaming.value = false;
-    streamText.value = "";
+    if (!showApproval.value) {
+      resetBusyState({ clearStatus: false });
+    }
   }
 }
 
 function handleApprovalExpired() {
   showApproval.value = false;
   approvalTask.value = null;
-  isStreaming.value = false;
-  streamText.value = "";
+  resetBusyState({ clearStatus: false });
   uiLeave();
   appearance.showAppearanceHint("审批已过期");
 }
@@ -1610,8 +1628,7 @@ onMounted(async () => {
         });
         showApproval.value = false;
         approvalTask.value = null;
-        isStreaming.value = false;
-        streamText.value = "";
+        resetBusyState({ clearStatus: false });
         uiLeave();
         const approvalFallbackHint = data?.approved === true
           ? "审批已通过"
@@ -1634,6 +1651,10 @@ onMounted(async () => {
         const ok = !!data?.success;
         const fallbackHint = ok ? "异步任务已完成" : (data?.error || data?.message || "异步任务执行失败");
         await renderTaskEventResult(data?.taskId || "", data, fallbackHint);
+        pendingAsyncTask.value = false;
+        if (!showApproval.value) {
+          resetBusyState({ clearStatus: false });
+        }
         return;
       }
 

@@ -309,9 +309,9 @@
               <div class="inline-actions">
                 <button class="mini-btn" @click.stop="pickDiffVersion('left', item)">设左</button>
                 <button class="mini-btn" @click.stop="pickDiffVersion('right', item)">设右</button>
-                <button class="mini-btn" :disabled="item.isActive" @click.stop="activateVersionAction(item.id)">激活</button>
-                <button class="mini-btn" @click.stop="rollbackVersionAction(item.id)">回滚</button>
-                <button class="mini-btn danger" @click.stop="archiveVersionAction(item.id)">归档</button>
+                <button class="mini-btn" :disabled="item.isActive || promptVersionActionLoading" @click.stop="activateVersionAction(item.id)">激活</button>
+                <button class="mini-btn" :disabled="promptVersionActionLoading" @click.stop="rollbackVersionAction(item.id)">回滚</button>
+                <button class="mini-btn danger" :disabled="promptVersionActionLoading" @click.stop="archiveVersionAction(item.id)">归档</button>
               </div>
             </button>
           </div>
@@ -439,7 +439,7 @@
               <div class="card-meta">{{ item.createdAt || '-' }}</div>
               <div class="card-meta">{{ item.changeNote || '-' }}</div>
               <div class="inline-actions">
-                <button class="mini-btn" :disabled="item.isActive" @click.stop="activatePolicyVersionAction(item.id)">激活</button>
+                <button class="mini-btn" :disabled="item.isActive || policyVersionActionLoading" @click.stop="activatePolicyVersionAction(item.id)">激活</button>
               </div>
             </button>
           </div>
@@ -529,10 +529,12 @@ const promptFilters = reactive({
 
 const promptList = ref([]);
 const selectedPromptKey = ref("");
+const currentPromptDetail = ref(null);
 const isCreatingPrompt = ref(false);
 const promptLoading = ref(false);
 const promptSaving = ref(false);
 const versionLoading = ref(false);
+const promptVersionActionLoading = ref(false);
 const diffLoading = ref(false);
 const previewLoading = ref(false);
 const promptVersions = ref([]);
@@ -555,11 +557,58 @@ const policyLoading = ref(false);
 const policyDrawer = ref("");
 const policyVersions = ref([]);
 const policyVersionLoading = ref(false);
+const policyVersionActionLoading = ref(false);
 const selectedPolicyVersionId = ref("");
 const selectedPolicyVersionDetail = ref(null);
 
 const toast = reactive({ text: "", type: "info" });
 let toastTimer = null;
+
+const ALLOWED_RUNTIME_SLOTS = new Set([
+  "instructions.system",
+  "instructions.persona",
+  "instructions.scene",
+  "memory.hints",
+  "knowledge.evidence",
+  "output.constraints",
+  "runtime.prompt",
+  "agent.reconstruction",
+  "agent.summary",
+  "repair.main",
+  "agent.exception_analysis",
+  "repair.exception",
+  "agent.rerank",
+  "agent.recovery",
+  "agent.tool_semantic",
+  "agent.tool_args",
+  "agent.workflow_args",
+  "agent.tool_args_repair",
+  "agent.tool_decision",
+  "agent.master_planning",
+  "task.plan.final_result_to_luna",
+  "rag.planner.query",
+  "rag.planner.source_process",
+  "rag.planner.agent_stage",
+  "rag.planner.global_rerank",
+]);
+
+const CONTENT_ASSEMBLY_MODES = new Set([
+  "ALWAYS",
+  "KEYWORD_ONLY",
+  "KEYWORD_AND_AGENT",
+  "KEYWORD_OR_AGENT",
+  "DISABLED",
+]);
+
+const EXECUTION_ASSEMBLY_MODES = new Set([
+  "ALWAYS",
+  "AGENT_ONLY",
+  "POLICY_ONLY",
+  "MANUAL_ONLY",
+  "DISABLED",
+]);
+
+const JAVA_IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
 function showToast(text, type = "info", duration = 2600) {
   toast.text = text;
@@ -912,6 +961,7 @@ function prepareNewPrompt() {
   const seed = getCategorySeed();
   isCreatingPrompt.value = true;
   selectedPromptKey.value = "";
+  currentPromptDetail.value = null;
   overwriteReactive(promptForm, defaultPromptForm(seed.category, seed.subCategory));
 }
 
@@ -943,6 +993,7 @@ async function updateSelectPrompt(target) {
   }
 
   selectedPromptKey.value = item.key || key;
+  currentPromptDetail.value = item;
   isCreatingPrompt.value = false;
   applyPromptToForm(item);
   return item;
@@ -1003,12 +1054,78 @@ function validatePromptPayload(payload) {
   }
 
   const categoryMeta = categoryDetailMap.value[payload.category] || {};
+  if (!Object.keys(categoryMeta).length) {
+    throw new Error("category 不存在或已禁用");
+  }
+
   const isExecutionCategory = !!categoryMeta.executionCategory;
+  const currentCategory = currentPromptDetail.value?.category || "";
+  const currentCategoryMeta = categoryDetailMap.value[currentCategory] || {};
+  const currentIsExecutionCategory = !!currentCategoryMeta.executionCategory;
+  const templateVariables = ensureArray(payload.templateVariables)
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+  const assemblyMode = String(payload.assemblyMode || "").trim();
+  const status = String(payload.status || "").trim().toLowerCase();
+
+  if (payload.runtimeSlot && !ALLOWED_RUNTIME_SLOTS.has(payload.runtimeSlot)) {
+    throw new Error("runtimeSlot 不在允许范围内");
+  }
+
+  if (assemblyMode) {
+    const allowedModes = isExecutionCategory ? EXECUTION_ASSEMBLY_MODES : CONTENT_ASSEMBLY_MODES;
+    if (!allowedModes.has(assemblyMode)) {
+      throw new Error(
+        isExecutionCategory
+          ? "执行类 Prompt 的 assemblyMode 不合法"
+          : "内容类 Prompt 的 assemblyMode 不合法",
+      );
+    }
+  }
+
   if (isCreatingPrompt.value && isExecutionCategory) {
     throw new Error("create only supports content prompt category");
   }
-  if (!isExecutionCategory && (payload.hasTemplateVariables || ensureArray(payload.templateVariables).length)) {
+
+  if (
+    !isCreatingPrompt.value &&
+    currentCategory &&
+    currentCategory !== payload.category &&
+    currentIsExecutionCategory !== isExecutionCategory
+  ) {
+    throw new Error(
+      currentIsExecutionCategory
+        ? "执行类 Prompt 不能迁移到内容类分类"
+        : "内容类 Prompt 不能迁移到执行类分类",
+    );
+  }
+
+  if (!isExecutionCategory && (payload.hasTemplateVariables || templateVariables.length)) {
     throw new Error("内容类 Prompt 不能携带 templateVariables");
+  }
+
+  if (!isExecutionCategory && isCreatingPrompt.value && /\$\{[^}]+\}/.test(String(payload.value || ""))) {
+    throw new Error("内容类 Prompt 不能包含模板占位符");
+  }
+
+  if (categoryMeta.keywordMatchAllowed === false && payload.keywordMatchEnabled) {
+    throw new Error("当前分类不允许启用关键词匹配");
+  }
+
+  if (isExecutionCategory && payload.keywordMatchEnabled) {
+    throw new Error("执行类 Prompt 不能启用关键词匹配");
+  }
+
+  if (isExecutionCategory && payload.enabled === false) {
+    throw new Error("执行类 Prompt 不能被禁用");
+  }
+
+  if (isExecutionCategory && status === "disabled") {
+    throw new Error("执行类 Prompt 不能设置为 disabled");
+  }
+
+  if (isExecutionCategory && templateVariables.some((item) => !JAVA_IDENTIFIER_RE.test(item))) {
+    throw new Error("templateVariables 必须是合法变量名");
   }
 }
 
@@ -1045,10 +1162,29 @@ async function savePromptAction() {
 
 async function deletePromptAction() {
   if (!selectedPromptKey.value) return;
+
+  const detail = currentPromptDetail.value;
+  const categoryMeta = categoryDetailMap.value[detail?.category] || {};
+  if (categoryMeta.executionCategory) {
+    showToast("执行类 Prompt 不允许删除", "error", 3200);
+    return;
+  }
+
+  if (
+    detail?.editPolicy &&
+    Object.prototype.hasOwnProperty.call(detail.editPolicy, "delete") &&
+    detail.editPolicy.delete !== true
+  ) {
+    showToast("当前 Prompt 不允许删除", "error", 3200);
+    return;
+  }
+
   if (!window.confirm("软删除仅禁用当前 Prompt，不会清除历史版本，确认继续吗？")) return;
   promptSaving.value = true;
   try {
     await deletePromptItem({ key: selectedPromptKey.value });
+    promptDrawer.value = "";
+    diffResult.value = null;
     showToast("Prompt 已软删除", "success");
     prepareNewPrompt();
     promptVersions.value = [];
@@ -1102,8 +1238,12 @@ async function loadPromptVersions(key = selectedPromptKey.value) {
 
 async function selectVersion(versionId) {
   if (!versionId) return;
-  selectedVersionId.value = versionId;
-  selectedVersionDetail.value = normalizePromptVersion(await getPromptVersionDetail({ versionId }));
+  try {
+    selectedVersionId.value = versionId;
+    selectedVersionDetail.value = normalizePromptVersion(await getPromptVersionDetail({ versionId }));
+  } catch (error) {
+    showToast(error?.message || "版本详情加载失败", "error", 3200);
+  }
 }
 
 function pickDiffVersion(side, item) {
@@ -1112,27 +1252,63 @@ function pickDiffVersion(side, item) {
 }
 
 async function activateVersionAction(versionId) {
-  await activatePromptVersion({ versionId });
-  await updateSelectPrompt(selectedPromptKey.value);
-  await loadPromptVersions(selectedPromptKey.value);
-  await searchPrompts(false);
-  showToast("版本已激活", "success");
+  if (!versionId || promptVersionActionLoading.value) return;
+
+  promptVersionActionLoading.value = true;
+  try {
+    await activatePromptVersion({ versionId });
+    await updateSelectPrompt(selectedPromptKey.value);
+    await loadPromptVersions(selectedPromptKey.value);
+    await searchPrompts(false);
+    if (selectedCategoryKey.value) {
+      await loadCategoryQuickLook(selectedCategoryKey.value);
+    }
+    showToast("版本已激活", "success");
+  } catch (error) {
+    showToast(error?.message || "版本激活失败", "error", 3200);
+  } finally {
+    promptVersionActionLoading.value = false;
+  }
 }
 
 async function rollbackVersionAction(versionId) {
-  await rollbackPromptVersion({ key: selectedPromptKey.value, versionId });
-  await updateSelectPrompt(selectedPromptKey.value);
-  await loadPromptVersions(selectedPromptKey.value);
-  await searchPrompts(false);
-  showToast("版本已回滚", "success");
+  if (!versionId || !selectedPromptKey.value || promptVersionActionLoading.value) return;
+
+  promptVersionActionLoading.value = true;
+  try {
+    await rollbackPromptVersion({ key: selectedPromptKey.value, versionId });
+    await updateSelectPrompt(selectedPromptKey.value);
+    await loadPromptVersions(selectedPromptKey.value);
+    await searchPrompts(false);
+    if (selectedCategoryKey.value) {
+      await loadCategoryQuickLook(selectedCategoryKey.value);
+    }
+    showToast("版本已回滚", "success");
+  } catch (error) {
+    showToast(error?.message || "版本回滚失败", "error", 3200);
+  } finally {
+    promptVersionActionLoading.value = false;
+  }
 }
 
 async function archiveVersionAction(versionId) {
-  await archivePromptVersion({ versionId });
-  await loadPromptVersions(selectedPromptKey.value);
-  await updateSelectPrompt(selectedPromptKey.value);
-  await searchPrompts(false);
-  showToast("版本已归档", "success");
+  if (!versionId || !selectedPromptKey.value || promptVersionActionLoading.value) return;
+
+  promptVersionActionLoading.value = true;
+  try {
+    await archivePromptVersion({ versionId });
+    await loadPromptVersions(selectedPromptKey.value);
+    await updateSelectPrompt(selectedPromptKey.value);
+    await searchPrompts(false);
+    if (selectedCategoryKey.value) {
+      await loadCategoryQuickLook(selectedCategoryKey.value);
+    }
+    showToast("版本已归档", "success");
+  } catch (error) {
+    showToast(error?.message || "版本归档失败", "error", 3200);
+  } finally {
+    promptVersionActionLoading.value = false;
+  }
 }
 
 function openPromptDrawer(type) {
@@ -1258,9 +1434,7 @@ async function savePolicyAction() {
     await savePromptPolicy(payload);
     await loadPolicies();
     await selectPolicy(payload.policyId);
-    if (policyDrawer.value === "versions") {
-      await loadPolicyVersions(payload.policyId);
-    }
+    await loadPolicyVersions(payload.policyId);
     showToast("策略保存成功，已生成新的 active 版本", "success", 3000);
   } catch (error) {
     showToast(error?.message || "策略保存失败", "error", 3200);
@@ -1328,6 +1502,9 @@ function openPolicyVersions() {
 }
 
 async function activatePolicyVersionAction(versionId) {
+  if (!versionId || !selectedPolicyId.value || policyVersionActionLoading.value) return;
+
+  policyVersionActionLoading.value = true;
   try {
     await activatePromptPolicyVersion({
       policyId: selectedPolicyId.value,
@@ -1339,6 +1516,8 @@ async function activatePolicyVersionAction(versionId) {
     showToast("策略版本已激活", "success");
   } catch (error) {
     showToast(error?.message || "策略版本激活失败", "error", 3200);
+  } finally {
+    policyVersionActionLoading.value = false;
   }
 }
 
