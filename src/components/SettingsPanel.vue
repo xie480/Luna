@@ -31,10 +31,10 @@
           <span class="menu-icon">▸</span>系统状态
         </div>
         <div class="menu-item" :class="{ active: activeTab === 'tools' }" @click="activeTab = 'tools'">
-          <span class="menu-icon">▸</span>Tool管理
+          <span class="menu-icon">▸</span>能力中心
         </div>
         <div class="menu-item" :class="{ active: activeTab === 'skills' }" @click="activeTab = 'skills'">
-          <span class="menu-icon">▸</span>Skill管理
+          <span class="menu-icon">▸</span>Prompt治理
         </div>
       </div>
 
@@ -164,12 +164,28 @@
           </div>
         </div>
 
-        <div v-if="activeTab === 'tools'" class="tab-content fill">
-          <ToolManager @mouseenter="$emit('mouseenter')" @mouseleave="$emit('mouseleave')" />
+        <div v-if="activeTab === 'tools'" class="tab-content">
+          <div class="section entry-card">
+            <div class="section-title">MCP CAPABILITY CENTER <em>/ 能力管理</em></div>
+            <p class="desc">Tool / Skill 的旧 CRUD 写路径已退役，新的目录维护、资源浏览、调试与 JSON-RPC 联调统一迁移到独立能力中心。</p>
+            <div class="entry-copy">
+              <strong>你可以在能力中心完成：</strong>
+              <span>资源总览、工具目录、Prompt 目录、资源目录、工作流模板、服务注册表、实现映射、JSON-RPC 调试。</span>
+            </div>
+            <button class="action-btn" @click="$emit('open-capability-center')">打开能力中心</button>
+          </div>
         </div>
 
-        <div v-if="activeTab === 'skills'" class="tab-content fill">
-          <SkillManager @mouseenter="$emit('mouseenter')" @mouseleave="$emit('mouseleave')" />
+        <div v-if="activeTab === 'skills'" class="tab-content">
+          <div class="section entry-card">
+            <div class="section-title">PROMPT GOVERNANCE <em>/ Prompt 治理</em></div>
+            <p class="desc">Prompt 的搜索、详情回填、正式保存、草稿、版本、预览和策略管理都已迁移到独立治理面板，避免继续在设置页堆积复杂表单。</p>
+            <div class="entry-copy">
+              <strong>你可以在治理中心完成：</strong>
+              <span>分类树筛选、Prompt 列表检索、版本管理、匹配预览、组装预览、策略版本切换。</span>
+            </div>
+            <button class="action-btn" @click="$emit('open-prompt-governance')">打开 Prompt 治理</button>
+          </div>
         </div>
       </div>
     </div>
@@ -184,8 +200,6 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue';
 import { useTheme } from '../composables/useTheme';
-import ToolManager from '../views/settings/ToolManager.vue';
-import SkillManager from '../views/settings/SkillManager.vue';
 
 const props = defineProps([
   'core', 'model', 'appearance', 'rhythm',
@@ -195,7 +209,8 @@ const props = defineProps([
 const emit = defineEmits([
   'close', 'reset-model', 'toggle-setup', 'toggle-tracking-setup',
   'reset-setup', 'reset-tracking-setup',
-  'mouseenter', 'mouseleave', 'toggle-model', 'logout'
+  'mouseenter', 'mouseleave', 'toggle-model', 'logout',
+  'open-capability-center', 'open-prompt-governance'
 ]);
 
 const x = ref(window.innerWidth / 2 - 320);
@@ -466,6 +481,10 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 8px;
 }
+.entry-card {
+  min-height: 180px;
+  justify-content: space-between;
+}
 .section-title {
   font-size: 10px;
   font-weight: 700;
@@ -486,6 +505,24 @@ onBeforeUnmount(() => {
   color: var(--text-dim, rgba(232,255,248,0.5));
   line-height: 1.5;
   margin: 0;
+}
+.entry-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.08)) 48%, transparent);
+  background: rgba(255,255,255,0.03);
+}
+.entry-copy strong {
+  font-size: 12px;
+  color: var(--text-main, #e8fff8);
+}
+.entry-copy span {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-dim, rgba(232,255,248,0.58));
 }
 
 .theme-control {

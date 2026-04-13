@@ -13,8 +13,6 @@ contextBridge.exposeInMainWorld("desktopApi", {
 
   // 查询接口
   queryKnowledgeBase: (payload) => ipcRenderer.invoke("luna.api.query.knowledge-base", payload),
-  queryUserPreference: (payload) => ipcRenderer.invoke("luna.api.query.user-preference", payload),
-  queryMemory: (payload) => ipcRenderer.invoke("luna.api.query.memory", payload),
   queryLog: (payload) => ipcRenderer.invoke("luna.api.query.log", payload),
   ragRetrieve: (payload) => ipcRenderer.invoke("luna.api.rag.retrieve", payload),
 

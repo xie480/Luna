@@ -56,21 +56,9 @@ ipcMain.handle("luna.api.chat.history", async (_event, yearMonthDay) => {
     });
 });
 
-/* ===== 新增：四个分页查询 IPC ===== */
+/* ===== 查询 IPC ===== */
 ipcMain.handle("luna.api.query.knowledge-base", async (_event, payload = {}) => {
   return http.post("/luna/api/query/knowledge-base", payload).catch((err) => {
-    throw new Error(err.message);
-  });
-});
-
-ipcMain.handle("luna.api.query.user-preference", async (_event, payload = {}) => {
-  return http.post("/luna/api/query/user-preference", payload).catch((err) => {
-    throw new Error(err.message);
-  });
-});
-
-ipcMain.handle("luna.api.query.memory", async (_event, payload = {}) => {
-  return http.post("/luna/api/query/memory", payload).catch((err) => {
     throw new Error(err.message);
   });
 });

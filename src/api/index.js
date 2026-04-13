@@ -14,10 +14,6 @@ export const logout = async (token) => window.desktopApi.logout(token);
 
 export const queryKnowledgeBase = async (payload) => window.desktopApi.queryKnowledgeBase(payload);
 
-export const queryUserPreference = async (payload) => window.desktopApi.queryUserPreference(payload);
-
-export const queryMemory = async (payload) => window.desktopApi.queryMemory(payload);
-
 export const queryLog = async (payload) => window.desktopApi.queryLog(payload);
 
 export const ragRetrieve = async (payload) => window.desktopApi.ragRetrieve(payload);
@@ -66,12 +62,7 @@ export const saveWorkflowTemplate = async (payload) => window.mcpApi.saveWorkflo
 
 export const callMcpRpc = async (payload) => window.mcpApi.callRpc(payload);
 
-export const approveTool = async (payload) => {
-  if (window.mcpApi?.approveTool) {
-    return window.mcpApi.approveTool(payload);
-  }
-  return window.mcpApi.approveSkill(payload);
-};
+export const approveTool = async (payload) => window.mcpApi.approveTool(payload);
 
 export const listPromptCategories = async () => window.promptApi.listCategories();
 

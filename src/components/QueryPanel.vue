@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div
     class="query-panel"
     :class="{ fullscreen: isFullscreen }"
@@ -19,91 +19,215 @@
     <div class="panel-body">
       <div class="sidebar">
         <div class="menu-item" :class="{ active: tab === 'kb' }" @click="switchTab('kb')">知识库</div>
-        <div class="menu-item" :class="{ active: tab === 'pref' }" @click="switchTab('pref')">用户偏好</div>
-        <div class="menu-item" :class="{ active: tab === 'memory' }" @click="switchTab('memory')">长期记忆</div>
-        <div class="menu-item" :class="{ active: tab === 'log' }" @click="switchTab('log')">日志</div>
+        <div class="menu-item" :class="{ active: tab === 'log' }" @click="switchTab('log')">运行日志</div>
+        <div class="menu-item" :class="{ active: tab === 'rag' }" @click="switchTab('rag')">RAG 调试</div>
       </div>
 
       <div class="content">
-        <div class="filter-grid">
-          <template v-if="tab === 'kb'">
-            <input v-model="filters.title" placeholder="标题" />
-            <input v-model="filters.content" placeholder="内容" />
-            <input v-model="filters.sourceType" placeholder="来源类型(FILE/WEB_SEARCH/MANUAL_INPUT)" />
-            <input v-model="filters.sourcePath" placeholder="来源路径" />
-          </template>
+        <transition name="toast-fade">
+          <div v-if="panelMessage.text" class="panel-message" :class="panelMessage.type">{{ panelMessage.text }}</div>
+        </transition>
 
-          <template v-else-if="tab === 'pref'">
-            <input v-model="filters.prefKey" placeholder="偏好键" />
-            <input v-model="filters.prefValue" placeholder="偏好值" />
-            <input v-model="filters.description" placeholder="描述" />
-          </template>
+        <template v-if="tab !== 'rag'">
+          <div class="filter-grid">
+            <template v-if="tab === 'kb'">
+              <input v-model.trim="kbFilters.title" placeholder="标题" />
+              <input v-model.trim="kbFilters.content" placeholder="内容" />
+              <select v-model="kbFilters.sourceType">
+                <option value="">来源类型（全部）</option>
+                <option value="FILE">FILE</option>
+                <option value="WEB_SEARCH">WEB_SEARCH</option>
+                <option value="MANUAL_INPUT">MANUAL_INPUT</option>
+              </select>
+              <input v-model.trim="kbFilters.sourcePath" placeholder="来源路径" />
+            </template>
 
-          <template v-else-if="tab === 'memory'">
-            <input v-model="filters.sessionId" placeholder="会话ID" />
-            <input v-model="filters.memoryType" placeholder="类型(FACT/PREFERENCE/SUMMARY/REFLECTION)" />
-            <input v-model="filters.content" placeholder="内容" />
-            <input v-model.number="filters.minWeight" type="number" placeholder="最小权重" />
-            <input v-model.number="filters.maxWeight" type="number" placeholder="最大权重" />
-          </template>
+            <template v-else>
+              <select v-model="logFilters.logType">
+                <option value="">日志类型（全部）</option>
+                <option value="LUNA_OUTPUT">LUNA_OUTPUT</option>
+                <option value="TOOL_CALL">TOOL_CALL</option>
+                <option value="ERROR">ERROR</option>
+                <option value="SELF_UPDATE">SELF_UPDATE</option>
+                <option value="SYSTEM_EVENT">SYSTEM_EVENT</option>
+                <option value="API_CALL">API_CALL</option>
+              </select>
+              <input v-model.trim="logFilters.module" placeholder="模块" />
+              <input v-model.trim="logFilters.action" placeholder="动作" />
+              <input v-model.trim="logFilters.content" placeholder="内容" />
+              <input v-model.trim="logFilters.traceId" placeholder="TraceId" />
+              <input v-model.trim="logFilters.operatorId" placeholder="OperatorId" />
+            </template>
 
-          <template v-else>
-            <input v-model="filters.logType" placeholder="日志类型" />
-            <input v-model="filters.module" placeholder="模块" />
-            <input v-model="filters.action" placeholder="动作" />
-            <input v-model="filters.content" placeholder="内容" />
-            <input v-model="filters.traceId" placeholder="TraceId" />
-            <input v-model="filters.operatorId" placeholder="OperatorId" />
-          </template>
-
-          <input v-model="filters.startTime" placeholder="开始时间 yyyy-MM-dd HH:mm:ss" />
-          <input v-model="filters.endTime" placeholder="结束时间 yyyy-MM-dd HH:mm:ss" />
-        </div>
-
-        <div class="actions">
-          <button class="btn-secondary" @click="resetFilters">重置</button>
-          <button class="btn-primary" @click="query(1)" :disabled="loading">{{ loading ? "查询中..." : "查询" }}</button>
-        </div>
-
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th v-for="h in headers" :key="h">{{ h }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="!loading && rows.length === 0">
-                <td :colspan="headers.length" class="empty">暂无数据</td>
-              </tr>
-              <tr v-for="(r, idx) in rows" :key="idx">
-                <td v-for="h in headers" :key="h">
-                  <div class="cell-content" :class="{ expanded: isExpanded(idx, h) }" :title="stringifyCell(r[h])">
-                    {{ getCellDisplayText(r[h], idx, h) }}
-                  </div>
-                  <button v-if="shouldCollapse(r[h])" class="cell-toggle" @click="toggleExpand(idx, h)">
-                    {{ isExpanded(idx, h) ? "收起" : "展开" }}
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div class="pager">
-          <span>共 {{ pager.total }} 条 / {{ pager.pages }} 页</span>
-          <div class="pager-actions">
-            <button class="btn-secondary" :disabled="pager.pageNo <= 1 || loading" @click="query(pager.pageNo - 1)">上一页</button>
-            <span>{{ pager.pageNo }}</span>
-            <button class="btn-secondary" :disabled="pager.pageNo >= pager.pages || loading" @click="query(pager.pageNo + 1)">下一页</button>
-            <select v-model.number="pager.pageSize" @change="query(1)">
-              <option :value="10">10</option>
-              <option :value="20">20</option>
-              <option :value="50">50</option>
-              <option :value="100">100</option>
-            </select>
+            <input v-model.trim="activeFilters.startTime" placeholder="开始时间 yyyy-MM-dd HH:mm:ss" />
+            <input v-model.trim="activeFilters.endTime" placeholder="结束时间 yyyy-MM-dd HH:mm:ss" />
           </div>
-        </div>
+
+          <div class="actions">
+            <button class="btn-secondary" @click="resetCurrentFilters">重置</button>
+            <button class="btn-primary" @click="query(currentPager.pageNo || 1)" :disabled="tableLoading">
+              {{ tableLoading ? "查询中..." : "查询" }}
+            </button>
+          </div>
+
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th v-for="column in tableHeaders" :key="column">{{ column }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="!tableLoading && rows.length === 0">
+                  <td :colspan="tableHeaders.length" class="empty">暂无数据</td>
+                </tr>
+                <tr v-for="(row, rowIndex) in rows" :key="row.id || `${currentPager.pageNo}-${rowIndex}`">
+                  <td v-for="column in tableHeaders" :key="column">
+                    <div class="cell-content" :class="{ expanded: isExpanded(rowIndex, column) }" :title="stringifyCell(row[column])">
+                      {{ getCellDisplayText(row[column], rowIndex, column) }}
+                    </div>
+                    <button v-if="shouldCollapse(row[column])" class="cell-toggle" @click="toggleExpand(rowIndex, column)">
+                      {{ isExpanded(rowIndex, column) ? "收起" : "展开" }}
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="pager">
+            <span>共 {{ currentPager.total }} 条 / {{ currentPager.pages }} 页</span>
+            <div class="pager-actions">
+              <button class="btn-secondary" :disabled="currentPager.pageNo <= 1 || tableLoading" @click="query(currentPager.pageNo - 1)">上一页</button>
+              <span>{{ currentPager.pageNo }}</span>
+              <button class="btn-secondary" :disabled="currentPager.pageNo >= currentPager.pages || tableLoading" @click="query(currentPager.pageNo + 1)">下一页</button>
+              <select v-model.number="currentPager.pageSize" @change="query(1)">
+                <option :value="10">10</option>
+                <option :value="20">20</option>
+                <option :value="50">50</option>
+                <option :value="100">100</option>
+                <option :value="200">200</option>
+              </select>
+            </div>
+          </div>
+        </template>
+
+        <template v-else>
+          <div class="rag-layout">
+            <section class="rag-form card-box">
+              <div class="section-head">
+                <div>
+                  <strong>检索请求</strong>
+                  <small>按文档字段构造 RAG 调试载荷</small>
+                </div>
+              </div>
+
+              <div class="rag-scroll">
+                <label class="form-block">
+                  <span>query</span>
+                  <textarea v-model.trim="ragForm.query" class="field code-input" placeholder="请输入原始检索问题"></textarea>
+                </label>
+
+                <div class="two-col">
+                  <label class="form-block">
+                    <span>sessionId</span>
+                    <input v-model.trim="ragForm.sessionId" class="field" placeholder="可选，会话 ID" />
+                  </label>
+                  <label class="form-block">
+                    <span>options.maxLatencyMs</span>
+                    <input v-model.number="ragForm.maxLatencyMs" type="number" min="1" class="field" placeholder="2500" />
+                  </label>
+                </div>
+                <label class="form-block">
+                  <span>conversationContext</span>
+                  <textarea
+                    v-model="ragForm.conversationContextText"
+                    class="field code-input tall"
+                    placeholder='JSON 数组，例如 [{"role":"user","content":"你好"}]'
+                  ></textarea>
+                </label>
+
+                <div class="two-col">
+                  <label class="form-block">
+                    <span>allowedRoutes</span>
+                    <textarea v-model="ragForm.allowedRoutesText" class="field code-input" placeholder="search,native,modular,agentic"></textarea>
+                  </label>
+                  <label class="form-block">
+                    <span>sourceScope</span>
+                    <textarea v-model="ragForm.sourceScopeText" class="field code-input" placeholder="knowledge,memory,preference"></textarea>
+                  </label>
+                </div>
+
+                <label class="inline-check">
+                  <input v-model="ragForm.debug" type="checkbox" />
+                  <span>options.debug</span>
+                </label>
+
+                <div class="actions form-actions">
+                  <button class="btn-secondary" @click="resetRagForm">重置</button>
+                  <button class="btn-primary" :disabled="ragLoading" @click="runRagRetrieve">
+                    {{ ragLoading ? "检索中..." : "执行检索" }}
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section class="rag-result card-box">
+              <div class="section-head">
+                <div>
+                  <strong>检索结果</strong>
+                  <small>改写查询 / 证据命中 / 角色分组 / Meta</small>
+                </div>
+                <StatusBadge :label="ragSummaryLabel" :tone="ragResult?.meta?.status === 'rejected' ? 'WARNING' : 'RUNNING'" />
+              </div>
+
+              <div class="rag-scroll">
+                <div v-if="!ragResult && !ragLoading" class="empty-state">输入 query 后执行检索，这里会展示命中路由、改写 query 与证据详情。</div>
+
+                <template v-else>
+                  <div class="summary-strip">
+                    <div class="summary-card">
+                      <span class="summary-label">命中路由</span>
+                      <strong>{{ ragResult?.route || "-" }}</strong>
+                    </div>
+                    <div class="summary-card wide">
+                      <span class="summary-label">rewrittenQuery</span>
+                      <strong>{{ ragResult?.rewrittenQuery || ragResult?.meta?.governedQuery || "-" }}</strong>
+                    </div>
+                  </div>
+
+                  <div v-if="ragResult?.meta?.status === 'rejected'" class="governance-blocked">
+                    <strong>治理拒绝</strong>
+                    <p>{{ ragResult?.meta?.reason || "治理阶段未生成可执行 query。" }}</p>
+                  </div>
+
+                  <div class="evidence-grid">
+                    <div class="evidence-column">
+                      <div class="col-title">知识库证据</div>
+                      <EvidenceCard v-for="item in ragResult?.evidences?.knowledge || []" :key="`knowledge-${item.id || item.title}`" :evidence="item" />
+                      <div v-if="!(ragResult?.evidences?.knowledge || []).length" class="empty-mini">暂无知识库证据</div>
+                    </div>
+
+                    <div class="evidence-column">
+                      <div class="col-title">记忆证据</div>
+                      <EvidenceCard v-for="item in ragResult?.evidences?.memory || []" :key="`memory-${item.id || item.title}`" :evidence="item" />
+                      <div v-if="!(ragResult?.evidences?.memory || []).length" class="empty-mini">暂无记忆证据</div>
+                    </div>
+
+                    <div class="evidence-column">
+                      <div class="col-title">偏好证据</div>
+                      <EvidenceCard v-for="item in ragResult?.evidences?.preference || []" :key="`preference-${item.id || item.title}`" :evidence="item" />
+                      <div v-if="!(ragResult?.evidences?.preference || []).length" class="empty-mini">暂无偏好证据</div>
+                    </div>
+                  </div>
+
+                  <JsonPreviewBlock title="角色分组 / evidenceRoleGroups" :value="ragResult?.evidenceRoleGroups || {}" :max-height="220" />
+                  <JsonPreviewBlock title="Meta 调试信息" :value="ragResult?.meta || {}" :max-height="260" />
+                </template>
+              </div>
+            </section>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -117,65 +241,84 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount } from "vue";
-import { queryKnowledgeBase, queryUserPreference, queryMemory, queryLog } from "../api/index.js";
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { queryKnowledgeBase, queryLog, ragRetrieve } from "../api/index.js";
+import { normalizeRagResponse, parseTextArray, safeJsonParse } from "../utils/data-utils.js";
+import EvidenceCard from "./common/EvidenceCard.vue";
+import JsonPreviewBlock from "./common/JsonPreviewBlock.vue";
+import StatusBadge from "./common/StatusBadge.vue";
 
 defineEmits(["close", "mouseenter", "mouseleave"]);
 
 const tab = ref("kb");
-const loading = ref(false);
+const tableLoading = ref(false);
+const ragLoading = ref(false);
+const rows = ref([]);
+const ragResult = ref(null);
+const expandedMap = reactive({});
+const panelMessage = reactive({ text: "", type: "info" });
+let panelMessageTimer = null;
 
 const x = ref(window.innerWidth / 2 - 540);
 const y = ref(window.innerHeight / 2 - 320);
 const width = ref(1080);
 const height = ref(640);
-
-const minWidth = 760;
-const minHeight = 460;
-
+const minWidth = 820;
+const minHeight = 500;
 const isFullscreen = ref(false);
 const prevRect = ref({ x: x.value, y: y.value, w: width.value, h: height.value });
 
 const panelStyle = computed(() => {
   if (isFullscreen.value) return { left: "0px", top: "0px", width: "100vw", height: "100vh" };
-  return { left: x.value + "px", top: y.value + "px", width: width.value + "px", height: height.value + "px" };
+  return { left: `${x.value}px`, top: `${y.value}px`, width: `${width.value}px`, height: `${height.value}px` };
 });
+
+function showPanelMessage(text, type = "info", duration = 2600) {
+  panelMessage.text = text;
+  panelMessage.type = type;
+  if (panelMessageTimer) clearTimeout(panelMessageTimer);
+  panelMessageTimer = setTimeout(() => {
+    panelMessage.text = "";
+  }, duration);
+}
 
 function saveRect() {
   prevRect.value = { x: x.value, y: y.value, w: width.value, h: height.value };
 }
+
 function toggleFullscreen() {
   if (!isFullscreen.value) {
     saveRect();
     isFullscreen.value = true;
-  } else {
-    isFullscreen.value = false;
-    x.value = prevRect.value.x;
-    y.value = prevRect.value.y;
-    width.value = prevRect.value.w;
-    height.value = prevRect.value.h;
+    return;
   }
+  isFullscreen.value = false;
+  x.value = prevRect.value.x;
+  y.value = prevRect.value.y;
+  width.value = prevRect.value.w;
+  height.value = prevRect.value.h;
 }
 
 let isDragging = false;
 let dragOffset = { x: 0, y: 0 };
 
-function startDrag(e) {
+function startDrag(event) {
   if (isFullscreen.value) return;
-  if (e.target.closest(".close-btn") || e.target.closest(".header-btn")) return;
+  if (event.target.closest(".close-btn") || event.target.closest(".header-btn")) return;
   isDragging = true;
-  dragOffset.x = e.clientX - x.value;
-  dragOffset.y = e.clientY - y.value;
+  dragOffset = { x: event.clientX - x.value, y: event.clientY - y.value };
   window.addEventListener("mousemove", onDrag);
   window.addEventListener("mouseup", stopDrag);
 }
-function onDrag(e) {
+
+function onDrag(event) {
   if (!isDragging) return;
   const maxX = window.innerWidth - 80;
   const maxY = window.innerHeight - 80;
-  x.value = Math.min(Math.max(e.clientX - dragOffset.x, -width.value + 120), maxX);
-  y.value = Math.min(Math.max(e.clientY - dragOffset.y, -60), maxY);
+  x.value = Math.min(Math.max(event.clientX - dragOffset.x, -width.value + 120), maxX);
+  y.value = Math.min(Math.max(event.clientY - dragOffset.y, -60), maxY);
 }
+
 function stopDrag() {
   isDragging = false;
   window.removeEventListener("mousemove", onDrag);
@@ -184,196 +327,282 @@ function stopDrag() {
 
 let resizeDir = "";
 let resizeStart = { x: 0, y: 0 };
-let initial = { x: 0, y: 0, w: 0, h: 0 };
+let initialRect = { x: 0, y: 0, w: 0, h: 0 };
 
-function startResize(e, dir) {
+function startResize(event, dir) {
   if (isFullscreen.value) return;
   resizeDir = dir;
-  resizeStart = { x: e.clientX, y: e.clientY };
-  initial = { x: x.value, y: y.value, w: width.value, h: height.value };
+  resizeStart = { x: event.clientX, y: event.clientY };
+  initialRect = { x: x.value, y: y.value, w: width.value, h: height.value };
   window.addEventListener("mousemove", onResize);
   window.addEventListener("mouseup", stopResize);
 }
-function onResize(e) {
-  const dx = e.clientX - resizeStart.x;
-  const dy = e.clientY - resizeStart.y;
 
-  if (resizeDir.includes("e")) width.value = Math.max(minWidth, initial.w + dx);
-  if (resizeDir.includes("s")) height.value = Math.max(minHeight, initial.h + dy);
+function onResize(event) {
+  const dx = event.clientX - resizeStart.x;
+  const dy = event.clientY - resizeStart.y;
+
+  if (resizeDir.includes("e")) width.value = Math.max(minWidth, initialRect.w + dx);
+  if (resizeDir.includes("s")) height.value = Math.max(minHeight, initialRect.h + dy);
 
   if (resizeDir.includes("w")) {
-    const nw = Math.max(minWidth, initial.w - dx);
-    x.value = initial.x + (initial.w - nw);
-    width.value = nw;
+    const nextWidth = Math.max(minWidth, initialRect.w - dx);
+    x.value = initialRect.x + (initialRect.w - nextWidth);
+    width.value = nextWidth;
   }
+
   if (resizeDir.includes("n")) {
-    const nh = Math.max(minHeight, initial.h - dy);
-    y.value = initial.y + (initial.h - nh);
-    height.value = nh;
+    const nextHeight = Math.max(minHeight, initialRect.h - dy);
+    y.value = initialRect.y + (initialRect.h - nextHeight);
+    height.value = nextHeight;
   }
 }
+
 function stopResize() {
   window.removeEventListener("mousemove", onResize);
   window.removeEventListener("mouseup", stopResize);
 }
 
-const filters = reactive({
+const kbFilters = reactive({
   title: "",
   content: "",
   sourceType: "",
   sourcePath: "",
-  prefKey: "",
-  prefValue: "",
-  description: "",
-  sessionId: "",
-  memoryType: "",
-  minWeight: "",
-  maxWeight: "",
+  startTime: "",
+  endTime: "",
+});
+
+const logFilters = reactive({
   logType: "",
   module: "",
   action: "",
+  content: "",
   traceId: "",
   operatorId: "",
   startTime: "",
   endTime: "",
 });
-const rows = ref([]);
-const expandedMap = reactive({});
-const pager = reactive({ total: 0, pages: 1, pageNo: 1, pageSize: 10 });
 
-const headers = computed(() => {
-  if (!rows.value.length) {
-    if (tab.value === "kb") return ["id", "title", "content", "sourceType", "sourcePath", "createdAt"];
-    if (tab.value === "pref") return ["id", "prefKey", "prefValue", "description", "createdAt"];
-    if (tab.value === "memory") return ["id", "sessionId", "memoryType", "content", "weight", "createdAt"];
-    return ["id", "logType", "module", "action", "content", "traceId", "operatorId", "createAt"];
-  }
-  return Object.keys(rows.value[0]);
+const kbPager = reactive({ total: 0, pages: 1, pageNo: 1, pageSize: 10 });
+const logPager = reactive({ total: 0, pages: 1, pageNo: 1, pageSize: 10 });
+
+const ragForm = reactive({
+  query: "",
+  sessionId: "",
+  conversationContextText: "",
+  allowedRoutesText: "",
+  sourceScopeText: "",
+  debug: true,
+  maxLatencyMs: 2500,
 });
 
-function stringifyCell(v) {
-  if (v === null || v === undefined) return "";
-  if (typeof v === "object") return JSON.stringify(v);
-  return String(v);
+const activeFilters = computed(() => (tab.value === "kb" ? kbFilters : logFilters));
+const currentPager = computed(() => (tab.value === "kb" ? kbPager : logPager));
+const tableHeaders = computed(() => {
+  if (rows.value.length) return Object.keys(rows.value[0]);
+  if (tab.value === "kb") {
+    return ["id", "docId", "chunkId", "chunkOrder", "title", "content", "sourceType", "sourcePath", "createdAt", "updatedAt"];
+  }
+  return ["id", "logType", "module", "action", "content", "traceId", "operatorId", "costTime", "createAt"];
+});
+
+const ragSummaryLabel = computed(() => {
+  if (!ragResult.value) return "等待检索";
+  if (ragResult.value?.meta?.status === "rejected") return "治理拒绝";
+  return ragResult.value.route || "已返回";
+});
+
+function resetExpandedState() {
+  Object.keys(expandedMap).forEach((key) => delete expandedMap[key]);
 }
 
-function getCellKey(rowIdx, field) {
-  return `${pager.pageNo}-${rowIdx}-${field}`;
+function stringifyCell(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
 }
 
-function shouldCollapse(v) {
-  const text = stringifyCell(v);
+function getCellKey(rowIndex, field) {
+  return `${tab.value}-${currentPager.value.pageNo}-${rowIndex}-${field}`;
+}
+
+function shouldCollapse(value) {
+  const text = stringifyCell(value);
   return text.length > 120 || text.includes("\n");
 }
 
-function isExpanded(rowIdx, field) {
-  return !!expandedMap[getCellKey(rowIdx, field)];
+function isExpanded(rowIndex, field) {
+  return !!expandedMap[getCellKey(rowIndex, field)];
 }
 
-function toggleExpand(rowIdx, field) {
-  const key = getCellKey(rowIdx, field);
+function toggleExpand(rowIndex, field) {
+  const key = getCellKey(rowIndex, field);
   expandedMap[key] = !expandedMap[key];
 }
 
-function getCellDisplayText(v, rowIdx, field) {
-  const text = stringifyCell(v);
-  if (!shouldCollapse(v)) return text;
-  if (isExpanded(rowIdx, field)) return text;
-  return text.slice(0, 120) + "...";
+function getCellDisplayText(value, rowIndex, field) {
+  const text = stringifyCell(value);
+  if (!shouldCollapse(value) || isExpanded(rowIndex, field)) return text;
+  return `${text.slice(0, 120)}...`;
 }
 
-function resetExpandedState() {
-  Object.keys(expandedMap).forEach((k) => delete expandedMap[k]);
-}
-
-function resetFilters() {
-  Object.keys(filters).forEach((k) => {
-    filters[k] = "";
-  });
-  rows.value = [];
-  resetExpandedState();
-  pager.total = 0;
-  pager.pages = 1;
-  pager.pageNo = 1;
-}
-
-function switchTab(t) {
-  tab.value = t;
-  resetFilters();
-  query(1);
-}
-
-function buildPayload(pageNo) {
-  const payload = {
-    pageNo,
-    pageSize: pager.pageSize,
-  };
-  Object.keys(filters).forEach((k) => {
-    const v = filters[k];
-    if (v !== "" && v !== null && v !== undefined) payload[k] = v;
-  });
-  return payload;
-}
-
-function normalizeResponse(res) {
-  if (!res) return { records: [], total: 0, pages: 1, pageNo: 1, pageSize: pager.pageSize };
-
-  if (Array.isArray(res)) {
-    return {
-      records: res,
-      total: res.length,
-      pages: 1,
-      pageNo: 1,
-      pageSize: pager.pageSize,
-    };
+function normalizePagedResponse(response, fallbackPageSize) {
+  if (!response) {
+    return { records: [], total: 0, pages: 1, pageNo: 1, pageSize: fallbackPageSize };
   }
 
-  const data = res.data ?? res;
+  const data = response.data ?? response;
   if (Array.isArray(data)) {
     return {
       records: data,
       total: data.length,
       pages: 1,
       pageNo: 1,
-      pageSize: pager.pageSize,
+      pageSize: fallbackPageSize,
     };
   }
 
   return {
-    records: data?.records || data?.list || [],
-    total: data?.total ?? 0,
-    pages: data?.pages ?? 1,
-    pageNo: data?.pageNo ?? 1,
-    pageSize: data?.pageSize ?? pager.pageSize,
+    records: Array.isArray(data?.records) ? data.records : Array.isArray(data?.list) ? data.list : [],
+    total: Number(data?.total ?? 0),
+    pages: Number(data?.pages ?? 1),
+    pageNo: Number(data?.pageNo ?? 1),
+    pageSize: Number(data?.pageSize ?? fallbackPageSize),
   };
 }
 
+function buildPayload(pageNo) {
+  const pager = currentPager.value;
+  const payload = {
+    pageNo,
+    pageSize: pager.pageSize,
+  };
+  Object.entries(activeFilters.value).forEach(([key, value]) => {
+    if (value !== "" && value !== null && value !== undefined) {
+      payload[key] = value;
+    }
+  });
+  return payload;
+}
+
 async function query(pageNo = 1) {
-  loading.value = true;
+  if (tab.value === "rag") return;
+  tableLoading.value = true;
   try {
     const payload = buildPayload(pageNo);
-    let res;
-    if (tab.value === "kb") res = await queryKnowledgeBase(payload);
-    else if (tab.value === "pref") res = await queryUserPreference(payload);
-    else if (tab.value === "memory") res = await queryMemory(payload);
-    else res = await queryLog(payload);
-
-    const parsed = normalizeResponse(res);
+    const response = tab.value === "kb" ? await queryKnowledgeBase(payload) : await queryLog(payload);
+    const parsed = normalizePagedResponse(response, currentPager.value.pageSize);
     rows.value = parsed.records;
     resetExpandedState();
+
+    const pager = currentPager.value;
     pager.total = parsed.total;
-    pager.pages = parsed.pages || 1;
+    pager.pages = Math.max(parsed.pages || 1, 1);
     pager.pageNo = parsed.pageNo || pageNo;
     pager.pageSize = parsed.pageSize || pager.pageSize;
-  } catch (e) {
-    console.error("[QueryPanel] 查询失败", e);
+  } catch (error) {
+    console.error("[QueryPanel] 查询失败", error);
     rows.value = [];
     resetExpandedState();
-    pager.total = 0;
-    pager.pages = 1;
-    pager.pageNo = 1;
+    currentPager.value.total = 0;
+    currentPager.value.pages = 1;
+    currentPager.value.pageNo = 1;
+    showPanelMessage(error?.message || "查询失败，请稍后重试", "error", 3200);
   } finally {
-    loading.value = false;
+    tableLoading.value = false;
+  }
+}
+
+function resetCurrentFilters() {
+  Object.keys(activeFilters.value).forEach((key) => {
+    activeFilters.value[key] = "";
+  });
+  rows.value = [];
+  resetExpandedState();
+  currentPager.value.total = 0;
+  currentPager.value.pages = 1;
+  currentPager.value.pageNo = 1;
+}
+
+function switchTab(nextTab) {
+  tab.value = nextTab;
+  resetExpandedState();
+  panelMessage.text = "";
+  if (nextTab === "rag") return;
+  rows.value = [];
+  query(1);
+}
+
+function resetRagForm() {
+  ragForm.query = "";
+  ragForm.sessionId = "";
+  ragForm.conversationContextText = "";
+  ragForm.allowedRoutesText = "";
+  ragForm.sourceScopeText = "";
+  ragForm.debug = true;
+  ragForm.maxLatencyMs = 2500;
+  ragResult.value = null;
+}
+
+function buildRagPayload() {
+  const queryText = String(ragForm.query || "").trim();
+  if (!queryText) {
+    throw new Error("query 不能为空");
+  }
+
+  const payload = {
+    query: queryText,
+    options: {
+      debug: !!ragForm.debug,
+      maxLatencyMs: Number(ragForm.maxLatencyMs) > 0 ? Number(ragForm.maxLatencyMs) : 2500,
+    },
+  };
+
+  const sessionId = String(ragForm.sessionId || "").trim();
+  if (sessionId) payload.sessionId = sessionId;
+
+  const conversationContextText = String(ragForm.conversationContextText || "").trim();
+  if (conversationContextText) {
+    const parsedContext = safeJsonParse(conversationContextText, undefined);
+    if (!Array.isArray(parsedContext)) {
+      throw new Error("conversationContext 必须是 JSON 数组");
+    }
+    payload.conversationContext = parsedContext;
+  }
+
+  const allowedRoutes = parseTextArray(ragForm.allowedRoutesText);
+  if (allowedRoutes.length) payload.allowedRoutes = allowedRoutes;
+
+  const sourceScope = parseTextArray(ragForm.sourceScopeText);
+  if (sourceScope.length) payload.sourceScope = sourceScope;
+
+  return payload;
+}
+
+async function runRagRetrieve() {
+  ragLoading.value = true;
+  try {
+    const payload = buildRagPayload();
+    const response = await ragRetrieve(payload);
+    ragResult.value = normalizeRagResponse(response);
+
+    if (ragResult.value?.meta?.status === "rejected") {
+      showPanelMessage(ragResult.value?.meta?.reason || "治理阶段拒绝了本次检索", "warn", 3200);
+    } else {
+      showPanelMessage("RAG 检索完成", "success", 1800);
+    }
+  } catch (error) {
+    console.error("[QueryPanel] RAG 检索失败", error);
+    ragResult.value = null;
+    showPanelMessage(error?.message || "RAG 检索失败，请检查请求参数", "error", 3200);
+  } finally {
+    ragLoading.value = false;
   }
 }
 
@@ -384,6 +613,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   stopDrag();
   stopResize();
+  if (panelMessageTimer) clearTimeout(panelMessageTimer);
 });
 </script>
 
@@ -401,6 +631,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   overflow: hidden;
 }
+
 .query-panel.fullscreen {
   border-radius: 0;
 }
@@ -419,11 +650,13 @@ onBeforeUnmount(() => {
   user-select: none;
   z-index: 2;
 }
+
 .header-actions {
   display: flex;
   align-items: center;
   gap: 8px;
 }
+
 .header-btn {
   border: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.2)) 72%, transparent);
   background: var(--bg-panel-soft, rgba(255,255,255,0.08));
@@ -435,10 +668,12 @@ onBeforeUnmount(() => {
   line-height: 1;
   transition: 0.2s;
 }
+
 .header-btn:hover {
   border-color: var(--primary, #00ffc8);
   box-shadow: var(--glow-primary, 0 0 8px rgba(0,255,200,0.22));
 }
+
 .close-btn {
   background: none;
   border: none;
@@ -447,6 +682,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
   transition: transform 0.2s;
 }
+
 .close-btn:hover {
   transform: scale(1.08);
 }
@@ -466,6 +702,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   padding: 10px 0;
 }
+
 .menu-item {
   padding: 12px 14px;
   font-size: 13px;
@@ -474,10 +711,12 @@ onBeforeUnmount(() => {
   transition: 0.2s;
   border-left: 3px solid transparent;
 }
+
 .menu-item:hover {
   background: var(--hover, rgba(255,255,255,0.05));
   color: var(--text-main, #fff);
 }
+
 .menu-item.active {
   background: linear-gradient(
     90deg,
@@ -499,12 +738,46 @@ onBeforeUnmount(() => {
   min-height: 0;
 }
 
+.panel-message {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid;
+  font-size: 12px;
+}
+
+.panel-message.info {
+  background: rgba(59,130,246,0.14);
+  border-color: rgba(59,130,246,0.4);
+  color: #93c5fd;
+}
+
+.panel-message.success {
+  background: rgba(34,197,94,0.14);
+  border-color: rgba(34,197,94,0.4);
+  color: #86efac;
+}
+
+.panel-message.warn {
+  background: rgba(245,158,11,0.14);
+  border-color: rgba(245,158,11,0.4);
+  color: #fcd34d;
+}
+
+.panel-message.error {
+  background: rgba(239,68,68,0.14);
+  border-color: rgba(239,68,68,0.4);
+  color: #fca5a5;
+}
+
 .filter-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
-.filter-grid input {
+
+.filter-grid input,
+.filter-grid select,
+.field {
   width: 100%;
   background: color-mix(in oklab, black 70%, transparent);
   border: 1px solid var(--border, #2d3c4d);
@@ -512,6 +785,16 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   padding: 8px 10px;
   font-size: 12px;
+  box-sizing: border-box;
+}
+
+.filter-grid input:focus,
+.filter-grid select:focus,
+.field:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--primary, #00ffc8);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--primary, #00ffc8) 26%, transparent);
 }
 
 .actions {
@@ -519,6 +802,7 @@ onBeforeUnmount(() => {
   justify-content: flex-end;
   gap: 8px;
 }
+
 .btn-primary,
 .btn-secondary {
   border: 1px solid var(--border);
@@ -527,22 +811,27 @@ onBeforeUnmount(() => {
   cursor: pointer;
   font-size: 12px;
 }
+
 .btn-primary {
   background: var(--primary, #00ffc8);
   color: #000;
   border-color: transparent;
   font-weight: bold;
 }
+
 .btn-primary:hover:not(:disabled) {
   filter: brightness(1.08);
 }
+
 .btn-secondary {
   background: var(--bg-panel-soft, rgba(255,255,255,0.08));
   color: var(--text-main, #fff);
 }
+
 .btn-secondary:hover:not(:disabled) {
   border-color: var(--primary, #00ffc8);
 }
+
 button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
@@ -556,11 +845,13 @@ button:disabled {
   border-radius: 8px;
   background: var(--bg-panel-soft, rgba(255,255,255,0.03));
 }
+
 .data-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
 }
+
 .data-table thead th {
   position: sticky;
   top: 0;
@@ -572,11 +863,13 @@ button:disabled {
   border-bottom: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.1)) 50%, transparent);
   white-space: nowrap;
 }
+
 .data-table tbody td {
   padding: 8px;
   border-bottom: 1px dashed color-mix(in oklab, var(--border, rgba(255,255,255,0.08)) 40%, transparent);
   vertical-align: top;
 }
+
 .empty {
   text-align: center;
   color: var(--text-dim, #88a);
@@ -590,9 +883,11 @@ button:disabled {
   word-break: break-word;
   line-height: 1.45;
 }
+
 .cell-content.expanded {
   max-height: none;
 }
+
 .cell-toggle {
   margin-top: 4px;
   border: none;
@@ -602,6 +897,7 @@ button:disabled {
   font-size: 11px;
   padding: 0;
 }
+
 .cell-toggle:hover {
   text-decoration: underline;
 }
@@ -613,11 +909,13 @@ button:disabled {
   color: var(--text-dim, #9fb0bc);
   font-size: 12px;
 }
+
 .pager-actions {
   display: flex;
   align-items: center;
   gap: 8px;
 }
+
 .pager select {
   background: color-mix(in oklab, black 68%, transparent);
   border: 1px solid var(--border);
@@ -627,27 +925,203 @@ button:disabled {
   font-size: 12px;
 }
 
+.rag-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(320px, 0.92fr) minmax(0, 1.48fr);
+  gap: 10px;
+}
+
+.card-box {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.08)) 48%, transparent);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.03);
+  overflow: hidden;
+}
+
+.section-head {
+  padding: 10px 12px;
+  border-bottom: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.08)) 48%, transparent);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.section-head strong {
+  display: block;
+  color: var(--primary, #00ffc8);
+  font-size: 12px;
+}
+
+.section-head small {
+  color: var(--text-dim, #8fa5b3);
+  font-size: 11px;
+}
+
+.rag-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.form-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-block span,
+.col-title,
+.summary-label {
+  color: var(--text-dim, #8fa5b3);
+  font-size: 11px;
+}
+
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.code-input {
+  resize: vertical;
+  font-family: "Consolas", "Monaco", monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  min-height: 88px;
+}
+
+.code-input.tall {
+  min-height: 150px;
+}
+
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-main, #eefaf5);
+  font-size: 12px;
+}
+
+.inline-check input {
+  accent-color: var(--primary, #00ffc8);
+}
+
+.form-actions {
+  margin-top: auto;
+}
+
+.empty-state,
+.empty-mini {
+  color: var(--text-dim, #8fa5b3);
+  font-size: 12px;
+  text-align: center;
+  padding: 18px 12px;
+  border: 1px dashed color-mix(in oklab, var(--border, rgba(255,255,255,0.08)) 48%, transparent);
+  border-radius: 10px;
+}
+
+.empty-mini {
+  padding: 10px;
+}
+
+.summary-strip {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.summary-card {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.08)) 45%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.summary-card strong {
+  color: var(--text-main, #eefaf5);
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.summary-card.wide {
+  min-width: 0;
+}
+
+.governance-blocked {
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(245,158,11,0.1);
+  border: 1px solid rgba(245,158,11,0.35);
+  color: #fcd34d;
+}
+
+.governance-blocked strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.governance-blocked p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.evidence-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.evidence-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.col-title {
+  font-weight: 700;
+}
+
 .resize-handle {
   position: absolute;
   width: 14px;
   height: 14px;
   z-index: 10;
 }
+
 .resize-handle.sw {
   left: 0;
   bottom: 0;
   cursor: sw-resize;
 }
+
 .resize-handle.se {
   right: 0;
   bottom: 0;
   cursor: se-resize;
 }
+
 .resize-handle.nw {
   left: 0;
   top: 0;
   cursor: nw-resize;
 }
+
 .resize-handle.ne {
   right: 0;
   top: 0;
@@ -655,17 +1129,22 @@ button:disabled {
 }
 
 .content::-webkit-scrollbar,
-.table-wrap::-webkit-scrollbar {
+.table-wrap::-webkit-scrollbar,
+.rag-scroll::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
+
 .content::-webkit-scrollbar-track,
-.table-wrap::-webkit-scrollbar-track {
+.table-wrap::-webkit-scrollbar-track,
+.rag-scroll::-webkit-scrollbar-track {
   background: var(--bg-panel-soft, rgba(255,255,255,0.05));
   border-radius: 8px;
 }
+
 .content::-webkit-scrollbar-thumb,
-.table-wrap::-webkit-scrollbar-thumb {
+.table-wrap::-webkit-scrollbar-thumb,
+.rag-scroll::-webkit-scrollbar-thumb {
   background: linear-gradient(
     180deg,
     color-mix(in oklab, var(--primary, #00ffc8) 45%, transparent),
@@ -673,18 +1152,41 @@ button:disabled {
   );
   border-radius: 8px;
 }
+
 .content::-webkit-scrollbar-thumb:hover,
-.table-wrap::-webkit-scrollbar-thumb:hover {
+.table-wrap::-webkit-scrollbar-thumb:hover,
+.rag-scroll::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(
     180deg,
     color-mix(in oklab, var(--primary, #00ffc8) 68%, transparent),
-    color-mix(in oklab, var(--primary-2, #00aaff) 65%, transparent)
+    color-mix(in oklab, var(--primary-2, #00aaff) 68%, transparent)
   );
 }
 
-@media (max-width: 1100px) {
+.toast-fade-enter-active,
+.toast-fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.toast-fade-enter-from,
+.toast-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+@media (max-width: 1280px) {
+  .rag-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .evidence-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-strip,
+  .two-col,
   .filter-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr;
   }
 }
 </style>

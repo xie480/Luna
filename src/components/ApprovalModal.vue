@@ -14,7 +14,12 @@
 
         <div class="info-row">
           <span class="label">操作名称:</span>
-          <span class="value highlight">{{ task?.skillName || "-" }}</span>
+          <span class="value highlight">{{ task?.displayName || task?.toolName || task?.skillName || "-" }}</span>
+        </div>
+
+        <div v-if="task?.serverCode" class="info-row">
+          <span class="label">服务编码:</span>
+          <span class="value">{{ task.serverCode }}</span>
         </div>
 
         <div class="args-container">

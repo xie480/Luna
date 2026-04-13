@@ -2,10 +2,10 @@
   <div class="app-root">
 
     <div v-if="isSetupMode" class="top-banner" @mouseenter="uiEnter" @mouseleave="uiLeave">
-      姝ｅ湪杩涜鍒濆浣嶇疆璁惧畾锛岃璋冩暣妯″瀷浣嶇疆鍜屽ぇ灏忋€?
+      正在进行初始位置设定，请调整模型位置和大小。
     </div>
     <div v-if="isTrackingSetupMode" class="top-banner" @mouseenter="uiEnter" @mouseleave="uiLeave">
-      姝ｅ湪杩涜婊戦紶杩借釜璁惧畾锛岃鐐瑰嚮妯″瀷瀵瑰簲鐨勪綅缃缃负璺熻釜鐐广€?
+      正在进行视线追踪设定，请点击模型对应位置设置为追踪中心。
     </div>
 
     <transition name="fade">
@@ -30,11 +30,11 @@
             <div class="login-header-left">
               <span class="login-title">LUNA / AUTH</span>
               <span class="login-status" :class="{ ok: !loginError }">
-                {{ loginError ? "閴存潈澶辫触" : "绛夊緟鐧诲綍" }}
+                {{ loginError ? "鉴权失败" : "等待登录" }}
               </span>
             </div>
             <div class="login-header-actions">
-              <button class="login-header-btn close" @click="exitApp" title="閫€鍑哄簲鐢?>脳</button>
+              <button class="login-header-btn close" @click="exitApp" title="退出应用">×</button>
             </div>
           </div>
           <div class="login-body">
@@ -65,8 +65,8 @@
                 />
               </div>
               <button class="login-btn" type="submit" :disabled="loginLoading">
-                <span v-if="!loginLoading">鐧诲綍骞跺惎鍔?LUNA</span>
-                <span v-else>姝ｅ湪楠岃瘉鍑瘉鈥?/span>
+                <span v-if="!loginLoading">登录并启动 LUNA</span>
+                <span v-else>正在验证凭证...</span>
               </button>
               <p v-if="loginError" class="login-error">{{ loginError }}</p>
             </form>
@@ -114,7 +114,7 @@
         @toggle-history="toggleHistory"
         @toggle-query="toggleQuery"
         @toggle-plan="togglePlan"
-        @close="showChat = false"
+        @close="handleCloseChat"
         @mouseenter="uiEnter"
         @mouseleave="uiLeave"
       />
@@ -171,6 +171,26 @@
         @reset-tracking-setup="resetTrackingOrigin"
         @toggle-model="modelVisible = !modelVisible"
         @logout="handleLogout"
+        @open-capability-center="openCapabilityCenter"
+        @open-prompt-governance="openPromptGovernance"
+        @mouseenter="uiEnter"
+        @mouseleave="uiLeave"
+      />
+    </transition>
+
+    <transition name="fade">
+      <CapabilityCenterPanel
+        v-if="showCapabilityCenter"
+        @close="showCapabilityCenter = false"
+        @mouseenter="uiEnter"
+        @mouseleave="uiLeave"
+      />
+    </transition>
+
+    <transition name="fade">
+      <PromptGovernancePanel
+        v-if="showPromptGovernance"
+        @close="showPromptGovernance = false"
         @mouseenter="uiEnter"
         @mouseleave="uiLeave"
       />
@@ -201,12 +221,12 @@
             <span class="boot-bracket">]</span>
             <span class="boot-version">v2.0.1</span>
           </div>
-          <div class="boot-subtitle">AI 鍔╂墜鏍稿績妯″潡 路 鍚姩涓?/div>
+          <div class="boot-subtitle">AI 助手核心模块 / 启动中</div>
           <div class="boot-bar-wrap">
             <div class="boot-bar-track">
               <div class="boot-bar-fill"></div>
             </div>
-            <span class="boot-bar-pct">姝ｅ湪鍔犺浇绯荤粺鈥?/span>
+            <span class="boot-bar-pct">正在加载系统...</span>
           </div>
           <div class="boot-log">
             <div class="boot-log-viewport">
@@ -236,6 +256,7 @@ import { gsap } from "gsap";
 import * as PIXI from "pixi.js";
 
 import {
+  approveTool,
   chat as chatApi,
   startup as startupApi,
   shutdown as shutdownApi,
@@ -243,6 +264,7 @@ import {
   logout as logoutApi,
 } from "../../api/index.js";
 import { EMOTION_EXPRESSIONS } from "../../utils/emotion-expressions";
+import { normalizeApprovalTask } from "../../utils/data-utils.js";
 
 import { useBubble } from "../../composables/useBubble.js";
 import { useAppearance } from "../../composables/useAppearance.js";
@@ -256,6 +278,8 @@ import HistoryPanel from "../../components/HistoryPanel.vue";
 import QueryPanel from "../../components/QueryPanel.vue";
 import PlanPanel from "../../components/PlanPanel.vue";
 import ApprovalModal from "../../components/ApprovalModal.vue";
+import CapabilityCenterPanel from "../../components/CapabilityCenterPanel.vue";
+import PromptGovernancePanel from "../../components/PromptGovernancePanel.vue";
 
 const canvasRef = ref(null);
 const wrapperRef = ref(null);
@@ -266,6 +290,8 @@ const showSettings = ref(false);
 const showHistory = ref(false);
 const showQuery = ref(false);
 const showPlan = ref(false);
+const showCapabilityCenter = ref(false);
+const showPromptGovernance = ref(false);
 const historyPanelRef = ref(null);
 const trackingEnabled = ref(true);
 const lunaIntroVisible = ref(false);
@@ -335,7 +361,7 @@ async function handlePlanCreated({ planId }) {
   try {
     await planStore.syncGraphSnapshot(planId);
     snapshotSyncLastAt = Date.now();
-    appearance.showAppearanceHint("宸插姞杞借鍒掑浘璋卞揩鐓?);
+    appearance.showAppearanceHint("已加载计划图谱快照");
   } catch (e) {
     console.error("[Plan] 棣栨蹇収鎷夊彇澶辫触:", e);
     appearance.showAppearanceHint("璁″垝蹇収鎷夊彇澶辫触锛屽皢鑷姩閲嶈瘯");
@@ -356,7 +382,7 @@ function schedulePlanSnapshotReconnect() {
       await planStore.syncGraphSnapshot(activePlanId);
       snapshotSyncLastAt = Date.now();
       planReconnectAttempt = 0;
-      appearance.showAppearanceHint("璁″垝鍥捐氨宸茶嚜鍔ㄦ牎鍑?);
+      appearance.showAppearanceHint("计划图谱已自动校准");
     } catch (e) {
       console.error("[Plan] 鑷姩鏍″噯澶辫触:", e);
       schedulePlanSnapshotReconnect();
@@ -499,9 +525,9 @@ const loginSuccess = ref(false);
 const loginForm = ref({ username: "", password: "" });
 const loginSessionId = ref(Math.random().toString(16).slice(2, 10).toUpperCase());
 const loginLogLines = ref([
-  "姝ｅ湪寤虹珛涓庨壌鏉冩湇鍔＄殑瀹夊叏杩炴帴鈥?,
-  "妫€娴嬪埌褰撳墠浼氳瘽鏈璇併€?,
-  "璇疯緭鍏ョ敤鎴峰悕涓庡瘑鐮佷互缁х画銆?,
+  "正在建立与鉴权服务的安全连接...",
+  "检测到当前会话尚未认证。",
+  "请输入用户名与密码以继续。",
 ]);
 const authToken = ref("");
 const loginCollapsed = ref(false);
@@ -511,22 +537,22 @@ function exitApp() {
 }
 
 const bootLines = [
-  "姝ｅ湪鍒濆鍖栫缁忔帴鍙ｂ€?,
-  "姝ｅ湪鍔犺浇 Live2D Core 涓?Cubism Runtime鈥?,
-  "姝ｅ湪鎸傝浇妯″瀷鍙傛暟涓庡璨岀郴缁熲€?,
-  "姝ｅ湪鎭㈠涓婚閰嶇疆涓庣晫闈㈢姸鎬佲€?,
-  "姝ｅ湪瑁呰浇鑱婂ぉ杈撳叆涓庢皵娉″瓙绯荤粺鈥?,
-  "姝ｅ湪鍚屾鍘嗗彶璁板綍绱㈠紩鈥?,
-  "姝ｅ湪鍒濆鍖栨暟鎹煡璇腑蹇冣€?,
-  "姝ｅ湪杩炴帴 SSE 瀹炴椂閫氶亾鈥?,
-  "姝ｅ湪鍔犺浇 Plan Graph 鐘舵€佸瓨鍌ㄢ€?,
-  "姝ｅ湪瑁呰浇 Tool 绠＄悊鍣ㄢ€?,
-  "姝ｅ湪瑁呰浇 Skill 绠＄悊鍣ㄢ€?,
-  "姝ｅ湪娉ㄥ唽瀹℃壒浠诲姟鐩戝惉鍣ㄢ€?,
-  "姝ｅ湪鍒濆鍖栫郴缁熼煶棰戝緥鍔ㄦā鍧椻€?,
-  "姝ｅ湪鏍″噯瑙嗙嚎杩借釜鍙傛暟鈥?,
-  "姝ｅ湪棰勭儹璇█妯″瀷鏍稿績鈥?,
-  "绯荤粺宸插氨缁紝绛夊緟鎸囦护銆?
+  "正在初始化神经接口...",
+  "正在加载 Live2D Core 与 Cubism Runtime...",
+  "正在挂载模型参数与外貌系统...",
+  "正在恢复主题配置与界面状态...",
+  "正在装载聊天输入与气泡系统...",
+  "正在同步历史记录索引...",
+  "正在初始化数据查询中心...",
+  "正在连接 SSE 实时通道...",
+  "正在加载 Plan Graph 状态存储...",
+  "正在装载 MCP 能力中心...",
+  "正在装载 Prompt 治理中心...",
+  "正在注册审批任务监听器...",
+  "正在初始化系统音频律动模块...",
+  "正在校准视线追踪参数...",
+  "正在预热语言模型核心...",
+  "系统已就绪，等待指令。",
 ];
 
 const bootLogOffset = ref(0);
@@ -571,7 +597,7 @@ async function performLogin() {
   loginLoading.value = true;
   loginError.value = "";
   loginSuccess.value = false;
-  loginLogLines.value.push("姝ｅ湪鍚戦壌鏉冩湇鍔″彂閫佸嚟璇佲€?);
+  loginLogLines.value.push("正在向鉴权服务发送凭证...");
   try {
     const data = await loginApi({
       username: loginForm.value.username,
@@ -579,13 +605,13 @@ async function performLogin() {
     });
     const token = data?.token || "";
     if (!token) {
-      loginError.value = "閴存潈鏈嶅姟鏈繑鍥炴湁鏁?Token";
-      loginLogLines.value.push("閴存潈澶辫触锛歍oken 缂哄け銆?);
+      loginError.value = "鉴权服务未返回有效 Token";
+      loginLogLines.value.push("鉴权失败：Token 缺失。");
       return;
     }
     authToken.value = token;
     loginSuccess.value = true;
-    loginLogLines.value.push("閴存潈閫氳繃锛屾鍦ㄥ惎鍔?LUNA 鏍稿績鈥?);
+    loginLogLines.value.push("鉴权通过，正在启动 LUNA 核心...");
 
     overUI = false;
     updatePetState();
@@ -603,8 +629,8 @@ async function performLogin() {
     }
   } catch (e) {
     console.error("[Auth] 鐧诲綍璇锋眰澶辫触", e);
-    loginError.value = "鏃犳硶杩炴帴閴存潈鏈嶅姟锛岃妫€鏌ョ綉缁滄垨鏈嶅姟鐘舵€?;
-    loginLogLines.value.push("缃戠粶閿欒锛氭棤娉曡繛鎺ュ埌閴存潈绔偣銆?);
+    loginError.value = "无法连接鉴权服务，请检查网络或服务状态";
+    loginLogLines.value.push("网络错误：无法连接到鉴权端点。");
   } finally {
     loginLoading.value = false;
   }
@@ -614,8 +640,24 @@ function onLoginSubmit() {
   if (!loginLoading.value) performLogin();
 }
 
+function closeWorkspacePanels() {
+  showSettings.value = false;
+  showHistory.value = false;
+  showQuery.value = false;
+  showPlan.value = false;
+  showCapabilityCenter.value = false;
+  showPromptGovernance.value = false;
+}
+
+function handleCloseChat() {
+  showChat.value = false;
+  closeWorkspacePanels();
+  refreshUiInteractivity();
+}
+
 async function handleLogout() {
   try {
+    await callShutdown();
     await logoutApi(authToken.value);
   } catch (e) {
     console.error("[Auth] 鐧诲嚭璇锋眰澶辫触", e);
@@ -623,11 +665,8 @@ async function handleLogout() {
     authToken.value = "";
     loginSuccess.value = false;
     loginVisible.value = true;
-    showSettings.value = false;
     showChat.value = false;
-    showHistory.value = false;
-    showQuery.value = false;
-    showPlan.value = false;
+    closeWorkspacePanels();
     showApproval.value = false;
     approvalTask.value = null;
     activePlanId = "";
@@ -649,8 +688,8 @@ async function handleLogout() {
     }
 
     loginLogLines.value = [
-      "浼氳瘽宸茬粓姝€?,
-      "璇烽噸鏂拌緭鍏ュ嚟璇佷互寤虹珛杩炴帴銆?,
+      "会话已终止。",
+      "请重新输入凭证以建立连接。",
     ];
     loginError.value = "";
     loginForm.value.password = "";
@@ -778,7 +817,7 @@ async function onSend(text) {
 
     await handleModelReply(normalizeResponse(res));
   } catch (e) {
-    console.error("[Luna] 鍙戦€佸け璐?, e);
+    console.error("[Luna] 发送失败", e);
     handleNetworkError();
   } finally {
     isConnecting.value = false;
@@ -798,7 +837,7 @@ async function onApprove(approved) {
   uiLeave();
 
   try {
-    const res = await window.mcpApi.approveSkill({
+    const res = await approveTool({
       taskId: currentTaskId,
       approved,
     });
@@ -808,7 +847,7 @@ async function onApprove(approved) {
       streamText.value = "";
       await handleModelReply(normalizeResponse(res));
     } else {
-      appearance.showAppearanceHint(approved ? "宸插悓鎰忔搷浣? : "宸叉嫆缁濇搷浣?);
+      appearance.showAppearanceHint(approved ? "已同意操作" : "已拒绝操作");
     }
   } catch (e) {
     console.error("[Approval] Failed:", e);
@@ -833,14 +872,10 @@ async function callStartup() {
 }
 
 async function callShutdown() {
-  isConnecting.value = true;
+  if (!authToken.value && !loginSuccess.value) return;
   try {
-    const res = await shutdownApi();
-    isConnecting.value = false;
-    handleModelReply(normalizeResponse(res));
-  } catch (e) {
-    isConnecting.value = false;
-  }
+    await shutdownApi();
+  } catch {}
 }
 
 let overUI = false;
@@ -858,6 +893,8 @@ function hasBlockingUiPanels() {
     showSettings.value ||
     showHistory.value ||
     showQuery.value ||
+    showCapabilityCenter.value ||
+    showPromptGovernance.value ||
     showApproval.value ||
     lunaIntroVisible.value
   );
@@ -871,6 +908,8 @@ function getUiHoverSelector() {
     ".history-panel:not(.fade-leave-active):hover",
     ".query-panel:not(.fade-leave-active):hover",
     ".plan-panel:not(.fade-leave-active):hover",
+    ".capability-center-panel:not(.fade-leave-active):hover",
+    ".prompt-governance-panel:not(.fade-leave-active):hover",
     ".top-banner:hover",
     ".modal:hover",
     ".approval-mask:hover",
@@ -960,6 +999,8 @@ watch(showSettings, () => refreshUiInteractivity());
 watch(showHistory, () => refreshUiInteractivity());
 watch(showQuery, () => refreshUiInteractivity());
 watch(showPlan, () => refreshUiInteractivity());
+watch(showCapabilityCenter, () => refreshUiInteractivity());
+watch(showPromptGovernance, () => refreshUiInteractivity());
 watch(showApproval, () => refreshUiInteractivity());
 watch(loginVisible, () => refreshUiInteractivity());
 
@@ -1028,7 +1069,7 @@ function resetModelTransform() {
   }
 
   saveModelTransform();
-  appearance.showAppearanceHint("妯″瀷鐘舵€佸凡寮哄埗閲嶇疆锛?);
+  appearance.showAppearanceHint("模型状态已强制重置");
 }
 
 function toggleTrackingSetupMode() {
@@ -1048,7 +1089,7 @@ function resetTrackingOrigin() {
   if (isTrackingSetupMode.value) {
     drawTrackingMarker();
   }
-  appearance.showAppearanceHint("杩借釜涓績宸查噸缃?);
+  appearance.showAppearanceHint("追踪中心已重置");
 }
 
 function drawTrackingMarker() {
@@ -1237,9 +1278,18 @@ async function applyEmotionExpressions(emotion) {
 
 async function preloadExpressions() {
   const allFiles = [
-    "鐪?鐢熸皵", "鑴哥孩2闅愯棌", "鑴搁粦", "鐪?鍝摥", "鐪?娉溂姹豹",
-    "鐪?鐪╂檿娴佹睏", "鑴哥孩", "鐪?骞抽潤姝婚奔鐪?, "鍢?骞抽潤v褰紙涓嶅彲寮犲紑",
-    "鐪?鏄熸槦鐪?, "鑴哥孩-鐥存眽鍢达紙鍏煎鍚愯垖", "鐪?鐖卞績鐪?,
+    "眼-生气",
+    "脸红2隐藏",
+    "脸黑",
+    "眼-哭哭",
+    "眼-泪眼汪汪",
+    "眼-眩晕流汗",
+    "脸红",
+    "眼-平静死鱼眼",
+    "嘴-平静v形（不可张开",
+    "眼-星星眼",
+    "脸红-痴汉嘴（兼容吐舌",
+    "眼-爱心眼",
   ];
   await Promise.all(
     allFiles.map(async (name) => {
@@ -1266,11 +1316,25 @@ async function resetModelState() {
   }
   await resetToSolemn();
   await appearance.applyAllEnabled(core);
-  appearance.showAppearanceHint("妯″瀷琛ㄦ儏宸查噸缃?);
+  appearance.showAppearanceHint("模型表情已重置");
 }
 
 function openSettings() {
   showSettings.value = true;
+}
+
+function openCapabilityCenter() {
+  showSettings.value = false;
+  showPromptGovernance.value = false;
+  showCapabilityCenter.value = true;
+  uiEnter();
+}
+
+function openPromptGovernance() {
+  showSettings.value = false;
+  showCapabilityCenter.value = false;
+  showPromptGovernance.value = true;
+  uiEnter();
 }
 
 function toggleHistory() {
@@ -1369,10 +1433,7 @@ onMounted(async () => {
       showChat.value = !showChat.value;
 
       if (!showChat.value) {
-        showSettings.value = false;
-        showHistory.value = false;
-        showQuery.value = false;
-        showPlan.value = false;
+        closeWorkspacePanels();
         refreshUiInteractivity();
       } else {
         overUI = true;
@@ -1391,11 +1452,11 @@ onMounted(async () => {
 
       if (eventType === "APPROVAL_REQUEST") {
         const task = data?.payload ? data.payload : data;
-        approvalTask.value = task || null;
+        approvalTask.value = task ? normalizeApprovalTask(task) : null;
         showApproval.value = !!approvalTask.value;
         if (showApproval.value) {
           uiEnter();
-          appearance.showAppearanceHint("鏀跺埌鏁忔劅鎿嶄綔瀹℃壒璇锋眰");
+          appearance.showAppearanceHint("收到敏感操作审批请求");
         }
 
         planStore.applyEvent({
@@ -1434,7 +1495,7 @@ onMounted(async () => {
 
         if (eventType === "SKILL_ASYNC_RESULT") {
           const ok = !!data?.success;
-          appearance.showAppearanceHint(ok ? "寮傛鎶€鑳藉畬鎴? : "寮傛鎶€鑳藉け璐?);
+          appearance.showAppearanceHint(ok ? "异步技能已完成" : "异步技能执行失败");
         }
       }
 
@@ -1449,7 +1510,7 @@ onMounted(async () => {
   }
 
   try {
-    model = await Live2DModel.from(`/models/luna/${encodeURIComponent("jk鐩?model3.json")}`, {
+    model = await Live2DModel.from(`/models/luna/${encodeURIComponent("jk盐.model3.json")}`, {
       autoInteract: false,
       autoUpdate: true,
       ticker: app.ticker,
@@ -1495,7 +1556,7 @@ onMounted(async () => {
     await applyEmotionExpressions(INITIAL_EMOTION);
   } catch (e) {
     console.error("[Live2D] 妯″瀷鍔犺浇澶辫触", e);
-    appearance.showAppearanceHint("妯″瀷鍔犺浇澶辫触锛岃妫€鏌ユ枃浠惰矾寰?);
+    appearance.showAppearanceHint("模型加载失败，请检查文件路径");
   }
 
   setTimeout(() => {
