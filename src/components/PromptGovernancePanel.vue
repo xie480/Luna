@@ -188,7 +188,9 @@
               <button class="btn-secondary" :disabled="!selectedPromptKey" @click="openPromptDrawer('diff')">差异</button>
               <button class="btn-secondary" :disabled="!selectedPromptKey" @click="openPromptDrawer('preview')">预览</button>
               <button class="btn-secondary" :disabled="!selectedPromptKey || promptSaving" @click="savePromptDraftAction">保存草稿</button>
-              <button class="btn-secondary danger" :disabled="!selectedPromptKey || isCreatingPrompt || promptSaving" @click="deletePromptAction">删除</button>
+              <button class="btn-secondary danger" :disabled="!selectedPromptKey || isCreatingPrompt || promptSaving" @click="deletePromptAction">
+                {{ promptDeleteConfirmArmed ? '确认软删除' : '删除' }}
+              </button>
               <button class="btn-primary" :disabled="promptSaving" @click="savePromptAction">{{ promptSaving ? '保存中...' : '正式保存' }}</button>
             </div>
           </div>
@@ -400,7 +402,9 @@
             </div>
             <div class="toolbar-actions">
               <button class="btn-secondary" :disabled="!selectedPolicyId" @click="openPolicyVersions">版本</button>
-              <button class="btn-secondary danger" :disabled="!selectedPolicyId || isCreatingPolicy || policySaving" @click="deletePolicyAction">删除</button>
+              <button class="btn-secondary danger" :disabled="!selectedPolicyId || isCreatingPolicy || policySaving" @click="deletePolicyAction">
+                {{ policyDeleteConfirmArmed ? '确认软删除' : '删除' }}
+              </button>
               <button class="btn-primary" :disabled="policySaving" @click="savePolicyAction">{{ policySaving ? '保存中...' : '保存策略' }}</button>
             </div>
           </div>
@@ -459,7 +463,6 @@ import {
   activatePromptVersion,
   archivePromptVersion,
   checkPromptItemExists,
-  createPromptItem,
   deletePromptItem,
   deletePromptPolicy,
   diffPromptVersions,
@@ -479,9 +482,9 @@ import {
   previewPromptMatch,
   rollbackPromptVersion,
   savePromptDraft,
+  savePromptItem,
   savePromptPolicy,
   searchPromptItems,
-  updatePromptItem,
 } from "../api/index.js";
 import {
   ensureArray,
@@ -561,9 +564,13 @@ const policyVersionLoading = ref(false);
 const policyVersionActionLoading = ref(false);
 const selectedPolicyVersionId = ref("");
 const selectedPolicyVersionDetail = ref(null);
+const promptDeleteConfirmArmed = ref(false);
+const policyDeleteConfirmArmed = ref(false);
 
 const toast = reactive({ text: "", type: "info" });
 let toastTimer = null;
+let promptDeleteConfirmTimer = null;
+let policyDeleteConfirmTimer = null;
 
 const ALLOWED_RUNTIME_SLOTS = new Set([
   "instructions.system",
@@ -662,6 +669,42 @@ function showToast(text, type = "info", duration = 2600) {
   toastTimer = setTimeout(() => {
     toast.text = "";
   }, duration);
+}
+
+function clearPromptDeleteConfirm() {
+  promptDeleteConfirmArmed.value = false;
+  if (promptDeleteConfirmTimer) {
+    clearTimeout(promptDeleteConfirmTimer);
+    promptDeleteConfirmTimer = null;
+  }
+}
+
+function armPromptDeleteConfirm() {
+  promptDeleteConfirmArmed.value = true;
+  if (promptDeleteConfirmTimer) clearTimeout(promptDeleteConfirmTimer);
+  promptDeleteConfirmTimer = setTimeout(() => {
+    promptDeleteConfirmArmed.value = false;
+    promptDeleteConfirmTimer = null;
+  }, 3200);
+  showToast("再次点击删除将执行软删除，不会清除历史版本", "info", 3200);
+}
+
+function clearPolicyDeleteConfirm() {
+  policyDeleteConfirmArmed.value = false;
+  if (policyDeleteConfirmTimer) {
+    clearTimeout(policyDeleteConfirmTimer);
+    policyDeleteConfirmTimer = null;
+  }
+}
+
+function armPolicyDeleteConfirm() {
+  policyDeleteConfirmArmed.value = true;
+  if (policyDeleteConfirmTimer) clearTimeout(policyDeleteConfirmTimer);
+  policyDeleteConfirmTimer = setTimeout(() => {
+    policyDeleteConfirmArmed.value = false;
+    policyDeleteConfirmTimer = null;
+  }, 3200);
+  showToast("再次点击删除策略将执行软删除，并保留历史版本", "info", 3200);
 }
 
 function defaultPromptForm(category = "", subCategory = "") {
@@ -1007,6 +1050,7 @@ function prepareNewPrompt() {
   isCreatingPrompt.value = true;
   selectedPromptKey.value = "";
   currentPromptDetail.value = null;
+  clearPromptDeleteConfirm();
   overwriteReactive(promptForm, defaultPromptForm(seed.category, seed.subCategory));
 }
 
@@ -1040,6 +1084,7 @@ async function updateSelectPrompt(target) {
   selectedPromptKey.value = item.key || key;
   currentPromptDetail.value = item;
   isCreatingPrompt.value = false;
+  clearPromptDeleteConfirm();
   applyPromptToForm(item);
   return item;
 }
@@ -1187,14 +1232,11 @@ async function savePromptAction() {
     const payload = buildPromptPayload();
     validatePromptPayload(payload);
 
-    let savedItem = null;
     if (isCreatingPrompt.value) {
       const exists = await checkPromptItemExists({ key: payload.key });
       if (exists?.exists) throw new Error("prompt key already exists");
-      savedItem = normalizePromptItem(await createPromptItem(payload));
-    } else {
-      savedItem = normalizePromptItem(await updatePromptItem(payload));
     }
+    const savedItem = normalizePromptItem(await savePromptItem(payload));
 
     await updateSelectPrompt({
       key: savedItem.key || payload.key,
@@ -1234,7 +1276,12 @@ async function deletePromptAction() {
     return;
   }
 
-  if (!window.confirm("软删除仅禁用当前 Prompt，不会清除历史版本，确认继续吗？")) return;
+  if (!promptDeleteConfirmArmed.value) {
+    armPromptDeleteConfirm();
+    return;
+  }
+
+  clearPromptDeleteConfirm();
   promptSaving.value = true;
   try {
     await deletePromptItem({ key: selectedPromptKey.value });
@@ -1441,6 +1488,7 @@ function applyPolicyToForm(item) {
 function prepareNewPolicy() {
   isCreatingPolicy.value = true;
   selectedPolicyId.value = "";
+  clearPolicyDeleteConfirm();
   overwriteReactive(policyForm, defaultPolicyForm());
 }
 
@@ -1463,6 +1511,7 @@ async function selectPolicy(policyId) {
     const detail = normalizePromptPolicy(await getPromptPolicyDetail({ policyId }));
     selectedPolicyId.value = detail.policyId || policyId;
     isCreatingPolicy.value = false;
+    clearPolicyDeleteConfirm();
     applyPolicyToForm(detail);
     return detail;
   } catch (error) {
@@ -1507,8 +1556,12 @@ async function savePolicyAction() {
 
 async function deletePolicyAction() {
   if (!selectedPolicyId.value) return;
-  if (!window.confirm("删除策略为软删除，会禁用当前策略并保留历史版本，确认继续吗？")) return;
+  if (!policyDeleteConfirmArmed.value) {
+    armPolicyDeleteConfirm();
+    return;
+  }
 
+  clearPolicyDeleteConfirm();
   policySaving.value = true;
   try {
     await deletePromptPolicy({ policyId: selectedPolicyId.value });
@@ -1618,6 +1671,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (toastTimer) clearTimeout(toastTimer);
+  if (promptDeleteConfirmTimer) clearTimeout(promptDeleteConfirmTimer);
+  if (policyDeleteConfirmTimer) clearTimeout(policyDeleteConfirmTimer);
 });
 </script>
 

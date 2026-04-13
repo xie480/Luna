@@ -20,11 +20,11 @@
         <option v-for="item in serverOptions" :key="item" :value="item">{{ item }}</option>
       </select>
       <div class="toolbar-actions">
-        <button class="btn-secondary" @click="refreshCurrentView">{{ loading ? "加载中..." : "刷新" }}</button>
-        <button class="btn-secondary" @click="handleSyncCatalog">{{ actionLoading ? "同步中..." : "同步目录" }}</button>
-        <button class="btn-secondary" :class="{ active: listMode === 'card' }" @click="listMode = 'card'">卡片</button>
-        <button class="btn-secondary" :class="{ active: listMode === 'row' }" @click="listMode = 'row'">列表</button>
-        <button class="btn-secondary" @click="setActiveView('rpc')">JSON-RPC</button>
+        <button class="btn-secondary" :disabled="loading || actionLoading" @click="refreshCurrentView">{{ loading ? "加载中..." : "刷新" }}</button>
+        <button class="btn-secondary" :disabled="loading || actionLoading" @click="handleSyncCatalog">{{ actionLoading ? "同步中..." : "同步目录" }}</button>
+        <button class="btn-secondary" :disabled="actionLoading" :class="{ active: listMode === 'card' }" @click="listMode = 'card'">卡片</button>
+        <button class="btn-secondary" :disabled="actionLoading" :class="{ active: listMode === 'row' }" @click="listMode = 'row'">列表</button>
+        <button class="btn-secondary" :disabled="actionLoading" @click="setActiveView('rpc')">JSON-RPC</button>
       </div>
     </div>
 
@@ -115,7 +115,7 @@
               <input v-model="toolCallForm.toolName" class="field" placeholder="toolName" />
             </div>
             <textarea v-model="toolCallForm.argumentsJson" class="field code-input" placeholder='argumentsJson，例如 {"query":"hello"}'></textarea>
-            <button class="btn-primary" @click="runToolCall">执行工具</button>
+            <button class="btn-primary" :disabled="actionLoading" @click="runToolCall">执行工具</button>
           </div>
 
           <div v-if="showPromptDebug" class="panel-card">
@@ -125,7 +125,7 @@
               <input v-model="promptDebugForm.promptName" class="field" placeholder="promptName" />
             </div>
             <textarea v-model="promptDebugForm.argumentsJson" class="field code-input" placeholder='argumentsJson，例如 {"topic":"luna"}'></textarea>
-            <button class="btn-primary" @click="runPromptGet">读取 Prompt</button>
+            <button class="btn-primary" :disabled="actionLoading" @click="runPromptGet">读取 Prompt</button>
           </div>
 
           <div v-if="showResourceRead" class="panel-card">
@@ -134,19 +134,19 @@
               <input v-model="resourceDebugForm.serverCode" class="field" placeholder="serverCode（可选）" />
               <input v-model="resourceDebugForm.resourceUri" class="field" placeholder="resourceUri" />
             </div>
-            <button class="btn-primary" @click="runResourceRead">读取资源</button>
+            <button class="btn-primary" :disabled="actionLoading" @click="runResourceRead">读取资源</button>
           </div>
 
           <div v-if="showWriteEditor" class="panel-card">
             <div class="card-title">{{ writeTitle }}</div>
             <textarea v-model="writeEditor" class="field code-input tall" placeholder="按接口文档填写 JSON 载荷"></textarea>
-            <button class="btn-primary" @click="saveWritePayload">提交写入</button>
+            <button class="btn-primary" :disabled="actionLoading" @click="saveWritePayload">提交写入</button>
           </div>
 
           <div v-if="activeView === 'rpc'" class="panel-card">
             <div class="card-title">JSON-RPC 调试</div>
             <textarea v-model="rpcEditor" class="field code-input tall" placeholder='{"jsonrpc":"2.0","id":"debug-1","method":"tools/list","params":{}}'></textarea>
-            <button class="btn-primary" @click="runRpc">发送 RPC</button>
+            <button class="btn-primary" :disabled="actionLoading" @click="runRpc">发送 RPC</button>
           </div>
 
           <JsonPreviewBlock v-if="debugResult !== null" title="调试结果" :value="debugResult" :max-height="260" />
@@ -218,7 +218,21 @@ let toastTimer = null;
 
 const currentViewMeta = computed(() => navItems.find((item) => item.id === activeView.value) || navItems[0]);
 const serverOptions = computed(() => Array.from(new Set([...resources.value, ...tools.value, ...prompts.value, ...catalogResources.value].map((item) => item?.serverCode).filter(Boolean))).sort((a, b) => a.localeCompare(b)));
-const displayList = computed(() => activeView.value === "overview" ? resources.value : activeView.value === "toolCatalog" || activeView.value === "implMapping" ? tools.value : activeView.value === "promptCatalog" ? prompts.value : activeView.value === "resourceCatalog" ? catalogResources.value : activeView.value === "workflowTemplate" ? resources.value.filter((item) => item.type === "WORKFLOW") : activeView.value === "serverRegistry" ? serverOptions.value.map((code) => ({ id: code, name: code, type: "SERVER", serverCode: code, description: "从当前资源目录中提取的服务编码" })) : []);
+const baseList = computed(() => activeView.value === "overview" ? resources.value : activeView.value === "toolCatalog" || activeView.value === "implMapping" ? tools.value : activeView.value === "promptCatalog" ? prompts.value : activeView.value === "resourceCatalog" ? catalogResources.value : activeView.value === "workflowTemplate" ? resources.value.filter((item) => item.type === "WORKFLOW") : activeView.value === "serverRegistry" ? serverOptions.value.map((code) => ({ id: code, name: code, type: "SERVER", serverCode: code, description: "从当前资源目录中提取的服务编码" })) : []);
+const displayList = computed(() => {
+  const list = baseList.value;
+  const keyword = searchQuery.value.trim().toLowerCase();
+
+  if (!keyword || activeView.value === "overview" || activeView.value === "rpc") {
+    return list;
+  }
+
+  return list.filter((item) =>
+    [getItemTitle(item), item?.description, item?.serverCode, item?.resourceUri]
+      .filter(Boolean)
+      .some((part) => String(part).toLowerCase().includes(keyword)),
+  );
+});
 const emptyText = computed(() => searchQuery.value ? "暂无匹配资源" : activeView.value === "rpc" ? "使用右侧 RPC 编辑器发送协议请求" : "暂无资源");
 const showToolDebug = computed(() => ["toolCatalog", "implMapping"].includes(activeView.value));
 const showPromptDebug = computed(() => activeView.value === "promptCatalog");
@@ -246,7 +260,26 @@ async function refreshCurrentView() {
   } catch (error) { console.error("[CapabilityCenter] refresh failed", error); showToast(`目录加载失败：${error?.message || String(error)}`, "error", 3200); } finally { loading.value = false; }
 }
 
-async function performSearch() { if (!searchQuery.value.trim()) return refreshCurrentView(); if (activeView.value === "overview") { loading.value = true; try { resources.value = ensureArray(await searchMcpResources({ query: searchQuery.value.trim() })).map(normalizeResource); } catch (error) { showToast(`搜索失败：${error?.message || String(error)}`, "error", 2800); } finally { loading.value = false; } return; } const keyword = searchQuery.value.trim().toLowerCase(); const next = displayList.value.filter((item) => [getItemTitle(item), item.description, item.serverCode, item.resourceUri].filter(Boolean).some((part) => String(part).toLowerCase().includes(keyword))); if (activeView.value === "toolCatalog" || activeView.value === "implMapping") tools.value = next; if (activeView.value === "promptCatalog") prompts.value = next; if (activeView.value === "resourceCatalog") catalogResources.value = next; if (activeView.value === "workflowTemplate") resources.value = next; }
+async function performSearch() {
+  const keyword = searchQuery.value.trim();
+  if (!keyword) {
+    await refreshCurrentView();
+    return;
+  }
+
+  if (activeView.value !== "overview") {
+    return;
+  }
+
+  loading.value = true;
+  try {
+    resources.value = ensureArray(await searchMcpResources({ query: keyword })).map(normalizeResource);
+  } catch (error) {
+    showToast(`搜索失败：${error?.message || String(error)}`, "error", 2800);
+  } finally {
+    loading.value = false;
+  }
+}
 
 function setActiveView(view) { activeView.value = view; selectedDetail.value = null; detailMissing.value = false; selectedKey.value = ""; debugResult.value = null; writeResult.value = null; refreshCurrentView(); }
 
@@ -299,6 +332,7 @@ onMounted(refreshCurrentView);
 .btn-primary { background: var(--primary, #00ffc8); color: #000; border-color: transparent; font-weight: 700; }
 .btn-secondary { background: rgba(255,255,255,0.06); color: var(--text-main, #f2fbf7); }
 .btn-secondary.active { border-color: var(--primary, #00ffc8); color: var(--primary, #00ffc8); }
+.btn-primary:disabled, .btn-secondary:disabled { opacity: 0.58; cursor: not-allowed; }
 .toolbar-toast { padding: 8px 12px; border-radius: 8px; font-size: 12px; border: 1px solid; }
 .toolbar-toast.info { background: rgba(59,130,246,0.14); border-color: rgba(59,130,246,0.4); color: #93c5fd; }
 .toolbar-toast.success { background: rgba(34,197,94,0.14); border-color: rgba(34,197,94,0.4); color: #86efac; }
