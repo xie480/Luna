@@ -374,6 +374,17 @@ export function usePlanGraphStore() {
       return;
     }
 
+    if (eventType.startsWith("PLAN_")) {
+      const fallbackStatus = eventType === "PLAN_BLUEPRINT_INVALID" ? "FAILED" : "RUNNING";
+      runtimeStatus.value = normalizePlanStatusTransition(
+        runtimeStatus.value,
+        p.status || fallbackStatus,
+        locked.value,
+      );
+      graph.value.lastSyncAt = nowTs();
+      return;
+    }
+
     if (eventType === "APPROVAL_REQUEST") {
       runtimeStatus.value = normalizePlanStatusTransition(runtimeStatus.value, "APPROVAL_PENDING", locked.value);
       graph.value.lastSyncAt = nowTs();

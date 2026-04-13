@@ -100,6 +100,10 @@
             <div class="detail-row"><label>说明</label><span>{{ selectedDetail.description || "-" }}</span></div>
           </div>
 
+          <div v-if="detailMissing" class="empty-state detail-empty warning">
+            资源详情不存在或已被移除，当前展示的是列表中的缓存信息。
+          </div>
+
           <SchemaViewer v-if="selectedDetail?.inputSchema" title="Input Schema" :schema="selectedDetail.inputSchema" />
           <SchemaViewer v-if="selectedDetail?.outputSchema" title="Output Schema" :schema="selectedDetail.outputSchema" />
           <SchemaViewer v-if="selectedDetail?.argumentsSchema" title="Arguments Schema" :schema="selectedDetail.argumentsSchema" />
@@ -161,7 +165,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
 import { callMcpRpc, callMcpTool, getMcpPrompt, getMcpResourceById, listMcpCatalogResources, listMcpPrompts, listMcpResources, listMcpTools, readMcpCatalogResource, saveMcpPromptCatalog, saveMcpResourceCatalog, saveMcpServerRegistry, saveMcpToolCatalog, saveMcpToolImplMapping, saveWorkflowTemplate, searchMcpResources, syncMcpCatalog } from "../api/index.js";
-import { ensureArray, isNumericId, normalizeResource, safeJsonParse, stringifyPretty, toJsonPayload, toJsonString } from "../utils/data-utils.js";
+import { ensureArray, normalizeResource, safeJsonParse, stringifyPretty, toJsonPayload, toJsonString } from "../utils/data-utils.js";
 import FloatingPanelShell from "./common/FloatingPanelShell.vue";
 import JsonPreviewBlock from "./common/JsonPreviewBlock.vue";
 import SchemaViewer from "./common/SchemaViewer.vue";
@@ -193,6 +197,7 @@ const tools = ref([]);
 const prompts = ref([]);
 const catalogResources = ref([]);
 const selectedDetail = ref(null);
+const detailMissing = ref(false);
 const selectedKey = ref("");
 const debugResult = ref(null);
 const writeResult = ref(null);
@@ -241,11 +246,27 @@ async function refreshCurrentView() {
 
 async function performSearch() { if (!searchQuery.value.trim()) return refreshCurrentView(); if (activeView.value === "overview") { loading.value = true; try { resources.value = ensureArray(await searchMcpResources({ query: searchQuery.value.trim() })).map(normalizeResource); } catch (error) { showToast(`搜索失败：${error?.message || String(error)}`, "error", 2800); } finally { loading.value = false; } return; } const keyword = searchQuery.value.trim().toLowerCase(); const next = displayList.value.filter((item) => [getItemTitle(item), item.description, item.serverCode, item.resourceUri].filter(Boolean).some((part) => String(part).toLowerCase().includes(keyword))); if (activeView.value === "toolCatalog" || activeView.value === "implMapping") tools.value = next; if (activeView.value === "promptCatalog") prompts.value = next; if (activeView.value === "resourceCatalog") catalogResources.value = next; if (activeView.value === "workflowTemplate") resources.value = next; }
 
-function setActiveView(view) { activeView.value = view; selectedDetail.value = null; selectedKey.value = ""; debugResult.value = null; writeResult.value = null; refreshCurrentView(); }
+function setActiveView(view) { activeView.value = view; selectedDetail.value = null; detailMissing.value = false; selectedKey.value = ""; debugResult.value = null; writeResult.value = null; refreshCurrentView(); }
 
 async function handleSelect(item) {
   selectedKey.value = getItemKey(item);
-  selectedDetail.value = activeView.value === "overview" && isNumericId(item.id) ? normalizeResource(await getMcpResourceById(item.id).catch(() => item)) : item;
+  detailMissing.value = false;
+  selectedDetail.value = item;
+
+  if (activeView.value === "overview" && item?.id !== undefined && item?.id !== null && item?.id !== "") {
+    try {
+      const detail = await getMcpResourceById(String(item.id));
+      if (!detail || (typeof detail === "object" && Object.keys(detail).length === 0)) {
+        detailMissing.value = true;
+        selectedDetail.value = normalizeResource(item);
+      } else {
+        selectedDetail.value = normalizeResource(detail);
+      }
+    } catch {
+      selectedDetail.value = normalizeResource(item);
+    }
+  }
+
   if (showToolDebug.value) { toolCallForm.serverCode = item.serverCode || ""; toolCallForm.toolName = item.toolName || item.name || ""; writeEditors.toolCatalog = stringifyPretty({ serverCode: item.serverCode || "", toolName: item.toolName || item.name || "", title: item.title || item.name || "", description: item.description || "", inputSchema: safeJsonParse(item.inputSchema, {}), outputSchema: safeJsonParse(item.outputSchema, {}), version: item.version || "", requiresApproval: !!item.requiresApproval, sensitivity: item.sensitivity || "", enabled: true }); writeEditors.implMapping = stringifyPretty({ serverCode: item.serverCode || "", toolName: item.toolName || item.name || "", implType: "LOCAL_HANDLER", executionMode: "MCP", beanName: "", methodName: "", routeUri: "", timeoutMs: 30000, retryPolicy: {}, enabled: true }); }
   if (showPromptDebug.value) { promptDebugForm.serverCode = item.serverCode || ""; promptDebugForm.promptName = item.promptName || item.name || ""; writeEditors.promptCatalog = stringifyPretty({ serverCode: item.serverCode || "", promptName: item.promptName || item.name || "", title: item.title || item.name || "", description: item.description || "", argumentsSchema: safeJsonParse(item.argumentsSchema, {}), version: item.version || "", enabled: true }); }
   if (showResourceRead.value) { resourceDebugForm.serverCode = item.serverCode || ""; resourceDebugForm.resourceUri = item.resourceUri || item.name || ""; writeEditors.resourceCatalog = stringifyPretty({ serverCode: item.serverCode || "", resourceUri: item.resourceUri || item.name || "", name: item.name || "", description: item.description || "", mimeType: item.mimeType || "", annotations: item.annotations || {}, enabled: true }); }
@@ -310,6 +331,7 @@ onMounted(refreshCurrentView);
 .code-input.tall { min-height: 220px; }
 .empty-state { padding: 24px 14px; text-align: center; color: var(--text-dim, #8ea3b2); font-size: 12px; }
 .detail-empty { border: 1px dashed color-mix(in oklab, var(--border, rgba(255,255,255,0.08)) 48%, transparent); border-radius: 10px; }
+.detail-empty.warning { color: #fcd34d; border-color: rgba(245,158,11,0.3); background: rgba(245,158,11,0.08); }
 .card-list::-webkit-scrollbar, .row-list::-webkit-scrollbar, .detail-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
 .card-list::-webkit-scrollbar-thumb, .row-list::-webkit-scrollbar-thumb, .detail-scroll::-webkit-scrollbar-thumb { background: linear-gradient(180deg, color-mix(in oklab, var(--primary, #00ffc8) 45%, transparent), color-mix(in oklab, var(--primary-2, #00aaff) 45%, transparent)); border-radius: 999px; }
 .toast-fade-enter-active, .toast-fade-leave-active { transition: opacity 0.2s ease, transform 0.2s ease; }

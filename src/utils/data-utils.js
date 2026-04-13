@@ -89,6 +89,8 @@ export function pickTextMessage(value) {
     value.text ||
     value.content ||
     value.answer ||
+    value.raw ||
+    value.rawResult ||
     value.error ||
     value.reason ||
     ""

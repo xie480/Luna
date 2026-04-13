@@ -63,6 +63,49 @@
             <div class="info-line"><span>keywordMatchAllowed</span><strong>{{ selectedCategoryDetail.keywordMatchAllowed ? 'true' : 'false' }}</strong></div>
             <div class="info-line"><span>executionCategory</span><strong>{{ selectedCategoryDetail.executionCategory ? 'true' : 'false' }}</strong></div>
           </div>
+
+          <div v-if="selectedCategoryKey" class="info-card preview-card">
+            <div class="card-title">分类轻量浏览</div>
+            <div v-if="categoryPreviewLoading" class="mini-empty">轻量数据加载中...</div>
+            <div v-else-if="categoryPreviewError" class="mini-empty error">{{ categoryPreviewError }}</div>
+            <template v-else>
+              <div v-if="categoryItemEntries.length" class="preview-group">
+                <div class="preview-head">
+                  <span>items</span>
+                  <small>{{ categoryItemEntries.length }} 条</small>
+                </div>
+                <button
+                  v-for="entry in categoryItemEntries"
+                  :key="`item-${entry.key}`"
+                  class="quick-item"
+                  @click="selectPrompt({ key: entry.key })"
+                >
+                  <strong>{{ entry.key }}</strong>
+                  <span>{{ entry.summary }}</span>
+                </button>
+              </div>
+
+              <div v-if="categoryKeyValueEntries.length" class="preview-group">
+                <div class="preview-head">
+                  <span>key-values</span>
+                  <small>{{ categoryKeyValueEntries.length }} 条</small>
+                </div>
+                <button
+                  v-for="entry in categoryKeyValueEntries"
+                  :key="`kv-${entry.key}`"
+                  class="quick-item"
+                  @click="selectPrompt({ key: entry.key })"
+                >
+                  <strong>{{ entry.key }}</strong>
+                  <span>{{ entry.summary }}</span>
+                </button>
+              </div>
+
+              <div v-if="!categoryItemEntries.length && !categoryKeyValueEntries.length" class="mini-empty">
+                当前分类暂无可浏览 Prompt
+              </div>
+            </template>
+          </div>
         </aside>
 
         <section class="pane list-pane">
@@ -121,7 +164,7 @@
               :key="item.key"
               class="list-card"
               :class="{ selected: selectedPromptKey === item.key }"
-              @click="selectPrompt(item.key)"
+              @click="selectPrompt(item)"
             >
               <div class="card-top">
                 <strong>{{ item.name || item.key }}</strong>
@@ -164,7 +207,7 @@
                 <span>category</span>
                 <select v-model="promptForm.category" class="field">
                   <option value="">请选择分类</option>
-                  <option v-for="item in categoryDetails" :key="item.categoryKey" :value="item.categoryKey">{{ item.categoryName || item.categoryKey }}</option>
+                  <option v-for="item in categoryOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
                 </select>
               </label>
               <label class="form-block">
@@ -416,15 +459,18 @@ import {
   activatePromptVersion,
   archivePromptVersion,
   checkPromptItemExists,
-  createPromptItem,
   deletePromptItem,
   deletePromptPolicy,
   diffPromptVersions,
   getPromptCategoryTree,
   getPromptItemDetail,
+  getPromptItemDetailById,
+  getPromptItemKeyValues,
   getPromptPolicyDetail,
   getPromptVersionDetail,
+  listPromptCategories,
   listPromptCategoryDetails,
+  listPromptItemsByCategory,
   listPromptPolicies,
   listPromptPolicyVersions,
   listPromptVersions,
@@ -432,9 +478,9 @@ import {
   previewPromptMatch,
   rollbackPromptVersion,
   savePromptDraft,
+  savePromptItem,
   savePromptPolicy,
   searchPromptItems,
-  updatePromptItem,
 } from "../api/index.js";
 import {
   ensureArray,
@@ -457,9 +503,14 @@ const initialX = window.innerWidth / 2 - 680;
 const initialY = window.innerHeight / 2 - 390;
 
 const mode = ref("prompt");
+const categoryKeys = ref([]);
 const categoryDetails = ref([]);
 const categoryTree = ref([]);
 const selectedCategoryKey = ref("");
+const categoryItemEntries = ref([]);
+const categoryKeyValueEntries = ref([]);
+const categoryPreviewLoading = ref(false);
+const categoryPreviewError = ref("");
 
 const promptFilters = reactive({
   category: "",
@@ -602,6 +653,30 @@ function flattenTree(nodes, depth = 0, parentCategoryKey = "") {
 
 const flatCategoryTree = computed(() => flattenTree(categoryTree.value));
 const categoryDetailMap = computed(() => Object.fromEntries(categoryDetails.value.map((item) => [item.categoryKey, item])));
+const categoryOptions = computed(() => {
+  const merged = new Map();
+
+  ensureArray(categoryKeys.value).forEach((key) => {
+    const normalizedKey = String(key || "").trim();
+    if (!normalizedKey) return;
+    const detail = categoryDetailMap.value[normalizedKey];
+    merged.set(normalizedKey, {
+      value: normalizedKey,
+      label: detail?.categoryName || normalizedKey,
+    });
+  });
+
+  ensureArray(categoryDetails.value).forEach((item) => {
+    const key = String(item?.categoryKey || "").trim();
+    if (!key) return;
+    merged.set(key, {
+      value: key,
+      label: item?.categoryName || key,
+    });
+  });
+
+  return Array.from(merged.values()).sort((a, b) => a.label.localeCompare(b.label));
+});
 const selectedCategoryDetail = computed(() => categoryDetailMap.value[selectedCategoryKey.value] || null);
 const promptHasMore = computed(() => promptList.value.length >= Number(promptFilters.pageSize || 20));
 const refreshButtonText = computed(() => {
@@ -623,6 +698,27 @@ function normalizeFilterBoolean(value) {
   return undefined;
 }
 
+function toPreviewText(value, limit = 72) {
+  const raw = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!raw) return "暂无内容";
+  return raw.length > limit ? `${raw.slice(0, limit)}...` : raw;
+}
+
+function normalizePromptEntryList(input) {
+  if (!input || typeof input !== "object") return [];
+
+  return Object.entries(input)
+    .map(([key, value]) => {
+      const rawValue = typeof value === "string" ? value : stringifyPretty(value, "");
+      return {
+        key,
+        value: rawValue,
+        summary: toPreviewText(rawValue),
+      };
+    })
+    .sort((a, b) => a.key.localeCompare(b.key));
+}
+
 function getCategorySeed() {
   const current = flatCategoryTree.value.find((item) => item.categoryKey === selectedCategoryKey.value);
   if (!current) return { category: "", subCategory: "" };
@@ -632,13 +728,73 @@ function getCategorySeed() {
   return { category: current.categoryKey, subCategory: "" };
 }
 
+function getCategoryBrowseScope(categoryKey = selectedCategoryKey.value) {
+  if (!categoryKey) return null;
+  const current = flatCategoryTree.value.find((item) => item.categoryKey === categoryKey);
+  if (!current) return null;
+
+  if (current.parentCategoryKey) {
+    return {
+      category: current.parentCategoryKey,
+      subCategory: current.categoryKey,
+      keyValueCategory: current.parentCategoryKey,
+    };
+  }
+
+  return {
+    category: current.categoryKey,
+    subCategory: "",
+    keyValueCategory: current.categoryKey,
+  };
+}
+
 async function loadCategoryMeta() {
-  const [details, tree] = await Promise.all([
+  const [keys, details, tree] = await Promise.all([
+    listPromptCategories(),
     listPromptCategoryDetails(),
     getPromptCategoryTree(),
   ]);
+  categoryKeys.value = ensureArray(keys).map((item) => String(item));
   categoryDetails.value = ensureArray(details);
   categoryTree.value = ensureArray(tree);
+
+  if (selectedCategoryKey.value) {
+    await loadCategoryQuickLook(selectedCategoryKey.value);
+  }
+}
+
+async function loadCategoryQuickLook(categoryKey = selectedCategoryKey.value) {
+  const scope = getCategoryBrowseScope(categoryKey);
+  if (!scope) {
+    categoryItemEntries.value = [];
+    categoryKeyValueEntries.value = [];
+    categoryPreviewError.value = "";
+    return;
+  }
+
+  categoryPreviewLoading.value = true;
+  categoryPreviewError.value = "";
+
+  try {
+    const [itemsRes, keyValuesRes] = await Promise.all([
+      listPromptItemsByCategory({
+        category: scope.category,
+        subCategory: scope.subCategory || undefined,
+      }),
+      getPromptItemKeyValues({
+        category: scope.keyValueCategory,
+      }),
+    ]);
+
+    categoryItemEntries.value = normalizePromptEntryList(itemsRes?.items);
+    categoryKeyValueEntries.value = normalizePromptEntryList(keyValuesRes);
+  } catch (error) {
+    categoryItemEntries.value = [];
+    categoryKeyValueEntries.value = [];
+    categoryPreviewError.value = error?.message || "分类轻量数据加载失败";
+  } finally {
+    categoryPreviewLoading.value = false;
+  }
 }
 
 function buildPromptSearchPayload() {
@@ -704,6 +860,9 @@ function clearCategorySelection() {
   promptFilters.category = "";
   promptFilters.subCategory = "";
   promptFilters.pageNo = 1;
+  categoryItemEntries.value = [];
+  categoryKeyValueEntries.value = [];
+  categoryPreviewError.value = "";
   searchPrompts(true);
 }
 
@@ -717,6 +876,9 @@ function selectCategoryNode(node) {
     promptFilters.subCategory = "";
   }
   promptFilters.pageNo = 1;
+  loadCategoryQuickLook(node.categoryKey).catch((error) => {
+    categoryPreviewError.value = error?.message || "分类轻量数据加载失败";
+  });
   searchPrompts(true);
 }
 
@@ -764,8 +926,22 @@ async function selectPrompt(key) {
   }
 }
 
-async function updateSelectPrompt(key) {
-  const item = normalizePromptItem(await getPromptItemDetail({ key }));
+async function updateSelectPrompt(target) {
+  const key = typeof target === "string" ? target : target?.key;
+  const itemId = typeof target === "object" ? target?.itemId : "";
+
+  let item = {};
+  if (itemId) {
+    const detailById = normalizePromptItem(await getPromptItemDetailById({ id: itemId }));
+    if (detailById.key) {
+      item = detailById;
+    }
+  }
+
+  if (!item.key) {
+    item = normalizePromptItem(await getPromptItemDetail({ key }));
+  }
+
   selectedPromptKey.value = item.key || key;
   isCreatingPrompt.value = false;
   applyPromptToForm(item);
@@ -845,13 +1021,17 @@ async function savePromptAction() {
     if (isCreatingPrompt.value) {
       const exists = await checkPromptItemExists({ key: payload.key });
       if (exists?.exists) throw new Error("prompt key already exists");
-      await createPromptItem(payload);
-    } else {
-      await updatePromptItem(payload);
     }
 
-    await updateSelectPrompt(payload.key);
+    const savedItem = normalizePromptItem(await savePromptItem(payload));
+    await updateSelectPrompt({
+      key: savedItem.key || payload.key,
+      itemId: savedItem.itemId || "",
+    });
     await searchPrompts(false);
+    if (selectedCategoryKey.value) {
+      await loadCategoryQuickLook(selectedCategoryKey.value);
+    }
     if (promptDrawer.value === "versions") {
       await loadPromptVersions(payload.key);
     }
@@ -875,6 +1055,9 @@ async function deletePromptAction() {
     selectedVersionId.value = "";
     selectedVersionDetail.value = null;
     await searchPrompts(false);
+    if (selectedCategoryKey.value) {
+      await loadCategoryQuickLook(selectedCategoryKey.value);
+    }
   } catch (error) {
     showToast(error?.message || "Prompt 删除失败", "error", 3200);
   } finally {
@@ -1375,10 +1558,68 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
+.preview-card {
+  gap: 10px;
+}
+
 .info-line strong {
   color: var(--text-main, #eefaf5);
   font-size: 12px;
   font-weight: 600;
+}
+
+.preview-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-dim, #8fa5b3);
+  font-size: 11px;
+}
+
+.quick-item {
+  width: 100%;
+  text-align: left;
+  border-radius: 8px;
+  border: 1px solid color-mix(in oklab, var(--border, rgba(255, 255, 255, 0.08)) 48%, transparent);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-main, #e8fff8);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.quick-item strong {
+  font-size: 11px;
+}
+
+.quick-item span {
+  color: var(--text-dim, #b3c5cf);
+  font-size: 11px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.mini-empty {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px dashed color-mix(in oklab, var(--border, rgba(255, 255, 255, 0.08)) 48%, transparent);
+  color: var(--text-dim, #8ea3b2);
+  font-size: 11px;
+  text-align: center;
+}
+
+.mini-empty.error {
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.35);
 }
 
 .filters-grid,

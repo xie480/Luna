@@ -194,8 +194,6 @@ export function registerChatIpc() {
   ipcMain.handle("luna.api.chat.shutdown", async () => {
     console.log("[ChatIPC] IPC 'luna.api.chat.shutdown' invoked.");
 
-    await stopSSE();
-
     try {
       console.log("[ChatIPC] Calling backend chat shutdown endpoint...");
       await http.post("/luna/api/chat/shutdown");

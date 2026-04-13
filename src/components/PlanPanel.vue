@@ -36,6 +36,9 @@
               <span v-if="isRunning" class="btn-spinner"></span>
               {{ isRunning ? "执行中..." : "执行计划" }}
             </button>
+            <button class="btn-secondary" :disabled="!runtime.planId || reportActionLoading" @click="generateReport">
+              {{ reportButtonText }}
+            </button>
             <button class="btn-secondary" :disabled="!runtime.planId" @click="copyReportPath">
               复制报告路径
             </button>
@@ -59,6 +62,13 @@
           <span>更新时间：{{ formatTs(runtime.updatedAt) }}</span>
         </div>
 
+        <JsonPreviewBlock
+          v-if="actionResult !== null"
+          :title="actionResultTitle"
+          :value="actionResult"
+          :max-height="160"
+        />
+
         <div class="resizable-layout">
           <div
             class="graph card neon-card"
@@ -73,7 +83,16 @@
                   class="phase-lane"
                 >
                   <div class="phase-head">
-                    <div class="phase-name">{{ phase.name || phase.phaseId }}</div>
+                    <div class="phase-head-top">
+                      <div class="phase-name">{{ phase.name || phase.phaseId }}</div>
+                      <button
+                        class="mini-phase-btn"
+                        :disabled="!runtime.planId || phaseActionLoading === phase.phaseId"
+                        @click.stop="rerunPhase(phase.phaseId)"
+                      >
+                        {{ phaseActionLoading === phase.phaseId ? "重跑中..." : "重跑阶段" }}
+                      </button>
+                    </div>
                     <div class="phase-meta">
                       <span>#{{ phase.phaseOrder ?? "-" }}</span>
                       <span class="badge" :class="badgeClass(phase.status)">{{ phase.status || "PENDING" }}</span>
@@ -161,16 +180,22 @@
 
 <script setup>
 import { ref, computed, onBeforeUnmount } from "vue";
-import { planRun, openExternal } from "../api/index.js";
+import { openExternal, planFinalizeReport, planPhaseRun, planRun } from "../api/index.js";
+import JsonPreviewBlock from "./common/JsonPreviewBlock.vue";
 
 const props = defineProps({
   runtime: { type: Object, required: true },
   asyncEvents: { type: Array, default: () => [] },
 });
-const emit = defineEmits(["close", "mouseenter", "mouseleave", "run-created"]);
+const emit = defineEmits(["close", "mouseenter", "mouseleave", "run-created", "sync-requested"]);
 
 const userGoal = ref("");
 const isRunning = ref(false);
+const phaseActionLoading = ref("");
+const reportActionLoading = ref(false);
+const actionResult = ref(null);
+const actionResultTitle = ref("最近一次操作结果");
+const localReport = ref({ reportPath: "", reportUrl: "", finalStatus: "" });
 
 const feedback = ref({
   show: false,
@@ -350,6 +375,10 @@ const runtimeEdges = computed(() => {
   const edges = props.runtime?.edges;
   return Array.isArray(edges) ? edges : [];
 });
+const reportButtonText = computed(() => {
+  if (reportActionLoading.value) return "生成中...";
+  return getReportTarget() ? "补生成报告" : "生成报告";
+});
 
 function getNodesByPhase(phaseId) {
   return allNodes.value.filter((n) => n.phaseId === phaseId);
@@ -393,9 +422,35 @@ function summarizeOutput(v) {
   }
 }
 
+function extractReportInfo(payload) {
+  const source = payload?.reportResult ?? payload?.report ?? payload ?? {};
+  if (!source || typeof source !== "object") {
+    return { reportPath: "", reportUrl: "", finalStatus: "" };
+  }
+
+  return {
+    reportPath: source.reportPath || "",
+    reportUrl: source.reportUrl || "",
+    finalStatus: source.finalStatus || source.status || "",
+  };
+}
+
+function updateLocalReport(payload) {
+  const next = extractReportInfo(payload);
+  if (!next.reportPath && !next.reportUrl) return;
+
+  localReport.value = {
+    reportPath: next.reportPath || localReport.value.reportPath || "",
+    reportUrl: next.reportUrl || localReport.value.reportUrl || "",
+    finalStatus: next.finalStatus || localReport.value.finalStatus || "",
+  };
+}
+
 async function runPlan() {
   if (!userGoal.value.trim() || isRunning.value) return;
   isRunning.value = true;
+  localReport.value = { reportPath: "", reportUrl: "", finalStatus: "" };
+  actionResult.value = null;
   showFeedback("计划请求已发出，正在执行…", "info", 1800);
 
   try {
@@ -406,6 +461,7 @@ async function runPlan() {
       throw new Error("后端未返回 planId");
     }
 
+    updateLocalReport(data.reportResult || res?.reportResult || {});
     emit("run-created", { planId, runResponse: res });
     showFeedback("计划已创建，正在拉取图谱并订阅实时更新", "success", 2400);
   } catch (e) {
@@ -417,8 +473,62 @@ async function runPlan() {
 }
 
 function getReportTarget() {
-  const report = props.runtime?.report || {};
-  return report.reportUrl || report.reportPath || "";
+  return (
+    localReport.value.reportUrl ||
+    localReport.value.reportPath ||
+    props.runtime?.report?.reportUrl ||
+    props.runtime?.report?.reportPath ||
+    ""
+  );
+}
+
+async function rerunPhase(phaseId) {
+  if (!props.runtime?.planId || !phaseId || phaseActionLoading.value) return;
+
+  phaseActionLoading.value = phaseId;
+  showFeedback(`正在重跑阶段 ${phaseId}...`, "info", 1800);
+
+  try {
+    const result = await planPhaseRun({
+      planId: props.runtime.planId,
+      phaseId,
+    });
+    actionResultTitle.value = `阶段执行结果 / ${phaseId}`;
+    actionResult.value = result?.data ?? result ?? {};
+    emit("sync-requested", { planId: props.runtime.planId, immediate: true });
+    showFeedback(`阶段 ${phaseId} 已重新执行`, "success", 2400);
+  } catch (e) {
+    showFeedback(`阶段重跑失败：${e?.message || String(e)}`, "error", 3200);
+  } finally {
+    phaseActionLoading.value = "";
+  }
+}
+
+async function generateReport() {
+  if (!props.runtime?.planId || reportActionLoading.value) return;
+
+  reportActionLoading.value = true;
+  showFeedback("正在生成任务报告...", "info", 1800);
+
+  try {
+    const result = await planFinalizeReport({
+      planId: props.runtime.planId,
+    });
+    const data = result?.data ?? result ?? {};
+    updateLocalReport(data);
+    actionResultTitle.value = "报告生成结果";
+    actionResult.value = data;
+    emit("sync-requested", { planId: props.runtime.planId, immediate: true });
+    showFeedback(
+      data?.finalStatus ? `报告已生成：${data.finalStatus}` : "报告已生成",
+      "success",
+      2600,
+    );
+  } catch (e) {
+    showFeedback(`报告生成失败：${e?.message || String(e)}`, "error", 3200);
+  } finally {
+    reportActionLoading.value = false;
+  }
 }
 
 async function openReport() {
@@ -440,8 +550,12 @@ async function openReport() {
 }
 
 async function copyReportPath() {
-  const report = props.runtime?.report || {};
-  const text = report.reportPath || report.reportUrl || "";
+  const text =
+    localReport.value.reportPath ||
+    localReport.value.reportUrl ||
+    props.runtime?.report?.reportPath ||
+    props.runtime?.report?.reportUrl ||
+    "";
   if (!text) {
     showFeedback("暂无可复制的报告路径", "error", 1600);
     return;
@@ -741,6 +855,12 @@ onBeforeUnmount(() => {
   padding: 8px;
   border-bottom: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.08)) 45%, transparent);
 }
+.phase-head-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
 .phase-name {
   font-weight: bold;
   font-size: 13px;
@@ -757,6 +877,22 @@ onBeforeUnmount(() => {
   margin-top: 4px;
   font-size: 11px;
   color: var(--text-dim, #a7bac8);
+}
+.mini-phase-btn {
+  border-radius: 6px;
+  border: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.14)) 68%, transparent);
+  background: rgba(255,255,255,0.06);
+  color: var(--text-main, #eefaf5);
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.mini-phase-btn:hover:not(:disabled) {
+  border-color: var(--primary, #00ffc8);
+}
+.mini-phase-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 .phase-nodes {
   padding: 8px;

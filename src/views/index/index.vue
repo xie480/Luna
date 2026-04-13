@@ -146,6 +146,7 @@
         :asyncEvents="planAsyncEvents"
         @close="showPlan = false"
         @run-created="handlePlanCreated"
+        @sync-requested="handlePlanSyncRequest"
         @mouseenter="uiEnter"
         @mouseleave="uiLeave"
       />
@@ -503,6 +504,14 @@ const PLAN_EVENTS = new Set([
   "PLAN_NODE_FAILED",
   "PLAN_FINISHED",
   "PLAN_REPORT_READY",
+  "PLAN_FRONT_PROGRESS",
+  "PLAN_PHASE_PROGRESS",
+  "PLAN_CHECKPOINT_CREATED",
+  "PLAN_REPLANNED",
+  "PLAN_CODE_PATCH_READY",
+  "PLAN_TEST_RESULT",
+  "PLAN_BLUEPRINT_VALIDATED",
+  "PLAN_BLUEPRINT_INVALID",
 ]);
 
 const renderedTaskResultIds = new Set();
@@ -518,6 +527,10 @@ function rememberTaskResult(taskId) {
     const firstKey = renderedTaskResultIds.values().next().value;
     if (firstKey) renderedTaskResultIds.delete(firstKey);
   }
+}
+
+function handlePlanSyncRequest({ planId, immediate = true } = {}) {
+  schedulePlanSnapshotSync(planId || activePlanId, immediate);
 }
 
 function extractTaskResultPayload(data) {
@@ -825,7 +838,16 @@ async function handleModelReply(res) {
   if (typeof res === "string") {
     replyText = res;
   } else {
-    replyText = res.reply || res.text || res.message || res.content || res.answer || res.data || "";
+    replyText =
+      res.reply ||
+      res.text ||
+      res.message ||
+      res.content ||
+      res.answer ||
+      res.raw ||
+      res.rawResult ||
+      res.data ||
+      "";
     em = res.emotion || "";
     if (!replyText && typeof res === "object") {
       replyText = JSON.stringify(res);
