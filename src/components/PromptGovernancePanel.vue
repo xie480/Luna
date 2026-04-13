@@ -362,6 +362,7 @@
             <JsonPreviewBlock title="matchedItems" :value="previewResult?.matchedItems || []" :max-height="180" />
             <JsonPreviewBlock title="rejectedItems" :value="previewResult?.rejectedItems || []" :max-height="180" />
             <JsonPreviewBlock v-if="previewMode === 'assemble'" title="slotMapping" :value="previewResult?.slotMapping || {}" :max-height="180" />
+            <JsonPreviewBlock v-if="previewMode === 'assemble'" title="sectionMapping" :value="previewResult?.sectionMapping || {}" :max-height="180" />
             <JsonPreviewBlock v-if="previewMode === 'assemble'" title="assembled" :value="previewResult?.assembled || {}" :max-height="180" />
             <JsonPreviewBlock v-if="previewMode === 'assemble'" title="sectionAssembled" :value="previewResult?.sectionAssembled || {}" :max-height="180" />
             <JsonPreviewBlock v-if="previewMode === 'assemble'" title="filteredOutItems" :value="previewResult?.filteredOutItems || []" :max-height="180" />

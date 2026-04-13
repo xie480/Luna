@@ -5,14 +5,14 @@ function nowTs() {
   return Date.now();
 }
 
-function toObj(v) {
-  return v && typeof v === "object" ? v : {};
+function toObj(value) {
+  return value && typeof value === "object" ? value : {};
 }
 
-function normalizeStatus(s) {
-  const t = String(s || "").toUpperCase();
-  if (!t) return "PENDING";
-  return t;
+function normalizeStatus(status) {
+  const text = String(status || "").toUpperCase();
+  if (!text) return "PENDING";
+  return text;
 }
 
 function normalizePlanStatusTransition(prevStatus, nextStatus, locked) {
@@ -21,21 +21,84 @@ function normalizePlanStatusTransition(prevStatus, nextStatus, locked) {
 
   if (locked) return prev;
 
-  // 终态锁定：SUCCESS/FAILED 不应被 RUNNING 回退
-  const terminal = ["SUCCESS", "FAILED"];
+  const terminal = ["SUCCESS", "FAILED", "PARTIAL", "CANCELLED"];
   if (terminal.includes(prev) && next === "RUNNING") return prev;
 
   return next;
 }
 
 function normalizeNodeStatusTransition(prevStatus, nextStatus) {
-  const p = normalizeStatus(prevStatus);
-  const n = normalizeStatus(nextStatus);
+  const prev = normalizeStatus(prevStatus);
+  const next = normalizeStatus(nextStatus);
 
-  if (p === "SUCCESS" && n === "RUNNING") return p;
-  if (p === "FAILED" && n === "RUNNING") return p;
+  if (prev === "SUCCESS" && next === "RUNNING") return prev;
+  if (prev === "FAILED" && next === "RUNNING") return prev;
 
-  return n;
+  return next;
+}
+
+function normalizeCount(value) {
+  const count = Number(value);
+  return Number.isFinite(count) ? count : 0;
+}
+
+function buildNodeStatsFromNodes(nodes) {
+  const stats = {};
+
+  Object.values(nodes || {}).forEach((node) => {
+    const status = normalizeStatus(node?.status || "PENDING");
+    stats[status] = (stats[status] || 0) + 1;
+  });
+
+  return stats;
+}
+
+function normalizeNodeStats(nodeStats, nodes = {}) {
+  if (!nodeStats || typeof nodeStats !== "object") {
+    return buildNodeStatsFromNodes(nodes);
+  }
+
+  const stats = {};
+  Object.entries(nodeStats).forEach(([status, count]) => {
+    stats[normalizeStatus(status)] = normalizeCount(count);
+  });
+
+  return stats;
+}
+
+function pickFinalStatus(payload) {
+  const candidates = [
+    payload?.finalStatus,
+    payload?.report?.finalStatus,
+    payload?.reportResult?.finalStatus,
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate !== undefined && candidate !== null && String(candidate).trim()) {
+      return normalizeStatus(candidate);
+    }
+  }
+
+  const rawStatus = String(payload?.status || "").trim();
+  if (!rawStatus) return "";
+
+  const normalized = normalizeStatus(rawStatus);
+  return ["SUCCESS", "FAILED", "PARTIAL", "CANCELLED"].includes(normalized) ? normalized : "";
+}
+
+function pickReportInfo(payload) {
+  const candidates = [payload, payload?.report, payload?.reportResult];
+
+  for (const item of candidates) {
+    if (!item || typeof item !== "object") continue;
+    const reportPath = item.reportPath || "";
+    const reportUrl = item.reportUrl || "";
+    if (reportPath || reportUrl) {
+      return { reportPath, reportUrl };
+    }
+  }
+
+  return { reportPath: "", reportUrl: "" };
 }
 
 function normalizeSnapshot(snapshot, planIdHint = "") {
@@ -44,44 +107,44 @@ function normalizeSnapshot(snapshot, planIdHint = "") {
 
   const phases = {};
   const nodes = {};
-  let edges = [];
+  const rawEdges = Array.isArray(data.edges) ? data.edges : [];
 
   const phaseList = Array.isArray(data.phases) ? data.phases : [];
   const nodeList = Array.isArray(data.nodes) ? data.nodes : [];
-  const rawEdges = Array.isArray(data.edges) ? data.edges : [];
 
-  phaseList.forEach((p, idx) => {
-    const phaseId = p.phaseId || p.id || `phase-${idx + 1}`;
+  phaseList.forEach((phase, index) => {
+    const phaseId = phase.phaseId || phase.id || `phase-${index + 1}`;
     phases[phaseId] = {
       phaseId,
-      phaseOrder: p.phaseOrder ?? p.order ?? idx,
-      name: p.name || phaseId,
-      status: normalizeStatus(p.status || "PENDING"),
-      successCount: p.successCount ?? 0,
-      failCount: p.failCount ?? 0,
-      nodeIds: Array.isArray(p.nodeIds) ? p.nodeIds.slice() : [],
-      lastEventTs: p.timestamp || p.updatedAt || 0,
+      phaseOrder: phase.phaseOrder ?? phase.order ?? index,
+      name: phase.name || phaseId,
+      status: normalizeStatus(phase.status || "PENDING"),
+      successCount: phase.successCount ?? 0,
+      failCount: phase.failCount ?? 0,
+      nodeIds: Array.isArray(phase.nodeIds) ? phase.nodeIds.slice() : [],
+      lastEventTs: phase.timestamp || phase.updatedAt || 0,
     };
   });
 
-  nodeList.forEach((n, idx) => {
-    const nodeId = n.nodeId || n.id || `node-${idx + 1}`;
-    const phaseId = n.phaseId || n.phase || "unknown-phase";
+  nodeList.forEach((node, index) => {
+    const nodeId = node.nodeId || node.id || `node-${index + 1}`;
+    const phaseId = node.phaseId || node.phase || "unknown-phase";
+
     nodes[nodeId] = {
       nodeId,
       phaseId,
-      nodeName: n.nodeName || n.name || nodeId,
-      skillName: n.skillName || n.nodeName || n.name || "unknown-node",
-      nodeType: n.nodeType || "",
-      status: normalizeStatus(n.status || "PENDING"),
-      failReason: n.failReason || "",
-      errorCode: n.errorCode || "",
-      retryCount: n.retryCount ?? 0,
-      costMs: n.costMs ?? 0,
-      outputForNext: n.outputForNext ?? {},
-      message: n.message || "",
-      timestamp: n.timestamp || n.updatedAt || 0,
-      lastEventTs: n.timestamp || n.updatedAt || 0,
+      nodeName: node.nodeName || node.name || nodeId,
+      skillName: node.skillName || node.nodeName || node.name || "unknown-node",
+      nodeType: node.nodeType || "",
+      status: normalizeStatus(node.status || "PENDING"),
+      failReason: node.failReason || "",
+      errorCode: node.errorCode || "",
+      retryCount: node.retryCount ?? 0,
+      costMs: node.costMs ?? 0,
+      outputForNext: node.outputForNext ?? {},
+      message: node.message || "",
+      timestamp: node.timestamp || node.updatedAt || 0,
+      lastEventTs: node.timestamp || node.updatedAt || 0,
     };
 
     if (!phases[phaseId]) {
@@ -96,20 +159,23 @@ function normalizeSnapshot(snapshot, planIdHint = "") {
         lastEventTs: 0,
       };
     }
+
     if (!phases[phaseId].nodeIds.includes(nodeId)) {
       phases[phaseId].nodeIds.push(nodeId);
     }
   });
 
-  edges = rawEdges.map((e, idx) => ({
-    fromNodeId: e.fromNodeId || e.from || e.source || `unknown-from-${idx}`,
-    toNodeId: e.toNodeId || e.to || e.target || `unknown-to-${idx}`,
-    conditionExpr: e.conditionExpr || "",
+  const edges = rawEdges.map((edge, index) => ({
+    fromNodeId: edge.fromNodeId || edge.from || edge.source || `unknown-from-${index}`,
+    toNodeId: edge.toNodeId || edge.to || edge.target || `unknown-to-${index}`,
+    conditionExpr: edge.conditionExpr || "",
   }));
 
   const phaseOrder = Object.values(phases)
-    .sort((a, b) => (a.phaseOrder ?? 0) - (b.phaseOrder ?? 0))
-    .map((p) => p.phaseId);
+    .sort((left, right) => (left.phaseOrder ?? 0) - (right.phaseOrder ?? 0))
+    .map((phase) => phase.phaseId);
+
+  const reportInfo = pickReportInfo(data);
 
   return {
     planId,
@@ -117,11 +183,16 @@ function normalizeSnapshot(snapshot, planIdHint = "") {
     phaseOrder,
     nodes,
     edges,
+    nodeStats: normalizeNodeStats(data.nodeStats, nodes),
+    planVersion: data.planVersion || data.version || "",
+    finalStatus: pickFinalStatus(data),
+    createdAt: data.createdAt || data.startTime || 0,
+    updatedAt: data.updatedAt || data.timestamp || 0,
     lastSyncAt: nowTs(),
     status: normalizeStatus(data.status || "RUNNING"),
     message: data.message || "",
-    reportPath: data.reportPath || "",
-    reportUrl: data.reportUrl || "",
+    reportPath: reportInfo.reportPath,
+    reportUrl: reportInfo.reportUrl,
   };
 }
 
@@ -132,11 +203,16 @@ export function usePlanGraphStore() {
     phaseOrder: [],
     nodes: {},
     edges: [],
+    nodeStats: {},
+    planVersion: "",
+    finalStatus: "",
+    createdAt: 0,
+    updatedAt: 0,
     lastSyncAt: 0,
   });
 
   const asyncEvents = ref([]);
-  const report = ref({ ready: false, reportPath: "", reportUrl: "" });
+  const report = ref({ ready: false, reportPath: "", reportUrl: "", finalStatus: "" });
   const runtimeStatus = ref("IDLE");
   const runtimeMessage = ref("");
   const errors = ref([]);
@@ -149,10 +225,15 @@ export function usePlanGraphStore() {
       phaseOrder: [],
       nodes: {},
       edges: [],
+      nodeStats: {},
+      planVersion: "",
+      finalStatus: "",
+      createdAt: 0,
+      updatedAt: 0,
       lastSyncAt: nowTs(),
     };
     asyncEvents.value = [];
-    report.value = { ready: false, reportPath: "", reportUrl: "" };
+    report.value = { ready: false, reportPath: "", reportUrl: "", finalStatus: "" };
     runtimeStatus.value = planId ? "RUNNING" : "IDLE";
     runtimeMessage.value = "";
     errors.value = [];
@@ -164,6 +245,39 @@ export function usePlanGraphStore() {
     locked.value = true;
   }
 
+  function refreshNodeStats() {
+    graph.value.nodeStats = buildNodeStatsFromNodes(graph.value.nodes);
+  }
+
+  function updatePlanMeta(payload) {
+    const meta = toObj(payload);
+    if (!meta || Object.keys(meta).length === 0) return;
+
+    const createdAt = meta.createdAt || meta.startTime || 0;
+    const updatedAt = meta.updatedAt || meta.timestamp || 0;
+    const planVersion = meta.planVersion || meta.version || "";
+    const finalStatus = pickFinalStatus(meta);
+    const nextReport = pickReportInfo(meta);
+
+    if (createdAt) graph.value.createdAt = createdAt;
+    if (updatedAt) graph.value.updatedAt = updatedAt;
+    if (planVersion) graph.value.planVersion = planVersion;
+    if (meta.nodeStats && typeof meta.nodeStats === "object") {
+      graph.value.nodeStats = normalizeNodeStats(meta.nodeStats, graph.value.nodes);
+    }
+    if (finalStatus) {
+      graph.value.finalStatus = finalStatus;
+    }
+    if (nextReport.reportPath || nextReport.reportUrl || finalStatus) {
+      report.value = {
+        ready: report.value.ready || !!nextReport.reportPath || !!nextReport.reportUrl,
+        reportPath: nextReport.reportPath || report.value.reportPath || "",
+        reportUrl: nextReport.reportUrl || report.value.reportUrl || "",
+        finalStatus: finalStatus || report.value.finalStatus || "",
+      };
+    }
+  }
+
   function replaceFromSnapshot(snapshot, planIdHint = "") {
     const next = normalizeSnapshot(snapshot, planIdHint);
     graph.value = {
@@ -172,18 +286,32 @@ export function usePlanGraphStore() {
       phaseOrder: next.phaseOrder,
       nodes: next.nodes,
       edges: next.edges,
+      nodeStats: next.nodeStats,
+      planVersion: next.planVersion,
+      finalStatus: next.finalStatus,
+      createdAt: next.createdAt,
+      updatedAt: next.updatedAt || next.lastSyncAt,
       lastSyncAt: next.lastSyncAt,
     };
 
-    runtimeStatus.value = normalizePlanStatusTransition(runtimeStatus.value, next.status, locked.value);
+    runtimeStatus.value = normalizePlanStatusTransition(
+      runtimeStatus.value,
+      next.finalStatus || next.status,
+      locked.value,
+    );
     runtimeMessage.value = next.message || runtimeMessage.value || "";
 
-    if (next.reportPath || next.reportUrl) {
+    if (next.reportPath || next.reportUrl || next.finalStatus) {
       report.value = {
-        ready: true,
-        reportPath: next.reportPath || "",
-        reportUrl: next.reportUrl || "",
+        ready: report.value.ready || !!next.reportPath || !!next.reportUrl,
+        reportPath: next.reportPath || report.value.reportPath || "",
+        reportUrl: next.reportUrl || report.value.reportUrl || "",
+        finalStatus: next.finalStatus || report.value.finalStatus || "",
       };
+    }
+
+    if (next.finalStatus) {
+      lockPlanFinalState(next.planId);
     }
   }
 
@@ -194,9 +322,9 @@ export function usePlanGraphStore() {
   }
 
   function ensurePhase(phaseId, phaseOrder = Number.MAX_SAFE_INTEGER) {
-    const g = graph.value;
-    if (!g.phases[phaseId]) {
-      g.phases[phaseId] = {
+    const currentGraph = graph.value;
+    if (!currentGraph.phases[phaseId]) {
+      currentGraph.phases[phaseId] = {
         phaseId,
         phaseOrder,
         name: phaseId,
@@ -206,20 +334,20 @@ export function usePlanGraphStore() {
         nodeIds: [],
         lastEventTs: 0,
       };
-      g.phaseOrder = Object.values(g.phases)
-        .sort((a, b) => (a.phaseOrder ?? 0) - (b.phaseOrder ?? 0))
-        .map((p) => p.phaseId);
+      currentGraph.phaseOrder = Object.values(currentGraph.phases)
+        .sort((left, right) => (left.phaseOrder ?? 0) - (right.phaseOrder ?? 0))
+        .map((phase) => phase.phaseId);
     }
   }
 
   function upsertNode(payload, statusHint = "") {
-    const g = graph.value;
-    const ts = payload.timestamp || nowTs();
-    const nodeId = payload.nodeId || `node-${ts}`;
+    const currentGraph = graph.value;
+    const timestamp = payload.timestamp || nowTs();
+    const nodeId = payload.nodeId || `node-${timestamp}`;
     const phaseId = payload.phaseId || "unknown-phase";
     ensurePhase(phaseId, payload.phaseOrder ?? Number.MAX_SAFE_INTEGER);
 
-    const prev = g.nodes[nodeId] || {
+    const previous = currentGraph.nodes[nodeId] || {
       nodeId,
       phaseId,
       nodeName: nodeId,
@@ -236,45 +364,47 @@ export function usePlanGraphStore() {
       lastEventTs: 0,
     };
 
-    if (prev.lastEventTs && ts < prev.lastEventTs) {
+    if (previous.lastEventTs && timestamp < previous.lastEventTs) {
       return;
     }
 
-    const nextStatus = statusHint || payload.status || prev.status;
-    const status = normalizeNodeStatusTransition(prev.status, nextStatus);
+    const status = normalizeNodeStatusTransition(previous.status, statusHint || payload.status || previous.status);
 
-    g.nodes[nodeId] = {
-      ...prev,
+    currentGraph.nodes[nodeId] = {
+      ...previous,
       phaseId,
-      nodeName: payload.nodeName || prev.nodeName || nodeId,
-      skillName: payload.skillName || payload.nodeName || prev.skillName || "unknown-node",
-      nodeType: payload.nodeType || prev.nodeType || "",
+      nodeName: payload.nodeName || previous.nodeName || nodeId,
+      skillName: payload.skillName || payload.nodeName || previous.skillName || "unknown-node",
+      nodeType: payload.nodeType || previous.nodeType || "",
       status,
-      failReason: payload.failReason ?? prev.failReason ?? "",
-      errorCode: payload.errorCode ?? prev.errorCode ?? "",
-      retryCount: payload.retryCount ?? prev.retryCount ?? 0,
-      costMs: payload.costMs ?? prev.costMs ?? 0,
-      outputForNext: payload.outputForNext ?? prev.outputForNext ?? {},
-      message: payload.message ?? prev.message ?? "",
-      timestamp: ts,
-      lastEventTs: ts,
+      failReason: payload.failReason ?? previous.failReason ?? "",
+      errorCode: payload.errorCode ?? previous.errorCode ?? "",
+      retryCount: payload.retryCount ?? previous.retryCount ?? 0,
+      costMs: payload.costMs ?? previous.costMs ?? 0,
+      outputForNext: payload.outputForNext ?? previous.outputForNext ?? {},
+      message: payload.message ?? previous.message ?? "",
+      timestamp,
+      lastEventTs: timestamp,
     };
 
-    if (!g.phases[phaseId].nodeIds.includes(nodeId)) {
-      g.phases[phaseId].nodeIds.push(nodeId);
+    if (!currentGraph.phases[phaseId].nodeIds.includes(nodeId)) {
+      currentGraph.phases[phaseId].nodeIds.push(nodeId);
     }
   }
 
   function applyEvent(eventPayload) {
-    const p = toObj(eventPayload);
-    const eventType = String(p.eventType || p.type || "").toUpperCase();
-    const planId = p.planId || graph.value.planId;
+    const payload = toObj(eventPayload);
+    const eventType = String(payload.eventType || payload.type || "").toUpperCase();
+    const planId = payload.planId || graph.value.planId;
+
     if (!planId && eventType.startsWith("PLAN_")) return;
 
     if (planId && !graph.value.planId) graph.value.planId = planId;
     if (planId && graph.value.planId !== planId) return;
 
-    if (p.message) runtimeMessage.value = String(p.message);
+    updatePlanMeta(payload);
+
+    if (payload.message) runtimeMessage.value = String(payload.message);
 
     if (eventType === "PLAN_CREATED") {
       runtimeStatus.value = normalizePlanStatusTransition(runtimeStatus.value, "RUNNING", locked.value);
@@ -283,20 +413,20 @@ export function usePlanGraphStore() {
     }
 
     if (eventType === "PLAN_PHASE_STARTED") {
-      const phaseId = p.phaseId || "unknown-phase";
-      ensurePhase(phaseId, p.phaseOrder ?? Number.MAX_SAFE_INTEGER);
+      const phaseId = payload.phaseId || "unknown-phase";
+      ensurePhase(phaseId, payload.phaseOrder ?? Number.MAX_SAFE_INTEGER);
 
       const phase = graph.value.phases[phaseId];
-      const ts = p.timestamp || nowTs();
-      if (!phase.lastEventTs || ts >= phase.lastEventTs) {
+      const timestamp = payload.timestamp || nowTs();
+      if (!phase.lastEventTs || timestamp >= phase.lastEventTs) {
         phase.status = "RUNNING";
-        phase.phaseOrder = p.phaseOrder ?? phase.phaseOrder;
-        phase.lastEventTs = ts;
+        phase.phaseOrder = payload.phaseOrder ?? phase.phaseOrder;
+        phase.lastEventTs = timestamp;
       }
 
       graph.value.phaseOrder = Object.values(graph.value.phases)
-        .sort((a, b) => (a.phaseOrder ?? 0) - (b.phaseOrder ?? 0))
-        .map((x) => x.phaseId);
+        .sort((left, right) => (left.phaseOrder ?? 0) - (right.phaseOrder ?? 0))
+        .map((phaseItem) => phaseItem.phaseId);
 
       runtimeStatus.value = normalizePlanStatusTransition(runtimeStatus.value, "RUNNING", locked.value);
       graph.value.lastSyncAt = nowTs();
@@ -304,61 +434,72 @@ export function usePlanGraphStore() {
     }
 
     if (eventType === "PLAN_NODE_RUNNING") {
-      upsertNode(p, "RUNNING");
+      upsertNode(payload, "RUNNING");
+      refreshNodeStats();
       runtimeStatus.value = normalizePlanStatusTransition(runtimeStatus.value, "RUNNING", locked.value);
       graph.value.lastSyncAt = nowTs();
       return;
     }
 
     if (eventType === "PLAN_NODE_SUCCESS") {
-      upsertNode(p, "SUCCESS");
-      const phaseId = p.phaseId || graph.value.nodes[p.nodeId]?.phaseId || "unknown-phase";
+      upsertNode(payload, "SUCCESS");
+      refreshNodeStats();
+
+      const phaseId = payload.phaseId || graph.value.nodes[payload.nodeId]?.phaseId || "unknown-phase";
       ensurePhase(phaseId);
       const phase = graph.value.phases[phaseId];
-      phase.successCount = p.successCount ?? phase.successCount ?? 0;
+      phase.successCount = payload.successCount ?? phase.successCount ?? 0;
+
       graph.value.lastSyncAt = nowTs();
       return;
     }
 
     if (eventType === "PLAN_NODE_FAILED") {
-      upsertNode(p, "FAILED");
-      const phaseId = p.phaseId || graph.value.nodes[p.nodeId]?.phaseId || "unknown-phase";
+      upsertNode(payload, "FAILED");
+      refreshNodeStats();
+
+      const phaseId = payload.phaseId || graph.value.nodes[payload.nodeId]?.phaseId || "unknown-phase";
       ensurePhase(phaseId);
       const phase = graph.value.phases[phaseId];
-      phase.failCount = p.failCount ?? phase.failCount ?? 0;
+      phase.failCount = payload.failCount ?? phase.failCount ?? 0;
 
-      errors.value = [{
-        nodeId: p.nodeId || "",
-        phaseId,
-        failReason: p.failReason || "",
-        errorCode: p.errorCode || "",
-        message: p.message || "",
-        timestamp: p.timestamp || nowTs(),
-      }, ...errors.value].slice(0, 100);
+      errors.value = [
+        {
+          nodeId: payload.nodeId || "",
+          phaseId,
+          failReason: payload.failReason || "",
+          errorCode: payload.errorCode || "",
+          message: payload.message || "",
+          timestamp: payload.timestamp || nowTs(),
+        },
+        ...errors.value,
+      ].slice(0, 100);
 
       graph.value.lastSyncAt = nowTs();
       return;
     }
 
     if (eventType === "PLAN_PHASE_FINISHED") {
-      const phaseId = p.phaseId || "unknown-phase";
-      ensurePhase(phaseId, p.phaseOrder ?? Number.MAX_SAFE_INTEGER);
+      const phaseId = payload.phaseId || "unknown-phase";
+      ensurePhase(phaseId, payload.phaseOrder ?? Number.MAX_SAFE_INTEGER);
+
       const phase = graph.value.phases[phaseId];
-      const ts = p.timestamp || nowTs();
-      if (!phase.lastEventTs || ts >= phase.lastEventTs) {
-        phase.status = normalizeStatus(p.status || "FINISHED");
-        phase.successCount = p.successCount ?? phase.successCount ?? 0;
-        phase.failCount = p.failCount ?? phase.failCount ?? 0;
-        phase.phaseOrder = p.phaseOrder ?? phase.phaseOrder;
-        phase.lastEventTs = ts;
+      const timestamp = payload.timestamp || nowTs();
+      if (!phase.lastEventTs || timestamp >= phase.lastEventTs) {
+        phase.status = normalizeStatus(payload.status || "FINISHED");
+        phase.successCount = payload.successCount ?? phase.successCount ?? 0;
+        phase.failCount = payload.failCount ?? phase.failCount ?? 0;
+        phase.phaseOrder = payload.phaseOrder ?? phase.phaseOrder;
+        phase.lastEventTs = timestamp;
       }
+
       graph.value.lastSyncAt = nowTs();
       return;
     }
 
     if (eventType === "PLAN_FINISHED") {
-      const next = normalizeStatus(p.status || "SUCCESS");
-      runtimeStatus.value = normalizePlanStatusTransition(runtimeStatus.value, next, false);
+      const nextStatus = normalizeStatus(payload.finalStatus || payload.status || graph.value.finalStatus || "SUCCESS");
+      runtimeStatus.value = normalizePlanStatusTransition(runtimeStatus.value, nextStatus, false);
       lockPlanFinalState(planId);
       graph.value.lastSyncAt = nowTs();
       return;
@@ -367,8 +508,9 @@ export function usePlanGraphStore() {
     if (eventType === "PLAN_REPORT_READY") {
       report.value = {
         ready: true,
-        reportPath: p.reportPath || report.value.reportPath || "",
-        reportUrl: p.reportUrl || report.value.reportUrl || "",
+        reportPath: payload.reportPath || report.value.reportPath || "",
+        reportUrl: payload.reportUrl || report.value.reportUrl || "",
+        finalStatus: pickFinalStatus(payload) || report.value.finalStatus || graph.value.finalStatus || "",
       };
       graph.value.lastSyncAt = nowTs();
       return;
@@ -378,7 +520,7 @@ export function usePlanGraphStore() {
       const fallbackStatus = eventType === "PLAN_BLUEPRINT_INVALID" ? "FAILED" : "RUNNING";
       runtimeStatus.value = normalizePlanStatusTransition(
         runtimeStatus.value,
-        p.status || fallbackStatus,
+        payload.status || fallbackStatus,
         locked.value,
       );
       graph.value.lastSyncAt = nowTs();
@@ -398,20 +540,20 @@ export function usePlanGraphStore() {
     }
 
     if (eventType === "SKILL_ASYNC_RESULT" || eventType === "WORKFLOW_ASYNC_RESULT") {
-      const evt = {
-        taskId: p.taskId || "",
-        skillName: p.skillName || p.workflowName || "",
-        workflowName: p.workflowName || p.skillName || "",
-        status: p.status || "",
-        success: !!p.success,
-        message: p.message || "",
-        errorCode: p.errorCode || "",
-        error: p.error || "",
-        result: p.result,
-        costMs: p.costMs,
-        timestamp: p.timestamp || nowTs(),
+      const asyncEvent = {
+        taskId: payload.taskId || "",
+        skillName: payload.skillName || payload.workflowName || "",
+        workflowName: payload.workflowName || payload.skillName || "",
+        status: payload.status || "",
+        success: !!payload.success,
+        message: payload.message || "",
+        errorCode: payload.errorCode || "",
+        error: payload.error || "",
+        result: payload.result,
+        costMs: payload.costMs,
+        timestamp: payload.timestamp || nowTs(),
       };
-      asyncEvents.value = [evt, ...asyncEvents.value].slice(0, 50);
+      asyncEvents.value = [asyncEvent, ...asyncEvents.value].slice(0, 50);
     }
   }
 
@@ -419,16 +561,19 @@ export function usePlanGraphStore() {
     return {
       planId: graph.value.planId,
       status: runtimeStatus.value,
+      finalStatus: graph.value.finalStatus || report.value.finalStatus || "",
       locked: locked.value,
       message: runtimeMessage.value,
-      createdAt: 0,
-      updatedAt: graph.value.lastSyncAt,
+      createdAt: graph.value.createdAt,
+      updatedAt: graph.value.updatedAt || graph.value.lastSyncAt,
       phases: graph.value.phases,
       nodes: graph.value.nodes,
       report: report.value,
       edges: graph.value.edges,
       errors: errors.value,
       phaseOrder: graph.value.phaseOrder,
+      nodeStats: graph.value.nodeStats,
+      planVersion: graph.value.planVersion,
     };
   }
 

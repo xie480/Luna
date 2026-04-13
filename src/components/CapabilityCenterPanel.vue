@@ -140,6 +140,7 @@
           <div v-if="showWriteEditor" class="panel-card">
             <div class="card-title">{{ writeTitle }}</div>
             <textarea v-model="writeEditor" class="field code-input tall" placeholder="按接口文档填写 JSON 载荷"></textarea>
+            <div class="helper-text">必填字段：{{ requiredFieldHint }}</div>
             <button class="btn-primary" :disabled="actionLoading" @click="saveWritePayload">提交写入</button>
           </div>
 
@@ -165,7 +166,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
 import { callMcpRpc, callMcpTool, getMcpPrompt, getMcpResourceById, listMcpCatalogResources, listMcpPrompts, listMcpResources, listMcpTools, readMcpCatalogResource, saveMcpPromptCatalog, saveMcpResourceCatalog, saveMcpServerRegistry, saveMcpToolCatalog, saveMcpToolImplMapping, saveWorkflowTemplate, searchMcpResources, syncMcpCatalog } from "../api/index.js";
-import { ensureArray, normalizeResource, safeJsonParse, stringifyPretty, toJsonPayload, toJsonString } from "../utils/data-utils.js";
+import { ensureArray, isNumericId, normalizeResource, safeJsonParse, stringifyPretty, toJsonPayload, toJsonString } from "../utils/data-utils.js";
 import FloatingPanelShell from "./common/FloatingPanelShell.vue";
 import JsonPreviewBlock from "./common/JsonPreviewBlock.vue";
 import SchemaViewer from "./common/SchemaViewer.vue";
@@ -220,7 +221,7 @@ const currentViewMeta = computed(() => navItems.find((item) => item.id === activ
 const serverOptions = computed(() => Array.from(new Set([...resources.value, ...tools.value, ...prompts.value, ...catalogResources.value].map((item) => item?.serverCode).filter(Boolean))).sort((a, b) => a.localeCompare(b)));
 const baseList = computed(() => activeView.value === "overview" ? resources.value : activeView.value === "toolCatalog" || activeView.value === "implMapping" ? tools.value : activeView.value === "promptCatalog" ? prompts.value : activeView.value === "resourceCatalog" ? catalogResources.value : activeView.value === "workflowTemplate" ? resources.value.filter((item) => item.type === "WORKFLOW") : activeView.value === "serverRegistry" ? serverOptions.value.map((code) => ({ id: code, name: code, type: "SERVER", serverCode: code, description: "从当前资源目录中提取的服务编码" })) : []);
 const displayList = computed(() => {
-  const list = baseList.value;
+  const list = baseList.value.filter((item) => matchesSelectedServer(item));
   const keyword = searchQuery.value.trim().toLowerCase();
 
   if (!keyword || activeView.value === "overview" || activeView.value === "rpc") {
@@ -239,8 +240,17 @@ const showPromptDebug = computed(() => activeView.value === "promptCatalog");
 const showResourceRead = computed(() => activeView.value === "resourceCatalog");
 const showWriteEditor = computed(() => ["toolCatalog", "promptCatalog", "resourceCatalog", "workflowTemplate", "serverRegistry", "implMapping"].includes(activeView.value));
 const writeTitleMap = { toolCatalog: "工具目录维护", promptCatalog: "Prompt 目录维护", resourceCatalog: "资源目录维护", workflowTemplate: "工作流模板维护", serverRegistry: "服务注册表维护", implMapping: "实现映射维护" };
+const writeRequiredFieldMap = {
+  toolCatalog: ["serverCode", "toolName"],
+  promptCatalog: ["serverCode", "promptName"],
+  resourceCatalog: ["serverCode", "resourceUri"],
+  workflowTemplate: ["workflowName"],
+  serverRegistry: ["serverCode"],
+  implMapping: ["serverCode", "toolName"],
+};
 const writeTitle = computed(() => writeTitleMap[activeView.value] || "目录维护");
 const writeEditor = computed({ get: () => writeEditors[activeView.value] || "", set: (value) => { if (writeEditors[activeView.value] !== undefined) writeEditors[activeView.value] = value; } });
+const requiredFieldHint = computed(() => (writeRequiredFieldMap[activeView.value] || []).join(" / ") || "请按接口文档填写");
 
 function showToast(text, type = "info", duration = 2400) { toast.text = text; toast.type = type; if (toastTimer) clearTimeout(toastTimer); toastTimer = setTimeout(() => { toast.text = ""; }, duration); }
 function getItemKey(item) { return String(item?.id ?? item?.toolName ?? item?.promptName ?? item?.resourceUri ?? item?.name ?? ""); }
@@ -249,11 +259,29 @@ function getItemType(item) { return item?.type || (activeView.value === "toolCat
 function normalizeDescriptor(item, type) { return { ...item, id: item?.id ?? item?.toolName ?? item?.promptName ?? item?.resourceUri ?? item?.name, type, name: item?.name || item?.title || item?.toolName || item?.promptName || item?.resourceUri || "", description: item?.description || "", serverCode: item?.serverCode || "", version: item?.version || "", inputSchema: item?.inputSchema ? stringifyPretty(item.inputSchema, "") : "", outputSchema: item?.outputSchema ? stringifyPretty(item.outputSchema, "") : "", argumentsSchema: item?.argumentsSchema ? stringifyPretty(item.argumentsSchema, "") : "", requiresApproval: !!item?.requiresApproval, sensitivity: item?.sensitivity || "", runMode: item?.runMode || "", resourceUri: item?.resourceUri || "" }; }
 function normalizeTagList(value) { return ensureArray(value).map((item) => String(item || "").trim()).filter(Boolean); }
 function parseSchemaValue(value) { return safeJsonParse(value, {}); }
+function assertRequiredWriteFields(payload) {
+  const requiredFields = writeRequiredFieldMap[activeView.value] || [];
+
+  const missingFields = requiredFields.filter((field) => {
+    const value = payload?.[field];
+    return value === undefined || value === null || String(value).trim() === "";
+  });
+
+  if (missingFields.length) {
+    throw new Error(`请填写必填字段：${missingFields.join(" / ")}`);
+  }
+}
+
+function matchesSelectedServer(item) {
+  const selected = serverCode.value.trim();
+  if (!selected || activeView.value === "rpc") return true;
+  return String(item?.serverCode || "").trim() === selected;
+}
 
 async function refreshCurrentView() {
   loading.value = true;
   try {
-    if (activeView.value === "overview" || activeView.value === "workflowTemplate") resources.value = ensureArray(await listMcpResources()).map(normalizeResource);
+    if (["overview", "workflowTemplate", "serverRegistry"].includes(activeView.value)) resources.value = ensureArray(await listMcpResources()).map(normalizeResource);
     if (activeView.value === "toolCatalog" || activeView.value === "implMapping") tools.value = ensureArray(await listMcpTools({ serverCode: serverCode.value || undefined })).map((item) => normalizeDescriptor(item, "TOOL"));
     if (activeView.value === "promptCatalog") prompts.value = ensureArray(await listMcpPrompts({ serverCode: serverCode.value || undefined })).map((item) => normalizeDescriptor(item, "PROMPT"));
     if (activeView.value === "resourceCatalog") catalogResources.value = ensureArray(await listMcpCatalogResources({ serverCode: serverCode.value || undefined })).map((item) => normalizeDescriptor(item, "RESOURCE"));
@@ -288,17 +316,25 @@ async function handleSelect(item) {
   detailMissing.value = false;
   selectedDetail.value = item;
 
-  if (activeView.value === "overview" && item?.id !== undefined && item?.id !== null && item?.id !== "") {
-    try {
-      const detail = await getMcpResourceById(String(item.id));
-      if (!detail || (typeof detail === "object" && Object.keys(detail).length === 0)) {
+  if (activeView.value === "overview") {
+    const cachedDetail = normalizeResource(item);
+    selectedDetail.value = cachedDetail;
+
+    if (!isNumericId(item?.id)) {
+      detailMissing.value = true;
+    } else {
+      try {
+        const detail = await getMcpResourceById(String(item.id));
+        if (!detail || (typeof detail === "object" && Object.keys(detail).length === 0)) {
+          detailMissing.value = true;
+          selectedDetail.value = cachedDetail;
+        } else {
+          selectedDetail.value = normalizeResource(detail);
+        }
+      } catch {
         detailMissing.value = true;
-        selectedDetail.value = normalizeResource(item);
-      } else {
-        selectedDetail.value = normalizeResource(detail);
+        selectedDetail.value = cachedDetail;
       }
-    } catch {
-      selectedDetail.value = normalizeResource(item);
     }
   }
 
@@ -313,7 +349,27 @@ async function handleSyncCatalog() { actionLoading.value = true; try { writeResu
 async function runToolCall() { if (!toolCallForm.toolName.trim()) return showToast("请先填写 toolName", "error"); actionLoading.value = true; try { debugResult.value = await callMcpTool({ serverCode: toolCallForm.serverCode || undefined, toolName: toolCallForm.toolName.trim(), argumentsJson: toJsonString(toolCallForm.argumentsJson, "{}") || "{}" }); } catch (error) { showToast(`工具调用失败：${error?.message || String(error)}`, "error", 3200); } finally { actionLoading.value = false; } }
 async function runPromptGet() { if (!promptDebugForm.promptName.trim()) return showToast("请先填写 promptName", "error"); actionLoading.value = true; try { debugResult.value = await getMcpPrompt({ serverCode: promptDebugForm.serverCode || undefined, promptName: promptDebugForm.promptName.trim(), argumentsJson: toJsonString(promptDebugForm.argumentsJson, "{}") || "{}" }); } catch (error) { showToast(`Prompt 试读失败：${error?.message || String(error)}`, "error", 3200); } finally { actionLoading.value = false; } }
 async function runResourceRead() { if (!resourceDebugForm.resourceUri.trim()) return showToast("请先填写 resourceUri", "error"); actionLoading.value = true; try { debugResult.value = await readMcpCatalogResource({ serverCode: resourceDebugForm.serverCode || undefined, resourceUri: resourceDebugForm.resourceUri.trim() }); } catch (error) { showToast(`资源读取失败：${error?.message || String(error)}`, "error", 3200); } finally { actionLoading.value = false; } }
-async function saveWritePayload() { actionLoading.value = true; try { const payload = toJsonPayload(writeEditor.value, {}); if (activeView.value === "toolCatalog") writeResult.value = await saveMcpToolCatalog(payload); if (activeView.value === "promptCatalog") writeResult.value = await saveMcpPromptCatalog(payload); if (activeView.value === "resourceCatalog") writeResult.value = await saveMcpResourceCatalog(payload); if (activeView.value === "workflowTemplate") writeResult.value = await saveWorkflowTemplate(payload); if (activeView.value === "serverRegistry") writeResult.value = await saveMcpServerRegistry(payload); if (activeView.value === "implMapping") writeResult.value = await saveMcpToolImplMapping(payload); showToast("目录写入成功，正在刷新当前视图", "success"); await refreshCurrentView(); } catch (error) { showToast(`提交失败：${error?.message || String(error)}`, "error", 3400); } finally { actionLoading.value = false; } }
+async function saveWritePayload() {
+  actionLoading.value = true;
+  try {
+    const payload = toJsonPayload(writeEditor.value, {});
+    assertRequiredWriteFields(payload);
+
+    if (activeView.value === "toolCatalog") writeResult.value = await saveMcpToolCatalog(payload);
+    if (activeView.value === "promptCatalog") writeResult.value = await saveMcpPromptCatalog(payload);
+    if (activeView.value === "resourceCatalog") writeResult.value = await saveMcpResourceCatalog(payload);
+    if (activeView.value === "workflowTemplate") writeResult.value = await saveWorkflowTemplate(payload);
+    if (activeView.value === "serverRegistry") writeResult.value = await saveMcpServerRegistry(payload);
+    if (activeView.value === "implMapping") writeResult.value = await saveMcpToolImplMapping(payload);
+
+    showToast("目录写入成功，正在刷新当前视图", "success");
+    await refreshCurrentView();
+  } catch (error) {
+    showToast(`提交失败：${error?.message || String(error)}`, "error", 3400);
+  } finally {
+    actionLoading.value = false;
+  }
+}
 async function runRpc() { actionLoading.value = true; try { debugResult.value = await callMcpRpc(toJsonPayload(rpcEditor.value, {})); } catch (error) { showToast(`RPC 调用失败：${error?.message || String(error)}`, "error", 3200); } finally { actionLoading.value = false; } }
 
 onMounted(refreshCurrentView);
@@ -359,6 +415,7 @@ onMounted(refreshCurrentView);
 .desc { margin: 0; font-size: 12px; color: var(--text-dim, #b2c3cc); line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .panel-card { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid color-mix(in oklab, var(--border, rgba(255,255,255,0.08)) 48%, transparent); border-radius: 10px; background: rgba(0,0,0,0.22); margin-bottom: 10px; }
 .card-title { color: var(--primary, #00ffc8); font-size: 12px; font-weight: 700; }
+.helper-text { margin-top: -2px; color: var(--text-dim, #8fa5b3); font-size: 11px; line-height: 1.5; }
 .detail-row { display: grid; grid-template-columns: 70px 1fr; gap: 10px; font-size: 12px; }
 .detail-row label { color: var(--text-dim, #8fa5b3); }
 .detail-row span { line-height: 1.55; word-break: break-word; }

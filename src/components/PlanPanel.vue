@@ -55,6 +55,11 @@
         </transition>
 
         <div class="summary card">
+          <span>Final: {{ effectiveFinalStatus }}</span>
+          <span>Phases: {{ orderedPhases.length }}</span>
+          <span>Nodes: {{ totalNodeCount }}</span>
+          <span>Node Stats: {{ nodeStatsSummary }}</span>
+          <span v-if="runtime.planVersion">Version: {{ runtime.planVersion }}</span>
           <span>计划ID：{{ runtime.planId || "-" }}</span>
           <span>状态：{{ runtime.status || "-" }}</span>
           <span>锁定：{{ runtime.locked ? "是" : "否" }}</span>
@@ -375,6 +380,29 @@ const runtimeEdges = computed(() => {
   const edges = props.runtime?.edges;
   return Array.isArray(edges) ? edges : [];
 });
+const effectiveFinalStatus = computed(() =>
+  localReport.value.finalStatus || props.runtime?.finalStatus || props.runtime?.report?.finalStatus || "-",
+);
+const totalNodeCount = computed(() => allNodes.value.length);
+const nodeStatsSummary = computed(() => {
+  const stats = props.runtime?.nodeStats;
+  if (!stats || typeof stats !== "object") return "-";
+
+  const order = ["RUNNING", "SUCCESS", "FAILED", "PENDING", "APPROVAL_PENDING", "PARTIAL", "CANCELLED"];
+  const entries = Object.entries(stats)
+    .filter(([, count]) => Number(count) > 0)
+    .sort(([left], [right]) => {
+      const leftIndex = order.indexOf(String(left).toUpperCase());
+      const rightIndex = order.indexOf(String(right).toUpperCase());
+      const safeLeft = leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex;
+      const safeRight = rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex;
+      if (safeLeft !== safeRight) return safeLeft - safeRight;
+      return String(left).localeCompare(String(right));
+    })
+    .map(([status, count]) => `${status}:${count}`);
+
+  return entries.length ? entries.join(" / ") : "-";
+});
 const reportButtonText = computed(() => {
   if (reportActionLoading.value) return "生成中...";
   return getReportTarget() ? "补生成报告" : "生成报告";
@@ -387,9 +415,9 @@ function getNodesByPhase(phaseId) {
 const statusDotClass = computed(() => {
   const s = String(props.runtime?.status || "").toUpperCase();
   if (["SUCCESS", "COMPLETED", "FINISHED", "REPORT_READY"].includes(s)) return "ok";
-  if (["FAILED", "ERROR"].includes(s)) return "err";
+  if (["FAILED", "ERROR", "CANCELLED"].includes(s)) return "err";
   if (["RUNNING", "THINKING"].includes(s)) return "run";
-  if (["APPROVAL_PENDING"].includes(s)) return "wait";
+  if (["APPROVAL_PENDING", "PARTIAL"].includes(s)) return "wait";
   return "";
 });
 
@@ -405,9 +433,9 @@ function formatTs(ts) {
 function badgeClass(status) {
   const s = String(status || "").toUpperCase();
   if (["SUCCESS", "COMPLETED", "FINISHED", "REPORT_READY"].includes(s)) return "ok";
-  if (["FAILED", "ERROR"].includes(s)) return "err";
+  if (["FAILED", "ERROR", "CANCELLED"].includes(s)) return "err";
   if (["RUNNING", "THINKING"].includes(s)) return "run";
-  if (["APPROVAL_PENDING"].includes(s)) return "wait";
+  if (["APPROVAL_PENDING", "PARTIAL"].includes(s)) return "wait";
   return "";
 }
 
@@ -437,7 +465,7 @@ function extractReportInfo(payload) {
 
 function updateLocalReport(payload) {
   const next = extractReportInfo(payload);
-  if (!next.reportPath && !next.reportUrl) return;
+  if (!next.reportPath && !next.reportUrl && !next.finalStatus) return;
 
   localReport.value = {
     reportPath: next.reportPath || localReport.value.reportPath || "",

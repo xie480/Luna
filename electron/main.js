@@ -161,8 +161,28 @@ ipcMain.handle("auth.logout", async () => {
     });
 });
 
-ipcMain.handle("luna.app.quit", () => {
+async function gracefullyCloseSessionForQuit() {
+  const token = getAuthToken();
+
+  if (token) {
+    try {
+      await http.post("/luna/api/chat/shutdown");
+    } catch (err) {
+      console.error("[App] Chat shutdown before quit failed:", getErrorMessage(err));
+    }
+  }
+
+  try {
+    await stopSSE();
+  } catch (err) {
+    console.error("[App] Stop SSE before quit failed:", err);
+  }
+}
+
+ipcMain.handle("luna.app.quit", async () => {
+  await gracefullyCloseSessionForQuit();
   app.quit();
+  return true;
 });
 
 ipcMain.handle("luna.window.setAlwaysOnTop", (event, flag) => {
