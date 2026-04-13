@@ -459,6 +459,7 @@ import {
   activatePromptVersion,
   archivePromptVersion,
   checkPromptItemExists,
+  createPromptItem,
   deletePromptItem,
   deletePromptPolicy,
   diffPromptVersions,
@@ -478,9 +479,9 @@ import {
   previewPromptMatch,
   rollbackPromptVersion,
   savePromptDraft,
-  savePromptItem,
   savePromptPolicy,
   searchPromptItems,
+  updatePromptItem,
 } from "../api/index.js";
 import {
   ensureArray,
@@ -609,6 +610,50 @@ const EXECUTION_ASSEMBLY_MODES = new Set([
 ]);
 
 const JAVA_IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+function splitPromptKey(key) {
+  const text = String(key || "").trim();
+  if (!text) {
+    return {
+      category: "",
+      subCategory: "",
+      name: "",
+      versionTag: "",
+      isValid: false,
+    };
+  }
+
+  const segments = text.split(".");
+  if (segments.length !== 3) {
+    return {
+      category: "",
+      subCategory: "",
+      name: "",
+      versionTag: "",
+      isValid: false,
+    };
+  }
+
+  const [category, subCategory, nameWithVersion] = segments;
+  const underscoreIndex = nameWithVersion.lastIndexOf("_");
+  if (underscoreIndex <= 0 || underscoreIndex >= nameWithVersion.length - 1) {
+    return {
+      category,
+      subCategory,
+      name: "",
+      versionTag: "",
+      isValid: false,
+    };
+  }
+
+  return {
+    category,
+    subCategory,
+    name: nameWithVersion.slice(0, underscoreIndex),
+    versionTag: nameWithVersion.slice(underscoreIndex + 1),
+    isValid: true,
+  };
+}
 
 function showToast(text, type = "info", duration = 2600) {
   toast.text = text;
@@ -1048,8 +1093,15 @@ function validatePromptPayload(payload) {
   if (!payload.category) throw new Error("category 不能为空");
   if (!payload.subCategory) throw new Error("subCategory 不能为空");
 
-  const parts = payload.key.split(".");
-  if (parts.length >= 2 && (parts[0] !== payload.category || parts[1] !== payload.subCategory)) {
+  const keyParts = splitPromptKey(payload.key);
+  if (isCreatingPrompt.value && !keyParts.isValid) {
+    throw new Error("key 必须匹配 {category}.{subCategory}.{name}_{versionTag}");
+  }
+
+  if (
+    keyParts.isValid &&
+    (keyParts.category !== payload.category || keyParts.subCategory !== payload.subCategory)
+  ) {
     throw new Error("key 前缀必须与 category / subCategory 一致");
   }
 
@@ -1135,12 +1187,15 @@ async function savePromptAction() {
     const payload = buildPromptPayload();
     validatePromptPayload(payload);
 
+    let savedItem = null;
     if (isCreatingPrompt.value) {
       const exists = await checkPromptItemExists({ key: payload.key });
       if (exists?.exists) throw new Error("prompt key already exists");
+      savedItem = normalizePromptItem(await createPromptItem(payload));
+    } else {
+      savedItem = normalizePromptItem(await updatePromptItem(payload));
     }
 
-    const savedItem = normalizePromptItem(await savePromptItem(payload));
     await updateSelectPrompt({
       key: savedItem.key || payload.key,
       itemId: savedItem.itemId || "",
@@ -1210,8 +1265,15 @@ async function savePromptDraftAction() {
   try {
     const payload = buildPromptPayload();
     validatePromptPayload(payload);
-    await savePromptDraft(payload);
+    const draftVersion = normalizePromptVersion(await savePromptDraft(payload));
     await loadPromptVersions(selectedPromptKey.value);
+    if (draftVersion.id) {
+      selectedVersionId.value = draftVersion.id;
+      selectedVersionDetail.value = draftVersion;
+      if (promptDrawer.value === "versions") {
+        await selectVersion(draftVersion.id);
+      }
+    }
     showToast("草稿版本已保存", "success");
   } catch (error) {
     showToast(error?.message || "草稿保存失败", "error", 3200);
