@@ -103,6 +103,17 @@ async function connectSSE(sender, isFirstAttempt = false) {
       scheduleReconnect(sender);
     });
 
+    try {
+      sender.send("luna:status-update", {
+        event: "SSE_CONNECTED",
+        data: {
+          connectedAt: Date.now(),
+        },
+      });
+    } catch (notifyError) {
+      console.error("[ChatIPC] Failed to notify stream ready:", notifyError);
+    }
+
     console.log("[ChatIPC] Stream setup complete.");
   } catch (error) {
     console.error("[ChatIPC] Connection failed:", error);

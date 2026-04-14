@@ -90,7 +90,7 @@
           </div>
 
           <div class="section quit-section">
-            <button class="quit-btn" @click="quitApp">退出应用</button>
+            <button class="quit-btn" @click="handleQuitApp">退出应用</button>
           </div>
         </div>
 
@@ -200,6 +200,7 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue';
 import { useTheme } from '../composables/useTheme';
+import { quitApp, setWindowAlwaysOnTop } from '../api/index.js';
 
 const props = defineProps([
   'core', 'model', 'appearance', 'rhythm',
@@ -314,10 +315,10 @@ function applyThemeSetting() { applyTheme(selectedTheme.value); }
 function applyFxSetting() { setUiFxEnabled(uiFxEnabledLocal.value); }
 function toggleSetupMode() { emit('toggle-setup'); }
 function toggleTrackingSetup() { emit('toggle-tracking-setup'); }
-function quitApp() { window.desktopApi?.quit?.(); }
+function handleQuitApp() { quitApp(); }
 
 const isAlwaysOnTop = ref(true);
-function toggleAlwaysOnTop() { window.desktopApi?.setAlwaysOnTop?.(isAlwaysOnTop.value); }
+function toggleAlwaysOnTop() { setWindowAlwaysOnTop(isAlwaysOnTop.value); }
 
 onMounted(async () => {
   uiFxEnabledLocal.value = uiFxEnabled.value;

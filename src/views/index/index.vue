@@ -1625,6 +1625,13 @@ onMounted(async () => {
       const { event, data } = normalizeSseEventPayload(rawPayload);
       const eventType = toUpperEventType(event, data);
 
+      if (eventType === "SSE_CONNECTED") {
+        if (activePlanId) {
+          schedulePlanSnapshotSync(activePlanId, true);
+        }
+        return;
+      }
+
       if (eventType === "APPROVAL_REQUEST") {
         const task = data?.payload ? data.payload : data;
         approvalTask.value = task ? normalizeApprovalTask(task) : null;

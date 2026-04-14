@@ -12,6 +12,10 @@ export const login = async (payload) => window.desktopApi.login(payload);
 
 export const logout = async () => window.desktopApi.logout();
 
+export const quitApp = async () => window.desktopApi.quit();
+
+export const setWindowAlwaysOnTop = async (flag) => window.desktopApi.setAlwaysOnTop(flag);
+
 export const queryKnowledgeBase = async (payload) => window.desktopApi.queryKnowledgeBase(payload);
 
 export const queryLog = async (payload) => window.desktopApi.queryLog(payload);

@@ -67,6 +67,7 @@
 
 <script setup>
 import { ref, onMounted, computed, nextTick, onBeforeUnmount } from 'vue';
+import { history as historyApi, historyDate as historyDateApi } from '../api/index.js';
 
 const emit = defineEmits(['close', 'mouseenter', 'mouseleave']);
 
@@ -203,7 +204,7 @@ async function fetchAvailableDates() {
   const ym = `${year}:${month}`;
 
   try {
-    const res = await window.desktopApi.historyDate(ym);
+    const res = await historyDateApi(ym);
     const formattedDates = (res || []).map(day => {
       const d = String(day).padStart(2, '0');
       return `${year}:${month}:${d}`;
@@ -250,7 +251,7 @@ async function selectDate(dateStr) {
   loading.value = true;
   messages.value = [];
   try {
-    const res = await window.desktopApi.history(dateStr);
+    const res = await historyApi(dateStr);
     messages.value = parseHistory(res);
     await nextTick();
     scrollToBottom();
@@ -270,7 +271,7 @@ function scrollToBottom() {
 onMounted(() => {
   fetchAvailableDates();
   const today = formatDateStr(new Date());
-  window.desktopApi.history(today).then(res => {
+  historyApi(today).then(res => {
     if (res && res.length > 0) {
       availableDates.value.add(today);
       selectDate(today);
@@ -314,7 +315,7 @@ defineExpose({
     selectedDate.value = today;
 
     try {
-      const res = await window.desktopApi.history(today);
+      const res = await historyApi(today);
       messages.value = parseHistory(res);
       await nextTick();
       scrollToBottom();
