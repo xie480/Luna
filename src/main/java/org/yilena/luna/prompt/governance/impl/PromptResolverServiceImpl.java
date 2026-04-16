@@ -72,6 +72,35 @@ public class PromptResolverServiceImpl implements PromptResolverService {
         this.runtimeSlotMapper = runtimeSlotMapper;
     }
 
+    // ... existing code ...
+
+    /**
+     * 解析提示词，根据上下文和策略匹配活跃的提示词项并生成可装配结果。
+     * <p>
+     * 该方法的主要流程包括：
+     * 1. 从策略服务获取包含和排除的提示词键集合
+     * 2. 遍历所有活跃的提示词项，执行匹配逻辑
+     * 3. 将未启用或不匹配的提示词加入拒绝列表，记录拒绝原因
+     * 4. 将匹配的提示词构建为ResolvedPromptItem，包含版本、优先级、槽位等元信息
+     * 5. 对匹配结果进行去重、按优先级排序
+     * 6. 映射运行时槽位，生成最终的槽位映射关系
+     * <p>
+     * 匹配过程受策略控制，policyIncludes和policyExcludes决定哪些提示词可以被选中。
+     * 最终结果包含匹配的提示词列表、拒绝的提示词列表和槽位映射，供后续组装使用。
+     *
+     * @param context 提示词解析上下文，包含：
+     *                - policyId: 策略ID，用于确定包含/排除规则
+     *                - userInput: 用户输入，用于关键词匹配
+     *                - sessionId: 会话ID，用于上下文关联
+     *                - personaId/sceneId: 角色ID和场景ID，用于精细化匹配
+     *                - agent/nodeKind/taskState: 代理、节点类型、任务状态，用于场景匹配
+     *                - modelFamily: 模型家族，用于模型特定的提示词选择
+     * @return PromptResolveResult 提示词解析结果，包含：
+     *         - matchedItems: 匹配成功的提示词列表（已去重、按优先级排序）
+     *         - rejectedItems: 被拒绝的提示词列表及拒绝原因
+     *         - slotMapping: 运行时槽位映射关系（变量名到值的映射）
+     *         - policyId: 应用的策略ID
+     */
     @Override
     public PromptResolveResult resolve(PromptResolveContext context) {
         /**
@@ -82,6 +111,8 @@ public class PromptResolverServiceImpl implements PromptResolverService {
         Set<String> policyExcludes = promptPolicyService.resolveExcludedPromptKeys(ctx.getPolicyId());
         List<ResolvedPromptItem> matched = new ArrayList<>();
         List<RejectedPromptItem> rejected = new ArrayList<>();
+
+        // 遍历所有活跃的提示词项，执行匹配逻辑并分类收集结果
         for (PromptItemRecord item : promptRegistryService.listAllActive()) {
             if (!item.isEnabled()) {
                 rejected.add(RejectedPromptItem.builder()
@@ -119,6 +150,7 @@ public class PromptResolverServiceImpl implements PromptResolverService {
                     .assemblerVersion(resolveAssemblerVersion())
                     .build());
         }
+
         /**
          * 匹配完成后依次做去重、优先级排序和运行时槽位映射，形成最终可装配结果。
          */
@@ -131,6 +163,9 @@ public class PromptResolverServiceImpl implements PromptResolverService {
                 .policyId(ctx.getPolicyId())
                 .build();
     }
+
+    // ... existing code ...
+
 
     private String resolveAssemblerVersion() {
         if (assemblerVersion == null || assemblerVersion.isBlank()) {

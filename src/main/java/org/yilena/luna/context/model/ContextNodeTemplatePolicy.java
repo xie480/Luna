@@ -77,8 +77,28 @@ public class ContextNodeTemplatePolicy {
         return forTaskNode(null, "", "");
     }
 
+    // ... existing code ...
+
     /**
      * 创建工具决策场景的上下文策略，重点保留工具证据和 MCP 线索。
+     * <p>
+     * 该策略针对工具选择和调用场景进行优化，主要特点包括：
+     * 1. 为MCP资源/提示词分配较高的token预算（2400），确保能力候选信息完整
+     * 2. 为工具证据分配较高预算（1800），保证工具语义分析结果充分展示
+     * 3. 保留完整的任务状态（2200）和近期交互上下文（1400），提供决策依据
+     * 4. 启用所有类型的记忆片段（工作记忆、运行时记忆、检索记忆、长时记忆）
+     * 5. 设置合理的记忆项数量限制，平衡信息完整性和token消耗
+     * <p>
+     * 此策略适用于需要智能选择工具或能力的节点，如工具路由、能力匹配等场景。
+     *
+     * @param currentNodeId 当前节点ID，用于标识正在执行工具决策的节点，可为空
+     * @return ContextNodeTemplatePolicy 配置好的工具决策策略对象，包含：
+     *         - nodeType/nodeKind/templateKey: 均设置为"TOOL_DECISION"
+     *         - promptAgent: 设置为"TOOL_DECISION_AGENT"
+     *         - currentNodeId: 传入的节点ID
+     *         - includeWorkingMemory/RuntimeMemory/RetrievedMemory/LongTermMemory: 全部启用
+     *         - max*Items: 各类型记忆的最大条目数（10/10/12/8）
+     *         - sectionBudgetOverrides: 各分区的token预算覆盖配置
      */
     public static ContextNodeTemplatePolicy forToolDecision(String currentNodeId) {
         Map<String, Integer> sectionOverrides = new LinkedHashMap<>();
@@ -104,6 +124,9 @@ public class ContextNodeTemplatePolicy {
                 .sectionBudgetOverrides(sectionOverrides)
                 .build();
     }
+
+    // ... existing code ...
+
 
     /**
      * 按任务阶段创建默认节点策略。

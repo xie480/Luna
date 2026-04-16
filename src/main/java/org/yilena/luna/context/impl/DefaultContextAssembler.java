@@ -120,6 +120,53 @@ public class DefaultContextAssembler implements ContextAssembler {
         );
     }
 
+    // ... existing code ...
+
+    /**
+     * 内部组装方法，负责整合所有上下文片段并生成最终的提示词。
+     * <p>
+     * 该方法的主要流程包括：
+     * 1. 统一节点模板策略，并按需补齐工具语义、轮次摘要和动态记忆
+     * 2. 构建各类候选片段池，包含知识证据、记忆提示、MCP资源等
+     * 3. 解析系统提示词与运行时提示词模板
+     * 4. 按固定语义分区装配上下文（任务状态、意图、知识、工具、记忆、约束等）
+     * 5. 应用提示词槽位映射，支持动态变量替换
+     * 6. 按预算裁剪分区内容，检测并修复语义一致性问题
+     * 7. 生成最终提示词并补充元数据（引用、策略版本、分区统计等）
+     * <p>
+     * 整个组装过程采用分层策略：先收集候选片段，再分区装配，最后按预算裁剪。
+     * 语义一致性保护机制会在裁剪后检查是否存在事实冲突，如有则回填保护约束并重新裁剪。
+     *
+     * @param contextPackage           结构化上下文包，包含会话历史、记忆、知识等完整上下文
+     * @param reconstructionResult     输入重构结果，包含规范化的用户意图和任务目标
+     * @param rerankResult             上下文重排结果，包含重排后的知识和记忆片段
+     * @param toolSemanticResult       工具语义结果，包含工具调用的语义分析信息
+     * @param userInput                用户输入文本，作为当前节点的执行目标
+     * @param knowledgeEvidenceBlocks  知识证据块列表，提供领域知识和历史参考
+     * @param workingMemorySnippets    工作记忆片段列表，包含短期工作状态信息
+     * @param runtimeMemorySnippets    运行时记忆片段列表，包含当前执行环境的记忆
+     * @param retrievedMemorySnippets  检索记忆片段列表，从记忆库中检索的相关片段
+     * @param knowledgeSnippets        知识片段列表，任务相关的领域知识
+     * @param preferenceSnippets       偏好片段列表，用户或系统的偏好设置
+     * @param longTermMemorySnippets   长时记忆片段列表，持久化的历史经验
+     * @param executionCandidates      执行候选能力列表，包含可用的工具、提示词、资源等
+     * @param mcpResourceHints         MCP资源提示列表，MCP协议相关的资源和工具提示
+     * @param toolContext              工具上下文字符串，预留的工具特定上下文
+     * @param nodeTemplatePolicy       节点模板策略，定义提示词的模板结构和变量规则
+     * @param roundSummaryInput        轮次摘要输入，前一轮执行的摘要信息
+     * @param sessionId                会话ID，用于上下文组装的会话关联
+     * @param planId                   计划ID，用于标识所属计划
+     * @param nodeId                   节点ID，用于标识所属节点
+     * @param preResolvedPromptAssembly 预解析的提示词组装结果，如果为空则自动解析
+     * @return AssembledContext 组装后的上下文物件，包含：
+     *         - prompt: 生成的完整提示词文本
+     *         - sections: 分区后的提示词段落映射
+     *         - canonicalSections: 规范化后的分区映射
+     *         - candidatePool: 候选片段池
+     *         - sectionTokenCounts: 各分区的token数量统计
+     *         - sectionTokenRatios: 各分区的token占比统计
+     *         - promptAssemblyMeta: 提示词组装元数据（引用、策略版本等）
+     */
     private AssembledContext assembleInternal(StructuredContextPackage contextPackage,
                                               InputReconstructionResult reconstructionResult,
                                               ContextRerankResult rerankResult,
@@ -156,8 +203,10 @@ public class DefaultContextAssembler implements ContextAssembler {
                 knowledgeEvidenceBlocks,
                 mcpResourceHints,
                 effectiveToolSemanticResult
-        )
+                )
                 : roundSummaryInput;
+
+        // 按需解析动态记忆，合并传入的记忆片段和按需获取的记忆片段
         OnDemandMemoryPayload onDemandMemory = resolveOnDemandMemory(
                 sessionId,
                 contextPackage,
@@ -170,11 +219,15 @@ public class DefaultContextAssembler implements ContextAssembler {
                 longTermMemorySnippets,
                 knowledgeEvidenceBlocks
         );
+
+        // 合并传入的记忆片段和按需获取的记忆片段，去重后作为最终有效的上下文片段
         List<String> effectiveWorkingMemorySnippets = mergeDistinct(workingMemorySnippets, onDemandMemory.workingMemorySnippets());
         List<String> effectiveRetrievedMemorySnippets = mergeDistinct(retrievedMemorySnippets, onDemandMemory.retrievedMemorySnippets());
         List<String> effectiveKnowledgeSnippets = mergeDistinct(knowledgeSnippets, onDemandMemory.knowledgeSnippets());
         List<String> effectivePreferenceSnippets = mergeDistinct(preferenceSnippets, onDemandMemory.preferenceSnippets());
         List<String> effectiveLongTermMemorySnippets = mergeDistinct(longTermMemorySnippets, onDemandMemory.longTermMemorySnippets());
+
+
         /**
          * 构建各类候选片段池，并解析系统提示词与运行时提示词，
          * 为后续分区装配和裁剪提供统一输入。
@@ -202,11 +255,9 @@ public class DefaultContextAssembler implements ContextAssembler {
         PromptValueSelection systemPromptSelection = resolveSystemPromptSelection(promptResolveResult);
         PromptValueSelection runtimePromptSelection = resolveRuntimePromptTemplateSelection(promptResolveResult);
         String systemPrompt = systemPromptSelection.value();
+
+        // 按固定语义分区装配上下文，确保模型能够分别读取不同维度的信息
         Map<String, List<String>> sections = new LinkedHashMap<>();
-        /**
-         * 按固定语义分区装配上下文，确保模型能够分别读取任务状态、知识证据、
-         * 工具线索、记忆提示和输出约束。
-         */
         sections.put("Instructions", lines(systemPrompt));
         sections.put("Current Task State", lines(buildCurrentTaskState(contextPackage, policy)));
         sections.put("Reconstructed User Intent", lines(buildReconstructedIntent(userInput, reconstructionResult)));
@@ -231,6 +282,8 @@ public class DefaultContextAssembler implements ContextAssembler {
                 candidatePool.getOrDefault("summary", List.of())
         ));
         sections.put("Output Constraints", buildOutputConstraints(policy, contextPackage, reconstructionResult, effectiveToolSemanticResult, effectiveRoundSummaryInput));
+
+        // 应用提示词槽位映射，支持动态变量替换
         PromptSectionAssemblerSupport.applyResolvedPromptSlots(
                 sections,
                 promptResolveResult == null ? Map.of() : promptResolveResult.getSlotMapping()
@@ -244,6 +297,8 @@ public class DefaultContextAssembler implements ContextAssembler {
                 sections,
                 sectionBudget(contextPackage == null ? Map.of() : contextPackage.getTokenBudgetPlan(), policy)
         );
+
+        // 如果检测到语义一致性违规，回填保护约束并重新裁剪
         if (pruneResult.getConsistencyViolations() != null && !pruneResult.getConsistencyViolations().isEmpty()) {
             List<String> outputConstraints = new ArrayList<>(pruneResult.getSections().getOrDefault("Output Constraints", List.of()));
             outputConstraints.add("semantic_consistency_guard=" + safe(pruneResult.getConsistencyViolations()));
@@ -254,11 +309,14 @@ public class DefaultContextAssembler implements ContextAssembler {
                     sectionBudget(contextPackage == null ? Map.of() : contextPackage.getTokenBudgetPlan(), policy)
             );
         }
+
+        // 生成最终提示词，合并分区内容和运行时提示词
         String prompt = toPrompt(
                 pruneResult.getSections(),
                 buildRuntimePromptInput(userInput, reconstructionResult),
                 runtimePromptSelection.value()
         );
+
         /**
          * 将裁剪后的分区转换为最终提示词，并补充提示词引用、策略版本和规范化分区元数据，
          * 便于后续审计、回放和问题定位。
@@ -271,6 +329,8 @@ public class DefaultContextAssembler implements ContextAssembler {
                 pruneResult.getSections(),
                 canonicalSections
         );
+
+        // 构建组装结果对象，包含提示词、分区、统计信息和元数据
         AssembledContext preSnapshotContext = AssembledContext.builder()
                 .prompt(prompt)
                 .sections(pruneResult.getSections())
@@ -292,6 +352,9 @@ public class DefaultContextAssembler implements ContextAssembler {
                 .snapshotId("")
                 .build();
     }
+
+    // ... existing code ...
+
 
     @Override
     /**
@@ -1114,6 +1177,28 @@ public class DefaultContextAssembler implements ContextAssembler {
         return sb.toString();
     }
 
+    // ... existing code ...
+
+    /**
+     * 解析提示词组装配置，根据上下文信息动态选择合适的提示词模板和变量。
+     * <p>
+     * 该方法的主要职责包括：
+     * 1. 构建提示词解析上下文，包含会话ID、用户输入、策略ID、角色ID、场景ID等信息
+     * 2. 调用PromptResolverService进行提示词解析，返回解析结果
+     * 3. 异常时静默失败返回null，保证组装流程不中断
+     * <p>
+     * 解析结果包含提示词模板、槽位映射、引用信息等，用于后续的提示词生成。
+     * 如果promptResolverService未配置或解析失败，则返回null使用默认模板。
+     *
+     * @param userInput       用户输入文本，作为提示词解析的输入内容
+     * @param contextPackage  结构化上下文包，用于提取会话ID、任务状态、策略ID等上下文信息
+     * @param policy          节点模板策略，用于确定提示词代理和节点类型
+     * @return PromptResolveResult 提示词解析结果，包含：
+     *         - 选中的提示词模板
+     *         - 槽位映射关系（变量名到值的映射）
+     *         - 提示词引用信息
+     *         如果promptResolverService为空或解析异常则返回null
+     */
     private PromptResolveResult resolvePromptAssembly(String userInput,
                                                       StructuredContextPackage contextPackage,
                                                       ContextNodeTemplatePolicy policy) {
@@ -1121,6 +1206,7 @@ public class DefaultContextAssembler implements ContextAssembler {
             return null;
         }
         try {
+            // 构建提示词解析上下文，整合所有影响提示词选择的因素
             PromptResolveContext context = PromptResolveContext.builder()
                     .sessionId(contextPackage == null ? "" : safe(contextPackage.getSessionId()))
                     .userInput(userInput)
@@ -1138,6 +1224,9 @@ public class DefaultContextAssembler implements ContextAssembler {
             return null;
         }
     }
+
+    // ... existing code ...
+
 
     private String resolvePromptAgent(ContextNodeTemplatePolicy policy) {
         if (policy != null && policy.getPromptAgent() != null && !policy.getPromptAgent().isBlank()) {

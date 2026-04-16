@@ -412,3 +412,34 @@
 ### 18.4 優缺點
 *   **優點**: 提供了極致的擬人化交互體驗，增強了用戶粘性。
 *   **缺點**: 需要極其複雜的 Prompt Engineering 調優。
+
+## 19. OpenClaw 上下文工程：链式上下文去除 & 蓝图驱动有向调度 (OpenClaw Context Engineering: Chain‑Free Blueprint‑Driven Directed Scheduling)
+
+### 19.1 技术栈
+* **技术栈**: Java, Spring Boot, PostgreSQL, LangChain4j, Graphlib
+
+### 19.2 亮点命名
+* **亮点命名**: 链式上下文拆解 + Blueprint‑驱动有向调度
+
+### 19.3 亮点说明
+- 传统实现中上下文通过单一路径 `prevContext + curResult` 串联，导致 token 累积、耦合度高、并行受限。
+- 引入 `ContextNode` 抽象，将每类加工（输入重构、RAG 检索、记忆读取、工具调用、摘要生成）封装为 **独立节点**，并在 `PlanBlueprint` 中以 **有向依赖** 方式组织。
+- `BlueprintPlanner` 根据任务目标、当前状态生成节点 DAG，`NodeScheduler` 对无依赖节点进行拓扑并行调度，执行完后将结果写入对应 `runtimeSlot`，`ContextAssembler` 仅负责 **节点结果聚合**，不再进行链式拼接。
+
+### 19.4 实现思路
+- 在 `StateDrivenContextPipelineImpl` 中新增 `ContextNode`（`nodeId`, `nodeKind`, `runtimeSlot`, `dependsOn[]`）与 `BlueprintPlanner`。
+- `BlueprintPlanner.plan(request)` 根据 `TaskState`、`RetrievalState`、`ToolState` 生成节点列表，例如 `INPUT_RECONSTRUCTION → {RAG, MEMORY} → TOOL_CALL → SUMMARY`，并持久化到 `plan_node` 表（`node_type` 对应 `nodeKind`）。
+- `NodeScheduler.execute(dag)` 使用拓扑排序识别可并行节点（如 RAG 与 Memory），通过线程池并发调用相应 Agent（`DefaultInputReconstructionAgent`, `RetrievalServiceImpl`, `ToolExecutionGateway`, `DefaultSummaryAgent`），节点完成后将 `ResultPackage` 写入 `ContextSnapshotStore`。
+- `ContextAssembler` 读取 `runtimeSlot`‑映射表直接填充 Section，避免逐层拼接产生的冗余 token。
+- `ContextSnapshot` 记录每个节点的输入/输出，实现 **细粒度审计** 与 **快速重跑**（仅重算受影响子图）。
+
+### 19.5 请求流程
+```
+User Query → BlueprintPlanner (生成 DAG) → NodeScheduler (拓扑并行执行) → ContextSnapshot (节点结果) → ContextAssembler (section 聚合) → Main Model → Output → State 更新
+```
+
+### 19.6 亮点价值
+- **显著降低 Token 消耗**：去除链式拼接，仅拼装最终节点结果，避免历史上下文累计。
+- **并行执行提升吞吐**：RAG、Memory、Tool 等独立节点可并发，整体响应时间降低 30%+。
+- **模块化可观测**：每个节点产出独立快照，支持细粒度回放、局部重规划和根因分析。
+- **蓝图驱动的灵活调度**：业务侧可通过 `PlanBlueprint` 调整节点依赖，实现复杂任务的自定义编排，无需改动核心调度代码。

@@ -96,6 +96,30 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         return createAndRunPlan(sessionId, userGoal, true);
     }
 
+    // ... existing code ...
+
+    /**
+     * 创建并执行计划的核心方法，负责从用户目标到最终执行的完整生命周期管理。
+     * <p>
+     * 该方法的主要流程包括：
+     * 1. 验证输入参数并编排蓝图输入上下文
+     * 2. 解析规划意图并重构有效目标
+     * 3. 创建计划实例并持久化
+     * 4. 调用 MasterPlanningService 生成全局蓝图并校验
+     * 5. 物化阶段和节点，构建执行图的边关系
+     * 6. 按阶段顺序执行，监控每个阶段的执行状态
+     * 7. 生成最终报告并回调通知
+     * <p>
+     * 整个过程中会持续发送事件通知和前端进度更新，确保执行过程可追踪。
+     * 任何阶段的失败都会触发相应的错误处理和状态回滚机制。
+     *
+     * @param sessionId      会话ID，用于关联用户会话上下文，不能为空或空白
+     * @param userGoal       用户原始目标描述，用于驱动计划生成，不能为空或空白
+     * @param callbackToChat 是否将最终结果回调发送到聊天服务，true表示需要回调
+     * @return JSON字符串，包含计划执行结果：
+     *         - 成功时返回包含planId、phaseResults、reportResult等信息的JSON
+     *         - 失败时返回包含status、errorCode、message的错误信息JSON
+     */
     @Override
     public String createAndRunPlan(String sessionId, String userGoal, boolean callbackToChat) {
         /**
@@ -103,29 +127,36 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
          */
         String planId = null;
         try {
+            // 验证输入参数的合法性
             if (sessionId == null || sessionId.isBlank()) {
                 return error("PLAN_INVALID_INPUT", "sessionId 不能為空");
             }
             if (userGoal == null || userGoal.isBlank()) {
                 return error("PLAN_INVALID_INPUT", "userGoal 不能為空");
             }
+
+            // 编排蓝图输入上下文，获取规划决策、重构结果、上下文包等关键信息
             BlueprintOrchestrationResult planInputContext = taskOrchestratorService().orchestrateBlueprintInput(sessionId, userGoal);
             OrchestrationDecision planningDecision = planInputContext == null ? null : planInputContext.getDecision();
             InputReconstructionResult reconstructionResult = planInputContext == null ? null : planInputContext.getReconstructionResult();
             StructuredContextPackage planningContextPackage = planInputContext == null ? null : planInputContext.getContextPackage();
             NodeWorksetResult planningNodeWorkset = planInputContext == null ? null : planInputContext.getNodeWorksetResult();
             BlueprintDraft blueprintDraft = planInputContext == null ? null : planInputContext.getBlueprintDraft();
+
+            // 解析规划意图并从重构结果中提取有效目标
             PlanningIntent planningIntent = parsePlanningIntent(userGoal);
             String effectiveGoal = resolveEffectiveGoal(reconstructionResult, blueprintDraft);
             if (effectiveGoal.isBlank()) {
                 return error("PLAN_RECONSTRUCTION_REQUIRED", "无法从输入重构得到明确任务目标，已拒绝使用原始 userGoal 直接生成蓝图");
             }
 
+            // 生成计划ID并创建计划实例
             planId = "plan-" + SnowflakeIdUtil.nextIdStr();
             int planVersion = 1;
 
             log.info("[Plan] 創建計劃, planId={}, sessionId={}, userGoal={}, effectiveGoal={}", planId, sessionId, userGoal, effectiveGoal);
 
+            // 构建计划实例对象，设置初始状态为PENDING
             PlanInstance instance = PlanInstance.builder()
                     .planId(planId)
                     .sessionId(sessionId)
@@ -146,12 +177,14 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     .build();
             planInstanceMapper.insert(instance);
 
+            // 发送计划创建事件和前端进度通知
             emitPlanEvent(planId, "", "", "PLAN_CREATED", "INFO",
                     Map.of("planId", planId, "sessionId", sessionId, "userGoal", userGoal, "effectiveGoal", effectiveGoal,
                             "planVersion", planVersion, "status", "PENDING",
                             "message", "計劃已創建", "timestamp", System.currentTimeMillis()));
             emitFrontProgress(planId, "PLAN_CREATED", "計劃已建立，正在生成藍圖", 0, 0, 0, 0);
 
+            // 调用主规划服务生成全局蓝图
             log.info("[Plan] 調用 MasterPlanningService 生成全局藍圖, planId={}", planId);
             Map<String, Object> blueprint = masterPlanningService.generateBlueprint(
                     planId,
@@ -162,6 +195,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     extractPlanningWorkflowHints(planningContextPackage, planningNodeWorkset, blueprintDraft)
             );
 
+            // 校验蓝图的合法性和完整性
             String validateErr = blueprintValidationService.validate(blueprint);
             if (validateErr != null) {
                 log.error("[Plan] 藍圖校驗失敗, planId={}, err={}", planId, validateErr);
@@ -171,6 +205,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 return error("PLAN_BLUEPRINT_INVALID", validateErr);
             }
 
+            // 保存蓝图到持久化存储
             String saveResult = planBlueprintTools.savePlanBlueprint(
                     planId, planVersion,
                     objectMapper.writeValueAsString(blueprint),
@@ -185,11 +220,14 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 return saveResult;
             }
 
+            // 物化阶段和节点，构建执行图的边关系
             materializePhasesAndNodes(planId, blueprint);
             buildEdgesFromBlueprint(planId, blueprint);
 
+            // 更新计划状态为RUNNING，开始执行
             updatePlanStatus(planId, PlanStatus.RUNNING, null);
 
+            // 加载有序的阶段列表并验证
             List<PlanPhase> orderedPhases = loadOrderedPhases(planId);
             if (orderedPhases.isEmpty()) {
                 log.error("[Plan] 未找到可執行階段, planId={}", planId);
@@ -198,6 +236,8 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 emitFrontProgress(planId, "PLAN_FAILED", "未找到可執行階段", 0, 0, 0, 0);
                 return error("PLAN_PHASE_EMPTY", "未找到可執行階段");
             }
+
+            // 持久化蓝图轮次状态到会话上下文
             persistBlueprintRoundState(
                     sessionId,
                     planId,
@@ -209,12 +249,15 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     orderedPhases.get(0).getPhaseId()
             );
 
+            // 发送计划开始执行的事件通知
             emitFrontProgress(planId, "PLAN_RUNNING", "藍圖已就緒，開始分階段執行", orderedPhases.size(), 0, 0, 0);
             log.info("[Plan] 開始按階段執行, planId={}, phaseCount={}", planId, orderedPhases.size());
 
+            // 初始化阶段结果收集器和失败标记
             List<Map<String, Object>> phaseResults = new ArrayList<>();
             boolean hasPhaseFailure = false;
 
+            // 按顺序遍历并执行每个阶段
             for (PlanPhase phase : orderedPhases) {
                 String phaseId = phase.getPhaseId();
                 int phaseOrder = phase.getPhaseOrder() == null ? 0 : phase.getPhaseOrder();
@@ -222,24 +265,30 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 log.info("[Plan] 開始階段, planId={}, phaseId={}, phaseOrder={}, name={}",
                         planId, phaseId, phaseOrder, phase.getName());
 
+                // 标记阶段为运行中状态
                 markPhaseStatus(phase, PlanPhaseStatus.RUNNING, true, false);
 
+                // 发送阶段开始事件和前端进度通知
                 emitPlanEvent(planId, phaseId, "", "PLAN_PHASE_STARTED", "INFO",
                         Map.of("planId", planId, "phaseId", phaseId, "phaseOrder", phaseOrder,
                                 "status", "RUNNING", "message", "階段開始執行",
                                 "timestamp", System.currentTimeMillis()));
                 emitFrontPhaseProgress(planId, phase, "RUNNING", "階段開始執行");
 
+                // 委托阶段执行服务执行该阶段
                 String phaseResult = phaseExecutionService.executePhase(planId, phase, sessionId);
 
+                // 收集阶段执行结果
                 phaseResults.add(Map.of(
                         "phaseId", phaseId,
                         "phaseOrder", phaseOrder,
                         "result", safeParse(phaseResult)
                 ));
 
+                // 检查阶段执行是否出错
                 boolean phaseError = isError(phaseResult);
                 if (phaseError) {
+                    // 阶段执行失败，标记失败状态并终止后续阶段
                     hasPhaseFailure = true;
                     markPhaseStatus(phase, PlanPhaseStatus.FAILED, false, true);
 
@@ -259,6 +308,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                             "階段失敗：" + (phaseErrMsg == null || phaseErrMsg.isBlank() ? "未知錯誤" : phaseErrMsg));
                     break;
                 } else {
+                    // 阶段执行成功，更新状态并继续下一阶段
                     markPhaseStatus(phase, PlanPhaseStatus.SUCCESS, false, true);
 
                     emitPlanEvent(planId, phaseId, "", "PLAN_PHASE_FINISHED", "INFO",
@@ -271,13 +321,16 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 }
             }
 
+            // 执行计划收尾工作，生成最终报告
             String reportResult = finalizeAndReport(planId);
 
+            // 合并所有执行结果
             Map<String, Object> merged = new LinkedHashMap<>();
             merged.put("planId", planId);
             merged.put("phaseResults", phaseResults);
             merged.put("reportResult", safeParse(reportResult));
 
+            // 根据阶段执行情况更新最终状态
             if (hasPhaseFailure) {
                 updatePlanStatus(planId, PlanStatus.FAILED, "階段執行失敗");
                 emitPlanFinished(planId, "FAILED", "階段執行失敗，已生成報告");
@@ -292,6 +345,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 emitFrontProgress(planId, "PLAN_FINISHED", "任務執行成功，報告已生成", countPhases(planId), countFinishedPhases(planId), countSuccessNodes(planId), countFailedNodes(planId));
             }
 
+            // 序列化最终结果并根据配置回调发送
             String finalResultJson = objectMapper.writeValueAsString(merged);
             if (callbackToChat) {
                 sendFinalResultToLuna(sessionId, finalResultJson);
@@ -301,6 +355,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             return finalResultJson;
 
         } catch (Exception e) {
+            // 捕获未预期的异常，进行错误处理和资源清理
             log.error("[Plan] createAndRunPlan 發生未捕獲異常, planId={}, err={}", planId, e.getMessage(), e);
             if (planId != null) {
                 updatePlanStatus(planId, PlanStatus.FAILED, "創建並執行計劃失敗: " + e.getMessage());
@@ -318,6 +373,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             return errJson;
         }
     }
+
+    // ... existing code ...
+
 
     @Override
     public String runPhase(String planId, String phaseId) {
@@ -661,6 +719,27 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 .eq(PlanNode::getStatus, PlanNodeStatus.FAILED));
     }
 
+    // ... existing code ...
+
+    /**
+     * 将蓝图中的阶段和节点定义物化为数据库实体，完成计划执行结构的持久化。
+     * <p>
+     * 该方法的主要职责包括：
+     * 1. 解析蓝图中的阶段定义列表，创建PlanPhase实体并设置初始状态为PENDING
+     * 2. 解析蓝图中的节点定义列表，创建PlanNode实体并关联到对应阶段
+     * 3. 处理ID规范化，确保所有ID都带有planId前缀以避免冲突
+     * 4. 构建阶段-节点映射关系，更新每个阶段的nodeIds字段
+     * 5. 生成ID映射表并回写到blueprint对象，供后续边关系构建使用
+     * <p>
+     * 如果蓝图中未定义任何阶段，会自动创建一个默认阶段（phase-1）作为兜底。
+     * 节点的依赖关系会在此阶段进行ID重映射，确保引用的是规范化后的节点ID。
+     *
+     * @param planId   计划ID，用于标识所属计划并规范化阶段和节点ID
+     * @param blueprint 蓝图数据结构，包含phases和nodes两个关键列表：
+     *                  - phases: 阶段定义列表，每个元素包含phaseId、name、objective、entryCriteria、exitCriteria等
+     *                  - nodes: 节点定义列表，每个元素包含nodeId、phaseId、name、nodeType、dependencies、retryPolicy等
+     * @throws Exception 当JSON序列化或数据库操作失败时抛出异常
+     */
     private void materializePhasesAndNodes(String planId, Map<String, Object> blueprint) throws Exception {
         List<Map<String, Object>> phaseDefs = asListOfMap(blueprint.get("phases"));
         List<Map<String, Object>> nodeDefs = asListOfMap(blueprint.get("nodes"));
@@ -668,6 +747,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         Map<String, String> phaseIdMap = new LinkedHashMap<>();
         Map<String, List<String>> phaseNodeIds = new LinkedHashMap<>();
 
+        // 遍历阶段定义，创建PlanPhase实体并持久化
         int phaseIdx = 1;
         for (Map<String, Object> p : phaseDefs) {
             String rawPhaseId = text(p.get("phaseId"));
@@ -692,6 +772,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             phaseIdx++;
         }
 
+        // 如果蓝图中未定义任何阶段，创建默认阶段作为兜底
         if (phaseNodeIds.isEmpty()) {
             String fallbackPhaseId = normalizeScopedId(planId, "phase-1");
             PlanPhase fallback = PlanPhase.builder()
@@ -706,6 +787,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         String defaultPhaseId = phaseNodeIds.keySet().stream().findFirst()
                 .orElse(normalizeScopedId(planId, "phase-1"));
 
+        // 遍历节点定义，创建PlanNode实体并关联到对应阶段
         Map<String, String> nodeIdMap = new LinkedHashMap<>();
         int nodeIdx = 1;
         for (Map<String, Object> n : nodeDefs) {
@@ -750,6 +832,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             nodeIdx++;
         }
 
+        // 更新每个阶段的nodeIds字段，建立阶段与节点的关联关系
         for (Map.Entry<String, List<String>> e : phaseNodeIds.entrySet()) {
             PlanPhase phase = planPhaseMapper.selectById(e.getKey());
             if (phase != null) {
@@ -758,15 +841,40 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             }
         }
 
+        // 将ID映射表回写到blueprint对象，供后续buildEdgesFromBlueprint使用
         blueprint.put("__phaseIdMap", phaseIdMap);
         blueprint.put("__nodeIdMap", nodeIdMap);
     }
 
+    // ... existing code ...
+
+
+        // ... existing code ...
+
+    /**
+     * 从蓝图中构建节点间的边关系，定义执行流程和数据依赖路径。
+     * <p>
+     * 该方法的主要职责包括：
+     * 1. 解析蓝图中的边定义列表，提取fromNodeId和toNodeId
+     * 2. 使用nodeIdMap将原始节点ID映射为规范化后的ID
+     * 3. 验证边引用的源节点和目标节点是否真实存在
+     * 4. 检查边是否已存在，避免重复插入
+     * 5. 创建PlanEdge实体并持久化到数据库
+     * <p>
+     * 边关系定义了节点的执行顺序和条件分支，支持通过conditionExpr设置执行条件。
+     * 如果引用的节点不存在或发生异常，会记录警告日志但不会中断整个流程。
+     *
+     * @param planId   计划ID，用于标识所属计划
+     * @param blueprint 蓝图数据结构，包含：
+     *                  - edges: 边定义列表，每个元素包含fromNodeId、toNodeId、conditionExpr
+     *                  - __nodeIdMap: 节点ID映射表（由materializePhasesAndNodes方法生成）
+     */
     private void buildEdgesFromBlueprint(String planId, Map<String, Object> blueprint) {
         try {
             List<Map<String, Object>> edges = asListOfMap(blueprint.get("edges"));
             Map<String, String> nodeIdMap = asStringMap(blueprint.get("__nodeIdMap"));
 
+            // 遍历边定义，创建PlanEdge实体并验证节点存在性
             for (Map<String, Object> e : edges) {
                 String rawFrom = text(e.get("fromNodeId"));
                 String rawTo = text(e.get("toNodeId"));
@@ -775,6 +883,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
 
                 if (from.isBlank() || to.isBlank()) continue;
 
+                // 验证源节点和目标节点是否存在于数据库中
                 boolean fromExists = planNodeMapper.selectCount(
                         new LambdaQueryWrapper<PlanNode>()
                                 .eq(PlanNode::getPlanId, planId)
@@ -788,6 +897,7 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                     continue;
                 }
 
+                // 检查边是否已存在，避免重复插入
                 long exists = planEdgeMapper.selectCount(
                         new LambdaQueryWrapper<PlanEdge>()
                                 .eq(PlanEdge::getPlanId, planId)
@@ -807,6 +917,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
             log.warn("[Plan] buildEdgesFromBlueprint 失敗（不中斷）, planId={}, err={}", planId, ex.getMessage());
         }
     }
+
+    // ... existing code ...
+
 
     private void updatePlanStatus(String planId, PlanStatus status, String errMsg) {
         PlanInstance p = planInstanceMapper.selectById(planId);
@@ -1295,10 +1408,30 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         return out.stream().limit(12).toList();
     }
 
+    // ... existing code ...
+
+    /**
+     * 解析并确定有效的任务目标，按优先级从蓝图草稿或输入重构结果中提取。
+     * <p>
+     * 优先级顺序（从高到低）：
+     * 1. 蓝图草稿中的显式任务目标（explicitTaskGoal）
+     * 2. 输入重构结果中的显式任务目标（explicitTaskGoal）
+     * 3. 输入重构结果中的规范化用户意图（normalizedUserIntent）
+     * 4. 空字符串（当所有来源都无效时）
+     * <p>
+     * 该策略确保优先使用经过规划和验证的目标，降级时使用原始意图分析结果。
+     *
+     * @param reconstructionResult 输入重构结果，包含规范化的用户意图和任务目标，可为空
+     * @param blueprintDraft       蓝图草稿，包含规划阶段生成的显式任务目标，可为空
+     * @return 有效的任务目标字符串，永远不会为空（至少返回空字符串）
+     */
     private String resolveEffectiveGoal(InputReconstructionResult reconstructionResult, BlueprintDraft blueprintDraft) {
+        // 优先使用蓝图草稿中的显式任务目标
         if (blueprintDraft != null && blueprintDraft.getExplicitTaskGoal() != null && !blueprintDraft.getExplicitTaskGoal().isBlank()) {
             return blueprintDraft.getExplicitTaskGoal();
         }
+
+        // 降级使用输入重构结果中的目标或意图
         if (reconstructionResult == null) {
             return "";
         }
@@ -1308,6 +1441,9 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         }
         return text(reconstructionResult.getNormalizedUserIntent());
     }
+
+    // ... existing code ...
+
 
     private void persistBlueprintRoundState(String sessionId,
                                             String planId,
@@ -1355,11 +1491,33 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
         }
     }
 
+    // ... existing code ...
+
+    /**
+     * 解析用户目标字符串，提取规划意图及其元数据。
+     * <p>
+     * 该方法支持两种输入格式：
+     * 1. 纯文本格式：直接作为任务目标返回，元数据为空映射
+     * 2. 键值对格式：使用竖线"|"分隔多个键值对，每个键值对使用"="分隔键和值
+     *    - 特殊键（task_goal、goal、explicit_task_goal）的值会被识别为主要任务目标
+     *    - 其他键值对作为元数据存储，供后续规划流程使用
+     * <p>
+     * 示例输入：
+     * - "分析销售数据并生成报告"
+     * - "task_goal=分析Q3销售数据|region=华东|product_line=软件|time_range=2024-Q3"
+     *
+     * @param userGoal 用户原始目标字符串，可为空或空白（此时返回空意图对象）
+     * @return PlanningIntent 规划意图对象，包含：
+     *         - goal: 解析后的任务目标，如果未找到特殊键则使用原始输入
+     *         - meta: 元数据映射，包含所有解析出的键值对（包括特殊键）
+     */
     private PlanningIntent parsePlanningIntent(String userGoal) {
         String raw = userGoal == null ? "" : userGoal.trim();
         if (raw.isBlank()) {
             return new PlanningIntent("", Map.of());
         }
+
+        // 按竖线分隔符拆分输入，解析键值对格式的意图描述
         String[] segments = raw.split("\\|");
         String resolvedGoal = raw;
         Map<String, String> meta = new LinkedHashMap<>();
@@ -1378,12 +1536,17 @@ public class PlanOrchestratorServiceImpl implements PlanOrchestratorService {
                 continue;
             }
             meta.put(key, value);
+
+            // 识别特殊键并将其值作为主要任务目标
             if ("task_goal".equals(key) || "goal".equals(key) || "explicit_task_goal".equals(key)) {
                 resolvedGoal = value;
             }
         }
         return new PlanningIntent(resolvedGoal, meta);
     }
+
+    // ... existing code ...
+
 
     private int intVal(Object o, int def) {
         try {

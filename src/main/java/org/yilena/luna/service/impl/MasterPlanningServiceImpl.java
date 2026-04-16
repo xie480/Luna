@@ -37,6 +37,39 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
     private final ObjectMapper objectMapper;
     private final PromptRegistryService promptRegistryService;
 
+    // ... existing code ...
+
+    /**
+     * 生成计划蓝图，将用户目标、重构意图、知识证据和能力提示整合为结构化的执行计划。
+     * <p>
+     * 该方法的核心流程包括：
+     * 1. 对输入的证据和工作流提示进行裁剪与标准化，控制上下文长度
+     * 2. 验证重构后的任务目标有效性
+     * 3. 组装包含意图、证据和能力的规划提示词
+     * 4. 调用主规划模型（LLM）生成蓝图JSON结构
+     * 5. 清洗并解析模型输出，补充元数据字段
+     * 6. 异常时降级使用固定的三阶段骨架蓝图
+     * <p>
+     * 生成的蓝图包含阶段划分、节点定义、依赖关系等完整信息，是后续阶段执行的依据。
+     *
+     * @param planId              计划ID，用于标识本次计划实例
+     * @param sessionId           会话ID，关联用户会话上下文
+     * @param reconstructedGoal   重构后的任务目标，经过意图分析和规范化处理，不能为空或空白
+     * @param reconstructionResult 输入重构结果，包含原始意图的详细信息，可为空
+     * @param knowledgeEvidence   RAG召回的知识证据列表，提供领域知识和历史参考，可为空
+     * @param workflowHints       工作流能力提示列表，包含可用的工具、提示词、资源、工作流等，可为空
+     * @return Map&lt;String, Object&gt; 蓝图数据结构，包含：
+     *         - planId: 计划ID
+     *         - sessionId: 会话ID
+     *         - userGoal: 用户目标
+     *         - createdAt: 创建时间戳
+     *         - reconstructedIntent: 重构意图对象
+     *         - knowledgeEvidence: 标准化后的知识证据列表（最多12个）
+     *         - workflowHints: 标准化后的能力提示列表（最多16个）
+     *         - phases: 阶段列表，定义计划的各个执行阶段
+     *         - nodes: 节点列表，定义具体的执行节点
+     *         - edges: 边列表，定义节点间的依赖关系
+     */
     @Override
     public Map<String, Object> generateBlueprint(String planId,
                                                  String sessionId,
@@ -110,6 +143,9 @@ public class MasterPlanningServiceImpl implements MasterPlanningService {
             return fallbackBlueprint(planId, sessionId, reconstructedGoal, reconstructionResult, normalizedKnowledgeEvidence, normalizedWorkflowHints);
         }
     }
+
+    // ... existing code ...
+
 
     private String resolvePlanningModelName() {
         if (geminiProperty.getCode() != null && geminiProperty.getCode().getModelName() != null && !geminiProperty.getCode().getModelName().isBlank()) {

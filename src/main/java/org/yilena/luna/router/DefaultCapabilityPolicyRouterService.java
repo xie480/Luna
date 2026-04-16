@@ -119,10 +119,24 @@ public class DefaultCapabilityPolicyRouterService implements CapabilityPolicyRou
     // ... existing code ...
 
 
-    @Override
+    // ... existing code ...
+
     /**
      * 根据关键词和任务阶段判断是否应进入计划编排流程，避免普通对话误触发规划链路。
+     * <p>
+     * 该方法的主要逻辑包括：
+     * 1. 检查任务运行状态，仅允许PLANNING（规划中）、REPLANNING（重新规划）、CONTEXT_BUILDING（上下文构建）三种状态触发
+     * 2. 对查询文本进行标准化处理（转小写、去除特殊字符等）
+     * 3. 检测是否包含计划编排相关的关键词（中英文混合支持）
+     * <p>
+     * 通过状态过滤和关键词匹配的双重校验，确保只有明确的规划意图才会升级到计划编排链路。
+     * 支持的关键词包括：计划、规划、方案、roadmap、plan、milestone、拆解、分阶段、replan等。
+     *
+     * @param query     用户查询文本，用于检测是否包含计划编排相关的关键词
+     * @param taskState 任务运行状态，标识当前任务的执行阶段，非规划相关状态直接返回false
+     * @return boolean 是否应该触发计划编排流程，true表示需要升级，false表示继续普通工具调用
      */
+    @Override
     public boolean shouldTriggerPlanOrchestration(String query, TaskRuntimeState taskState) {
         if (taskState != TaskRuntimeState.PLANNING
                 && taskState != TaskRuntimeState.REPLANNING
@@ -132,6 +146,9 @@ public class DefaultCapabilityPolicyRouterService implements CapabilityPolicyRou
         String text = normalize(query);
         return containsAny(text, "计划", "规划", "方案", "roadmap", "plan", "milestone", "拆解", "分阶段", "replan");
     }
+
+    // ... existing code ...
+
 
     /**
      * 同时融合词法召回和语义召回结果，形成能力路由的基础候选池。

@@ -86,6 +86,42 @@ public class AgentServiceImpl implements AgentService {
             %s
             """;
 
+        // ... existing code ...
+
+    /**
+     * 处理带治理上下文的工具调用，负责完整的决策、校验、执行和追踪流程。
+     * <p>
+     * 该方法的主要流程包括：
+     * 1. 解析稳定会话ID并校验治理上下文（签名验证），确保请求合法性
+     * 2. 提取决策输入，检查是否为复杂任务，如是则路由到计划编排链路
+     * 3. 确定候选能力集合，无候选时返回null让上游决定纯文本回复
+     * 4. 加载近期历史并调用LLM生成决策（动作类型、目标能力、参数草案）
+     * 5. 处理直接回答场景，避免不必要的工具调用
+     * 6. 将模型返回的目标名称映射到真实资源，防止幻觉执行
+     * 7. 参数补全与修复：缺失时重新生成，schema不匹配时触发修复Prompt
+     * 8. 执行前通过能力闸门校验，检查权限和风险评估
+     * 9. 根据资源类型分流执行：WORKFLOW/PROMPT/RESOURCE/STRATEGY/TOOL
+     * 10. 统一记录工具执行轨迹（参数、输出、状态、耗时）
+     * <p>
+     * 整个流程采用多层防护策略：签名验证、能力闸门、schema校验、异常捕获。
+     * 支持智能路由：简单任务直接执行，复杂任务升级到计划编排。
+     * 对于不同类型的资源采用不同的执行器，但统一的追踪机制保证可观测性。
+     *
+     * @param command 工具决策命令对象，包含：
+     *                - sessionId: 会话ID，用于关联用户会话和历史
+     *                - rawUserInput: 原始用户输入，保留完整意图信息
+     *                - assembledDecisionContext: 组装后的决策上下文字符串（完整提示词）
+     *                - taskState: 任务运行状态，标识当前任务的执行阶段
+     *                - relationalState: 关系运行状态，标识会话的关系上下文
+     *                - executionCandidates: 预筛选的执行候选能力列表（可为空）
+     *                - governedInputSignature: 治理输入的防篡改签名
+     * @return String 工具执行结果的JSON字符串，可能返回：
+     *         - 工作流/Prompt/资源执行的JSON结果
+     *         - 普通工具的执行输出
+     *         - 直接回答的文本内容
+     *         - 复杂任务路由到计划编排的结果
+     *         - null表示跳过工具决策（无候选、无效决策等）
+     */
     @Override
     public String processToolCallingWithGovernance(ToolDecisionCommand command) {
         /**
@@ -101,6 +137,8 @@ public class AgentServiceImpl implements AgentService {
         RelationalRuntimeState relationalState = command.getRelationalState();
         List<Resource> executionCandidates = command.getExecutionCandidates();
         log.info("processToolCallingWithGovernance, sessionId={}, input={}", sessionId, input);
+
+        // 提取决策输入，如果为空则跳过工具决策
         String decisionInput = resolveDecisionInput(sessionId, command);
         if (decisionInput.isBlank()) {
             log.info("skip tool decision: governed decision input unavailable");
@@ -133,6 +171,7 @@ public class AgentServiceImpl implements AgentService {
         if (decision == null || "none".equalsIgnoreCase(decision.targetName()) || "null".equalsIgnoreCase(decision.targetName())) {
             return null;
         }
+        // 处理直接回答场景，无需工具调用
         if ("direct_answer".equals(decision.actionType())) {
             return decision.directAnswer();
         }
@@ -149,9 +188,11 @@ public class AgentServiceImpl implements AgentService {
          * 参数缺失时补做一次参数生成，并在 schema 不匹配时触发修复 Prompt，保证执行参数可用。
          */
         String generatedArgsJson = decision.argumentsJson();
+        // 参数缺失时重新生成
         if (generatedArgsJson == null || generatedArgsJson.isBlank()) {
             generatedArgsJson = llmAdapter.generate(buildArgsPrompt(command, decisionInput, history, target));
         }
+        // Schema校验失败时触发修复Prompt
         if (!JsonSchemaValidator.validate(target.getInputSchema(), generatedArgsJson)) {
             generatedArgsJson = llmAdapter.generate(String.format(
                     resolvePrompt("tool.args.repair.json_v1", PromptTemplates.TOOL_ARGS_REPAIR_PROMPT),
@@ -169,15 +210,18 @@ public class AgentServiceImpl implements AgentService {
         /**
          * 根据目标资源类型分流到工作流、Prompt、资源读取或工具执行链路，并统一记录执行轨迹。
          */
+        // 工作流类型：路由到工作流执行器
         if (ResourceType.WORKFLOW.equals(target.getType())) {
             return runAndTrace(target, argsJson, () -> workflowExecutor.execute(target, argsJson));
         }
+        // Prompt类型：调用MCP服务获取提示词
         if (ResourceType.PROMPT.equals(target.getType())) {
             return runAndTrace(target, argsJson, () -> toJson(Map.of(
                     "status", "success",
                     "data", mcpService.getPrompt(target.getServerCode(), target.getName(), argsJson)
             )));
         }
+        // 资源类型：调用MCP服务读取资源
         if (ResourceType.RESOURCE.equals(target.getType())) {
             String uri = target.getResourceUri() == null ? target.getName() : target.getResourceUri();
             return runAndTrace(target, argsJson, () -> toJson(Map.of(
@@ -185,11 +229,13 @@ public class AgentServiceImpl implements AgentService {
                     "data", mcpService.readResource(target.getServerCode(), uri)
             )));
         }
+        // 策略类型且需要计划编排：路由到计划编排服务
         if (ResourceType.STRATEGY.equals(target.getType())
                 && capabilityPolicyRouterService.shouldTriggerPlanOrchestration(decisionInput, taskState)) {
             return runAndTrace(target, argsJson, () -> planOrchestratorService.createAndRunPlan(sessionId, decisionInput, false));
         }
 
+        // 普通工具类型：通过执行网关调用
         long startAt = System.currentTimeMillis();
         try {
             /**
@@ -209,10 +255,14 @@ public class AgentServiceImpl implements AgentService {
             recordToolExecutionTrace(target, argsJson, output, status, result.getMessage(), System.currentTimeMillis() - startAt);
             return output;
         } catch (Exception ex) {
+            // 异常时记录失败轨迹并抛出
             recordToolExecutionTrace(target, argsJson, null, "FAILED", ex.getMessage(), System.currentTimeMillis() - startAt);
             throw ex;
         }
     }
+
+    // ... existing code ...
+
 
     private String runAndTrace(Resource target, String argsJson, TraceSupplier supplier) {
         long startAt = System.currentTimeMillis();
@@ -243,6 +293,24 @@ public class AgentServiceImpl implements AgentService {
         return sessionId;
     }
 
+    // ... existing code ...
+
+    /**
+     * 解析决策输入并补全线程上下文中的执行候选能力。
+     * <p>
+     * 该方法的主要职责包括：
+     * 1. 再次校验治理上下文的完整性，确保决策输入合法可信
+     * 2. 提取经过治理的工具决策输入（已去除首尾空白）
+     * 3. 检查ThreadLocal中的ToolCallingContext，如果缺少executionCandidates则补充写入
+     * 4. 返回清理后的决策输入文本，供后续LLM决策使用
+     * <p>
+     * 二次校验是为了防止在调用链中被篡改或上下文丢失。
+     * 补写executionCandidates确保下游执行轨迹能正确记录使用的能力信息。
+     *
+     * @param sessionId 会话ID，用于关联用户会话和验证上下文
+     * @param command   工具决策命令对象，包含治理后的决策输入和执行候选能力列表
+     * @return String 清理后的决策输入文本，如果校验失败则返回空字符串
+     */
     private String resolveDecisionInput(String sessionId, ToolDecisionCommand command) {
         /**
          * 再次校验治理输入，并把候选能力补写到线程上下文，供后续执行轨迹复用。
@@ -251,12 +319,17 @@ public class AgentServiceImpl implements AgentService {
             return "";
         }
         String decisionInput = command.getToolDecisionInput().trim();
+
+        // 如果ThreadLocal中缺少executionCandidates，则从command中补充
         ToolCallingContext holderContext = ToolCallingContextHolder.get();
         if (holderContext != null && holderContext.getExecutionCandidates() == null) {
             holderContext.setExecutionCandidates(command.getExecutionCandidates());
         }
         return decisionInput;
     }
+
+    // ... existing code ...
+
 
     private boolean validateGovernedDecisionContext(String sessionId, ToolDecisionCommand command, boolean auditOnFailure) {
         /**

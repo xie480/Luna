@@ -1223,15 +1223,42 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
     }
 
 
+    // ... existing code ...
+
+    /**
+     * 编排蓝图输入，为计划生成阶段准备完整的上下文信息。
+     * <p>
+     * 该方法是计划编排的入口点，主要职责包括：
+     * 1. 复用标准对话编排链路获取基础上下文和决策结果
+     * 2. 基于基础上下文编排节点工作集，收集相关知识和能力候选
+     * 3. 构建蓝图草稿，整合重构目标、知识证据和工作流提示
+     * 4. 将蓝图阶段的轮次状态持久化到会话存储中
+     * <p>
+     * 与标准对话编排的区别在于，该方法会额外执行节点工作集编排和蓝图草稿构建，
+     * 为主规划服务（MasterPlanningService）提供结构化的输入数据。
+     *
+     * @param sessionId 会话ID，用于关联用户会话上下文并持久化状态，可为空但会导致状态写入跳过
+     * @param userGoal  用户目标描述，用于驱动蓝图生成和意图理解，不能为空或空白
+     * @return BlueprintOrchestrationResult 蓝图编排结果，包含：
+     *        - contextPackage: 结构化上下文包，包含会话历史、知识召回等信息
+     *        - reconstructionResult: 输入重构结果，包含规范化后的任务目标和意图分析
+     *        - decision: 编排决策，包含任务状态机产出的下一步行动决策
+     *        - nodeWorksetResult: 节点工作集结果，包含重排后的知识证据和能力候选列表
+     *        - blueprintDraft: 蓝图草稿，包含显式任务目标、知识证据块和工作流提示
+     */
     @Override
     public BlueprintOrchestrationResult orchestrateBlueprintInput(String sessionId, String userGoal) {
         /**
          * 蓝图入口会先复用标准对话编排链路，再补做节点工作集和蓝图草稿，供主规划服务直接消费。
          */
+
+        // 调用标准对话编排链路获取基础上下文和决策结果
         TaskOrchestrationResult orchestrationResult = orchestrateUserInput(sessionId, userGoal);
         StructuredContextPackage contextPackage = orchestrationResult == null ? null : orchestrationResult.getContextPackage();
         InputReconstructionResult reconstructionResult = orchestrationResult == null ? null : orchestrationResult.getReconstructionResult();
         OrchestrationDecision decision = orchestrationResult == null ? null : orchestrationResult.getDecision();
+
+        // 基于基础上下文编排节点工作集并构建蓝图草稿
         NodeWorksetResult nodeWorksetResult = null;
         BlueprintDraft blueprintDraft = null;
         if (contextPackage != null && reconstructionResult != null) {
@@ -1244,6 +1271,8 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             );
             blueprintDraft = buildBlueprintDraft(reconstructionResult, contextPackage, nodeWorksetResult, decision);
         }
+
+        // 将蓝图阶段的轮次状态持久化到会话存储，标记当前已进入规划阶段
         if (sessionId != null && !sessionId.isBlank()) {
             try {
                 /**
@@ -1272,6 +1301,8 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             } catch (Exception ignore) {
             }
         }
+
+        // 组装并返回蓝图编排结果
         return BlueprintOrchestrationResult.builder()
                 .contextPackage(contextPackage)
                 .reconstructionResult(reconstructionResult)
@@ -1280,6 +1311,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 .blueprintDraft(blueprintDraft)
                 .build();
     }
+
+    // ... existing code ...
+
 
     @Override
     public SummaryOrchestrationResult orchestrateSummary(String sessionId,
@@ -4071,6 +4105,37 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         return toolRouter.materializeCandidates(selected, 16);
     }
 
+    // ... existing code ...
+
+    /**
+     * 构建蓝图草稿，整合输入重构结果、上下文状态、节点工作集等信息，为主规划服务提供结构化输入。
+     * <p>
+     * 该方法的主要职责包括：
+     * 1. 从任务状态实体中提取当前执行状态的快照信息
+     * 2. 基于节点工作集结果收集能力候选提示（工具、提示词、资源、工作流）
+     * 3. 聚合知识证据块，提供领域知识和历史参考
+     * 4. 组装包含规范化意图、显式目标、业务约束等信息的蓝图草稿对象
+     * <p>
+     * 生成的蓝图草稿会被主规划服务用于生成完整的执行蓝图，是连接意图理解和计划生成的关键桥梁。
+     *
+     * @param reconstructionResult 输入重构结果，包含规范化的用户意图和任务目标，不能为空
+     * @param contextPackage       结构化上下文包，用于提取任务状态快照，可为空
+     * @param nodeWorksetResult    节点工作集结果，包含重排后的能力候选和知识证据，可为空
+     * @param decision             编排决策，用于确定当前任务阶段，可为空
+     * @return BlueprintDraft 蓝图草稿对象，包含：
+     *         - normalizedUserIntent: 规范化的用户意图描述
+     *         - explicitTaskGoal: 显式的任务目标
+     *         - timeScope: 时间范围约束
+     *         - missingSlots: 缺失的参数槽位列表
+     *         - businessConstraints: 业务约束条件列表
+     *         - currentStage: 当前任务阶段
+     *         - currentNode: 当前节点ID
+     *         - taskStateSnapshot: 任务状态快照，包含taskId、sessionId、objective等完整状态信息
+     *         - workflowHints: 工作流提示列表，最多24个去重后的能力候选（TOOL/PROMPT/RESOURCE/WORKFLOW类型）
+     *         - evidenceBlocks: 知识证据块列表，最多20个去重后的相关知识条目
+     *         - rationaleByNode: 按节点分组的排序理由映射
+     *         如果reconstructionResult为空则返回null
+     */
     private BlueprintDraft buildBlueprintDraft(InputReconstructionResult reconstructionResult,
                                                StructuredContextPackage contextPackage,
                                                NodeWorksetResult nodeWorksetResult,
@@ -4078,6 +4143,8 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
         if (reconstructionResult == null) {
             return null;
         }
+
+        // 从任务状态实体中提取当前执行状态的快照信息
         Map<String, Object> taskStateSnapshot = new LinkedHashMap<>();
         if (contextPackage != null && contextPackage.getTaskStateEntity() != null) {
             TaskState state = contextPackage.getTaskStateEntity();
@@ -4090,6 +4157,8 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
             taskStateSnapshot.put("pendingQuestions", state.getPendingQuestions() == null ? List.of() : state.getPendingQuestions());
             taskStateSnapshot.put("nextActionHint", nullSafe(state.getNextActionHint()));
         }
+
+        // 收集能力候选提示，包括工具、提示词、资源和工作流四种类型
         List<Map<String, Object>> workflowHints = new ArrayList<>();
         if (nodeWorksetResult != null && nodeWorksetResult.getSelectedToolCandidateNames() != null) {
             for (String name : nodeWorksetResult.getSelectedToolCandidateNames()) {
@@ -4135,6 +4204,8 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 ));
             }
         }
+
+        // 如果没有其他类型的提示，使用选中的提示词资源名称作为备选
         if (workflowHints.isEmpty() && nodeWorksetResult != null && nodeWorksetResult.getSelectedPromptResourceNames() != null) {
             for (String name : nodeWorksetResult.getSelectedPromptResourceNames()) {
                 if (name == null || name.isBlank()) {
@@ -4146,6 +4217,8 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 ));
             }
         }
+
+        // 聚合知识证据块，将节点工作集中的知识证据转换为蓝图草稿的证据格式
         List<Map<String, Object>> evidenceBlocks = new ArrayList<>();
         if (nodeWorksetResult != null && nodeWorksetResult.getSelectedKnowledgeEvidenceBlocks() != null) {
             for (EvidenceBlock block : nodeWorksetResult.getSelectedKnowledgeEvidenceBlocks()) {
@@ -4161,6 +4234,8 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                 ));
             }
         }
+
+        // 组装并返回蓝图草稿对象，限制workflowHints最多24个、evidenceBlocks最多20个
         return BlueprintDraft.builder()
                 .normalizedUserIntent(nullSafe(reconstructionResult.getNormalizedUserIntent()))
                 .explicitTaskGoal(nullSafe(reconstructionResult.getExplicitTaskGoal()))
@@ -4177,6 +4252,9 @@ public class TaskOrchestratorServiceImpl implements TaskOrchestratorService {
                         : new LinkedHashMap<>(nodeWorksetResult.getRerankRationaleByNode()))
                 .build();
     }
+
+    // ... existing code ...
+
 
     private Map<String, Object> buildBlueprintEntryOverrides(BlueprintDraft draft) {
         Map<String, Object> overrides = new LinkedHashMap<>();

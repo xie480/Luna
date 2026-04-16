@@ -33,6 +33,8 @@ import org.yilena.luna.tools.PlanNodeTools;
 import org.yilena.luna.state.store.ContextSnapshotStore;
 import org.yilena.luna.utils.ToolDecisionInputSignatureUtil;
 import org.yilena.luna.utils.ToolCallingContextHolder;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import org.yilena.luna.mapper.PlanPhaseMapper;
 
 import java.util.*;
 import java.util.concurrent.*;
@@ -68,6 +70,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
     );
 
     private final PlanNodeMapper planNodeMapper;
+    private final PlanPhaseMapper planPhaseMapper;
     private final PlanNodeTools planNodeTools;
     private final PlanEventTools planEventTools;
     private final ObjectProvider<AgentService> agentServiceProvider;
@@ -75,6 +78,8 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
     private final MemoryWritePipelineService memoryWritePipelineService;
     private final ObjectProvider<TaskOrchestratorService> taskOrchestratorServiceProvider;
     private final RoundPipelineOrchestrator roundPipelineOrchestrator;
+    // 缓存上一个阶段的产出，以在节点目标构建时使用
+    private String previousPhaseOutput;
     private final ContextAssembler contextAssembler;
     private final ContextSnapshotStore contextSnapshotStore;
     private final ObjectMapper objectMapper;
@@ -83,6 +88,28 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
     // 公共入口
     // =========================================================
 
+    // ... existing code ...
+
+    /**
+     * 执行指定阶段，负责加载节点、拓扑排序、分批执行并汇总阶段级结果。
+     * <p>
+     * 该方法的主要流程包括：
+     * 1. 加载阶段关联的所有节点，如果无节点则直接返回空结果
+     * 2. 对节点进行拓扑排序，生成按依赖关系分组的执行批次
+     * 3. 按批次顺序执行，每批执行后检查中断条件（失败或待审批）
+     * 4. 汇总执行统计信息（成功数、失败数、待审批数、耗时）
+     * <p>
+     * 批次执行采用并行策略，同批次内的节点可以并发执行。
+     * 一旦某批次出现失败节点或待审批节点，会立即终止后续批次的执行。
+     *
+     * @param planId    计划ID，用于标识所属计划
+     * @param phase     阶段实体，包含phaseId、phaseOrder、name等执行元信息
+     * @param sessionId 会话ID，用于节点执行时的上下文传递
+     * @return JSON字符串，包含阶段执行结果：
+     *         - 成功时返回包含planId、phaseId、successCount、failCount、costMs等信息的JSON
+     *         - 失败时返回包含status、errorCode、message的错误信息JSON
+     *         - 待审批时返回PHASE_PENDING_APPROVAL错误码
+     */
     @Override
     public String executePhase(String planId, PlanPhase phase, String sessionId) {
         /**
@@ -90,12 +117,40 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
          */
         String phaseId = phase.getPhaseId();
         int phaseOrder = phase.getPhaseOrder() == null ? 0 : phase.getPhaseOrder();
+        this.previousPhaseOutput = null; // reset for this phase execution
+        if (phaseOrder > 0) {
+            // 查询上一个阶段的产出
+            List<PlanPhase> prevPhases = planPhaseMapper.selectList(
+                new LambdaQueryWrapper<PlanPhase>()
+                    .eq(PlanPhase::getPlanId, planId)
+                    .lt(PlanPhase::getPhaseOrder, phaseOrder)
+                    .orderByDesc(PlanPhase::getPhaseOrder)
+                    .last("LIMIT 1")
+            );
+            if (!prevPhases.isEmpty()) {
+                PlanPhase prevPhase = prevPhases.get(0);
+                List<PlanNode> prevNodes = planNodeMapper.selectList(
+                    new LambdaQueryWrapper<PlanNode>()
+                        .eq(PlanNode::getPlanId, planId)
+                        .eq(PlanNode::getPhaseId, prevPhase.getPhaseId())
+                );
+                StringBuilder sbPrev = new StringBuilder();
+                for (PlanNode pn : prevNodes) {
+                    if (pn.getOutputForNext() != null) {
+                        sbPrev.append(toJsonQuiet(pn.getOutputForNext())).append("\n");
+                    }
+                }
+                if (sbPrev.length() > 0) {
+                    this.previousPhaseOutput = sbPrev.toString().trim();
+                }
+            }
+        }
         long phaseStart = System.currentTimeMillis();
 
         log.info("[Phase] 开始执行阶段, planId={}, phaseId={}, phaseOrder={}, name={}",
                 planId, phaseId, phaseOrder, phase.getName());
 
-        // 1. 加载阶段节点
+        // 加载阶段关联的所有节点，如果无节点则直接返回
         List<PlanNode> nodes = loadPhaseNodes(planId, phaseId);
         if (nodes.isEmpty()) {
             log.warn("[Phase] 阶段无节点, planId={}, phaseId={}", planId, phaseId);
@@ -105,7 +160,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
 
         log.info("[Phase] 加载节点完成, planId={}, phaseId={}, nodeCount={}", planId, phaseId, nodes.size());
 
-        // 2. 拓扑排序，生成执行批次
+        // 对节点进行拓扑排序，生成按依赖关系分组的执行批次
         List<List<PlanNode>> batches;
         try {
             batches = resolveExecutionBatches(nodes);
@@ -117,7 +172,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
 
         log.info("[Phase] 拓扑排序完成, planId={}, phaseId={}, batchCount={}", planId, phaseId, batches.size());
 
-        // 3. 逐批次执行
+        // 逐批次执行节点，汇总执行统计并检查中断条件
         int totalSuccess = 0;
         int totalFail = 0;
         int totalPendingApproval = 0;
@@ -149,12 +204,16 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         log.info("[Phase] 阶段执行完成, planId={}, phaseId={}, phaseOrder={}, success={}, fail={}, pendingApproval={}, costMs={}",
                 planId, phaseId, phaseOrder, totalSuccess, totalFail, totalPendingApproval, phaseCostMs);
 
+        // 根据执行统计构建最终结果
         if (totalPendingApproval > 0) {
             return buildErrorResult("PHASE_PENDING_APPROVAL", "阶段存在待审批节点，执行已暂停");
         }
 
         return buildPhaseResult(planId, phaseId, phaseOrder, totalSuccess, totalFail, totalPendingApproval, phaseCostMs, null);
     }
+
+    // ... existing code ...
+
 
     // =========================================================
     // DAG 拓扑排序（Kahn 算法）
@@ -247,6 +306,34 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
     // 批次执行（虚拟线程并行）
     // =========================================================
 
+    // ... existing code ...
+
+    /**
+     * 执行单个批次的节点，支持单节点同步执行和多节点并行执行两种策略。
+     * <p>
+     * 该方法的主要职责包括：
+     * 1. 单节点批次：直接同步执行，避免线程开销
+     * 2. 多节点批次：使用虚拟线程并行执行所有节点，提升执行效率
+     * 3. 处理各种异常情况：超时、审批等待、执行失败、中断等
+     * 4. 汇总批次执行结果，统计成功数、失败数、待审批数
+     * 5. 根据执行结果确定中断原因（无中断/失败中断/审批中断）
+     * <p>
+     * 并行执行时使用BATCH_TIMEOUT_SEC作为单个节点的超时时间。
+     * 审批等待会触发特殊的事件通知，并更新节点状态为APPROVAL_PENDING。
+     *
+     * @param planId      计划ID，用于标识所属计划
+     * @param phaseId     阶段ID，用于标识所属阶段
+     * @param phaseOrder  阶段顺序，用于日志和结果汇报
+     * @param batch       当前批次要执行的节点列表
+     * @param sessionId   会话ID，用于节点执行时的上下文传递
+     * @param batchIdx    当前批次索引（从1开始），用于日志输出
+     * @param totalBatches 总批次数，用于日志输出进度
+     * @return BatchResult 批次执行结果，包含：
+     *         - successCount: 成功执行的节点数
+     *         - failCount: 执行失败的节点数
+     *         - pendingApprovalCount: 等待审批的节点数
+     *         - interruptReason: 中断原因（NONE/FAILURE/PENDING_APPROVAL）
+     */
     private BatchResult executeBatch(
             String planId, String phaseId, int phaseOrder,
             List<PlanNode> batch, String sessionId,
@@ -255,8 +342,8 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
          * 批次执行阶段统一收敛同步执行、并发执行、审批挂起和超时失败等结果。
          */
 
+        // 单节点直接同步执行，避免线程开销
         if (batch.size() == 1) {
-            // 单节点直接同步执行，避免线程开销
             NodeResult nr = executeNode(planId, phaseId, phaseOrder, batch.get(0), sessionId);
 
             int successCount = nr.success() ? 1 : 0;
@@ -273,7 +360,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
             return new BatchResult(successCount, failCount, pendingApprovalCount, reason);
         }
 
-        // 多节点并行执行（虚拟线程）
+        // 多节点使用虚拟线程并行执行，提升批次执行效率
         log.info("[Batch] 启动并行批次, batchIdx={}/{}, nodeCount={}, planId={}, phaseId={}",
                 batchIdx, totalBatches, batch.size(), planId, phaseId);
 
@@ -287,6 +374,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
             int failCount = 0;
             int pendingApprovalCount = 0;
 
+            // 收集所有节点的执行结果，处理超时、审批、异常等情况
             for (int i = 0; i < futures.size(); i++) {
                 PlanNode node = batch.get(i);
                 try {
@@ -299,12 +387,14 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                         failCount++;
                     }
                 } catch (TimeoutException e) {
+                    // 节点执行超时，标记为失败并取消任务
                     failCount++;
                     futures.get(i).cancel(true);
                     log.error("[Batch] 节点执行超时, nodeId={}, planId={}, phaseId={}", node.getNodeId(), planId, phaseId);
                     safeUpdateNodeStatus(planId, node.getNodeId(), PlanNodeStatus.FAILED,
                             (long) BATCH_TIMEOUT_SEC * 1000, "执行超时", node.getRetryCount() == null ? 0 : node.getRetryCount());
                 } catch (ExecutionException e) {
+                    // 检查是否为审批等待异常
                     NeedApprovalException needApprovalException = findNeedApprovalException(e);
                     if (needApprovalException != null || isNeedApprovalMessage(e)) {
                         pendingApprovalCount++;
@@ -332,11 +422,13 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                                 node.getNodeId(), planId, phaseId, root != null ? root.getMessage() : e.getMessage(), e);
                     }
                 } catch (InterruptedException e) {
+                    // 线程被中断，恢复中断标志并记录失败
                     Thread.currentThread().interrupt();
                     failCount++;
                     log.error("[Batch] 等待节点结果被中断, nodeId={}, planId={}, phaseId={}",
                             node.getNodeId(), planId, phaseId);
                 } catch (Exception e) {
+                    // 通用异常处理，再次检查是否为审批等待
                     NeedApprovalException needApprovalException = findNeedApprovalException(e);
                     if (needApprovalException != null || isNeedApprovalMessage(e)) {
                         pendingApprovalCount++;
@@ -365,6 +457,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                 }
             }
 
+            // 根据统计结果确定中断原因
             InterruptReason reason = InterruptReason.NONE;
             if (pendingApprovalCount > 0) {
                 reason = InterruptReason.PENDING_APPROVAL;
@@ -379,10 +472,41 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         }
     }
 
+    // ... existing code ...
+
+
     // =========================================================
     // 单节点执行（含重试）
     // =========================================================
 
+        // ... existing code ...
+
+    /**
+     * 执行单个节点，负责统一管理重试次数、事件发布、工具调用、上下文治理和状态持久化。
+     * <p>
+     * 该方法的主要流程包括：
+     * 1. 校验节点状态流转合法性，更新节点为RUNNING状态
+     * 2. 构建节点目标并执行上下文治理流水线（编排决策、工作集重排、能力候选筛选）
+     * 3. 组装决策工作集并保存快照，生成治理后的提示词上下文
+     * 4. 调用带治理上下文的工具执行服务
+     * 5. 处理审批等待异常，更新节点状态为APPROVAL_PENDING
+     * 6. 失败时按maxRetry策略进行重试，每次重试都会重新执行工具调用
+     * 7. 根据最终结果更新节点状态（SUCCESS/FAILED）并持久化输出数据
+     * 8. 持久化节点轮次状态和记忆信息供后续节点参考
+     * <p>
+     * 整个过程中会持续发送节点级事件通知，确保执行过程可追踪。
+     * 审批等待和重试过程中的状态变化都会记录到数据库和事件日志中。
+     *
+     * @param planId      计划ID，用于标识所属计划
+     * @param phaseId     阶段ID，用于标识所属阶段
+     * @param phaseOrder  阶段顺序，用于日志输出
+     * @param node        节点实体，包含nodeId、name、nodeType、retryCount、maxRetry等执行元信息
+     * @param sessionId   会话ID，用于上下文编排和工具调用的会话关联
+     * @return NodeResult 节点执行结果，包含：
+     *         - success: 是否执行成功（true表示成功，false表示失败或审批等待）
+     *         - nodeId: 节点ID
+     *         - approvalPending: 是否等待审批（true表示需要人工审批）
+     */
     private NodeResult executeNode(String planId, String phaseId, int phaseOrder, PlanNode node, String sessionId) {
         /**
          * 节点执行入口负责统一管理重试次数、事件发布、工具调用、摘要写回和节点状态落库。
@@ -397,7 +521,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         log.info("[Node] 开始执行, planId={}, phaseId={}, phaseOrder={}, nodeId={}, name={}, type={}, retry={}/{}",
                 planId, phaseId, phaseOrder, nodeId, nodeName, nodeType, retryCount, maxRetry);
 
-        // 校验状态流转合法性
+        // 校验状态流转合法性，防止非法状态转换
         if (!canTransitToRunning(node.getStatus())) {
             log.warn("[Node] 节点状态流转不合法，跳过执行, nodeId={}, status={}, planId={}, phaseId={}",
                     nodeId, node.getStatus(), planId, phaseId);
@@ -407,13 +531,13 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
             return new NodeResult(false, nodeId, false);
         }
 
-        // 更新节点为 RUNNING
+        // 更新节点为 RUNNING 状态并推送开始事件
         safeUpdateNodeStatus(planId, nodeId, PlanNodeStatus.RUNNING, null, null, retryCount);
 
-        // 推送节点开始事件
         emitNodeEvent(planId, phaseId, nodeId, "PLAN_NODE_RUNNING", "RUNNING", "INFO",
                 "节点执行中", "", nodeName, nodeType, retryCount, maxRetry, 0L, Map.of());
 
+        // 构建节点目标并执行上下文治理流水线
         String nodeGoal = buildNodeGoal(planId, phaseId, node);
         String governedNodeGoal = nodeGoal;
         List<Resource> governedExecutionCandidates = List.of();
@@ -425,10 +549,13 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         String governedAssembledDecisionContext = "";
         String governanceError = null;
         try {
+            // 编排用户输入获取决策结果和上下文包
             TaskOrchestrationResult orchestrationResult = taskOrchestratorServiceProvider.getObject().orchestrateUserInput(sessionId, nodeGoal);
             governedDecision = orchestrationResult == null ? null : orchestrationResult.getDecision();
             governedContextPackage = orchestrationResult == null ? null : orchestrationResult.getContextPackage();
             governedReconstructionResult = orchestrationResult == null ? null : orchestrationResult.getReconstructionResult();
+
+            // 编排节点工作集，获取MCP驱动输入和执行候选
             governedNodeWorksetResult = taskOrchestratorServiceProvider.getObject().orchestrateNodeWorkset(
                     sessionId,
                     nodeGoal,
@@ -442,6 +569,8 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
             if (governedNodeWorksetResult != null && governedNodeWorksetResult.getExecutionCandidates() != null && !governedNodeWorksetResult.getExecutionCandidates().isEmpty()) {
                 governedExecutionCandidates = governedNodeWorksetResult.getExecutionCandidates();
             }
+
+            // 保存工具决策前的快照信息
             savePhasePreToolDecisionSnapshot(
                     sessionId,
                     planId,
@@ -451,6 +580,8 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                     governedExecutionCandidates,
                     governedNodeWorksetResult
             );
+
+            // 组装决策工作集并生成治理后的提示词上下文
             governedAssembledDecision = assemblePhaseDecisionWorkset(
                     sessionId,
                     nodeId,
@@ -463,6 +594,8 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
             governedAssembledDecisionContext = governedAssembledDecision == null
                     ? ""
                     : text(governedAssembledDecision.getPrompt());
+
+            // 保存工具决策上下文快照
             savePhaseToolDecisionContextSnapshot(
                     sessionId,
                     planId,
@@ -475,6 +608,8 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
             governanceError = e.getMessage();
             log.error("[Node] context workset pipeline failed, nodeId={}, err={}", nodeId, governanceError, e);
         }
+
+        // 如果上下文治理失败，直接返回错误结果
         if (governanceError != null) {
             long costMs = System.currentTimeMillis() - nodeStart;
             safeUpdateNodeStatus(planId, nodeId, PlanNodeStatus.FAILED, costMs, governanceError, retryCount);
@@ -483,6 +618,8 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                     retryCount, maxRetry, costMs, Map.of("governanceError", governanceError));
             return new NodeResult(false, nodeId, false);
         }
+
+        // 调用带治理上下文的工具执行服务
         String agentResult;
         boolean success;
 
@@ -502,6 +639,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
             );
             success = !isErrorResult(agentResult);
         } catch (NeedApprovalException e) {
+            // 捕获审批等待异常，更新节点状态为APPROVAL_PENDING
             String taskId = extractApprovalTaskId(e);
             long costMs = System.currentTimeMillis() - nodeStart;
 
@@ -518,8 +656,8 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
             return new NodeResult(false, nodeId, true);
         }
 
+        // 首次失败时按maxRetry策略进行重试
         if (!success) {
-            // 首次失败，尝试重试
             for (int r = retryCount + 1; r <= maxRetry; r++) {
                 String errMsg = extractErrorMessage(agentResult);
                 String errCode = extractErrorCode(agentResult);
@@ -543,6 +681,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                             governedAssembledDecisionContext
                     );
                 } catch (NeedApprovalException e) {
+                    // 重试过程中触发审批等待
                     String taskId = extractApprovalTaskId(e);
                     long costMs = System.currentTimeMillis() - nodeStart;
 
@@ -571,8 +710,9 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
 
         long costMs = System.currentTimeMillis() - nodeStart;
 
+        // 根据最终执行结果更新节点状态并持久化输出
         if (success) {
-            // 落库输出
+            // 落库输出数据并更新为SUCCESS状态
             Map<String, Object> output = buildOutput(node, nodeGoal, agentResult);
             Map<String, Object> outputForNext = buildOutputForNext(nodeId, agentResult);
             safeAppendNodeOutput(planId, nodeId, output, outputForNext);
@@ -583,6 +723,8 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
 
             emitNodeEvent(planId, phaseId, nodeId, "PLAN_NODE_SUCCESS", "SUCCESS", "INFO",
                     "节点执行成功", "", nodeName, nodeType, retryCount, maxRetry, costMs, outputForNext);
+
+            // 持久化节点轮次状态和记忆信息
             persistNodeRoundStateAndMemory(
                     sessionId,
                     nodeId,
@@ -595,6 +737,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                     true
             );
         } else {
+            // 更新为FAILED状态并记录失败原因
             String failReason = extractErrorMessage(agentResult);
             String errorCode = extractErrorCode(agentResult);
             safeUpdateNodeStatus(planId, nodeId, PlanNodeStatus.FAILED, costMs, failReason, maxRetry);
@@ -604,6 +747,8 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
 
             emitNodeEvent(planId, phaseId, nodeId, "PLAN_NODE_FAILED", "FAILED", "WARN",
                     failReason, errorCode, nodeName, nodeType, maxRetry, maxRetry, costMs, Map.of());
+
+            // 持久化失败状态的轮次信息
             persistNodeRoundStateAndMemory(
                     sessionId,
                     nodeId,
@@ -619,6 +764,9 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
 
         return new NodeResult(success, nodeId, false);
     }
+
+    // ... existing code ...
+
 
     // =========================================================
     // 辅助方法
@@ -676,6 +824,9 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         }
         if (node.getExpectedOutputSchema() != null && !node.getExpectedOutputSchema().isEmpty()) {
             sb.append("；期望输出Schema=").append(toJsonQuiet(node.getExpectedOutputSchema()));
+        }
+        if (this.previousPhaseOutput != null && !this.previousPhaseOutput.isBlank()) {
+            sb.append("；上阶段产出=").append(this.previousPhaseOutput);
         }
         return sb.toString();
     }
@@ -873,6 +1024,32 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         }
     }
 
+        // ... existing code ...
+
+    /**
+     * 组装阶段决策工作集，整合各类上下文片段供节点执行时使用。
+     * <p>
+     * 该方法的主要职责包括：
+     * 1. 从上下文包中提取任务知识片段、偏好片段、长短期记忆片段等
+     * 2. 从节点工作集结果中提取重排后的知识、记忆、MCP资源提示等
+     * 3. 合并去重不同来源的片段，确保上下文信息完整且不重复
+     * 4. 调用ContextAssembler组装最终的上下文物件，生成用于工具决策的提示词
+     * <p>
+     * 组装的上下文包含多个维度：任务知识、用户偏好、长短期记忆、运行时消息、
+     * 检索记忆、知识证据块、MCP资源提示和执行候选能力等。
+     *
+     * @param sessionId          会话ID，用于上下文组装的会话关联
+     * @param nodeId             节点ID，用于生成节点级别的模板策略
+     * @param userInput          用户输入文本，作为当前节点的执行目标
+     * @param contextPackage     结构化上下文包，包含会话历史、记忆、知识等完整上下文
+     * @param reconstructionResult 输入重构结果，包含规范化的用户意图和任务目标
+     * @param nodeWorksetResult  节点工作集结果，包含重排后的知识、记忆、偏好等精选片段
+     * @param executionCandidates 执行候选能力列表，包含可用的工具、提示词、资源等
+     * @return AssembledContext 组装后的上下文物件，包含：
+     *         - prompt: 生成的完整提示词文本
+     *         - 其他上下文元数据和组装结果
+     *         如果contextAssembler为空或contextPackage为空则返回null
+     */
     private AssembledContext assemblePhaseDecisionWorkset(String sessionId,
                                                           String nodeId,
                                                           String userInput,
@@ -883,6 +1060,8 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         if (contextAssembler == null || contextPackage == null) {
             return null;
         }
+
+        // 从上下文包中提取基础知识和偏好片段
         List<String> knowledgeSnippets = extractTaskKnowledgeSnippets(contextPackage);
         List<String> preferenceSnippets = mergeDistinct(
                 extractRelationalPreferenceSnippets(contextPackage),
@@ -893,6 +1072,8 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         List<String> longTermMemorySnippets = extractTaskLongTermSnippets(contextPackage);
         List<String> workingMemorySnippets = extractWorkingMemorySnippets(contextPackage);
         List<String> runtimeMemorySnippets = extractRuntimeMessageSnippets(contextPackage);
+
+        // 从节点工作集中提取重排后的记忆和知识片段
         List<String> retrievedMemorySnippets = nodeWorksetResult == null || nodeWorksetResult.getSelectedMemorySnippets() == null
                 ? List.of()
                 : nodeWorksetResult.getSelectedMemorySnippets();
@@ -903,6 +1084,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                 ? List.of()
                 : nodeWorksetResult.getMcpResourceHints();
 
+        // 调用上下文组装器整合所有片段，生成最终的工具决策提示词
         return contextAssembler.assemble(
                 contextPackage,
                 reconstructionResult,
@@ -926,6 +1108,9 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                 parseLong(nodeIdFromContext(contextPackage))
         );
     }
+
+    // ... existing code ...
+
 
     private void savePhaseToolDecisionContextSnapshot(String sessionId,
                                                       String planId,
@@ -1452,6 +1637,34 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         return "unknown";
     }
 
+        // ... existing code ...
+
+    /**
+     * 在治理上下文中处理工具调用，确保执行链路的安全性和可追溯性。
+     * <p>
+     * 该方法的主要职责包括：
+     * 1. 对治理后的决策输入和组装上下文进行签名，生成防篡改的输入签名
+     * 2. 构建线程级别的ToolCallingContext，包含会话信息、治理输入、执行候选等
+     * 3. 将上下文设置到ThreadLocal中，供下游服务访问
+     * 4. 调用代理服务执行带治理的工具决策流程
+     * 5. 在finally块中清理ThreadLocal，防止内存泄漏
+     * <p>
+     * 通过签名机制保证治理输入不被篡改，通过ThreadLocal传递上下文避免参数层层透传。
+     * 整个执行过程受策略ID、角色ID、场景ID等多维度约束控制。
+     *
+     * @param sessionId                会话ID，用于关联用户会话
+     * @param rawUserInput             原始用户输入，保留原始意图信息
+     * @param governedDecisionInput    治理后的决策输入，经过MCP驱动或重排优化的输入
+     * @param policyId                 策略ID，用于提示词策略选择
+     * @param personaId                角色ID，用于个性化提示词选择
+     * @param sceneId                  场景ID，用于场景化提示词选择
+     * @param taskState                任务运行状态，标识当前任务的执行阶段
+     * @param relationalState          关系运行状态，标识会话的关系上下文
+     * @param modelFamily              模型家族，用于模型特定的提示词选择
+     * @param executionCandidates      执行候选能力列表，包含可用的工具、提示词、资源等
+     * @param assembledDecisionContext 组装后的决策上下文字符串，包含完整的提示词内容
+     * @return String 工具执行结果的JSON字符串，包含执行状态、输出数据等信息
+     */
     private String processToolCallingWithGovernedContext(String sessionId,
                                                          String rawUserInput,
                                                          String governedDecisionInput,
@@ -1466,12 +1679,16 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
         /**
          * 通过签名后的治理输入构造线程上下文，再统一调用代理服务执行工具决策，保证安全链路闭环。
          */
+
+        // 对治理输入进行签名，生成防篡改的输入签名
         String stableAssembledDecisionContext = assembledDecisionContext == null ? "" : assembledDecisionContext;
         String governedInputSignature = ToolDecisionInputSignatureUtil.sign(
                 sessionId,
                 governedDecisionInput,
                 stableAssembledDecisionContext
         );
+
+        // 构建线程级别的工具调用上下文并设置到ThreadLocal
         ToolCallingContextHolder.set(ToolCallingContext.builder()
                 .chatSessionKey(sessionId)
                 .userInput(rawUserInput)
@@ -1482,6 +1699,7 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                 .toolExecutionTraces(new CopyOnWriteArrayList<>())
                 .build());
         try {
+            // 调用代理服务执行带治理的工具决策流程
             return agentServiceProvider.getObject().processToolCallingWithGovernance(
                     ToolDecisionCommand.builder()
                             .sessionId(sessionId)
@@ -1499,9 +1717,13 @@ public class PhaseExecutionServiceImpl implements PhaseExecutionService {
                             .build()
             );
         } finally {
+            // 清理ThreadLocal，防止内存泄漏
             ToolCallingContextHolder.clear();
         }
     }
+
+    // ... existing code ...
+
 
     // =========================================================
     // 内部值对象

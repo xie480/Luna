@@ -1,794 +1,360 @@
-# ChatController.message 主链路
-
-> 对应实现方法为 `ChatController.chat(@RequestBody ChatRequest chatRequest)`，接口路径为 `POST /luna/api/chat/message`。  
-> 下文只展开 `message` 主链路，不展开 `startup`、`shutdown`、历史查询等旁路接口。
+# ChatController.chat 主链路（v2）
 
 ## 1. Controller 入口层
 
 ### 1.1 接收 HTTP 请求
-- 当前步骤在做什么：`ChatController.chat` 接收 `ChatRequest`，承接 `/luna/api/chat/message` 的 HTTP POST 请求。
-- 为什么要这么做：Controller 只负责协议适配，不负责聊天治理、工具决策和模型编排。
-- 输入是什么：HTTP 请求体，反序列化后的 `ChatRequest`。
-- 输出是什么：可交给服务层处理的 `ChatRequest`。
-- 对下一步有什么影响：成功后调用链进入 `ChatServiceImpl.chat`。
+`ChatController.chat(@RequestBody ChatRequest chatRequest)` 在这里承担的是 Web 入口的协议接收职责，它把 `POST /luna/api/chat/message` 的请求体反序列化为 `ChatRequest`，并把请求正式带入服务端主链路。之所以要把这一步单独放在 Controller 层，是因为 HTTP 协议适配、参数反序列化、调用边界控制本来就应当与聊天编排解耦，否则业务链路会被协议细节污染。经过这一步之后，原始网络报文被收敛成稳定的 Java 对象，后续流程才能围绕统一的数据结构推进，而不是继续处理松散的请求载荷。
 
 ### 1.2 转交服务层
-- 当前步骤在做什么：直接调用 `chatService.chat(chatRequest)`。
-- 为什么要这么做：把主业务逻辑集中在 Service 层，避免 Controller 变成编排中心。
-- 输入是什么：`ChatRequest`。
-- 输出是什么：`ResponseEntity<Object>`。
-- 对下一步有什么影响：后续所有状态治理、工具调用、主模型生成和持久化都由 `ChatServiceImpl.chat` 接管。
+Controller 在拿到 `ChatRequest` 之后，立即调用 `chatService.chat(chatRequest)`，把链路控制权转交给服务层。这样做的原因是后续步骤包含状态发布、上下文治理、工具决策、主模型调用、记忆写入和审计落库，这些都属于应用服务的职责范围，不应继续停留在接口层。服务层一旦接管，请求就从“被动接收”转为“主动编排”，后续每一步都将基于统一的服务层上下文继续推进。
 
 ## 2. ChatServiceImpl.chat 总入口
 
 ### 2.1 规范化用户输入
-- 当前步骤在做什么：通过 `Optional.ofNullable(chatRequest).map(ChatRequest::getUserInput).map(String::trim).orElse("")` 提取并清洗 `userInput`，得到 `input`。
-- 为什么要这么做：后续所有流程都依赖规范化输入，先去空值和首尾空白能减少脏分支。
-- 输入是什么：`ChatRequest`。
-- 输出是什么：规范化后的 `input`。
-- 对下一步有什么影响：空值校验和后续治理都以这个 `input` 为准。
+服务入口先通过 `Optional.ofNullable(chatRequest).map(ChatRequest::getUserInput).map(String::trim).orElse("")` 提取并清洗用户输入，把可能为 `null`、含首尾空白或格式松散的原始文本规整为可执行的 `input`。这样做是因为后续上下文编译、输入重构、检索和模型生成都依赖一个稳定的输入种子，如果一开始不做规范化，后面每个节点都要重复处理空值和噪声。经过这一步，链路获得了统一的文本入口，后续判断空输入、生成会话上下文和构建轮次请求才有可靠基础。
 
 ### 2.2 拦截空输入
-- 当前步骤在做什么：若 `input.isEmpty()`，直接返回 `400 Bad Request`，响应体为 `empty input`。
-- 为什么要这么做：空输入没有继续执行上下文治理、工具决策和模型推理的意义。
-- 输入是什么：`input`。
-- 输出是什么：错误响应或继续向下。
-- 对下一步有什么影响：只有非空输入才会进入完整主链路。
+如果规范化后的 `input` 为空，方法会直接返回 `400 Bad Request` 和 `empty input`，在入口处终止整条链路。之所以在这里拦截，是因为空输入既无法产生明确任务目标，也不值得触发上下文编译、检索、工具决策和状态写回，越早终止越能避免无效计算和脏状态。缺少这一步会导致系统把无意义请求推进到治理流水线，既浪费资源，也会让审计与记忆层出现无价值记录；而一旦这里返回，后续所有阶段都不会被触发。
 
 ### 2.3 发布前端思考状态
-- 当前步骤在做什么：调用 `statusPublisher.publish(DEFAULT_CLIENT_ID, STATUS_THINKING, VALUE_THINKING)`。
-- 为什么要这么做：前端需要立即知道请求已进入处理中。
-- 输入是什么：默认客户端和状态常量。
-- 输出是什么：一条状态事件。
-- 对下一步有什么影响：后续检索态、整理态、空闲态都围绕这轮处理继续更新。
+输入通过校验后，服务会调用 `statusPublisher.publish(..., THINKING, ...)` 向前端发布“思考中”状态，告诉订阅端本轮请求已经进入处理阶段。这样设计是因为对话链路本身较长，前端如果收不到阶段状态，就无法区分“系统正在处理中”和“请求已卡死”，用户体验会明显下降。状态一经发布，前端观察到的会话状态就从静止切换到处理中，后续检索、工具、挂起或结束阶段都将在这个可观测状态机上继续演进。
 
 ### 2.4 生成运行时会话 ID
-- 当前步骤在做什么：优先读取 `AuthContextHolder.getSessionId()`，为空时用 `yyyy:MM:dd` 格式的当前时间生成 `runtimeSessionId`。
-- 为什么要这么做：后续上下文编译、状态写回、挂起缓存、审计、记忆写入都必须落到同一会话。
-- 输入是什么：认证上下文中的 sessionId 或当前时间。
-- 输出是什么：`runtimeSessionId`。
-- 对下一步有什么影响：预工具流水线、挂起分支、正式轮次都统一使用这个会话 ID。
+服务随后优先从 `AuthContextHolder.getSessionId()` 读取会话标识，若不存在则使用当前时间按既定格式生成 `runtimeSessionId`。这样做的核心原因是整条链路之后的上下文编译、状态仓库、工具挂起缓存、记忆写入和审计记录都必须落在同一个会话维度上，否则数据会分散到不同轨道，无法形成连续会话历史。`runtimeSessionId` 一旦确定，后面所有轮次请求、快照记录、回放审计和状态推进都会围绕这个 ID 进行关联。
 
 ## 3. 预工具状态驱动流水线
 
 ### 3.1 发布检索状态
-- 当前步骤在做什么：调用 `statusPublisher.publish(DEFAULT_CLIENT_ID, STATUS_RETRIEVING, VALUE_RETRIEVING)`。
-- 为什么要这么做：这一阶段将进入上下文治理、检索和节点工作集准备。
-- 输入是什么：状态常量。
-- 输出是什么：检索状态事件。
-- 对下一步有什么影响：前端会显示当前请求正在做上下文准备而非正式回复。
+在真正进入治理流水线前，服务会发布 `RETRIEVING` 状态，把前端可见状态从“思考”推进到“检索/整理上下文”。这样拆分状态而不是一直停留在统一的 `THINKING`，是为了让用户能看见链路已从入口校验进入上下文加工阶段，同时也让可观测系统能区分不同阶段的耗时。状态一旦切到检索中，后续预工具流水线的执行就具备了明确的前端反馈和阶段边界。
 
 ### 3.2 构建 `CHAT_PRE_TOOL` 轮次请求
-- 当前步骤在做什么：构建 `RoundPipelineRequest`，关键字段为：`sessionId=runtimeSessionId`、`userInput=input`、`stage=CHAT_PRE_TOOL`、`repairSeed=input`、`runMainModel=false`、`assistantReplyOverride=""`、`preAssemblyTriggerSource=PRE_ASSEMBLY_INPUT`、`postSummaryTriggerSource=CHAT_PRE_TOOL`、`replaceHistoryWithSummary=false`、`writeRoundState=false`。
-- 为什么要这么做：这一轮只负责补齐治理工件和节点工作集，不负责正式生成回复。
-- 输入是什么：会话 ID、用户输入、预工具阶段常量。
-- 输出是什么：预工具 `RoundPipelineRequest`。
-- 对下一步有什么影响：状态驱动流水线会按“只治理、不回包”的模式执行。
+服务用 `runtimeSessionId`、`input` 以及 `stage=CHAT_PRE_TOOL`、`runMainModel=false`、`writeRoundState=false` 等参数组装出预工具阶段的 `RoundPipelineRequest`。这里这样配置，是因为当前目标不是直接生成最终回复，而是先把决策、结构化上下文、输入重构和节点工作集这些上游工件补齐，从而为后面的工具决策和正式回答准备事实底座。请求被构建完成后，链路从简单的服务方法调用正式切换为可治理、可编排的轮次执行模式。
 
 ### 3.3 调用 `stateDrivenContextPipeline.run`
-- 当前步骤在做什么：以 `triggerSource=CHAT_PRE_TOOL` 包装预工具轮次请求并调用 `stateDrivenContextPipeline.run(...)`。
-- 为什么要这么做：统一复用状态驱动流水线，先补齐请求，再交给轮次编排器。
-- 输入是什么：`StateDrivenContextPipelineRequest`。
-- 输出是什么：`preToolPipelineResult`。
-- 对下一步有什么影响：后续能否继续做工具决策，取决于这里是否返回完整治理产物。
+服务把 `StateDrivenContextPipelineRequest` 交给 `stateDrivenContextPipeline.run(...)` 执行，让状态驱动流水线接管本轮的上下文治理。之所以由状态驱动流水线统一处理，是因为这里涉及补齐缺失工件、打审计钩子、组织轮次执行和兜底返回，分散在 `ChatServiceImpl` 内会让链路耦合过高。调用发生后，后续步骤就不再直接处理原始输入，而是围绕“已声明阶段和策略的轮次请求”继续演进。
 
 ### 3.4 处理预工具阻断
-- 当前步骤在做什么：若 `preToolPipelineResult == null` 或 `preToolPipelineResult.isBlocked()`，发布 `IDLE` 并返回 `503`，响应体为 `contextGovernanceBlockedPayload("chat pre-tool pipeline blocked")`。
-- 为什么要这么做：预工具阶段都失败了，后续工具决策和正式回复就没有可靠输入。
-- 输入是什么：`preToolPipelineResult`。
-- 输出是什么：阻断响应或继续执行。
-- 对下一步有什么影响：主链路可能在这里提前结束。
+如果预工具流水线返回 `null` 或 `isBlocked()`，服务会发布 `IDLE` 状态并返回 `503`，响应中明确给出上下文治理被阻断的信息。这样做是因为预工具阶段的职责就是确保后续工具决策和正式回复拥有完整可用的治理结果，一旦这里失败，继续推进只会造成更大的语义漂移和错误写回。阻断在这里被显式终止后，后续工具调用、主模型生成和记忆写入都不会继续发生，链路也会在前端状态层正确收口。
 
 ### 3.5 校验预工具核心工件
-- 当前步骤在做什么：从 `preToolPipelineResult` 提取 `decision`、`contextPackage`、`reconstruction`、`nodeWorkset`，并校验四者是否都存在。
-- 为什么要这么做：后续片段抽取、工具决策、正式轮次组装都依赖这四类工件。
-- 输入是什么：`preToolPipelineResult`。
-- 输出是什么：完整工件，或 `503` 响应。
-- 对下一步有什么影响：若任一工件缺失，则返回 `contextGovernanceBlockedPayload("chat pre-tool pipeline artifacts missing")`；否则进入下一阶段。
+在预工具流水线成功返回后，服务会进一步确认 `decision`、`contextPackage`、`reconstruction` 和 `nodeWorkset` 四类关键工件都已存在。这样做的原因是流水线成功返回并不天然等于结果完整，而后面的工具决策和正式轮次都强依赖这些工件，任何一个缺失都会使后续阶段无法建立稳定工作集。通过这一步，链路把“流水线已执行”提升为“核心治理结果已齐备”，从而保证后续分支建立在完整事实之上。
 
 ## 4. StateDrivenContextPipelineImpl.run
 
 ### 4.1 校验状态驱动请求
-- 当前步骤在做什么：检查 `request` 和 `request.getRoundPipelineRequest()` 是否为空。
-- 为什么要这么做：没有轮次请求就无法进入后续水化和编排。
-- 输入是什么：`StateDrivenContextPipelineRequest`。
-- 输出是什么：阻断结果 `state_driven_context_pipeline_request_missing` 或继续执行。
-- 对下一步有什么影响：只有请求合法时才会进入 `hydrateRoundRequest`。
+`run` 方法先校验 `StateDrivenContextPipelineRequest` 以及内部 `roundPipelineRequest` 是否存在，缺失时直接返回阻断结果。这样做是为了避免在最基本输入不成立时仍然继续生成审计记录或执行编排，导致系统写出失真的状态和日志。只有请求结构本身合法，后续的水化、编排和结果封装才有执行前提。
 
 ### 4.2 水化轮次请求
-- 当前步骤在做什么：调用 `hydrateRoundRequest(request)`，把原始轮次请求补齐成可执行的完整请求。
-- 为什么要这么做：上游传进来的请求可能只有基础字段，实际执行前还需要补齐决策、上下文包、重构结果、节点工作集和片段池。
-- 输入是什么：原始状态驱动请求。
-- 输出是什么：`hydratedRoundRequest` 或 `null`。
-- 对下一步有什么影响：若水化失败，直接返回 `state_driven_context_pipeline_hydration_failed`。
+通过校验后，流水线会调用 `hydrateRoundRequest(request)`，把只带基础字段的轮次请求补齐为真正可执行的完整请求。之所以要先水化，是因为轮次编排器需要依赖决策、结构化上下文、输入重构、节点工作集等工件才能工作，而这些内容并不一定在入口处就已经具备。水化完成后，链路从“初始轮次意图”转入“完整轮次执行输入”，后面的编排器才能消费。
 
 ### 4.3 构建审计追踪上下文
-- 当前步骤在做什么：从水化请求中提取 `sessionId`、`triggerSource`、`planId`、`nodeId`，生成 `traceId`。
-- 为什么要这么做：后续多个钩子和轮次执行结果都要共享同一条链路追踪信息。
-- 输入是什么：原始请求和水化后的请求。
-- 输出是什么：追踪上下文。
-- 对下一步有什么影响：所有审计记录和状态迁移日志都会复用这套上下文。
+在拿到水化后的请求后，流水线会基于 `sessionId`、触发源、计划节点信息和阶段信息组装审计追踪上下文。这样做的设计动机，是让之后的每个阶段日志都能落到统一 trace 之下，便于回放链路、排查缺失工件和定位性能瓶颈。审计上下文一旦建立，后续执行前钩子、执行后钩子和轮次编排都会拥有一致的链路标识。
 
 ### 4.4 记录执行前钩子
+流水线在真正调用编排器前，会把当前轮次已经具备的关键信息按阶段写入执行前钩子记录。这样做是因为预工具与正式轮次都属于长链路，若不在执行前固化现场，后续一旦阻断或降级，就很难知道问题发生前系统已经拥有了哪些治理产物。执行前钩子写入完成后，后续任一节点都可以基于这些前置记录对比“输入现场”和“输出结果”。
 
 #### 4.4.1 `reconstruct` 钩子
-- 当前步骤在做什么：记录是否已有 `reconstructionResult` 和当前 `stage`。
-- 为什么要这么做：便于确认输入重构工件是否已就绪。
-- 输入是什么：`hydratedRoundRequest`。
-- 输出是什么：一条审计记录和一条状态迁移日志。
-- 对下一步有什么影响：后续可以追查阻断是否发生在重构阶段。
+`reconstruct` 钩子记录的是输入重构相关的现场，例如用户原始输入、显式任务目标是否可用、重构结果是否缺失等。因为输入重构是整个上下文治理的起点，如果这里没有清楚的链路证据，后面召回、重排、工具决策的偏差就无法追责到源头。它会直接影响后续判断本轮输入是否已经足以进入召回与编排阶段。
 
 #### 4.4.2 `recall` 钩子
-- 当前步骤在做什么：记录是否已有 `nodeWorksetResult`、`executionCandidates`、`mcpResourceHints`。
-- 为什么要这么做：工具决策和正式轮次都依赖这些工作集结果。
-- 输入是什么：`hydratedRoundRequest`。
-- 输出是什么：召回阶段审计。
-- 对下一步有什么影响：为后续排查“工作集未就绪”提供证据。
+`recall` 钩子聚焦召回准备状态，记录本轮是否已具备检索查询、候选来源和相关的计划上下文。这样做是为了明确召回阶段的输入边界，避免后面把“没有检索到内容”和“根本没有形成检索输入”混为一谈。该记录会成为后续多路检索、底层重排与异常降级判断的重要参照。
 
 #### 4.4.3 `rerank` 钩子
-- 当前步骤在做什么：记录 `nodeWorksetResult.getRerankResult()` 是否存在。
-- 为什么要这么做：重排结果决定知识证据、记忆片段和执行候选的最终入选。
-- 输入是什么：`hydratedRoundRequest`。
-- 输出是什么：重排阶段审计。
-- 对下一步有什么影响：可以区分是“未召回”还是“已召回但未重排”。
+`rerank` 钩子会提前标记重排阶段可用的候选池规模、证据类型和阶段上下文。因为全局重排属于高价值但高依赖的步骤，若没有前置记录，就无法判断问题出在召回质量、候选覆盖，还是重排本身。它为之后的全局上下文重排和证据选择建立了可回放的输入现场。
 
 #### 4.4.4 `assemble` 钩子
-- 当前步骤在做什么：记录 `runMainModel` 和 `writeRoundState`。
-- 为什么要这么做：同一条流水线会被预工具轮次、挂起轮次、正式轮次复用，必须明确本轮是否要跑主模型、是否要写状态。
-- 输入是什么：`hydratedRoundRequest`。
-- 输出是什么：组装阶段审计。
-- 对下一步有什么影响：为后续判断本轮为什么没有主模型输出提供依据。
+`assemble` 钩子记录当前轮次在进入最终组装前已经具备的上下文分区、模板策略和摘要控制开关。这样设计是因为组装阶段既承接前面所有治理结果，又直接影响主模型输入，如果没有装配前快照，后续生成质量就难以与具体组装策略关联。该钩子让后面的编排器执行结果可以和装配前状态形成闭环对比。
 
 ### 4.5 调用轮次编排器
-- 当前步骤在做什么：把 `hydratedRoundRequest` 交给 `roundPipelineOrchestrator.executeRound(...)`。
-- 为什么要这么做：状态驱动流水线负责补齐请求和组织追踪，真正的轮次执行逻辑在 `RoundPipelineOrchestratorImpl` 中。
-- 输入是什么：水化后的 `RoundPipelineRequest`。
-- 输出是什么：`RoundPipelineResult`。
-- 对下一步有什么影响：后续执行后钩子和字段兜底都基于它。
+在前置记录完成后，流水线把水化后的 `RoundPipelineRequest` 交给 `roundPipelineOrchestrator.executeRound(...)`。这样分层是为了让流水线负责“治理与调度”，让编排器负责“轮次执行”，避免一个组件同时承担输入补齐、日志钩子和执行细节三类职责。编排器被调用后，链路开始真正消费治理后的工作集并产出轮次结果。
 
 ### 4.6 记录执行后钩子
-- 当前步骤在做什么：记录 `execute` 钩子中的阻断状态和阻断原因，再记录 `writeback` 钩子中的 `finalSnapshotId` 和 `summaryResult` 是否存在。
-- 为什么要这么做：要把真正执行结果写回审计链路，而不是只记录准备阶段信息。
-- 输入是什么：`RoundPipelineResult`。
-- 输出是什么：执行阶段和回写阶段的审计记录。
-- 对下一步有什么影响：为下游判断失败发生在“水化阶段”还是“轮次执行阶段”提供依据。
+编排器返回后，流水线会记录执行后钩子，把是否阻断、哪些结果已产出、摘要与快照是否生成等信息写入审计系统。这样做的原因是仅有执行前记录不足以形成完整回放，必须同时固化执行后的结果，才能看出本轮在执行过程中发生了哪些状态收敛或缺失。执行后钩子为后面的兜底封装和上层服务判断提供了可追溯依据。
 
 ### 4.7 对轮次结果做兜底封装
-- 当前步骤在做什么：若 `result == null`，返回 `round_result_missing`；否则构造新的 `RoundPipelineResult`，优先使用轮次执行结果，缺失字段回退到 `hydratedRoundRequest` 中的 `decision`、`contextPackage`、`reconstructionResult`、`nodeWorksetResult`。
-- 为什么要这么做：轮次执行结果可能没有重复回填所有字段，但下游仍然需要完整工件。
-- 输入是什么：`result`、`hydratedRoundRequest`。
-- 输出是什么：字段尽量完整的 `RoundPipelineResult`。
-- 对下一步有什么影响：下游可以稳定继续做工具决策和正式轮次构建。
+最后，流水线会对 `RoundPipelineResult` 做空值检查和关键字段兜底，用水化请求中的已有工件补齐结果对象中的缺口。这样做是因为上层 `ChatServiceImpl` 消费的是稳定结果结构，而不是不确定的局部产物；如果把缺失字段直接暴露给上层，后面会充斥大量防御式分支。兜底封装完成后，服务层拿到的是结构更稳定的轮次结果，链路能够继续向工具决策或正式轮次推进。
 
 ## 5. StateDrivenContextPipelineImpl.hydrateRoundRequest
 
 ### 5.1 提取原始轮次请求
-- 当前步骤在做什么：读取 `request.getRoundPipelineRequest()`。
-- 为什么要这么做：水化逻辑必须先拿到原始轮次请求作为基底。
-- 输入是什么：`StateDrivenContextPipelineRequest`。
-- 输出是什么：`input` 或 `null`。
-- 对下一步有什么影响：如果原始轮次请求为空，整次水化失败。
+水化过程首先从外层请求中取出原始 `RoundPipelineRequest`，识别其中已经显式传入的会话、输入、阶段和控制参数。这样做是因为水化不是盲目重建所有工件，而是要先判断哪些内容是调用方已经给出的、哪些是还需要补齐的。只有识别清楚原始输入，后续的补齐动作才能做到最小侵入，避免重复计算和覆盖上游结果。
 
 ### 5.2 统一会话与输入
-- 当前步骤在做什么：用 `firstNonBlank(request.getSessionId(), input.getSessionId())` 生成最终 `sessionId`，并用 `safe(input.getUserInput())` 生成 `userInput`。
-- 为什么要这么做：外层请求和内层轮次请求都可能携带会话 ID，需要统一优先级。
-- 输入是什么：外层请求、内层轮次请求。
-- 输出是什么：`sessionId`、`userInput`。
-- 对下一步有什么影响：后续补齐决策、上下文、重构结果和节点工作集都基于这两个值。
+随后方法会统一 `sessionId` 与 `userInput` 的来源，优先保证整个水化过程使用同一份会话标识和文本输入。这样设计是因为决策、上下文、重构和节点工作集都必须围绕同一轮输入种子建立，若会话或输入在水化过程中发生漂移，后续工件会失去可关联性。统一完成后，链路中的所有下游工件都绑定到同一条会话和同一轮输入上。
 
 ### 5.3 读取已有核心工件
-- 当前步骤在做什么：从 `input` 中读取 `decision`、`contextPackage`、`reconstructionResult`。
-- 为什么要这么做：如果上游已经提供这些工件，就不应该重复编排。
-- 输入是什么：原始 `RoundPipelineRequest`。
-- 输出是什么：当前已有的三类核心工件。
-- 对下一步有什么影响：决定是否触发 `orchestrateUserInput` 自动补齐。
+方法接着读取请求中是否已经带有 `decision`、`contextPackage`、`reconstructionResult` 和 `nodeWorksetResult`。之所以先读已有工件，是因为同一个状态驱动流水线既服务预工具阶段，也服务挂起和正式轮次阶段，后两者往往已经具备部分上游结果，没有必要再次重算。这个判断结果会直接决定后续是走补齐路径还是走复用途径。
 
 ### 5.4 条件补齐决策、上下文、重构结果
-- 当前步骤在做什么：当 `decision`、`contextPackage`、`reconstructionResult` 任一缺失且 `userInput` 非空时，调用 `taskOrchestratorService().orchestrateUserInput(sessionId, userInput)`，并只回填当前缺失的字段。
-- 为什么要这么做：这三类工件是后续节点工作集、工具决策和主模型执行的最小前置条件。
-- 输入是什么：`sessionId`、`userInput`、已有工件。
-- 输出是什么：补齐后的 `decision`、`contextPackage`、`reconstructionResult`。
-- 对下一步有什么影响：为重构就绪性校验和节点工作集生成提供基础。
+如果决策、结构化上下文或输入重构结果缺失，且 `userInput` 可用，水化过程会调用 `taskOrchestratorService.orchestrateUserInput(...)` 一次性补齐三类核心工件。这样做的原因是这三者本质上来自同一条治理链路，拆开分别计算既容易产生语义不一致，也会造成重复编译和重复审计。它们一旦补齐，后续节点工作集生成、工具决策和正式轮次组装就有了统一事实底座。
 
 ### 5.5 校验重构结果是否可执行
-- 当前步骤在做什么：调用 `isReconstructionReady(reconstructionResult)` 检查重构结果是否达到就绪标准；若不满足，则写入 `STATE_DRIVEN_PIPELINE_BLOCKED` 审计并返回 `null`。
-- 为什么要这么做：没有明确任务目标时，后续 RAG 查询、记忆查询、MCP 查询和主模型执行都会失去边界。
-- 输入是什么：`reconstructionResult`。
-- 输出是什么：继续执行，或终止水化。
-- 对下一步有什么影响：只有通过该校验，才会继续生成 `nodeWorksetResult`。
+拿到或复用输入重构结果后，方法会重点确认 `explicitTaskGoal` 等关键字段是否满足可执行条件。这里之所以卡得很早，是因为没有明确任务目标就意味着系统还不知道“这一轮究竟要完成什么”，继续做检索、重排和工具决策只会放大噪声。通过这一步，链路把“拿到了重构结果”进一步提升为“拿到了可驱动下游执行的重构结果”。
 
 ### 5.6 条件生成节点工作集
-- 当前步骤在做什么：当 `nodeWorksetResult == null`，且 `userInput` 非空、`decision/contextPackage/reconstructionResult` 全部存在时，调用 `taskOrchestratorService().orchestrateNodeWorkset(...)`。
-- 为什么要这么做：节点工作集承接了 RAG 查询、记忆查询、MCP 查询、能力候选和全局重排结果，是正式轮次和工具决策的直接输入。
-- 输入是什么：`sessionId`、`userInput`、`decision`、`contextPackage`、`reconstructionResult`。
-- 输出是什么：`nodeWorksetResult`。
-- 对下一步有什么影响：后续片段池、执行候选和 MCP 提示都以它为高优先级来源。
+如果前面的核心工件已经齐备但 `nodeWorksetResult` 仍缺失，水化过程会调用 `taskOrchestratorService.orchestrateNodeWorkset(...)` 生成节点工作集。这样安排是因为节点工作集依赖决策、上下文和重构结果，必须建立在这些工件之后，而不能前置到入口阶段。生成完成后，链路不仅知道“用户要做什么”，还拿到了“用哪些候选资源、证据和工具去做”的执行工作集。
 
 ### 5.7 合并执行候选、知识片段、偏好片段和记忆片段
-- 当前步骤在做什么：按 `请求值 > nodeWorksetResult > contextPackage > 空值` 的优先级，分别生成 `executionCandidates`、`mcpResourceHints`、`knowledgeSnippets`、`preferenceSnippets`、`longTermMemorySnippets`、`workingMemorySnippets`、`runtimeMemorySnippets`、`retrievedMemorySnippets`。
-- 为什么要这么做：同一轮次可能由不同上游提供不同粒度的覆盖值，必须在这里统一最终片段池。
-- 输入是什么：`input`、`nodeWorksetResult`、`contextPackage`。
-- 输出是什么：正式可消费的候选集和片段集。
-- 对下一步有什么影响：后续工具决策上下文和主模型上下文都以这里的合并结果为准。
+拿到节点工作集后，水化过程会把其中选中的执行候选、知识片段、偏好片段和记忆片段与已有上下文结果进行合并。这样做的业务目的，是把“原始上下文包中的全量素材”收敛为“当前轮次真正应该消费的工作集”，避免后面主模型和工具决策同时面对冗余输入。合并结果直接决定后续组装出来的轮次请求是否既保留关键语义，又不会失控膨胀。
 
 ### 5.8 解析节点模板策略并组装最终水化请求
-- 当前步骤在做什么：若 `input.getNodeTemplatePolicy()` 为空，则调用 `resolveNodeTemplatePolicy(decision, contextPackage)` 自动推导；然后把所有补齐后的字段重新装配为新的 `RoundPipelineRequest`。
-- 为什么要这么做：轮次编排器只接受标准化、完整的轮次请求。
-- 输入是什么：补齐后的全部治理结果。
-- 输出是什么：`hydratedRoundRequest`。
-- 对下一步有什么影响：`RoundPipelineOrchestratorImpl.executeRound` 将基于这份完整请求执行轮次逻辑。
+最后，方法会解析节点模板策略，连同合并后的片段池、候选资源、工具上下文控制项一起组装成最终的水化请求。之所以把模板策略放在这里解析，是因为它需要基于当前轮次已经确定的决策和工作集来决定装配方式，过早解析会失去上下文，过晚解析又会让编排器承担过多装配职责。至此，链路得到的是一份可以直接交给轮次编排器执行的完整请求对象。
 
 ## 6. TaskOrchestratorServiceImpl.orchestrateUserInput
 
 ### 6.1 第一次上下文编译
-- 当前步骤在做什么：调用 `contextCompilerService.compile(sessionId, userInput, null, null)`，得到 `preContextPackage`。
-- 为什么要这么做：输入重构不能脱离当前任务状态、关系状态、上下文状态和恢复状态。
-- 输入是什么：`sessionId`、`userInput`。
-- 输出是什么：第一次编译出的 `StructuredContextPackage`。
-- 对下一步有什么影响：输入重构会基于这份初始上下文理解本轮意图。
+该方法首先调用上下文编译器，为当前 `sessionId + userInput` 构建第一版结构化上下文。这样做并不是为了直接生成最终提示词，而是为了先把运行时状态、短期记忆、工作记忆和历史片段聚合起来，形成输入重构与状态机判断所需的事实底座。没有这一步，后续输入重构只能基于用户原文做孤立判断，无法携带会话连续性。
 
 ### 6.2 输入重构
-- 当前步骤在做什么：调用 `inputReconstructionAgent.reconstruct(...)`，生成 `InputReconstructionResult`。
-- 为什么要这么做：系统后续需要的是显式任务目标、标准化意图、缺失槽位和重构后的检索查询，而不是原始自然语言。
-- 输入是什么：`sessionId`、`userInput`、`preContextPackage`、当前任务状态、关系状态。
-- 输出是什么：`reconstructionResult`。
-- 对下一步有什么影响：状态机推进、节点工作集编排和工具查询生成都依赖这个结果。
+在得到初版上下文后，系统会调用输入重构能力生成 `InputReconstructionResult`，把用户原文转写为更清晰的显式任务目标、约束和修复种子。这样做的技术原因是用户自然语言往往省略上下文、目标和边界，若直接驱动检索与工具选择，系统会把含混表达扩散到全链路。重构后的结果会直接成为后续事件治理、检索查询和主模型装配的关键输入。
 
 ### 6.3 构建治理信号
-- 当前步骤在做什么：调用 `buildGovernedSignal(userInput, reconstructionResult)` 生成 `GovernedSignal`。
-- 为什么要这么做：状态机入口消费的是标准化治理信号，而不是任意自由文本。
-- 输入是什么：原始用户输入和输入重构结果。
-- 输出是什么：治理信号 JSON。
-- 对下一步有什么影响：`eventIngressService.ingestUserInput` 会基于该信号做状态推进和决策。
+基于重构结果和当前上下文，方法会组装 `GovernedSignal` 一类的治理信号，作为状态机和事件入口的标准化输入。之所以单独生成治理信号，是因为后面的会话状态推进不应再消费松散的自然语言，而应消费经过约束、归一化且可审计的结构化事件。治理信号一旦成形，后面状态机推进就不再依赖推测，而是依赖显式语义。
 
 ### 6.4 驱动事件入口服务
-- 当前步骤在做什么：调用 `eventIngressService.ingestUserInput(sessionId, userInput, toJsonSafe(governedSignal))`，得到 `OrchestrationDecision`。
-- 为什么要这么做：用户输入不只是“多了一句话”，还可能推动任务状态、关系状态、恢复状态和上下文状态发生变化。
-- 输入是什么：`sessionId`、`userInput`、治理信号。
-- 输出是什么：`decision`。
-- 对下一步有什么影响：如果 `decision` 存在，则以 `decision.getContextPackage()` 作为更新后的上下文包。
+方法随后把治理后的输入送入 `eventIngressService`，由事件入口负责去重、入箱并触发会话编排。这样做是为了把“用户输入到来”转成明确的系统事件，使会话状态演进具备统一入口，而不是散落在多个服务中隐式推进。事件被接收后，会话状态、关系状态和当前任务态都具备了被统一更新的前提。
 
 ### 6.5 选择更新后的上下文包
-- 当前步骤在做什么：若 `decision == null` 则保留 `preContextPackage`；否则取 `decision.getContextPackage()`。
-- 为什么要这么做：状态机执行后可能已经生成更贴近当前轮次的新上下文。
-- 输入是什么：`decision`、`preContextPackage`。
-- 输出是什么：当前有效的 `contextPackage`。
-- 对下一步有什么影响：恢复检测、审计记录和最终返回都基于这份上下文。
+在状态推进后，系统会再次编译上下文，并从中选择与最新状态一致的 `StructuredContextPackage` 作为本轮后续使用的上下文包。之所以要二次选择，是因为第一次编译只是为重构和状态判断提供事实底座，而状态推进之后，会话所处的任务阶段、关系语气和记忆预加载策略可能都已经改变。新的上下文包会直接影响后续节点工作集生成和主模型装配的上下文边界。
 
 ### 6.6 检测恢复场景
-- 当前步骤在做什么：调用 `resolveRecoveryTrigger(userInput, decision, contextPackage)` 判断是否需要恢复。
-- 为什么要这么做：本轮输入可能不是普通新问题，而是在继续、重试、恢复或重规划之前被中断的任务流。
-- 输入是什么：用户输入、当前决策、当前上下文。
-- 输出是什么：`RecoveryTrigger`。
-- 对下一步有什么影响：主链路在这里分成“恢复分支”和“普通推进分支”。
+方法会检查当前会话是否处于工具回调、挂起恢复或其他恢复型场景。这样做的业务目的，是避免把恢复轮次误当成普通新输入处理，否则系统可能重新做一轮无关的任务推进，破坏等待中的状态机。检测结果会决定接下来走恢复分支还是普通推进分支，从而保持会话链路连续。
 
 ### 6.7 恢复分支
-- 当前步骤在做什么：若 `recoveryTrigger.shouldRecover` 为真，则记录恢复状态迁移日志，调用 `recoveryContextAgent.recover(...)`，必要时再调用 `orchestrateNodeWorkset(...)` 做立即刷新，随后写入 `RECOVERY_TRIGGERED` 审计，并在无待处理恢复工作时清理 `recoveryStateStore`。
-- 为什么要这么做：恢复分支需要把上下文重定位到可继续执行的状态，同时避免沿用过期检索和过期能力。
-- 输入是什么：`sessionId`、`contextPackage`、恢复事件、恢复原因、`reconstructionResult`。
-- 输出是什么：恢复后的 `contextPackage`，以及可能刷新后的节点工作集效果。
-- 对下一步有什么影响：确保恢复后继续执行的是当前有效上下文，而不是旧快照。
+如果识别到恢复场景，系统会优先沿着恢复逻辑拿回历史锚点、待恢复工具信息和对应的上下文快照。因为恢复轮次的核心不是重新理解用户意图，而是延续之前已经挂起的执行链，所以这里必须优先对齐旧状态而不是重启新一轮决策。这样处理后，后续工作集与状态推进才能接在原链路之后，而不是另起炉灶。
 
 ### 6.8 普通推进分支
-- 当前步骤在做什么：若不需要恢复，则清理残留恢复状态，并写入 `RECOVERY_SKIPPED` 审计。
-- 为什么要这么做：普通轮次不应该误继承上次中断遗留下来的恢复标记。
-- 输入是什么：`sessionId`、`userInput`。
-- 输出是什么：恢复状态清理和跳过恢复审计。
-- 对下一步有什么影响：确保当前轮次被明确标记为普通推进链路。
+如果不是恢复场景，系统就按普通输入处理路径推进会话状态，生成新的任务态和关系态。这样做的原因是普通输入需要被纳入会话长期演进，系统必须明确“这条输入让会话进入了什么新阶段”，否则后续记忆加载、检索策略和回复口吻都会失去依据。普通推进完成后，新的状态就会反映到最终上下文包和后续编排结果中。
 
 ### 6.9 持久化上下文快照与决策审计
-- 当前步骤在做什么：记录最终状态迁移日志、调用 `runtimeAuditService.persistContextSnapshot(sessionId, contextPackage)`，再写入 `ORCHESTRATION_DECISION` 和 `INPUT_RECONSTRUCTION` 审计。
-- 为什么要这么做：任务编排阶段是整条链路的治理入口，必须留下决策依据和重构结果。
-- 输入是什么：最终 `contextPackage`、`decision`、`reconstructionResult`。
-- 输出是什么：上下文快照和两类关键审计记录。
-- 对下一步有什么影响：为后续节点工作集编排、正式轮次执行和问题排查提供可追溯基础。
+方法在收口前会把上下文快照、编排决策和输入重构结果写入审计系统。这样设计是为了让每次用户输入都留下可回放的治理证据，后续一旦出现回复漂移、状态跳变或召回失真，可以追溯到输入重构和决策生成这一层。审计一旦落库，后面的节点工作集和轮次执行就都能沿着同一条证据链继续。
 
 ### 6.10 返回任务编排结果
-- 当前步骤在做什么：返回 `TaskOrchestrationResult`，其中包含 `decision`、`contextPackage`、`reconstructionResult`、`recovered`、`recoveryEvent`、`interruptReason`。
-- 为什么要这么做：下游只需要消费标准化任务编排结果，而不需要理解恢复处理细节。
-- 输入是什么：本阶段全部产物。
-- 输出是什么：`TaskOrchestrationResult`。
-- 对下一步有什么影响：`hydrateRoundRequest` 会从这里提取核心工件，并继续做节点工作集补齐。
+最后，方法把 `decision`、`contextPackage`、`reconstructionResult` 以及恢复标记等结果统一封装返回。这样做的目的，是把一次复杂的输入治理浓缩为稳定的上游工件输出，让后续节点工作集生成不再关心内部状态推进细节。返回结果成为水化请求补齐的核心输入，也标志着链路正式从“输入治理”进入“资源召回与工作集构建”。
 
 ## 7. TaskOrchestratorServiceImpl.orchestrateNodeWorkset
 
 ### 7.1 召回就绪性校验
-- 当前步骤在做什么：调用 `evaluateReconstructionRecallGate(reconstructionResult, decision.getTaskState())` 判断是否具备召回条件。
-- 为什么要这么做：如果任务目标不明确、缺槽位过多或意图置信度不足，直接做召回只会污染上下文。
-- 输入是什么：`reconstructionResult`、当前任务状态。
-- 输出是什么：`ReconstructionRecallGate`，或阻断结果。
-- 对下一步有什么影响：若未通过，则写 `NODE_WORKSET_BLOCKED` 审计并返回 `blockedNodeWorksetResult(reason)`。
+方法先校验当前是否已经具备决策结果、结构化上下文和可执行的显式任务目标。这样做是因为检索、候选路由和全局重排都属于成本较高的动作，如果上游目标都未成形，越往后走偏差越大。校验通过后，后续召回链路才真正建立在稳定目标之上。
 
 ### 7.2 构建追踪元数据并记录召回阶段日志
-- 当前步骤在做什么：生成 `worksetTraceId`、`traceMeta`，并记录 `recall` 状态迁移日志。
-- 为什么要这么做：节点工作集内部包含多路召回、MCP 预排序和全局重排，需要独立链路追踪。
-- 输入是什么：`sessionId`、`contextPackage`、任务状态。
-- 输出是什么：节点工作集追踪上下文。
-- 对下一步有什么影响：后续 RAG、记忆、MCP 相关审计会共享这些追踪元数据。
+系统会生成与本轮召回相关的 trace、计划节点标识和阶段元数据，并写入召回阶段日志。这样做的原因是节点工作集生成通常包含多路并行能力和多次重排，如果没有独立追踪信息，后续很难区分究竟是哪一路结果带来了最终工作集。该元数据会持续贯穿之后的查询构造、检索执行和重排审计。
 
 ### 7.3 生成 MCP 查询并消费恢复刷新计划
-- 当前步骤在做什么：先调用 `consumeRecoveryRefreshPlan(contextPackage)` 获取刷新计划，再调用 `mcpQueryBuilder.build(reconstructionResult, decision.getTaskState())` 生成 `mcpDrivenInput`；必要时附加 `reassembly`、`mcp` 刷新标记。
-- 为什么要这么做：节点工作集不仅要决定“查什么”，还要决定“这轮是否应该强制刷新旧能力和旧组装结果”。
-- 输入是什么：恢复刷新计划、输入重构结果、任务状态。
-- 输出是什么：最终 `mcpDrivenInput`。
-- 对下一步有什么影响：如果 MCP 查询无法构建，则整个节点工作集在这里阻断。
+方法会基于显式任务目标和当前状态生成 MCP 查询，同时在恢复场景下消费历史刷新计划，决定是否需要优先路由到某些工具能力。这样设计是因为工具路由既受当前任务意图影响，也受历史挂起和恢复语义约束，二者必须在这里合并，否则容易出现恢复轮次重新选择无关工具的问题。生成的 MCP 查询会直接进入后续预路由和预排序阶段。
 
 ### 7.4 MCP 预路由与预排序
-- 当前步骤在做什么：先通过 `capabilityPolicyRouterService.routeForContext(...)` 取最多 24 个原始 MCP 候选，再过滤失效能力，最后通过 `mcpCandidatePreRank.preRank(...)` 得到 `mcpPreRankedCandidates`。
-- 为什么要这么做：全局重排前，需要先把能力候选池缩小到更可信、更相关的一批。
-- 输入是什么：`sessionId`、`mcpDrivenInput`、任务状态、关系状态。
-- 输出是什么：MCP 候选池和预排序结果。
-- 对下一步有什么影响：这些候选会与 RAG、记忆召回结果一起进入全局上下文重排。
+系统会先对工具候选做一轮轻量级预路由和预排序，筛掉明显不相关或不适合当前阶段的能力。这样做的技术原因是完整工具决策节点成本更高，若不先收缩候选池，后续装配出的决策上下文会过于膨胀，既影响性能，也影响判断稳定性。预排序结果会成为后续正式工具决策节点的重要候选底座。
 
 ### 7.5 构建 RAG 查询和记忆查询
-- 当前步骤在做什么：分别调用 `ragQueryBuilder.build(...)` 和 `memoryQueryBuilder.build(...)` 生成 `ragQuery`、`memoryQuery`。
-- 为什么要这么做：知识检索和记忆检索虽然都会进入工作集，但查询目标不同，必须分别生成。
-- 输入是什么：`reconstructionResult`、当前任务状态。
-- 输出是什么：两类查询字符串。
-- 对下一步有什么影响：任一查询无法构建，都会导致工作集阻断。
+除了工具查询外，方法还会同时构建知识检索查询和记忆检索查询，把同一任务目标分别映射到知识库、长期记忆和运行时记忆的访问入口。这样做是因为工具候选只解决“做什么”，而知识与记忆召回解决“依据什么做”和“与会话历史怎样衔接”。这些查询一旦成形，后续多路检索就能围绕同一任务目标展开而不是各自为战。
 
 ### 7.6 执行多路检索
-- 当前步骤在做什么：分别执行知识/偏好检索和记忆检索，然后合并两路响应，并过滤失效证据。
-- 为什么要这么做：知识、偏好、记忆属于不同来源，不能依赖单一路径召回。
-- 输入是什么：`ragQuery`、`memoryQuery`、会话上下文、允许检索路由、检索选项。
-- 输出是什么：合并后的 `RetrievalResponse`。
-- 对下一步有什么影响：全局重排会从这里消费原始知识候选、偏好候选和记忆候选。
+系统接着执行能力候选召回、知识检索、记忆检索等多路检索，把分散在不同存储和索引层中的候选素材拉回当前轮次。之所以在这里并行消费多源数据，是因为节点工作集本质上是一个跨源拼装的执行面，而不是单一数据源的结果。多路检索完成后，链路从“只有查询”进入“拿到候选池”，可以继续进入重排和筛选阶段。
 
 ### 7.7 记录召回与底部重排审计
-- 当前步骤在做什么：写入 `MULTI_ROUTE_RECALL_TRACE` 和 `RERANK_TRACE_BOTTOM_CHANNELS` 审计，记录各通道原始候选和底部重排信息。
-- 为什么要这么做：后续若全局重排结果异常，需要先能还原原始候选池。
-- 输入是什么：两路检索结果、MCP 预排序候选、查询串。
-- 输出是什么：两类审计记录。
-- 对下一步有什么影响：为全局重排结果诊断提供底层证据。
+检索返回后，系统会把每一路召回结果数量、分值和底层重排信息记录到审计日志。这样做的原因是候选池质量直接影响最终工作集，若后面全局重排结果不理想，需要先知道底部召回到底提供了什么原料。该记录会成为判断是“召回不足”还是“全局筛选过严”的依据。
 
 ### 7.8 执行全局上下文重排
-- 当前步骤在做什么：调用 `globalContextRerankAgent.rerank(...)`，把检索结果和 MCP 候选统一做跨源重排。
-- 为什么要这么做：最终进入主模型和工具决策的上下文必须是跨知识、记忆、能力候选统一排序后的结果。
-- 输入是什么：`reconstructionResult`、`contextPackage`、检索响应、`mcpPreRankedCandidates`、任务状态。
-- 输出是什么：`rerankResult`。
-- 对下一步有什么影响：知识证据块、记忆片段、执行候选和 MCP 资源提示都优先从 `rerankResult` 中提取。
+在多路候选都收集完成后，系统会执行全局上下文重排，把知识、记忆、偏好和工具候选放到同一语义坐标系中进行优先级排序。之所以不能只依赖各自源内排序，是因为源内高分不代表跨源最重要，真正影响当前轮次回答质量的是跨源整体相关性。经过全局重排，后续工作集组装拿到的是跨源统一排序后的候选集合。
 
 ### 7.9 解析知识、记忆、偏好片段
-- 当前步骤在做什么：知识优先取 `rerankResult.getSelectedKnowledgeEvidenceBlocks()`，其次取 `getSelectedKnowledgeBlocks()`，最后降级到原始召回结果；记忆合并原始召回片段和 `rerankResult.getSelectedMemoryHints()`；偏好从响应中提取。
-- 为什么要这么做：全局重排结果优先级最高，但仍需保留降级路径。
-- 输入是什么：`rerankResult`、原始检索响应。
-- 输出是什么：`selectedKnowledgeEvidenceBlocks`、`selectedKnowledge`、`selectedMemory`、`selectedPreference`。
-- 对下一步有什么影响：这些片段直接决定工具决策上下文和正式轮次上下文的事实边界。
+重排结果出来后，系统会把入选项进一步拆解为知识片段、记忆片段和偏好片段等标准化片段。这样做是为了把多源候选转写为后续主模型和工具决策都能直接消费的统一片段结构，而不是把原始检索对象直接丢到下游。解析完成后，后续步骤可以围绕“片段池”而不是“原始检索结果对象”继续装配。
 
 ### 7.10 异常降级
-- 当前步骤在做什么：如果召回或重排过程中抛异常，则写入 `NODE_ORCHESTRATION_RECALL_FAILED` 审计，并把知识、记忆、偏好结果降级为空列表。
-- 为什么要这么做：节点工作集阶段尽量避免因为单个召回分支异常就让整轮对话完全失败。
-- 输入是什么：异常对象和当前查询信息。
-- 输出是什么：带降级空结果的工作集分支。
-- 对下一步有什么影响：后续仍可继续工具决策和正式轮次，只是上下文会更弱。
+如果检索或重排过程中出现异常，系统会执行降级逻辑，尽量保留可用片段和候选，而不是整体失败。这样做是因为节点工作集位于链路中段，完全失败会把一次局部数据源异常放大为整轮对话失败；而合理降级能让系统在证据不充分时仍然给出保守结果。降级后的工作集虽然信息量下降，但能保证链路继续向工具决策或主模型阶段推进。
 
 ### 7.11 解析执行候选与 MCP 资源提示
-- 当前步骤在做什么：调用 `resolveExecutionCandidates(...)` 生成最终 `executionCandidates`；调用 `mcpResourceHintExtractor.extract(...)` 生成 `mcpResourceHints`；同时提取工具、Prompt、资源、Workflow 的候选名称列表。
-- 为什么要这么做：后续工具决策不直接消费底层原始候选，而是消费已经归一化、可执行的候选池。
-- 输入是什么：`rerankResult`、`mcpPreRankedCandidates`、恢复刷新计划。
-- 输出是什么：执行候选资源、MCP 资源提示及各类候选名称。
-- 对下一步有什么影响：正式返回的 `NodeWorksetResult` 会成为工具决策节点和正式聊天轮次的关键输入。
+在片段池稳定后，系统会再把候选工具和相关资源提示解析为执行候选列表与 `mcpResourceHints`。这样做的业务动机，是把“检索到过哪些能力”进一步收敛成“本轮最值得被工具决策节点看到的能力及其提示”。这些候选与提示将直接影响后续工具决策上下文的组织方式和主模型对工具结果的理解。
 
 ### 7.12 返回节点工作集结果
-- 当前步骤在做什么：构造并返回 `NodeWorksetResult`，包含 `mcpDrivenInput`、`ragQuery`、`memoryQuery`、`mcpPreRankedCandidates`、`rerankResult`、知识证据、知识片段、记忆片段、偏好片段、各类候选名称、失效证据信息、`executionCandidates`、`mcpResourceHints`。
-- 为什么要这么做：下游需要一个聚合后的节点级工作集对象，而不是零散中间结果。
-- 输入是什么：本阶段全部召回、重排、候选解析结果。
-- 输出是什么：`NodeWorksetResult`。
-- 对下一步有什么影响：`ChatServiceImpl.chat` 会基于它提取片段池并执行工具决策。
+最后，方法把查询、候选、证据块、片段池和资源提示封装成 `NodeWorksetResult` 返回。这样做让节点工作集成为一个稳定的中间工件，下游无需重新理解召回细节即可消费。返回结果会立刻进入水化请求和工具决策前处理阶段，推动链路从“候选收集”进入“执行选择”。
 
 ## 8. ChatServiceImpl.chat 的工具决策前处理
 
 ### 8.1 从 `contextPackage` 和 `nodeWorkset` 中拆出片段池
-- 当前步骤在做什么：提取 `knowledgeSnippets`、`preferenceSnippets`、`longTermMemorySnippets`、`workingMemorySnippets`、`runtimeMemorySnippets`、`executionCandidates`、`mcpResourceHints`、`ragMemorySnippets`、`knowledgeEvidenceBlocks`。
-- 为什么要这么做：后续工具决策和正式轮次都不直接消费整个 `contextPackage`，而是消费拆平后的片段池。
-- 输入是什么：`contextPackage`、`nodeWorkset`。
-- 输出是什么：各类片段和候选集。
-- 对下一步有什么影响：工具决策节点将基于这些片段组装自己的决策上下文。
+回到 `ChatServiceImpl.chat` 后，服务会从 `contextPackage` 和 `nodeWorkset` 中拆出知识、偏好、长期记忆、工作记忆、运行时消息等片段池。这样做是因为后续工具决策和正式轮次组装都不直接消费庞大的上下文对象，而是消费被明确切分过的片段集合，从而保证各类上下文来源边界清晰。拆分完成后，链路具备了可进一步合并和覆盖的上下文素材层。
 
 ### 8.2 覆盖知识片段并合并偏好片段
-- 当前步骤在做什么：如果 `nodeWorkset.getSelectedKnowledgeSnippets()` 非空，则覆盖默认知识片段；偏好片段通过 `mergeDistinct(...)` 与节点工作集中的偏好去重合并。
-- 为什么要这么做：节点工作集已经完成面向当前轮次的筛选，优先级高于原始上下文提取结果。
-- 输入是什么：默认知识/偏好片段和节点工作集筛选结果。
-- 输出是什么：最终知识片段和偏好片段。
-- 对下一步有什么影响：工具决策上下文会使用更聚焦的事实集合。
+如果节点工作集已经选出了更聚焦的知识片段，服务会用它覆盖默认知识片段，同时把偏好片段去重合并。这样做的原因是预工具阶段的目标不是保留尽可能多的信息，而是收敛到最适合当前任务的工作集；若继续保留原始上下文中的全量知识，会把重排结果的价值冲淡。覆盖与合并之后，后续工具决策节点看到的就是“已收敛”的事实集合，而不是松散原料。
 
 ## 9. TaskOrchestratorServiceImpl.orchestrateToolDecisionNode
 
 ### 9.1 规范化输入并抽取工作集
-- 当前步骤在做什么：安全化 `sessionId`、`userInput`，再从 `nodeWorksetResult` 中读取 `rerankResult`、`mcpDrivenInput`、`executionCandidates`、`mcpResourceHints`、知识片段、偏好片段、长期记忆、工作记忆、运行时记忆、RAG 记忆、知识证据块。
-- 为什么要这么做：工具决策阶段消费的是节点级工作集，而不是重新从上下文包做一遍粗提取。
-- 输入是什么：会话、原始输入、`decision`、`contextPackage`、`reconstructionResult`、`nodeWorksetResult`。
-- 输出是什么：工具决策所需的完整工作集字段。
-- 对下一步有什么影响：这些字段会进入工具决策专用的上下文组装。
+工具决策节点先把会话、用户输入、决策结果、上下文包和节点工作集重新整理成工具决策专用输入。这样做的目的是把原本服务层持有的分散变量收敛为一个围绕“是否需要调用工具”的专门工作面，避免后续决策过程反复回看上层实现细节。工作集一旦规范化，工具决策就能基于统一输入推进。
 
 ### 9.2 解析节点模板策略并构建节点级记忆片段
-- 当前步骤在做什么：先调用 `resolveNodeTemplatePolicy(decision, contextPackage)`，再调用 `buildNodeScopedMemorySnippets(...)` 生成 `memorySnippets`。
-- 为什么要这么做：工具决策并不需要全部记忆，而需要受节点模板约束后的局部记忆视图。
-- 输入是什么：任务状态、上下文包、工作记忆、运行时记忆、检索记忆、长期记忆。
-- 输出是什么：`nodeTemplatePolicy`、`memorySnippets`。
-- 对下一步有什么影响：这会决定工具决策时看到哪些记忆片段。
+节点会依据模板策略进一步选出本轮决策真正需要的记忆片段和上下文分区。这样设计是因为工具决策关注的不是完整聊天上下文，而是那些能回答“需不需要调工具、调什么工具、以什么参数调”的关键信息。节点级记忆片段一旦构建，后面的决策上下文会更聚焦，减少无关信息干扰。
 
 ### 9.3 组装工具决策专用上下文
-- 当前步骤在做什么：构建 `ContextNodeTemplatePolicy.forToolDecision(...)`，再调用 `contextAssembler.assemble(...)` 生成 `assembledDecisionContext`。
-- 为什么要这么做：工具决策需要自己的 prompt 视图，不能直接复用正式回复轮次的上下文模板。
-- 输入是什么：`contextPackage`、`reconstructionResult`、`rerankResult`、知识证据、各类记忆片段、知识片段、偏好片段、执行候选、MCP 提示。
-- 输出是什么：`assembledDecisionContext`。
-- 对下一步有什么影响：后续工具调用治理和输入签名都基于这份决策上下文。
+方法会把选定的片段、候选工具、资源提示和当前目标组装成工具决策专用上下文。这样做的原因是工具决策与主模型回复生成是两种不同任务，若直接复用正式回复的上下文，会引入大量对工具选择无益的信息。该专用上下文随后会直接驱动真正的工具调用阶段。
 
 ### 9.4 写入 `ToolCallingContextHolder`
-- 当前步骤在做什么：把会话、原始输入、工具决策输入、签名、组装后的决策上下文、记忆片段、知识片段、偏好片段、长期记忆、执行候选、MCP 提示、执行轨迹列表写入 `ToolCallingContextHolder`。
-- 为什么要这么做：工具调用链中的多个组件需要共享统一治理上下文和轨迹容器。
-- 输入是什么：工具决策上下文和工作集字段。
-- 输出是什么：当前线程的工具调用上下文。
-- 对下一步有什么影响：真正执行工具时，下游可以直接从 ThreadLocal 读取这些治理信息。
+在调用工具之前，系统会把当前决策相关上下文写入 `ToolCallingContextHolder` 之类的线程上下文容器。这样做是为了让更底层的工具执行器、审计器和异常处理器都能在不显式传参的情况下拿到当前调用现场。上下文一旦写入，后续工具执行过程中的原始结果、轨迹和异常都能被正确归属到本轮。
 
 ### 9.5 保存工具决策前后的上下文快照
-- 当前步骤在做什么：保存 `preToolSnapshotId` 和 `toolDecisionSnapshotId`，并写入 `CONTEXT_SNAPSHOT_PRE_TOOL` 审计。
-- 为什么要这么做：工具决策前后的上下文是后续追查“为什么选了某个工具”的关键依据。
-- 输入是什么：会话、计划、节点、原始输入、`mcpDrivenInput`、执行候选、决策上下文。
-- 输出是什么：两份快照 ID 和一条审计记录。
-- 对下一步有什么影响：挂起分支和正式轮次会把这些快照 ID 作为恢复锚点或追溯依据。
+系统会在工具执行前后保存与决策相关的上下文快照。这样设计是因为工具调用往往会改变当前可用事实面，如果不保留调用前后的现场，就难以解释为什么同一轮在调用工具前后的语义判断不同。快照保存后，后续工具语义生成和回放审计就具备了对比基线。
 
 ### 9.6 执行工具调用
-- 当前步骤在做什么：调用 `agentService.processToolCallingWithGovernance(ToolDecisionCommand.builder()...)` 真正执行工具决策与工具链。
-- 为什么要这么做：到这一步才从“准备上下文”切换到“实际调用工具”。
-- 输入是什么：会话、原始用户输入、`mcpDrivenInput`、prompt 绑定信息、任务状态、关系状态、执行候选、输入签名、决策上下文。
-- 输出是什么：原始 `toolContext`，或异常。
-- 对下一步有什么影响：工具执行结果会被持久化、语义化，并决定是进入挂起分支还是继续正式回复分支。
+在准备完成后，系统执行真正的工具调用，消费已选中的候选和上下文，得到工具返回结果。这样做是因为预工具阶段虽然已经做了大量治理，但直到这里系统才把“候选能力”转为“实际外部行动”。工具调用结果会直接改变后续链路的走向，可能进入同步结果合并，也可能进入异步挂起分支。
 
 ### 9.7 在 finally 中持久化工具轨迹并上报工具结果
-- 当前步骤在做什么：无论成功失败，都从 `ToolCallingContextHolder` 读取轨迹，调用 `persistToolExecutionTraces(...)` 写入轨迹，然后调用 `eventIngressService.ingestToolResult(...)` 上报工具执行结果，最后清理 `ToolCallingContextHolder`。
-- 为什么要这么做：工具执行失败也必须留下轨迹和状态，否则状态机无法感知工具结果。
-- 输入是什么：工具执行结果、异常信息、执行耗时、执行轨迹。
-- 输出是什么：`ToolTraceRefs` 和一条工具结果上报。
-- 对下一步有什么影响：后续会用这些原始引用构建 `rawToolResultChannel` 并生成工具语义。
+无论工具调用成功、失败还是异常，系统都会在 `finally` 中持久化工具轨迹并上报工具执行结果。这样做的技术原因是工具调用天然不稳定，若只在成功路径记录，就会丢失最有价值的故障证据。轨迹被落库后，后面的原始结果通道构建和语义转译都有稳定输入来源。
 
 ### 9.8 构建原始工具结果通道
-- 当前步骤在做什么：调用 `buildRawToolResultChannel(toolContext, latestToolExecutionTraces, latestRawRef, historyRefs)`，生成包含 `rawToolContext`、`rawToolExecutionTraces`、`latestToolRawRef`、`toolHistoryRefs` 的 `rawToolResultChannel`。
-- 为什么要这么做：后续工具语义翻译、正式轮次、状态写回都需要统一的原始工具结果通道。
-- 输入是什么：工具执行上下文和工具轨迹引用。
-- 输出是什么：`rawToolResultChannel`。
-- 对下一步有什么影响：工具语义翻译和正式轮次会优先消费它。
+方法会把工具执行产生的原始内容、轨迹引用、历史引用等封装为 `rawToolResultChannel`。这样做是为了把高噪声、低结构化的工具产物集中到原始通道中保存，既保留完整证据，又避免把这些原始数据直接污染后续主模型上下文。该通道随后会成为语义转译和状态写回的重要原始材料。
 
 ### 9.9 生成工具语义
-- 当前步骤在做什么：调用 `resolveToolSemanticFromRequest(...)`，把工具执行结果转成 `ToolSemanticResult`。
-- 为什么要这么做：主模型和状态写回更适合消费结构化工具语义，而不是生的工具返回内容。
-- 输入是什么：会话、上下文包、任务状态、显式任务目标、执行候选、原始 `toolContext`、阶段、`rawToolResultChannel`。
-- 输出是什么：`toolSemanticResult`。
-- 对下一步有什么影响：后续工具上下文融合、正式轮次组装、状态写回都会使用它。
+系统基于原始工具结果调用工具语义转译能力，生成 `ToolSemanticResult`，把工具输出从技术细节转成业务可消费语义。之所以必须有这一步，是因为主模型和记忆写入更关心“工具得出了什么业务结论”，而不是底层返回了什么字段或日志。语义结果生成后，后续合并工具上下文和正式轮次装配才真正具备可读事实。
 
 ### 9.10 立即写回工具语义状态
-- 当前步骤在做什么：调用 `persistImmediateToolSemanticState(...)`，把工具语义和原始引用先写回当前状态。
-- 为什么要这么做：即使主链路后续转入挂起或失败，工具阶段结果也应该先沉淀。
-- 输入是什么：会话、上下文包、工具语义、原始工具通道、历史引用。
-- 输出是什么：即时写回的工具状态。
-- 对下一步有什么影响：挂起分支、正式聊天轮次和后续恢复链路都能读取到最新工具状态。
+工具语义生成后，系统会尽快把它写回状态层，使当前轮次的工具状态与最新语义保持一致。这样设计是为了避免“工具已经执行完，但状态层还停留在调用前”的时间窗，否则挂起恢复、后续审计和下一轮检索都可能读到过期状态。状态写回完成后，后续任何分支都能基于最新工具语义继续推进。
 
 ### 9.11 返回工具决策节点结果
-- 当前步骤在做什么：返回 `ToolDecisionNodeResult`，包含 `toolContext`、`rawToolResultChannel`、`toolTraceRefs`、`toolSemantic`、`preToolSnapshotId`、`toolDecisionSnapshotId`。
-- 为什么要这么做：`ChatServiceImpl.chat` 需要统一消费工具执行的所有产物。
-- 输入是什么：本阶段的全部结果。
-- 输出是什么：`ToolDecisionNodeResult`。
-- 对下一步有什么影响：`ChatServiceImpl.chat` 会基于它构造 `mergedToolContext`，并判断是否进入挂起分支。
+最后，方法把工具上下文、工具语义、原始结果通道和轨迹引用封装为 `ToolDecisionNodeResult` 返回。这样做使服务层拿到的是一份既保留原始证据、又具备业务语义的工具结果集合。返回结果会直接进入工具后处理阶段，用来判断走挂起分支还是正式聊天轮次分支。
 
 ## 10. ChatServiceImpl.chat 的工具后处理与分支
 
 ### 10.1 提取工具阶段产物
-- 当前步骤在做什么：从 `toolDecisionNodeResult` 中提取 `toolContext`、`toolSemanticResult`、`rawToolResultChannel`、`toolDecisionSnapshotId`、`latestToolRawRef`、`latestToolHistoryRefs`、`latestToolExecutionTraces`。
-- 为什么要这么做：工具调用产物后续会同时流向挂起分支和正式轮次分支。
-- 输入是什么：`toolDecisionNodeResult`。
-- 输出是什么：结构化的工具阶段结果。
-- 对下一步有什么影响：后续工具上下文融合和挂起判断都依赖这些字段。
+服务从工具决策节点结果中拆出 `toolContext`、`toolSemanticResult`、`rawToolResultChannel`、轨迹引用和快照标识。这样做是因为后续有两个不同目的的消费方，一类需要看业务语义和整合后的工具上下文，另一类需要保留原始轨迹用于写回和回放，因此必须先把产物拆分清楚。拆分完成后，链路开始具备分支判断所需的全部工具结果。
 
 ### 10.2 生成综合摘要并合并工具上下文
-- 当前步骤在做什么：先调用 `threeStageResponseService.generateSynthesisBrief(input, toolContext, contextPackage)` 生成 `synthesisBrief`，再调用 `mergeToolContextWithSemantic(...)` 融合工具语义，最后调用 `mergeToolContextWithSynthesis(...)` 生成最终 `mergedToolContext`，并写入 `RESPONSE_SYNTHESIS` 审计。
-- 为什么要这么做：原始工具结果通常过于底层，正式轮次更适合消费带有业务语义和综合摘要的工具事实。
-- 输入是什么：用户输入、原始工具上下文、工具语义、结构化上下文包。
-- 输出是什么：`mergedToolContext`。
-- 对下一步有什么影响：挂起判断基于它，正式聊天轮次也基于它。
+服务会生成 `synthesisBrief`，再把工具语义和工具上下文合并为 `mergedToolContext`。这样做的原因是单纯的工具原始输出往往碎片化、技术味重，而后面的挂起回复和正式主模型都需要一份对当前轮次更友好的事实表达。合并后的工具上下文会成为后续分支共同使用的事实基座，无论是挂起提示还是正式生成都依赖它。
 
 ### 10.3 判断是否异步挂起
-- 当前步骤在做什么：调用 `isAsyncPending(mergedToolContext)`，检查其 JSON 中 `status` 是否为 `pending`。
-- 为什么要这么做：有些工具不是同步完成，而是先返回后台处理中，需要走“挂起后等待回调”的分支。
-- 输入是什么：`mergedToolContext`。
-- 输出是什么：布尔值。
-- 对下一步有什么影响：主链路在这里分叉为“挂起分支”和“正式聊天轮次分支”。
+系统会检查 `mergedToolContext` 是否表明当前工具调用处于异步挂起状态。之所以在这里判断而不是更早，是因为只有在工具结果、语义解释和综合摘要都完成之后，系统才能稳定识别这次调用到底是“同步已完成”还是“等待回调”。判断结果会直接把链路分叉到挂起分支或正式聊天轮次分支，两条后续路径的状态写回和响应形式完全不同。
 
 ## 11. ChatServiceImpl.chat 挂起分支
 
 ### 11.1 构造挂起回复
-- 当前步骤在做什么：调用 `buildPendingReply(mergedToolContext)` 生成包含 `emotion`、`reply`、`status=pending`、`taskId`、`workflowName` 的 JSON 回复。
-- 为什么要这么做：前端需要立刻给用户一个可展示的“后台处理中”答复。
-- 输入是什么：`mergedToolContext`。
-- 输出是什么：`pendingReply`。
-- 对下一步有什么影响：该回复既会返回给前端，也可能参与记忆写入。
+如果工具处于异步挂起状态，服务会基于 `mergedToolContext` 构造 `pendingReply`，向用户明确说明当前处于等待结果阶段。这样做是因为挂起并不等于失败，系统需要给前端一个可展示、可继续追踪的中间响应，而不是沉默等待。挂起回复生成后，本轮请求即具备了可立即返回给用户的临时结果。
 
 ### 11.2 缓存待恢复工具调用
-- 当前步骤在做什么：调用 `cachePendingToolCall(runtimeSessionId, mergedToolContext)`，把 `taskId`、`workflowName`、`skillName`、`status`、`toolContext` 写入 Redis 热层。
-- 为什么要这么做：后台工具回调回来时，需要根据会话和任务 ID 找到等待恢复的链路锚点。
-- 输入是什么：会话 ID、`mergedToolContext`。
-- 输出是什么：一条 `pending_tool_call` 热层缓存记录。
-- 对下一步有什么影响：后续回调链路可以根据缓存恢复本轮执行。
+系统随后缓存待恢复的工具调用信息，包括会话、恢复锚点和工具上下文。之所以要在返回前缓存，是因为异步结果回流时系统必须知道该恢复到哪一轮、继续使用哪些上下文事实，若不提前保存，回调到达时就无法衔接原链路。缓存完成后，后续异步恢复分支就有了可靠的接续锚点。
 
 ### 11.3 评估挂起轮次是否允许写记忆
-- 当前步骤在做什么：调用 `evaluateMemoryWriteGate(input, pendingReply, reconstruction, toolSemanticResult, true)`，挂起轮次阈值为 `0.35`。
-- 为什么要这么做：挂起轮次没有最终正式回复，但有些高价值中间状态仍值得沉淀。
-- 输入是什么：用户输入、挂起回复、输入重构、工具语义、`pendingTurn=true`。
-- 输出是什么：`MemoryWriteGateDecision`。
-- 对下一步有什么影响：决定是否执行挂起轮次记忆写入。
+在返回挂起回复前，系统会调用记忆写入门控，评估本轮是否值得把用户输入与挂起回复写入记忆。这样做的业务原因是挂起回复通常只是过程态说明，不一定具备长期记忆价值，如果无差别写入会污染用户长期记忆与会话摘要。门控结果决定下一步是执行记忆写入还是仅记录审计而不落记忆。
 
 ### 11.4 条件执行挂起轮次记忆写入
-- 当前步骤在做什么：如果 `pendingGate.allowWrite()`，调用 `memoryWritePipelineService.writeAfterTurn(runtimeSessionId, input, pendingReply, contextPackage)`。
-- 为什么要这么做：把“已进入后台执行”这一事实沉淀下来，供后续上下文恢复使用。
-- 输入是什么：会话、用户输入、挂起回复、上下文包。
-- 输出是什么：挂起轮次记忆写入结果。
-- 对下一步有什么影响：下一轮上下文编译可能命中这一挂起态信息。
+如果门控允许，系统会把本轮输入和挂起回复通过记忆写入流水线落入相应记忆层。这样做是为了在确有价值时保留“系统已经进入等待某工具完成”的对话事实，避免用户下一轮追问时系统完全丢失上下文。写入完成后，恢复前的会话记忆将更连续，但如果门控拒绝，链路也不会因此中断。
 
 ### 11.5 触发 `CHAT_TURN_PENDING` 状态驱动流水线
-- 当前步骤在做什么：再次调用 `stateDrivenContextPipeline.run(...)`，构建 `stage=CHAT_TURN_PENDING` 的 `RoundPipelineRequest`，关键参数包括：`runMainModel=false`、`assistantReplyOverride=pendingReply`、`writeRoundState=true`、`latestSnapshotId=toolDecisionSnapshotId`、`latestToolRawRef=latestToolRawRef`、`latestToolHistoryRefs=latestToolHistoryRefs`、`rawToolResultChannel=buildRawToolResultChannel(...)`，以及 `retrievalPlanOverrides.pending=true`、`nextActionHint=await_tool_callback`、`pendingRecoveryAnchor=toolDecisionSnapshotId`。
-- 为什么要这么做：虽然本轮不生成正式回复，但仍需要把“挂起中”状态写回状态仓库，给恢复链路留下锚点。
-- 输入是什么：会话、治理工件、工具语义、片段池、挂起回复、工具引用、挂起状态补丁。
-- 输出是什么：一次挂起状态轮次执行结果。
-- 对下一步有什么影响：状态仓库会落下 `pending=true` 及恢复锚点，后续等待工具回调继续推进。
+服务接着用现成的决策、上下文、重构结果、节点工作集和工具语义构造一轮 `CHAT_TURN_PENDING` 请求，驱动状态流水线写回挂起态。这样做是因为挂起不仅是一个返回给前端的文案，更是会话状态机的一次正式状态跃迁，必须通过统一流水线把状态、摘要和检索计划落到存储层。流水线执行后，系统内部就明确记录了“当前轮次停在等待工具回调”。
 
 ### 11.6 结束挂起轮次并返回
-- 当前步骤在做什么：发布 `IDLE`，然后返回 `ResponseEntity.ok(tryParseJsonNode(pendingReply))`。
-- 为什么要这么做：HTTP 请求在挂起分支中已经完成了本轮应做的所有同步工作。
-- 输入是什么：`pendingReply`。
-- 输出是什么：挂起响应。
-- 对下一步有什么影响：本轮主链路在这里结束；正式主模型不会在本次请求中执行。
+挂起状态写回后，服务会发布 `IDLE` 并返回 `pendingReply`。这样处理的原因是当前 HTTP 请求已经完成它能完成的所有同步工作，再继续占住请求既没有意义，也无法等待外部异步工具无限期完成。返回之后，本轮同步链路收口，但会话在系统内部仍保持可恢复状态，等待后续回调重新推进。
 
 ## 12. ChatServiceImpl.chat 正式聊天轮次分支
 
 ### 12.1 发布整理状态
-- 当前步骤在做什么：调用 `statusPublisher.publish(DEFAULT_CLIENT_ID, STATUS_THINKING, VALUE_THINKING_ORGANIZE)`。
-- 为什么要这么做：工具结果已拿到，接下来进入正式回复生成前的上下文整理阶段。
-- 输入是什么：状态常量。
-- 输出是什么：状态事件。
-- 对下一步有什么影响：前端可区分“检索中”和“整理生成中”。
+如果未进入挂起分支，服务会发布“整理中”或组织正式回答的状态，提示前端链路已从工具阶段进入最终回复生成阶段。这样设计可以把用户可见状态与后端真实阶段对齐，避免用户误以为工具调用结束就意味着马上返回。状态切换之后，链路从“决策是否调用工具”正式进入“基于已知事实生成最终答复”。
 
 ### 12.2 保存旧的 `ContextState`
-- 当前步骤在做什么：读取 `previousContextState = contextPackage.getContextState()`。
-- 为什么要这么做：后续 `persistReplayAndMemoryGovernance` 需要比较前后快照。
-- 输入是什么：`contextPackage`。
-- 输出是什么：`previousContextState`。
-- 对下一步有什么影响：后续质量回放与记忆治理需要它做基线。
+在构建正式轮次前，服务会先保存当前旧的 `ContextState`。之所以提前保存，是因为后续正式轮次、摘要生成和状态写回可能会改变上下文状态，若不保留旧值，后面的回放审计就无法做前后对比。这个旧状态将直接用于最终的回放比较与记忆治理审计。
 
 ### 12.3 构建正式 `CHAT_TURN` 轮次请求
-- 当前步骤在做什么：组装 `stage=CHAT_TURN` 的正式轮次请求，带入 `decision`、`contextPackage`、`reconstructionResult`、`nodeWorksetResult`、`toolSemanticResult`、各类记忆片段和知识片段、`executionCandidates`、`mcpResourceHints`、`nodeTemplatePolicy`、`toolContext=mergedToolContext`、`runMainModel=true`、`assistantReplyOverride=""`、`replaceHistoryWithSummary=true`、`writeRoundState=true`、`latestToolRawRef`、`latestToolHistoryRefs`、`rawToolResultChannel`。
-- 为什么要这么做：到这一步，正式回复所需的治理工件、工具语义和工具结果都已经齐备，可以进入真正的主模型轮次。
-- 输入是什么：预工具工件、工具阶段工件、片段池、控制参数。
-- 输出是什么：正式聊天轮次请求。
-- 对下一步有什么影响：该请求会再次进入状态驱动流水线，但这次会真正执行主模型和状态写回。
+服务会把决策、上下文、重构结果、节点工作集、工具语义、片段池、工具上下文和写回开关组装成正式 `CHAT_TURN` 请求。这里这样组装，是因为正式轮次不再只做治理，而是要把已经完成的工具结果、证据和片段统一送入主模型装配与摘要写回链路。请求构建完成后，正式轮次具备了完整的生成输入和收口控制参数。
 
 ### 12.4 再次调用 `stateDrivenContextPipeline.run`
-- 当前步骤在做什么：以 `triggerSource=CHAT_TURN` 调用 `stateDrivenContextPipeline.run(...)`。
-- 为什么要这么做：正式轮次仍然复用统一的状态驱动流水线和轮次编排器，只是这次 `runMainModel=true`。
-- 输入是什么：正式聊天轮次请求。
-- 输出是什么：`roundPipelineResult`。
-- 对下一步有什么影响：最终回复、摘要、快照、轮次状态写回结果都从这里取。
+服务使用 `CHAT_TURN` 请求再次调用状态驱动流水线，让正式轮次沿统一的治理与编排链执行。这样做的原因是正式轮次与预工具轮次共享大量治理机制，例如水化、审计、摘要和状态写回，只是 `runMainModel`、`replaceHistoryWithSummary` 等开关不同，因此复用同一执行骨架最稳妥。调用发生后，链路进入正式轮次的编排执行阶段。
 
 ## 13. RoundPipelineOrchestratorImpl.executeRound
 
 ### 13.1 校验轮次请求
-- 当前步骤在做什么：若 `request == null`，直接返回 `blocked=true, blockedReason=round_request_missing` 的 `RoundPipelineResult`。
-- 为什么要这么做：轮次执行器不能在无请求对象的情况下继续构造状态和审计结果。
-- 输入是什么：`RoundPipelineRequest`。
-- 输出是什么：阻断结果，或继续执行。
-- 对下一步有什么影响：正式轮次和挂起轮次都会先经过这里的基础校验。
+编排器首先校验 `RoundPipelineRequest` 是否存在，缺失则直接返回阻断结果。这样做的原因是编排器位于执行内核位置，如果这里还尝试容忍空请求，后续主模型、摘要和写回的行为都会失去输入依据。通过这一步，整个正式轮次被约束在“只有完整请求才能执行”的边界内。
 
 ### 13.2 提取轮次工作集
-- 当前步骤在做什么：提取 `sessionId`、`contextPackage`、`planId`、`nodeId`、`traceId`、`nodeWorksetResult`、`rerankResult`，并解析 `executionCandidates`、`mcpResourceHints`、`knowledgeEvidenceBlocks`。
-- 为什么要这么做：后续工具语义补齐、预摘要、主模型执行、后摘要和状态写回都要复用这些统一工作集。
-- 输入是什么：`RoundPipelineRequest`。
-- 输出是什么：轮次执行上下文。
-- 对下一步有什么影响：如果请求中没显式带某些字段，会回退到 `nodeWorksetResult` 中的值。
+方法接着从请求中提取上下文包、节点工作集、执行候选、MCP 提示和知识证据块，整理为当前轮次的统一执行工作集。这样做是因为编排器后续既要决定是否运行主模型，也要驱动摘要与写回，如果继续散着读请求字段，逻辑将难以维护。工作集抽取完成后，执行链路就拥有了统一的事实视图。
 
 ### 13.3 条件补齐工具语义
-- 当前步骤在做什么：若 `request.getToolSemanticResult() == null`，则调用 `resolveToolSemantic(...)` 做工具语义翻译。
-- 为什么要这么做：正式主模型阶段需要结构化工具语义，即使上游没传，也要在轮次内部补齐。
-- 输入是什么：会话、上下文包、任务状态、显式任务目标、执行候选、工具上下文、阶段、原始工具通道。
-- 输出是什么：`effectiveToolSemantic`。
-- 对下一步有什么影响：主模型上下文组装、摘要生成、状态写回都会消费这份语义结果。
+如果上游尚未提供 `ToolSemanticResult`，编排器会在内部补做一次工具语义解析。这样设计是为了保证正式轮次即使在上游漏传工具语义时也仍有机会拿到可用的工具业务语义，避免主模型因缺少工具结论而只能消费原始工具输出。补齐后的工具语义会直接参与后续摘要生成与主模型装配。
 
 ### 13.4 初始化轮次输出槽位
-- 当前步骤在做什么：初始化 `preAssemblySummary`、`modelResult`、`assistantReply`、`finalSnapshotId`。
-- 为什么要这么做：后续根据是否运行主模型来分别填充这些结果。
-- 输入是什么：请求中的 `assistantReplyOverride`、`latestSnapshotId`。
-- 输出是什么：初始结果变量。
-- 对下一步有什么影响：若本轮不跑主模型，则 `assistantReply` 可能直接沿用 override。
+在进入主分支前，编排器会初始化 `preAssemblySummary`、`modelResult`、`assistantReply` 和 `finalSnapshotId` 等输出槽位。这样做的技术原因是正式轮次可能走不同执行路径，例如不运行主模型、主模型阻断或仅做摘要写回，统一初始化能让后续逻辑始终围绕稳定容器收口。初始化之后，所有分支产物都有明确的承载位置。
 
 ### 13.5 条件执行主模型分支
-- 当前步骤在做什么：当 `request.isRunMainModel()` 为真时，先调用 `taskOrchestratorService().orchestrateSummary(..., replaceHistory=false)` 生成 `preAssemblySummary`，再构造 `MainModelExecutionRequest` 调用 `taskOrchestratorService().orchestrateMainModel(...)`。
-- 为什么要这么做：正式用户可见回复只在这里生成，预摘要用于先压缩上下文。
-- 输入是什么：会话、用户输入、上下文包、重构结果、重排结果、工具语义、知识证据、各类记忆片段、知识片段、偏好片段、长期记忆、执行候选、MCP 提示、工具上下文、节点模板策略、预摘要、计划/节点 ID、阶段、修复种子、原始工具通道。
-- 输出是什么：`preAssemblySummary` 和 `modelResult`。
-- 对下一步有什么影响：若 `modelResult == null` 或 `modelResult.isBlocked()`，轮次直接阻断，不再进入后摘要和状态写回。
+如果请求声明 `runMainModel=true`，编排器才会进入主模型分支，先做预摘要，再触发主模型执行。这样做是因为同一个编排器还要服务预工具轮次和挂起轮次，这些轮次只需要治理和写回，不应该误触主模型。条件判断完成后，正式聊天轮次才真正进入生成回复的核心阶段。
 
 ### 13.6 更新正式回复和最终快照
-- 当前步骤在做什么：若主模型执行成功，则用 `modelResult.getReplyText()` 更新 `assistantReply`，并用 `modelResult.getFinalSnapshotId()` 更新 `finalSnapshotId`。
-- 为什么要这么做：后摘要和状态写回需要正式回复和最终快照。
-- 输入是什么：`modelResult`。
-- 输出是什么：更新后的 `assistantReply`、`finalSnapshotId`。
-- 对下一步有什么影响：后摘要会以正式回复作为 assistantReply 输入。
+主模型执行成功后，编排器会从结果中提取 `assistantReply` 和 `finalSnapshotId`，用它们覆盖初始化值。这样做是因为后续摘要生成、状态写回和结果返回都不应再依赖旧值，而应依赖本轮真正产出的回复与快照。更新完成后，正式轮次的后续步骤都将围绕最新回复内容继续推进。
 
 ### 13.7 生成轮次后摘要
-- 当前步骤在做什么：调用 `taskOrchestratorService().orchestrateSummary(..., assistantReply, replaceHistoryWithSummary=request.isReplaceHistoryWithSummary())`，得到 `summaryResult`。
-- 为什么要这么做：后摘要既服务于当前轮次状态写回，也服务于下一轮上下文压缩和历史替换。
-- 输入是什么：会话、用户输入、当前 `assistantReply`、上下文包、知识证据、MCP 提示、工具语义、是否替换历史。
-- 输出是什么：`summaryResult`。
-- 对下一步有什么影响：若 `writeRoundState=true`，状态写回将使用它。
+无论是否执行主模型，编排器都会在收口阶段生成轮次后摘要，用于替换历史、压缩上下文和支持下一轮对话。这样做的原因是摘要不是最终回复的附属物，而是状态治理与上下文演化的核心中间产物，如果省略它，后续轮次就只能不断堆叠原始历史。摘要生成后，后面的状态写回才有结构化收敛结果可保存。
 
 ### 13.8 条件执行轮次状态写回
-- 当前步骤在做什么：若 `request.isWriteRoundState()` 为真，则调用 `taskOrchestratorService().writeRoundState(...)`，带入决策、上下文、重构、重排结果、工具语义、摘要结果、最新快照 ID、最新工具引用、原始工具通道、RAG/Memory/MCP 查询、检索计划覆盖项。
-- 为什么要这么做：轮次执行后，必须把任务状态、检索状态、工具状态、上下文状态同步到状态仓库，维持后续轮次连续性。
-- 输入是什么：本轮全部治理和执行结果。
-- 输出是什么：状态仓库中的多类状态更新。
-- 对下一步有什么影响：下一轮上下文编译、恢复逻辑、工具回放和活跃引用治理都会基于这些状态。
+如果请求声明需要写回，编排器会统一调用 `writeRoundState`，把任务、检索、工具、上下文和相关引用写回存储层。这样做是因为状态写回本质上是轮次执行的正式落账动作，应由统一出口负责，而不是由各执行节点零散改写。写回完成后，本轮执行结果就不再只存在于内存中，而是进入可恢复、可审计、可供下轮读取的持久状态。
 
 ### 13.9 返回轮次执行结果
-- 当前步骤在做什么：记录 `writeback` 状态迁移日志，然后返回包含 `toolSemanticResult`、`preAssemblySummary`、`mainModelResult`、`summaryResult`、`finalSnapshotId`、`decision`、`contextPackage`、`reconstructionResult`、`nodeWorksetResult` 的 `RoundPipelineResult`。
-- 为什么要这么做：轮次编排器要对外提供完整阶段性产物，而不是只返回最终回复。
-- 输入是什么：本轮执行的全部结果。
-- 输出是什么：标准化 `RoundPipelineResult`。
-- 对下一步有什么影响：`ChatServiceImpl.chat` 会从中提取最终回复、摘要、快照和工具语义并做最终收口。
+最后，编排器把工具语义、摘要、主模型结果、快照 ID 和上游工件一起封装为 `RoundPipelineResult` 返回。这样做的目的，是把复杂的轮次内部执行折叠为一个稳定的结果对象，供外层服务统一判断成功、阻断或挂起。结果返回后，链路从轮次内核重新回到服务层收口逻辑。
 
 ## 14. TaskOrchestratorServiceImpl.orchestrateMainModel
 
 ### 14.1 校验请求并提取上下文
-- 当前步骤在做什么：若 `request == null`，直接返回阻断结果；否则提取 `sessionId`、`contextPackage`、`planId`、`nodeId`、`rawToolResultChannel`、`activeRefs`。
-- 为什么要这么做：主模型执行前必须具备完整上下文、快照引用和原始工具通道。
-- 输入是什么：`MainModelExecutionRequest`。
-- 输出是什么：主模型执行基础上下文。
-- 对下一步有什么影响：后续上下文组装、Prompt 组装和主模型调用都用这些字段。
+主模型编排首先校验 `MainModelExecutionRequest` 是否完整，并从中提取用户输入、结构化上下文、重构结果、重排结果、工具语义和各类片段。这样做是因为主模型阶段已经处在链路深处，任何缺失都会直接反映为生成质量问题或调用失败，所以必须在入口处统一拦截。完成提取后，后续装配工作会围绕一组明确的生成输入继续展开。
 
 ### 14.2 记录 assemble 状态迁移
-- 当前步骤在做什么：写一条 `assemble` 状态迁移日志。
-- 为什么要这么做：主模型执行链路需要独立记录“开始做上下文组装”的时点。
-- 输入是什么：任务状态、上下文快照 ID、恢复事件。
-- 输出是什么：状态迁移记录。
-- 对下一步有什么影响：便于将主模型前的组装阶段与真正执行阶段区分开。
+方法会在正式装配前记录一次 `assemble` 阶段的状态迁移日志。这样设计是为了把主模型调用前的上下文装配阶段和前面的重构、召回、重排阶段清晰区分开，使审计能看见生成前最后一次状态跃迁。记录完成后，后面的 Prompt 治理和快照生成都有了明确的阶段归属。
 
 ### 14.3 解析主模型 Prompt 治理结果
-- 当前步骤在做什么：调用 `resolveMainModelPromptAssembly(request.getUserInput(), contextPackage, request.getNodeTemplatePolicy())`。
-- 为什么要这么做：最终 prompt 的模板选择和治理规则不能硬编码，需要按当前上下文动态决策。
-- 输入是什么：用户输入、上下文包、节点模板策略。
-- 输出是什么：`PromptResolveResult`。
-- 对下一步有什么影响：`contextAssembler.assembleAndSnapshot(...)` 会依据这个治理结果组织最终上下文。
+系统会依据上下文包、模板策略和片段池解析出主模型所需的 Prompt 治理结果，决定哪些内容进入最终生成输入。之所以在这里做 Prompt 治理，是因为只有到了这一层，系统才同时拿到完整事实、工具语义和阶段语境，过早治理会缺少上下文，过晚治理则会直接把噪声送进模型。治理结果会直接决定最终 Prompt 的语义密度和边界控制。
 
 ### 14.4 组装最终主模型上下文并生成快照
-- 当前步骤在做什么：调用 `contextAssembler.assembleAndSnapshot(...)`，把重构结果、重排结果、工具语义、知识证据、各类记忆、知识片段、偏好、执行候选、MCP 提示、工具上下文、轮次摘要、原始工具通道、活跃引用、恢复载荷、Prompt 治理结果全部组装进 `AssembledContext`，并得到 `finalSnapshotId`。
-- 为什么要这么做：主模型不应该直接面对零散字段，而应该消费按模板、证据、记忆、工具事实整理好的统一上下文。
-- 输入是什么：主模型执行请求中的全部治理结果。
-- 输出是什么：`assembledContext`、`finalSnapshotId`。
-- 对下一步有什么影响：如果这里组装不出有效 prompt，主模型会被直接阻断。
+在 Prompt 治理完成后，系统会把所有最终入选内容装配为主模型上下文，并生成对应快照 ID。这样做的技术原因是生成调用必须基于一份可回放、可追踪的确定性输入，否则后面即使拿到错误回复，也无法知道模型当时看到了什么。快照生成后，主模型调用与后续审计都拥有了同一个输入锚点。
 
 ### 14.5 记录最终上下文快照审计
-- 当前步骤在做什么：写 `contextTraceLogger` 日志，并通过 `runtimeAuditService.persistDecisionRecord(..., "CONTEXT_SNAPSHOT_FINAL", ...)` 持久化最终快照 ID。
-- 为什么要这么做：正式回复使用的是哪份最终上下文，必须可回放、可追溯。
-- 输入是什么：`assembledContext`、`finalSnapshotId`。
-- 输出是什么：上下文追踪和最终快照审计。
-- 对下一步有什么影响：后续如需分析回答质量，可回放到这份最终快照。
+系统会把最终 Prompt 快照与其关联信息持久化到审计系统。这样做是因为正式回复质量高度依赖 Prompt 组装结果，没有快照审计就无法对“为什么模型这么回答”进行事后解释。快照审计一旦写入，后续 writeback 阶段就能引用这份快照而不是重建输入现场。
 
 ### 14.6 校验最终 Prompt
-- 当前步骤在做什么：读取 `finalPrompt = assembledContext.getPrompt()`；若为空，则写 `CONTEXT_GOVERNANCE_BLOCKED` 审计并返回 `blockedReason=final_governed_workset_empty`。
-- 为什么要这么做：如果最终治理后的工作集为空，再调用主模型只会得到不可信结果。
-- 输入是什么：`assembledContext`。
-- 输出是什么：阻断结果或有效的 `finalPrompt`。
-- 对下一步有什么影响：只有 prompt 非空，才会真正调用主模型。
+在真正调用模型前，系统还会再次校验最终 Prompt 是否为空、是否超出允许边界、是否缺少核心段落。这样做是因为装配阶段即便成功完成，也可能出现语义上不完整或结构上不合法的 Prompt，如果不在这里再挡一次，错误会直接传导给模型。校验通过后，主模型调用才具备真正的执行条件。
 
 ### 14.7 调用主模型
-- 当前步骤在做什么：调用 `invokeMainModel(finalPrompt, repairSeed, contextPackage, sessionId, roundId, nodeId, finalSnapshotId)`。
-- 为什么要这么做：这是整个正式聊天轮次中真正生成用户可见回复的时刻。
-- 输入是什么：最终 prompt、修复种子、上下文、会话、轮次 ID、节点 ID、最终快照 ID。
-- 输出是什么：`ModelReply`，包含 `raw`、`valid`、`replyText`。
-- 对下一步有什么影响：后续返回值、日志覆盖、摘要生成和记忆写入都基于这份回复。
+完成所有装配与校验后，系统调用主模型生成正式回复。这样做的业务目的，是把前面所有治理、检索、工具、摘要工作最终转化为面向用户的自然语言结果；此前的所有步骤本质上都在为这一步提供更高质量输入。模型返回后，链路才第一次拿到面向用户的正式答复文本。
 
 ### 14.8 记录 writeback 状态迁移并持久化 Prompt 快照引用
-- 当前步骤在做什么：写 `writeback` 状态迁移日志；若 `sessionId` 非空，则调用 `persistPromptSnapshotRefs(...)`。
-- 为什么要这么做：主模型执行完成后，需要把 prompt 快照和上下文快照建立引用关系。
-- 输入是什么：会话、轮次 ID、节点 ID、最终快照 ID、`assembledContext`。
-- 输出是什么：快照引用关系和主模型写回阶段状态记录。
-- 对下一步有什么影响：后续审计和回放可以从快照引用反查主模型输入。
+模型调用结束后，系统会记录一次 `writeback` 状态迁移，并把最终使用的 Prompt 快照引用与模型结果关联保存。这样做是因为主模型调用不是链路终点，后面还要进入摘要写回、状态持久化和审计比较；如果不把引用关系在这里固化，后续回放就无法完整重建“输入 Prompt 对应的输出回复”。这一步让生成结果与输入快照之间形成可追踪闭环。
 
 ### 14.9 返回主模型编排结果
-- 当前步骤在做什么：返回 `MainModelOrchestrationResult`，包含 `assembledContext`、`finalSnapshotId`、`finalPrompt`、`rawResponse`、`validResponse`、`replyText`。
-- 为什么要这么做：轮次编排器和 `ChatServiceImpl.chat` 需要完整消费主模型执行结果。
-- 输入是什么：`assembledContext`、`ModelReply`。
-- 输出是什么：`MainModelOrchestrationResult`。
-- 对下一步有什么影响：`ChatServiceImpl.chat` 会从中拿到最终对用户返回的内容。
+最后，方法返回 `MainModelOrchestrationResult`，其中包含回复文本、有效响应、阻断信息和最终快照标识。这样封装可以让外层轮次编排器不必理解主模型内部装配细节，也能稳定判断是否继续摘要和写回。结果返回后，正式轮次从“生成阶段”推进到“摘要与状态收口阶段”。
 
 ## 15. TaskOrchestratorServiceImpl.writeRoundState
 
 ### 15.1 校验写回请求并读取旧状态
-- 当前步骤在做什么：校验 `request` 和 `sessionId`，然后从 `contextPackage` 中读取旧的 `TaskState`、`RetrievalState`、`ToolState`、`ContextState`，同时提取运行时 `session` 行和活跃工具结果。
-- 为什么要这么做：状态写回不是盲目覆盖，而是基于上一轮状态做增量合并。
-- 输入是什么：`RoundStateWriteRequest`。
-- 输出是什么：旧状态基线和运行时补充信息。
-- 对下一步有什么影响：后续所有状态对象都会做“旧值 + 本轮增量”的合并。
+写回方法首先校验 `RoundStateWriteRequest`，并读取当前会话已存在的旧状态快照。这样做是因为状态写回不是盲写，而是一次基于旧状态的增量更新，若不先读取旧值，就无法判断哪些字段发生了变化，也无法形成状态演进日志。旧状态读取后，后续各状态分区的写回才有对比基线。
 
 ### 15.2 写回 `TaskState`
-- 当前步骤在做什么：合并已完成步骤、失败步骤、重试次数、已确认槽位、待澄清问题、目标、当前阶段、当前节点和 `nextActionHint`，然后保存到 `taskStateStore`。
-- 为什么要这么做：任务状态是下一轮编排和恢复逻辑的核心输入。
-- 输入是什么：旧任务状态、运行时工具结果、重构结果、摘要快照、检索计划补丁。
-- 输出是什么：新的 `TaskState`。
-- 对下一步有什么影响：会影响后续阶段切换、步骤推进、恢复路径判断和活跃引用治理。
+系统先把本轮相关的任务态信息写回 `TaskState`，同步当前任务阶段、目标和执行进度。这样做的原因是任务态是全链路中最核心的显式状态，其他检索、工具和上下文策略都要围绕它解释。任务态写回后，下一轮输入进入系统时就能基于最新任务进度继续治理。
 
 ### 15.3 写回 `RetrievalState`
-- 当前步骤在做什么：构造 `retrievalPlan`，合并激活查询、检索意图、证据引用和重排摘要，然后保存到 `retrievalStateStore`。
-- 为什么要这么做：下一轮上下文编译必须知道上一轮检索过什么、命中过哪些证据、当前检索策略是什么。
-- 输入是什么：旧检索状态、重构结果、重排结果、RAG/Memory/MCP 查询、检索补丁。
-- 输出是什么：新的 `RetrievalState`。
-- 对下一步有什么影响：影响后续检索去重、检索计划延续和恢复时的刷新判断。
+接着系统会写回本轮使用的检索查询、召回计划和相关检索态信息。这样安排是因为检索策略本身也是会话连续性的一部分，如果不保存，后续恢复或回放时无法知道系统本轮是如何获得证据的。检索态落库后，链路对“证据来源”也具备了可追踪能力。
 
 ### 15.4 写回 `ToolState`
-- 当前步骤在做什么：解析最新工具原始引用、原始结果 JSON、摘要摘要、历史引用列表，并保存到 `toolStateStore`。
-- 为什么要这么做：后续回放、恢复和工具证据治理都依赖最新工具状态。
-- 输入是什么：旧工具状态、原始工具结果通道、工具语义、重构结果、工具历史引用。
-- 输出是什么：新的 `ToolState`。
-- 对下一步有什么影响：下一轮如果还需要复用工具证据，可以直接从这里读取。
+然后系统写回工具相关状态，包括工具语义、原始结果引用和工具历史引用等。这样做的业务意义在于把工具执行从一次瞬时动作变成可恢复、可追踪的会话状态，否则挂起恢复和后续追问都无法知道上一轮工具做了什么。工具态稳定后，后面的上下文状态写回才能正确引用这些工具结果。
 
 ### 15.5 写回 `ContextState` 与活跃引用
-- 当前步骤在做什么：从 `summaryResult`、`rerankResult`、工具引用和 MCP 候选中提取活跃知识引用、记忆引用、工具证据引用、MCP Prompt/Resource/Workflow/Tool 引用，经过 `governActiveRefs(...)` 治理后，构造并保存新的 `ContextState`。
-- 为什么要这么做：上下文状态不仅要保存叙事摘要和快照，还要保存哪些引用在下一轮仍然活跃。
-- 输入是什么：旧 `ContextState`、摘要、重排结果、工具引用、阶段变化信息。
-- 输出是什么：新的 `ContextState`。
-- 对下一步有什么影响：下一轮 `contextCompilerService.compile(...)` 会以它作为上下文连续性的核心来源。
+最后，系统写回摘要、最新快照、上下文引用和活跃引用集合，完成当前轮次的上下文状态收口。之所以把这一步放在最后，是因为上下文状态本质上汇总了任务、检索、工具和摘要的最新结果，只有前面几类状态都已落定，这里的上下文引用才是完整的。写回完成后，下一轮上下文编译就能从一份一致的会话状态快照出发。
 
 ## 16. ChatServiceImpl.chat 收口阶段
 
 ### 16.1 提取正式轮次关键结果
-- 当前步骤在做什么：从 `roundPipelineResult` 中提取 `modelResult`、可能更新后的 `toolSemanticResult`、`finalSnapshotId`、`summaryResult`。
-- 为什么要这么做：正式轮次已经结束，服务层需要拿到最终回复、摘要和快照做最后收口。
-- 输入是什么：`roundPipelineResult`。
-- 输出是什么：正式轮次核心结果。
-- 对下一步有什么影响：接下来会做最终可用性校验。
+正式轮次返回后，服务首先从 `RoundPipelineResult` 中提取 `modelResult`、更新后的工具语义、最终快照 ID 和摘要结果。这样做是因为后续记忆门控、审计持久化和最终响应都只关心正式轮次的关键产物，没有必要继续操作整份轮次结果对象。关键结果一旦被抽出，服务收口逻辑就有了明确的输入面。
 
 ### 16.2 校验正式轮次是否成功
-- 当前步骤在做什么：若 `roundPipelineResult == null`、或其被阻断、或 `modelResult == null`、或 `modelResult.isBlocked()`，则发布 `IDLE` 并返回 `503`，错误体为 `contextGovernanceBlockedPayload("chat turn aborted because final governed workset is empty")`。
-- 为什么要这么做：即使正式轮次已经执行过，也不代表一定产出了可返回给用户的有效回复。
-- 输入是什么：`roundPipelineResult`、`modelResult`。
-- 输出是什么：失败响应或继续向下。
-- 对下一步有什么影响：只有通过这里，才会进入日志覆盖、记忆写入和最终返回。
+服务会确认正式轮次未被阻断、`modelResult` 存在且模型执行本身成功。这样做的原因是只有真正完成的正式轮次才值得进入记忆写入和最终响应阶段，否则系统应当把失败解释为治理阻断而不是给出不完整回复。通过校验后，链路从“轮次返回”提升为“正式答复已生成”。
 
 ### 16.3 覆盖日志响应内容
-- 当前步骤在做什么：调用 `LunaLogAspect.LOG_RESPONSE_OVERRIDE.set(modelResult.getRawResponse())`。
-- 为什么要这么做：保证日志切面记录的是主模型真实原始输出，而不是中间态或后处理内容。
-- 输入是什么：`modelResult.getRawResponse()`。
-- 输出是什么：线程级日志响应覆盖值。
-- 对下一步有什么影响：本轮日志审计会对齐实际模型输出。
+在确认成功后，服务会把日志切面中的响应覆盖为本轮模型原始响应。这样做是为了让链路日志记录到真正返回给用户前的模型结果，而不是被旧值、默认值或挂起回复污染。日志覆盖完成后，后续审计和问题排查才能沿着正确的响应内容回看本轮行为。
 
 ### 16.4 评估正式回复记忆写入闸门
-- 当前步骤在做什么：调用 `evaluateMemoryWriteGate(input, modelResult.getReplyText(), reconstruction, toolSemanticResult, false)`；正式轮次阈值为 `0.45`。
-- 为什么要这么做：不是每一轮回复都值得沉淀到记忆，必须用输入长度、回复长度、意图置信度、工具语义置信度综合打分。
-- 输入是什么：用户输入、正式回复、输入重构结果、工具语义、`pendingTurn=false`。
-- 输出是什么：`MemoryWriteGateDecision`。
-- 对下一步有什么影响：决定是否执行正式轮次记忆写入。
+服务随后基于用户输入、正式回复、重构结果和工具语义评估记忆写入门控。这样做的核心原因是并非每轮回复都适合进入记忆层，如果不做筛选，系统会把低价值、纯过程性或噪声内容写入长期记忆，反而降低后续检索质量。门控判断结果会直接决定下一步是否执行正式轮次记忆写入。
 
 ### 16.5 条件执行正式轮次记忆写入
-- 当前步骤在做什么：若 `writeGate.allowWrite()` 为真，则调用 `memoryWritePipelineService.writeAfterTurn(runtimeSessionId, input, modelResult.getReplyText(), contextPackage)`。
-- 为什么要这么做：把本轮用户输入和正式回复沉淀到后续可复用的记忆层。
-- 输入是什么：会话、用户输入、正式回复、结构化上下文。
-- 输出是什么：记忆写入结果。
-- 对下一步有什么影响：下轮上下文编译可能命中本轮沉淀的信息。
+如果门控允许，服务会把用户输入与正式回复写入记忆流水线。这样做的业务价值在于把当前轮的高价值互动沉淀为下轮可读取的长期上下文，从而让会话真正形成积累，而不是每轮重新开始。写入结束后，系统的记忆层与当前回复事实保持同步；如果门控拒绝，也只是不写记忆，不影响主链路继续收口。
 
 ### 16.6 持久化回放比较与记忆治理审计
-- 当前步骤在做什么：调用 `persistReplayAndMemoryGovernance(...)`，计算 `toolConfidence`、`summaryConfidence`、`intentConfidence`、`qualityScore` 以及前后快照是否可比，然后写入 `QUALITY_REPLAY_COMPARISON` 和 `MEMORY_WRITE_THRESHOLD_GOVERNANCE` 审计。
-- 为什么要这么做：不仅要写记忆，还要记录本轮质量分数、前后快照关系和记忆治理阈值依据。
-- 输入是什么：会话、计划/节点 ID、`previousContextState`、`finalSnapshotId`、`summaryResult`、`toolSemanticResult`、`reconstruction`。
-- 输出是什么：两类治理审计记录。
-- 对下一步有什么影响：为后续质量分析、快照对比和记忆治理优化提供依据。
+服务会利用先前保存的旧 `ContextState`、新的快照 ID、摘要结果、工具语义和重构结果，持久化回放比较与记忆治理审计。之所以必须做这一步，是因为本轮不仅要给用户一个回复，还要给系统留下“本轮让上下文如何演进、为什么允许或拒绝记忆写入”的证据。审计写完后，本轮从输入到输出的状态变化就形成了可完整回放的链路闭环。
 
 ### 16.7 发布空闲状态
-- 当前步骤在做什么：调用 `statusPublisher.publish(DEFAULT_CLIENT_ID, STATUS_IDLE, VALUE_IDLE)`。
-- 为什么要这么做：当前轮次所有同步处理已经完成，需要通知前端退出处理态。
-- 输入是什么：状态常量。
-- 输出是什么：空闲状态事件。
-- 对下一步有什么影响：前端会把本轮 UI 状态切回空闲。
+一切收口动作完成后，服务发布 `IDLE` 状态，把前端和系统状态都切回空闲。这样做是因为当前 HTTP 对话已经完成，若状态不及时归位，前端会错误认为系统仍在处理中，下一轮请求的状态展示也会混乱。状态归位后，本轮链路在状态机层面正式结束，系统准备接收下一轮输入。
 
 ### 16.8 返回最终响应
-- 当前步骤在做什么：调用 `tryParseJsonNode(modelResult.getValidResponse())`，并把结果包装为 `ResponseEntity.ok(...)` 返回。
-- 为什么要这么做：主模型输出可能是标准 JSON，也可能只是普通字符串；这里统一做一次解析兼容。
-- 输入是什么：`modelResult.getValidResponse()`。
-- 输出是什么：最终 HTTP 响应体。
-- 对下一步有什么影响：至此，本轮 `ChatController.message` 主链路结束；下一轮只能基于本轮已经写回的任务状态、检索状态、工具状态、上下文状态、快照和记忆继续推进。
+最后，服务把 `modelResult.getValidResponse()` 解析为可返回的 JSON 或文本响应并返回给调用方。这样收口的原因是前面所有步骤无论是治理、检索、工具还是记忆，本质上都在为这一份最终响应服务；只有把结果稳定返回给用户，整条链路才真正闭合。至此，本轮请求完成了从 HTTP 入口、上下文治理、工具处理、正式生成、状态写回到最终输出的完整闭环。

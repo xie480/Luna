@@ -122,8 +122,41 @@ public class WorkflowExecutor {
         return executeLoop(workflow, argsJson);
     }
 
+    // ... existing code ...
+
     /**
      * 同步执行工作流步骤循环，按槽位依次匹配工具、执行工具并汇总状态。
+     * <p>
+     * 该方法的主要流程包括：
+     * 1. 解析输入参数和工作流配置（toolSlots、thoughtChain），建立共享状态容器
+     * 2. 遍历每个工具槽位，按顺序执行：能力匹配 → 参数构建 → 工具调用 → 结果沉淀
+     * 3. 必需槽位匹配失败或执行异常时中断后续步骤，可选槽位失败则跳过继续
+     * 4. 每步执行结果写入共享state，供后续步骤消费依赖数据
+     * 5. 记录工具执行轨迹（参数、输出、状态、耗时）用于审计和回放
+     * 6. 汇总统计信息（成功数、失败数、总耗时、最终状态）
+     * 7. 检查必需步骤是否有失败，如有则返回错误码和缺失能力信息
+     * <p>
+     * 工作流采用串行执行策略，步骤间通过state传递数据。
+     * 支持必需/可选槽位区分，必需步骤失败会立即终止整个工作流。
+     * 全程通过statusPublisher推送SSE事件，前端可实时看到执行进度。
+     *
+     * @param workflow 工作流资源对象，包含：
+     *                 - name: 工作流名称
+     *                 - runMode: 运行模式（SYNC/ASYNC）
+     *                 - toolSlots: 工具槽位列表，定义每步的能力需求和约束
+     *                 - thoughtChain: 思考链列表，描述每步的执行意图
+     * @param argsJson 输入参数的JSON字符串，作为工作流的初始输入数据
+     * @return String JSON格式的执行结果，包含：
+     *         - workflowName: 工作流名称
+     *         - runMode: 运行模式
+     *         - stepResults: 各步骤执行结果列表（stepIndex、slot、toolName、status、costMs等）
+     *         - successSteps: 成功步骤数
+     *         - failedSteps: 失败步骤数
+     *         - costMs: 总耗时（毫秒）
+     *         - status: 最终状态（success/error）
+     *         - state: 共享状态对象，包含所有步骤的输出数据
+     *         - errorCode/message: 如果必需步骤失败，返回错误码和描述
+     *         - missingToolSlot/missingCapability: 缺失的工具槽位和能力标识
      */
     public String executeLoop(Resource workflow, String argsJson) {
         long start = System.currentTimeMillis();
@@ -152,6 +185,7 @@ public class WorkflowExecutor {
                 return error("WORKFLOW_CONFIG_INVALID", "工作流未配置 toolSlots，无法执行 step loop", workflow.getName(), null, null);
             }
 
+            // 初始化共享状态容器，存储输入和各步骤输出
             Map<String, Object> state = new LinkedHashMap<>();
             state.put("input", inputNode);
 
@@ -189,6 +223,7 @@ public class WorkflowExecutor {
                         if (Boolean.TRUE.equals(slot.getRequired())) {
                             throw new IllegalStateException("未匹配到必需能力的工具: capability=" + slot.getCapability() + ", slot=" + slot.getSlot());
                         }
+                        // 可选槽位未匹配到工具，跳过继续执行
                         step.put("status", "SKIPPED");
                         step.put("message", "可选槽位未匹配到工具，已跳过");
                         step.put("costMs", System.currentTimeMillis() - stepStart);
@@ -223,11 +258,13 @@ public class WorkflowExecutor {
                     step.put("costMs", System.currentTimeMillis() - stepStart);
                     recordToolTrace(matchedTool, toolArgs, toolResult, stepSuccess ? "SUCCESS" : "FAILED", null, System.currentTimeMillis() - stepStart);
 
+                    // 将工具输出写入共享状态，key为槽位名称
                     state.put(slot.getSlot(), toolResultNode != null ? toolResultNode : toolResult);
                     if (stepSuccess) {
                         successCount++;
                     } else {
                         failCount++;
+                        // 必需步骤失败，终止工作流
                         if (Boolean.TRUE.equals(slot.getRequired())) {
                             stepResults.add(step);
                             break;
@@ -251,6 +288,7 @@ public class WorkflowExecutor {
                 stepResults.add(step);
             }
 
+            // 检查是否存在必需步骤失败
             boolean hasRequiredFailure = stepResults.stream().anyMatch(s ->
                     "FAILED".equals(s.get("status")) && Boolean.TRUE.equals(findRequiredBySlot(slots, String.valueOf(s.get("slot")))));
 
@@ -264,6 +302,7 @@ public class WorkflowExecutor {
             result.put("status", hasRequiredFailure ? "error" : "success");
             result.put("state", state);
 
+            // 如果必需步骤失败，返回详细错误信息
             if (hasRequiredFailure) {
                 Map<String, Object> firstRequiredFailure = stepResults.stream()
                         .filter(s -> "FAILED".equals(s.get("status")) && Boolean.TRUE.equals(findRequiredBySlot(slots, String.valueOf(s.get("slot")))))
@@ -286,6 +325,9 @@ public class WorkflowExecutor {
             statusPublisher.publish(LunaStatusPublisher.DEFAULT_CLIENT_ID, LunaStateConstant.STATUS_IDLE, LunaStateConstant.VALUE_IDLE);
         }
     }
+
+    // ... existing code ...
+
 
     /**
      * 解析工作流入参，空入参时回退为空对象。
