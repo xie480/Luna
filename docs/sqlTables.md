@@ -294,6 +294,28 @@
 
 ---
 
+### 表名：`workflow_template`
+- **用途**：定义可复用的工作流模板，供 OpenClaw 编排调度使用。
+- **职责**：存储工作流元数据、输入/输出 schema、所需能力、工具槽位、思维链等信息，支持多版本管理、向量检索与开启/关闭控制。
+- **表类型**：配置表（工作流模板）
+
+#### 字段说明
+- `id`：`bigint` **主键**，自增唯一标识。
+- `workflow_name`：`varchar(200)` **唯一**，工作流模板名称。
+- `description`：`text` – 工作流描述。
+- `input_schema`：`jsonb` – 输入参数 JSON Schema。
+- `output_schema`：`jsonb` – 输出结果 JSON Schema。
+- `required_capabilities`：`jsonb` – 需要的能力集合（JSON 数组）。
+- `tool_slots`：`jsonb` – 工具占位配置（JSON 数组）。
+- `thought_chain`：`jsonb` – 思维链定义（JSON 数组）。
+- `blueprint_json`：`jsonb` – 生成的计划蓝图 JSON（可选）。
+- `enabled`：`boolean` – 是否启用该模板。
+- `version`：`varchar(50)` – 版本标识。
+- `embedding`：`vector(768)` – 向量化表示，用于相似度检索。
+- `created_at`、`updated_at`：`timestamp` – 创建/更新时间（默认 CURRENT_TIMESTAMP）。
+
+- **定义**：[`workflow_template.sql`](src/main/resources/sql/luna/public/workflow_template.sql:1)
+
 ## 📦 3️⃣ 日志与审计
 
 ### 表名：`luna_log`
@@ -664,6 +686,48 @@
   - `created_at`：创建时间。
   - `updated_at`：更新时间。
 - **唯一索引**：`uk_relational_profile_principal` 确保每个主体唯一画像。
+
+### 表名：`legacy_mcp_write_audit`
+- **用途**：记录对 legacy MCP 表（`mcp_tools`、`mcp_skills`）的写操作审计。
+- **字段**：
+  - `id` (bigserial) 主键
+  - `occurred_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
+  - `legacy_table` varchar NOT NULL
+  - `operation` varchar NOT NULL
+  - `app_version` varchar NOT NULL DEFAULT 'unknown'
+  - `db_user_name` varchar NOT NULL DEFAULT CURRENT_USER
+  - `client_addr` inet
+  - `payload_json` jsonb
+- **定义**：[`legacy_mcp_guardrail.sql`](src/main/resources/sql/luna/public/legacy_mcp_guardrail.sql:6)
+
+### 表名：`legacy_mcp_read_metric`
+- **用途**：统计 legacy MCP 表的读取次数及版本分布。
+- **字段**：
+  - `id` (bigserial) 主键
+  - `app_version` varchar NOT NULL
+  - `legacy_table` varchar NOT NULL
+  - `read_count` bigint NOT NULL DEFAULT 0
+  - `first_seen_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
+  - `last_seen_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
+- **定义**：[`legacy_mcp_guardrail.sql`](src/main/resources/sql/luna/public/legacy_mcp_guardrail.sql:17)
+
+### 表名：`knowledge_base`（已废弃）
+- **用途**：旧版知识库文档表，已迁移至 `knowledge_document` + `knowledge_chunk`。
+- **定义**：[`knowledge_base.sql`](src/main/resources/sql/luna/public/knowledge_base.sql:1)
+
+### 表名：`luna_memory`（已废弃）
+- **用途**：旧版记忆表，已迁移至 V2 记忆模型（`task_working_memory`、`task_semantic_fact` 等）。
+- **定义**：[`luna_memory.sql`](src/main/resources/sql/luna/public/luna_memory.sql:1)
+
+### 表名：`memory_registry`
+- **用途**：统一的记忆对象注册表，用于跨层（WORKING / SEMANTIC / EPISODIC / PROCEDURAL）追踪与关联。
+- **字段**：`memory_id` (bigserial PK)、`memory_domain` varchar NOT NULL、`memory_layer` varchar NOT NULL、`ref_table` varchar NOT NULL、`ref_id` varchar NOT NULL、`principal_id` bigint、`source_type` varchar、`source_ref` varchar、`confidence_score` numeric DEFAULT 0.5、`importance_score` numeric DEFAULT 0.5、`freshness_score` numeric DEFAULT 1.0、`access_count` int DEFAULT 0、`last_accessed_at` timestamp、`archived` boolean DEFAULT false、`created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
+- **定义**：[`memory_runtime_v2_schema.sql`](src/main/resources/sql/luna/public/memory_runtime_v2_schema.sql:370)
+
+### 表名：`memory_relation`
+- **用途**：记录记忆对象之间的有向关系（如 `SUPPORTS`、`CONTRADICTS`、`DERIVED_FROM`、`SUMMARIZES`、`GENERALIZES`）。
+- **字段**：`id` (bigserial PK)、`from_memory_id` bigint NOT NULL、`to_memory_id` bigint NOT NULL、`relation_type` varchar NOT NULL、`weight` numeric DEFAULT 1.0、`created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
+- **定义**：[`memory_runtime_v2_schema.sql`](src/main/resources/sql/luna/public/memory_runtime_v2_schema.sql:390)
 
 ## 📑 附录：完整表结构与约束说明
 

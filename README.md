@@ -1,97 +1,103 @@
-**Luna 定义**
-一个主打陪伴、具备高度自主性与多模态交互能力的本地化 AI 桌面智能体（Desktop AI Agent）。
+# Luna 项目
 
-具体来说，Luna 具备以下几个核心维度的特征：
+## ✨ 项目概述
+Luna 是一款本地化的 AI 桌面助理，面向 **陪伴式人格 + 长期记忆 + 主动行为** 的全栈 AI Agent 平台。它集成了多模型驱动、RAG 知识库、MCP（模型上下文协议）工具调用、OpenClaw 任务编排以及 CodeOps 工程闭环，能够在本地桌面环境中实现 **自然语言对话、知识检索、主动规划、代码自动化** 等完整 AI 工作流。
 
-1 深度陪伴与绝对的人格稳定性                                                                                                                                                                            
-• 人格约束：通过代码中的 PromptTemplates.SYSTEM_PROMPT（LUNA 核心人格宪章 v3.0）进行严格的系统级约束，确保其行为和性格不崩坏。                                                                       
-• 情绪化表达：结合 EmotionEnum（愤怒、害羞、微笑等）与后期的 Live2D 及 TTS 语音集成，Luna 能够以生动的表情和语音与用户进行情感交流。                                                                 
-• 多层记忆体系：拥有短期上下文（Redis）、中期数据库和长期文件记忆，甚至在开关机时会进行记忆的预热与总结，确保跨日对话的连贯性。                                                                      
-2 高度的自主性与主动感知                                                                                                                                                                                
-• 主动交互：打破了传统的“一问一答”模式。Luna 能够感知桌面状态（如用户打开了某个软件）、结合历史会话进行自我反思，并在适当时机主动向用户输出建议或发起对话。                                          
-• 自我进化：在满足特定策略时，Luna 能够主动将新知识、联网搜索结果或反思结论写入本地向量知识库，甚至动态调整自己的提示词。                                                                            
-3 强大的本地化与知识管理能力                                                                                                                                                                            
-• 多模型驱动：后端架构支持灵活接入 Ollama（本地）、Qwen、Gemini 等多种大语言模型。                                                                                                                   
-• 个人知识库（RAG）：能够扫描、解析本地磁盘文件（PDF/Office/图片等）并进行向量化索引，结合联网搜索能力，为用户提供精准的检索增强回答。                                                               
-4 深度的系统级集成（MCP）                                                                                                                                                                               
-• 通过模型上下文协议（MCP），Luna 不仅能“说”，还能“做”。她被设计为常驻桌面的应用，能够受控地调用工具、读取文件、甚至打开和操作桌面软件。                                                             
-5 OpenClaw 式任务编排与 CodeOps 工程闭环
-• 通过 Plan/Phase/Node 架构，Luna 可以先全局规划再分阶段执行，支持 DAG 串并行、局部重规划、失败恢复与全链路可视化。  
-• 通过 CodeOps 能力包，Luna 可以执行代码任务链：读代码、写补丁、跑测试、失败修复、生成报告，并保留可审计可回滚能力。  
-6 企业级工程架构                                                                                                                                                                                      
-• 作为一个完整的后端系统，Luna 包含了完善的生命周期管理、Token 认证（AuthService）、结构化日志审计、定时备份恢复以及系统监控告警，确保了长期运行的稳定性。
+> **核心价值**：在保证数据安全的前提下，通过统一的 **Plan/Phase/Node** 编排模型，实现从 **对话** 到 **任务执行** 的全链路可审计、可恢复、可编排。
 
-总结：Luna 不是一个简单的聊天套壳工具，而是一个有记忆、有情绪、能看（感知桌面/扫描文件）、能听能说（语音/Live2D）、能动手（MCP工具调用）、能编排复杂任务（OpenClaw）、能执行工程闭环（CodeOps），并且会主动关心用户的全能型虚拟桌面伴侣。
+---
 
-**阶段设计（重排版：含 OpenClaw 与 CodeOps）**：
+## 📦 关键特性
 
-● A. 对话与记忆基础（A1~A6）
-○ A1：准备和环境配置  
-○ A2：本地对话  
-○ A3：会话短期记忆  
-○ A4：滚动摘要和上下文管理  
-○ A5：本地向量知识库  
-○ A6：多层记忆体系  
+- **深度陪伴 & 人格稳定**：基于 `PromptTemplates.SYSTEM_PROMPT`（[`src/main/java/org/yilena/luna/prompt/PromptTemplates.java:1`](src/main/java/org/yilena/luna/prompt/PromptTemplates.java:1)）实现人格约束，支持情绪表达（EmotionEnum）和 Live2D、TTS 多模态交互。
+- **多层记忆体系**：短期上下文（Redis）、中期数据库、长期文件持久化，实现跨会话、跨设备的记忆保持。
+- **自主感知 & 主动交互**：感知桌面状态、自动触发对话或建议，支持自我进化（向量知识库自动写入、提示词动态调节）。
+- **多模型驱动**：支持 Ollama、本地 Qwen、Gemini 等模型（见 `client/OllamaClient.java`），提供灵活的模型切换能力。
+- **MCP（模型上下文协议）**：通过统一的 Tool/Skill 接口，实现安全的文件读取、系统指令、桌面操作等能力（`json/tool/*.json` 系列定义）。
+- **OpenClaw 编排引擎**：基于 **Plan → Phase → Node** 的 DAG 结构，支持全局规划、阶段调度、局部重规划、失败恢复及可视化（文档 `docs/openclaw_mvp_runbook.md`）。
+- **CodeOps 工程闭环**：自动生成补丁、运行测试、质量门禁、自动修复并生成报告（`tools`、`json/tool/*.json`），实现 **读‑写‑测‑修‑报** 完整闭环。
+- **企业级治理**：审计日志、定时备份、监控告警、审批流程（`ApprovalController.java`）等全套治理能力。
 
-● B. MCP 与主动能力（B1~B6）
-○ B1：基础MCP  
-○ B2：联网搜索能力  
-○ B3：提示词实时管理  
-○ B4：生命周期管理（原阶段9.5）  
-○ B5：主动更新知识库与提示词  
-○ B6：运行时主动MCP  
+---
 
-● C. 审计与稳定性治理（C1~C4）
-○ C1：日志记录和审计  
-○ C2：定时备份与恢复  
-○ C3：监控和告警  
-○ C4：人格稳定与一致性评估  
+## 🛠️ 项目结构概览
 
-● D. OpenClaw 编排核心（D1~D5）
-○ D1：BigModel 一次性全局规划（PlanBlueprint Freeze）  
-○ D2：按阶段执行（Phase Executor）  
-○ D3：DAG 串并行调度与状态机  
-○ D4：局部重规划与失败恢复（replan_failed_nodes）  
-○ D5：Plan 可视化（快照 + SSE 增量 + 事件落库）  
+```
+.
+├─ docs/                     # 设计、方案、指南文档
+│   ├─ architecture_design_luna_v2.md   # 系统整体架构概述
+│   ├─ api_documentation_mcp.md          # MCP 接口文档
+│   ├─ execution-memory-ledger.md         # Execution Memory Ledger 设计
+│   └─ …
+├─ json/                     # Tool、Skill JSON Schema 定义
+│   ├─ tool/…
+│   └─ skill/…
+├─ src/
+│   ├─ main/java/org/yilena/luna/
+│   │   ├─ RunaApplication.java            # SpringBoot 主入口
+│   │   │   ↳ [`src/main/java/org/yilena/luna/RunaApplication.java:1`](src/main/java/org/yilena/luna/RunaApplication.java:1)
+│   │   ├─ controller/                    # REST API 控制层
+│   │   │   ├─ ChatController.java          # 对话入口
+│   │   │   │   ↳ [`src/main/java/org/yilena/luna/controller/ChatController.java:1`](src/main/java/org/yilena/luna/controller/ChatController.java:1)
+│   │   │   └─ …
+│   │   ├─ service/                       # 业务服务层
+│   │   ├─ tools/                        # MCP Tool 实现
+│   │   └─ prompt/                       # Prompt 管理与治理
+│   └─ resources/
+│       ├─ application.yaml               # Spring 配置文件
+│       │   ↳ [`src/main/resources/application.yaml:1`](src/main/resources/application.yaml:1)
+│       └─ …
+├─ scripts/                 # 项目迁移、运维脚本
+├─ pom.xml                 # Maven 项目构建文件
+└─ README.md               # 本文件
+```
 
-● E. CodeOps 工程闭环（E1~E5）
-○ E1：代码任务规划（plan_code_change_tasks）  
-○ E2：补丁生成与应用（generate_code_patch / apply_unified_patch）  
-○ E3：测试与质量门禁（generate_test_cases / run_test_command / lint / format）  
-○ E4：失败归因与自动修复循环（analyze_test_failure_and_fix）  
-○ E5：变更总结与报告集成（summarize_code_changes_for_report）  
+---
 
-● F. 桌面与多模态（F1~F8）
-○ F1：桌面嵌入  
-○ F2：磁盘文件扫描与索引  
-○ F3：桌面状态感知  
-○ F4：基于桌面事件的主动输出  
-○ F5：语音输入  
-○ F6：Live2D 集成  
-○ F7：AI 语音（TTS/ASR）集成  
-○ F8：桌面部署与最终验收（72小时稳定性）  
+## 🚀 快速开始
 
-● G. 推理服务与性能工程（G1~G2）
-○ G1：Embedding / Rerank 常驻化（HTTP）  
-○ G2：全链路性能优化（RAG、Router、SSE、DB、降级策略）  
+### 1️⃣ 前置条件
+- **JDK 17+**（推荐 AdoptOpenJDK）
+- **Maven 3.8+**
+- **Docker**（可选，用于本地 Ollama /模型容器）
+- **Redis**（用于短期记忆）
 
-**阶段验收原则（统一）**：
-1. 每阶段必须定义可量化验收标准（成功率、时延、错误率、可恢复率等）  
-2. 高风险能力必须经过审批链路与审计链路验证  
-3. 所有阶段改造需同步更新 docs 与 agent.md  
-4. 新增 Tool/Skill 必须具备 inputSchema/outputSchema、错误码与最小测试覆盖  
+### 2️⃣ 构建项目
+```bash
+# 克隆仓库（已在本地）
+cd F:/YilenaCode/Luna
+# 使用 Maven 编译并打包
+mvn clean package -DskipTests
+```
+> 如需运行单元测试，请去掉 `-DskipTests`。
 
-**功能设计**
-1. 定期扫描知识库
-2. 能够结合历史会话进行反思
-3. 可以联网搜索
-4. 可以将新知识结构化存入知识库
-5. 主动向用户输出内容
-6. 常驻
-7. 能够感知桌面状态
-8. 能读文件、扫描磁盘
-9. 能有长期记忆
-10. 主打陪伴式存在
-11. 可以打开桌面软件，进行观测以及操作
-12. 支持 OpenClaw 式任务编排（先规划后执行）
-13. 支持 CodeOps 工程闭环（改码-测试-修复-报告）
+### 3️⃣ 启动服务
+```bash
+# 运行 SpringBoot 主程序
+java -jar target/luna-*.jar
+```
+服务默认监听 **8080** 端口，可通过 `application.yaml` 中的 `server.port` 调整。
+
+### 4️⃣ 调用示例
+- **对话接口**：`POST http://localhost:8080/api/chat`
+  - 请求体参见 `docs/frontend_api_reference.md`
+- **工具调用**：使用 MCP `tool/*` JSON 定义，可通过 `Skill` 编排序列化调用。
+
+> 完整 API 与使用示例请参考 [`docs/api_documentation_mcp.md`](docs/api_documentation_mcp.md:1)。
+
+---
+
+## 📚 文档中心
+- **系统架构**：[`docs/architecture_design_luna_v2.md`](docs/architecture_design_luna_v2.md:1)
+- **MCP 详细说明**：[`docs/mcp.md`](docs/mcp.md:1)
+- **OpenClaw 任务编排**：[`docs/openclaw_mvp_runbook.md`](docs/openclaw_mvp_runbook.md:1)
+- **Execution Memory Ledger**：[`docs/execution-memory-ledger.md`](docs/execution-memory-ledger.md:1)
+- **技术细节与最佳实践**：[`docs/technical_highlights.md`](docs/technical_highlights.md:1)
+
+---
+
+## 🙋‍♀️ 联系我们
+- **Issue**: 在 GitHub 提交 Issue 描述需求或 Bug。
+- **邮件**: `yilena0505@163.com`
+
+---
